@@ -14,6 +14,7 @@ from providers.factory import provider_from_dict
 class BuiltWorkflow:
     crew: Crew
     inputs: dict[str, str]
+    providers: dict[str, Provider]
 
 
 def _to_process(value: str) -> Process:
@@ -70,4 +71,4 @@ def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
     )
 
     topic = config.topic or os.getenv("WORKFLOW_TOPIC", "Agentic AI orchestration")
-    return BuiltWorkflow(crew=crew, inputs={"topic": topic})
+    return BuiltWorkflow(crew=crew, inputs={"topic": topic}, providers=providers)

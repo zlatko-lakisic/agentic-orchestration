@@ -9,6 +9,7 @@ YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, an
 - Tasks declared in `config/workflow.yaml`.
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
+- Each provider runs `initialize()` before agents are built, and `cleanup()` after the crew finishes (success or failure).
 
 ## Setup
 
@@ -83,6 +84,10 @@ class EchoProvider(Provider):
     PROVIDER_TYPE = "echo"
 
     def initialize(self) -> None:
+        return None
+
+    def cleanup(self) -> None:
+        # Optional: release resources started in initialize().
         return None
 
     def build_agent(self) -> Agent:

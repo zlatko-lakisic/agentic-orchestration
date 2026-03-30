@@ -35,6 +35,10 @@ class Provider(ABC):
     def initialize(self) -> None:
         """Run provider-specific initialization before agent creation."""
 
+    def cleanup(self) -> None:
+        """Run after the workflow finishes (success or failure). Override as needed."""
+        return None
+
     @abstractmethod
     def build_agent(self) -> Agent:
         """Build and return a CrewAI agent instance."""
