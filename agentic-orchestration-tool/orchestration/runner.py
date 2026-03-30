@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 
 from crewai import Crew, Process, Task
@@ -13,6 +15,19 @@ from providers.factory import provider_from_dict
 
 _WORKFLOW_OLLAMA_HOST_TOKEN = "workflow"
 
+_KICKOFF_CB_STATE: ContextVar[_SequentialKickoffState | None] = ContextVar(
+    "_KICKOFF_CB_STATE", default=None
+)
+
+
+@dataclass
+class _SequentialKickoffState:
+    """Mutable state for module-level Crew callbacks (sequential task order)."""
+
+    task_run_order: list[tuple[str, Task, Provider]]
+    inputs_holder: dict[str, Any]
+    last_completed: int = field(default=-1)
+
 
 @dataclass
 class BuiltWorkflow:
@@ -20,6 +35,51 @@ class BuiltWorkflow:
     inputs: dict[str, str]
     providers: dict[str, Provider]
     workflow_context: dict[str, Any]
+    kickoff_callback_state: _SequentialKickoffState | None = None
+
+
+@contextmanager
+def crew_kickoff_context(built: BuiltWorkflow):
+    """Bind sequential callbacks for the duration of crew.kickoff()."""
+    st = built.kickoff_callback_state
+    if st is None:
+        yield
+        return
+    st.last_completed = -1
+    token = _KICKOFF_CB_STATE.set(st)
+    try:
+        yield
+    finally:
+        _KICKOFF_CB_STATE.reset(token)
+
+
+def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]:
+    state = _KICKOFF_CB_STATE.get()
+    if state is None:
+        return dict(inputs or {})
+    merged = dict(inputs or {})
+    state.inputs_holder.clear()
+    state.inputs_holder.update(merged)
+    state.last_completed = -1
+    if state.task_run_order:
+        first_id, first_task, first_provider = state.task_run_order[0]
+        first_provider.before_task(first_id, first_task, dict(state.inputs_holder))
+    return merged
+
+
+def _serial_crew_task_callback(output: Any) -> None:
+    state = _KICKOFF_CB_STATE.get()
+    if state is None or not state.task_run_order:
+        return
+    state.last_completed += 1
+    k = state.last_completed
+    if k < 0 or k >= len(state.task_run_order):
+        return
+    task_id, task_ref, provider = state.task_run_order[k]
+    provider.after_task(task_id, task_ref, output, None)
+    if k + 1 < len(state.task_run_order):
+        next_id, next_task, next_provider = state.task_run_order[k + 1]
+        next_provider.before_task(next_id, next_task, dict(state.inputs_holder))
 
 
 def _to_process(value: str) -> Process:
@@ -28,38 +88,6 @@ def _to_process(value: str) -> Process:
     if value == "hierarchical":
         return Process.hierarchical
     raise ValueError("workflow.process must be 'sequential' or 'hierarchical'.")
-
-
-def _make_crew_before_kickoff(
-    task_run_order: list[tuple[str, Task, Provider]],
-    inputs_holder: dict[str, Any],
-):
-    def _before(inputs: dict[str, Any] | None) -> dict[str, Any]:
-        merged = dict(inputs or {})
-        inputs_holder.clear()
-        inputs_holder.update(merged)
-        if task_run_order:
-            first_id, first_task, first_provider = task_run_order[0]
-            first_provider.before_task(first_id, first_task, dict(inputs_holder))
-        return merged
-
-    return _before
-
-
-def _make_after_task_callback(
-    task_id: str,
-    task_ref: Task,
-    provider: Provider,
-    next_plan: tuple[str, Task, Provider] | None,
-    inputs_holder: dict[str, Any],
-):
-    def _cb(output: Any) -> None:
-        provider.after_task(task_id, task_ref, output, None)
-        if next_plan is not None:
-            next_id, next_task, next_provider = next_plan
-            next_provider.before_task(next_id, next_task, dict(inputs_holder))
-
-    return _cb
 
 
 def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
@@ -124,20 +152,18 @@ def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
         task_run_order.append((task_id, task_obj, provider))
 
     inputs_holder: dict[str, Any] = {}
-    for index, (task_id, task_obj, provider) in enumerate(task_run_order):
-        next_plan = (
-            task_run_order[index + 1] if index + 1 < len(task_run_order) else None
-        )
-        task_obj.callback = _make_after_task_callback(
-            task_id, task_obj, provider, next_plan, inputs_holder
-        )
+    kickoff_state = _SequentialKickoffState(
+        task_run_order=task_run_order,
+        inputs_holder=inputs_holder,
+    )
 
     crew = Crew(
         agents=agents,
         tasks=ordered_tasks,
         process=_to_process(config.process),
         verbose=True,
-        before_kickoff_callbacks=[_make_crew_before_kickoff(task_run_order, inputs_holder)],
+        task_callback=_serial_crew_task_callback,
+        before_kickoff_callbacks=[_serial_crew_before_kickoff],
     )
 
     topic = config.topic or os.getenv("WORKFLOW_TOPIC", "Agentic AI orchestration")
@@ -151,4 +177,5 @@ def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
         inputs={"topic": topic},
         providers=providers,
         workflow_context=workflow_context,
+        kickoff_callback_state=kickoff_state,
     )

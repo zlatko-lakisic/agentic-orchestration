@@ -13,3 +13,6 @@ env/
 .env
 .env.*
 !.env.example
+
+# Agentic tool: LLM-extracted file dumps
+__output__/

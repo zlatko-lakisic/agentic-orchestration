@@ -8,8 +8,10 @@
 # Model hints: llama3.2 — general planning; qwen2.5-coder — stronger codegen. Swap `model`
 # tags to match what you prefer; unknown names still get pulled automatically.
 #
-# Note: Agents emit specs/design/code in text only (no shell execution). `main.py` still
-# checks OPENAI_API_KEY unless you use a placeholder for Ollama-only runs.
+# Note: Agents emit specs/design/code in text only (no shell execution). After a run, `main.py`
+# saves markdown artifacts to __output__/ (or --output-dir) and can run real `npm` checks there
+# (install / test / build). Disable with --no-verify or AGENTIC_VERIFY=0.
+# `main.py` still checks OPENAI_API_KEY unless you use a placeholder for Ollama-only runs.
 
 meta:
   id: web_development
@@ -61,7 +63,7 @@ workflow:
     - id: "implementer"
       type: "ollama"
       role: "Full-Stack Web Implementer"
-      goal: "Deliver runnable-looking code and exact commands to apply the design"
+      goal: "Deliver fully runnable code and exact commands to apply the design"
       backstory: >
         You write clean, modern web code. You label each artifact with a path, use markdown
         fences for code, avoid prose inside fences, and add a short "How to run" section with
@@ -98,12 +100,13 @@ workflow:
     - id: "implement_code"
       provider_id: "implementer"
       description: >
-        Implement the design for '{topic}' as concrete artifacts:
-        - For each file: path, then a markdown code block with full file contents.
-        - Include package.json or pyproject/package additions if new deps are needed.
-        - End with a "Commands" section: ordered list of commands (npm/pnpm/yarn or pip) to create the project or install deps.
-        - If the task is a small change instead of a new app, output only the touched files and patches.
-        Do not omit imports or types; prefer working minimal examples over placeholders like "// TODO".
+        Implement the design for '{topic}' as concrete artifacts.
+        You must always emit real files with headings like "## Path: `relative/path.ext`" before each fenced block.
+        Never reply with only JSON, apologies, or "cannot complete"—if the scope is huge, deliver a minimal vertical slice
+        (e.g. package.json, one server entry, one HTML shell, one component) that runs, and note what to add next.
+        For each file: path line + markdown code block with full contents.
+        Include package.json when applicable. End with a "Commands" section (npm/pnpm/yarn or pip).
+        If the task is a small change, output only touched files. Prefer working minimal code over placeholders.
       expected_output: "Files with code blocks plus run commands."
 
   task_sequence:
