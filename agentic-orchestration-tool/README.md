@@ -9,7 +9,25 @@ YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, an
 - Tasks declared in `config/workflow.yaml`.
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
-- Each provider runs `initialize()` before agents are built, and `cleanup()` after the crew finishes (success or failure).
+- Rich provider lifecycle hooks (see below).
+
+### Provider lifecycle
+
+Called by the runner / `main.py` in this order:
+
+1. **`validate_config()`** — before `initialize()`; fail fast on invalid YAML-derived config.
+2. **`initialize()`** — side effects (e.g. start local services).
+3. **`health_check()`** — after `initialize()`; `OllamaProvider` pings the Ollama API.
+4. **`build_agent()`** — create the CrewAI agent (and tasks / crew are assembled).
+5. **`on_workflow_start(context)`** — once before `crew.kickoff`; `context` includes `workflow_name`, `process`, `topic`, and `inputs`.
+6. **`before_task(task_id, task, inputs)`** — before each task (first task: via crew `before_kickoff_callbacks`; later tasks: chained after the previous task’s successful completion).
+7. **`after_task(task_id, task, output, error)`** — after each task **succeeds** (CrewAI does not call task callbacks on task failure; `error` is always `None` today).
+8. **`on_workflow_end(context, result, error)`** — once after kickoff returns or raises (`error` is set on failure).
+9. **`cleanup()`** — after `on_workflow_end`.
+
+Not invoked automatically (available for your own code / future runner features):
+
+- **`reset()`**, **`suspend()`**, **`resume()`**
 
 ## Setup
 
@@ -83,11 +101,41 @@ from crewai import Agent
 class EchoProvider(Provider):
     PROVIDER_TYPE = "echo"
 
+    def validate_config(self) -> None:
+        return None
+
     def initialize(self) -> None:
         return None
 
+    def health_check(self) -> None:
+        return None
+
+    def on_workflow_start(self, context: dict) -> None:
+        return None
+
+    def before_task(
+        self, task_id: str, task: object, inputs: dict
+    ) -> None:
+        return None
+
+    def after_task(
+        self,
+        task_id: str,
+        task: object,
+        output: object,
+        error: BaseException | None,
+    ) -> None:
+        return None
+
+    def on_workflow_end(
+        self,
+        context: dict,
+        result: object,
+        error: BaseException | None,
+    ) -> None:
+        return None
+
     def cleanup(self) -> None:
-        # Optional: release resources started in initialize().
         return None
 
     def build_agent(self) -> Agent:

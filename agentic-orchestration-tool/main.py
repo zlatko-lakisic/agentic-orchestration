@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,38 @@ def require_env(var_name: str) -> str:
             "Create a .env file from .env.example and set it."
         )
     return value
+
+
+def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
+    return {**built.workflow_context, "inputs": dict(built.inputs)}
+
+
+def _on_workflow_start(built: BuiltWorkflow) -> None:
+    ctx = _workflow_context(built)
+    for provider in built.providers.values():
+        try:
+            provider.on_workflow_start(ctx)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"Warning: provider '{provider.config.id}' on_workflow_start failed: {exc}",
+                file=sys.stderr,
+            )
+
+
+def _on_workflow_end(
+    built: BuiltWorkflow,
+    result: object | None,
+    error: BaseException | None,
+) -> None:
+    ctx = _workflow_context(built)
+    for provider in built.providers.values():
+        try:
+            provider.on_workflow_end(ctx, result, error)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"Warning: provider '{provider.config.id}' on_workflow_end failed: {exc}",
+                file=sys.stderr,
+            )
 
 
 def _cleanup_providers(built: BuiltWorkflow) -> None:
@@ -54,11 +87,16 @@ def main() -> None:
     config = load_workflow_config(config_path)
 
     built = build_workflow(config)
+    _on_workflow_start(built)
+
     exit_code = 0
+    workflow_result: object | None = None
+    workflow_error: BaseException | None = None
     try:
         try:
-            result = built.crew.kickoff(inputs=built.inputs)
+            workflow_result = built.crew.kickoff(inputs=built.inputs)
         except Exception as exc:
+            workflow_error = exc
             print("\nWorkflow execution failed.", file=sys.stderr)
             print(
                 "Check your YAML config and OPENAI settings in .env, then retry.",
@@ -68,8 +106,9 @@ def main() -> None:
             exit_code = 1
         else:
             print("\n=== Workflow Output ===\n")
-            print(result)
+            print(workflow_result)
     finally:
+        _on_workflow_end(built, workflow_result, workflow_error)
         _cleanup_providers(built)
 
     if exit_code:

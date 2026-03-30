@@ -26,6 +26,15 @@ class OllamaProvider(Provider):
             model = self.config.model.removeprefix("ollama/")
             self._ensure_ollama_runtime(model=model, host=host)
 
+    def health_check(self) -> None:
+        host = self._normalize_host(
+            self.config.ollama_host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+        )
+        if not self._is_ollama_healthy(host):
+            raise RuntimeError(
+                f"Ollama is not reachable at {host}. Start the server or use selfcontained: true."
+            )
+
     def build_agent(self) -> Agent:
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
