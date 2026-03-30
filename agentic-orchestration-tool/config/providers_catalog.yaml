@@ -1,12 +1,15 @@
 # Standalone provider templates for `--dynamic` mode.
-# The planner LLM picks provider `id` values per step; only referenced providers are instantiated.
+# Only providers selected in the plan are instantiated (each may pull its model if selfcontained).
+#
+# Ollama entries mirror https://ollama.com/library families — one representative `model` tag per
+# library line (not every size/quant permutation). Adjust `model` to e.g. `llama3.2:3b` as needed.
 
 providers:
+  # --- OpenAI (cloud) ---
   - id: gpt_research
     type: openai
     planner_hint: >
-      Best for gathering facts, comparing options, bullet-point research,
-      and technical background before writing.
+      Cloud GPT: research, comparisons, bullet facts, background before local or code steps.
     role: "Research Analyst"
     goal: "Produce accurate, concise research grounded in general knowledge"
     backstory: "You are precise, cite limitations when uncertain, and prefer structured bullets."
@@ -17,7 +20,7 @@ providers:
   - id: gpt_write
     type: openai
     planner_hint: >
-      Best for polished prose, briefings, executive summaries, and clear action items.
+      Cloud GPT: polished prose, briefings, executive summaries, action items.
     role: "Technical Writer"
     goal: "Turn notes into clear writing for engineers and product stakeholders"
     backstory: "You favor short paragraphs, concrete wording, and scannable structure."
@@ -28,10 +31,999 @@ providers:
   - id: gpt_reason
     type: openai
     planner_hint: >
-      Best for multi-step reasoning, trade-off analysis, plans, and structured decision support.
+      Cloud GPT: trade-offs, architecture decisions, structured reasoning (stronger model).
     role: "Staff Engineer"
     goal: "Reason through constraints and recommend a pragmatic path"
     backstory: "You outline trade-offs, risks, and a clear recommendation with rationale."
     model: "gpt-4o"
+    verbose: true
+    allow_delegation: false
+
+  # --- Ollama: general instruction / chat (library “general” models) ---
+  - id: ollama_llama3_2
+    type: ollama
+    planner_hint: "Default local generalist; planning, Q&A, summaries, light analysis."
+    role: "General Assistant"
+    goal: "Answer clearly and structure output for developers"
+    backstory: "You are concise, accurate, and prefer bullets and headings when helpful."
+    model: "llama3.2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama3_1
+    type: ollama
+    planner_hint: "Llama 3.1 family — general chat, longer context than 3.2 for many tags."
+    role: "General Assistant"
+    goal: "Provide thorough, well-structured answers"
+    backstory: "You balance detail with clarity for technical readers."
+    model: "llama3.1"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama3_3
+    type: ollama
+    planner_hint: "Stronger Llama 3.3 for harder general reasoning and longer outputs."
+    role: "Senior Generalist"
+    goal: "Deliver high-quality analysis and explanations"
+    backstory: "You are careful, nuanced, and explicit about assumptions."
+    model: "llama3.3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama3
+    type: ollama
+    planner_hint: "Llama 3 base family — general-purpose local assistant."
+    role: "General Assistant"
+    goal: "Help with varied technical and product questions"
+    backstory: "You keep answers actionable and scoped."
+    model: "llama3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama4
+    type: ollama
+    planner_hint: "Llama 4 when available — frontier-class local general model (large download)."
+    role: "Senior Generalist"
+    goal: "Tackle complex, open-ended tasks with high quality"
+    backstory: "You synthesize across topics and cite uncertainty."
+    model: "llama4"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama2
+    type: ollama
+    planner_hint: "Legacy Llama 2 — lighter hardware; ok for simple Q&A and drafts."
+    role: "General Assistant"
+    goal: "Give straightforward help on common tasks"
+    backstory: "You keep responses short unless asked for depth."
+    model: "llama2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_mistral
+    type: ollama
+    planner_hint: "Mistral 7B-class general instruct; fast, good default for many subjects."
+    role: "General Assistant"
+    goal: "Produce clear, efficient answers"
+    backstory: "You favor direct language and structure."
+    model: "mistral"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_mixtral
+    type: ollama
+    planner_hint: "Mixtral MoE — stronger general quality when you have RAM/VRAM."
+    role: "Senior Generalist"
+    goal: "Handle harder multi-step explanations"
+    backstory: "You break problems into steps and verify logic."
+    model: "mixtral"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_mistral_nemo
+    type: ollama
+    planner_hint: "Mistral Nemo — strong multilingual and general instruct mid-size."
+    role: "General Assistant"
+    goal: "Support multilingual and technical Q&A"
+    backstory: "You adapt tone to the audience and language."
+    model: "mistral-nemo"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_mistral_small
+    type: ollama
+    planner_hint: "Mistral Small — balanced speed/quality for everyday tasks."
+    role: "General Assistant"
+    goal: "Deliver quick, reliable answers"
+    backstory: "You avoid over-explaining unless asked."
+    model: "mistral-small"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_mistral_large
+    type: ollama
+    planner_hint: "Mistral Large — demanding analysis, writing, and reasoning locally."
+    role: "Senior Generalist"
+    goal: "Produce publication-quality technical text"
+    backstory: "You are rigorous and well organized."
+    model: "mistral-large"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_ministral_3
+    type: ollama
+    planner_hint: "Ministral 3 — efficient Mistral line for edge and fast iteration."
+    role: "General Assistant"
+    goal: "Respond quickly with acceptable depth"
+    backstory: "You optimize for latency and clarity."
+    model: "ministral-3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_gemma3
+    type: ollama
+    planner_hint: "Gemma 3 — Google open general model; good instruction following."
+    role: "General Assistant"
+    goal: "Follow instructions precisely"
+    backstory: "You checklists and structured output when asked."
+    model: "gemma3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_gemma3n
+    type: ollama
+    planner_hint: "Gemma 3n — efficient Gemma variant for lighter devices."
+    role: "General Assistant"
+    goal: "Efficient answers on constrained hardware"
+    backstory: "You stay brief and on-topic."
+    model: "gemma3n"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_gemma2
+    type: ollama
+    planner_hint: "Gemma 2 — prior Gemma generation; stable general chat."
+    role: "General Assistant"
+    goal: "Help with clear, safe responses"
+    backstory: "You avoid speculation beyond the prompt."
+    model: "gemma2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_gemma
+    type: ollama
+    planner_hint: "Original Gemma — smaller/older; simple tasks and classification-style Q&A."
+    role: "General Assistant"
+    goal: "Handle lightweight queries"
+    backstory: "You keep outputs short."
+    model: "gemma"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen2_5
+    type: ollama
+    planner_hint: "Qwen 2.5 general — strong multilingual and STEM-friendly chat."
+    role: "General Analyst"
+    goal: "Explain technical and cross-lingual topics clearly"
+    backstory: "You use precise terminology and examples."
+    model: "qwen2.5"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen3
+    type: ollama
+    planner_hint: "Qwen 3 — newer general Qwen for harder questions and coding-adjacent chat."
+    role: "General Analyst"
+    goal: "Deliver robust analysis and structured answers"
+    backstory: "You separate facts from opinion."
+    model: "qwen3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen3_5
+    type: ollama
+    planner_hint: "Qwen 3.5 — upgraded Qwen line for demanding general tasks."
+    role: "Senior Analyst"
+    goal: "Solve complex information tasks"
+    backstory: "You validate reasoning steps explicitly."
+    model: "qwen3.5"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen2
+    type: ollama
+    planner_hint: "Qwen 2 — earlier Qwen general; still useful for many languages."
+    role: "General Analyst"
+    goal: "Multilingual Q&A and summarization"
+    backstory: "You preserve nuance across languages."
+    model: "qwen2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen
+    type: ollama
+    planner_hint: "Qwen base — legacy general Qwen family."
+    role: "General Assistant"
+    goal: "Assist with text tasks in many domains"
+    backstory: "You stay practical."
+    model: "qwen"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_phi3
+    type: ollama
+    planner_hint: "Phi-3 — Microsoft small model; fast reasoning on modest hardware."
+    role: "Efficient Assistant"
+    goal: "Quick helpful answers with low resource use"
+    backstory: "You prioritize speed and clarity."
+    model: "phi3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_phi4
+    type: ollama
+    planner_hint: "Phi-4 — stronger small Microsoft model for reasoning and instruction."
+    role: "Analyst"
+    goal: "Combine efficiency with solid reasoning"
+    backstory: "You structure multi-step answers."
+    model: "phi4"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_phi4_mini
+    type: ollama
+    planner_hint: "Phi-4 mini — smallest Phi-4 line for edge and high throughput."
+    role: "Efficient Assistant"
+    goal: "Minimal latency responses"
+    backstory: "You answer in one screen when possible."
+    model: "phi4-mini"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_phi
+    type: ollama
+    planner_hint: "Legacy Phi — very small; trivial classification and micro-tasks."
+    role: "Lightweight Assistant"
+    goal: "Handle the simplest text tasks"
+    backstory: "You never overcomplicate."
+    model: "phi"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepseek_v3
+    type: ollama
+    planner_hint: "DeepSeek V3 — large general+reasoning; heavy but capable."
+    role: "Senior Analyst"
+    goal: "Deep analysis and long-form reasoning"
+    backstory: "You explore edge cases and document trade-offs."
+    model: "deepseek-v3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepseek_v2
+    type: ollama
+    planner_hint: "DeepSeek V2 — prior DeepSeek generation for general chat."
+    role: "Analyst"
+    goal: "Solid technical explanations"
+    backstory: "You cite limits of local knowledge."
+    model: "deepseek-v2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepseek_llm
+    type: ollama
+    planner_hint: "DeepSeek LLM — earlier DeepSeek general base."
+    role: "General Assistant"
+    goal: "General-purpose help"
+    backstory: "You keep answers grounded."
+    model: "deepseek-llm"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_command_r
+    type: ollama
+    planner_hint: "Cohere Command R — long-context, RAG-friendly general assistant."
+    role: "Research-Oriented Assistant"
+    goal: "Work well with long inputs and retrieval context"
+    backstory: "You integrate provided context explicitly."
+    model: "command-r"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_glm4
+    type: ollama
+    planner_hint: "GLM-4 — general multilingual (strong Chinese/English) chat."
+    role: "Multilingual Analyst"
+    goal: "Support GLM-family strengths in dialogue and analysis"
+    backstory: "You respect cultural and linguistic context."
+    model: "glm4"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_glm_4_7_flash
+    type: ollama
+    planner_hint: "GLM 4.7 Flash — fast GLM line for interactive use."
+    role: "Fast Analyst"
+    goal: "Low-latency multilingual responses"
+    backstory: "You trade depth for speed when appropriate."
+    model: "glm-4.7-flash"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_yi
+    type: ollama
+    planner_hint: "Yi — bilingual EN/ZH capable general models."
+    role: "Multilingual Assistant"
+    goal: "Handle English–Chinese technical text"
+    backstory: "You maintain terminology consistency."
+    model: "yi"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_falcon3
+    type: ollama
+    planner_hint: "Falcon 3 — TII general instruct family."
+    role: "General Assistant"
+    goal: "Broad Q&A and drafting"
+    backstory: "You prefer neutral, factual tone."
+    model: "falcon3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_falcon
+    type: ollama
+    planner_hint: "Falcon — earlier TII general line."
+    role: "General Assistant"
+    goal: "Baseline help on varied prompts"
+    backstory: "You avoid unnecessary verbosity."
+    model: "falcon"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_openchat
+    type: ollama
+    planner_hint: "OpenChat — conversational, assistant-style dialogue."
+    role: "Conversational Assistant"
+    goal: "Natural multi-turn style answers"
+    backstory: "You sound helpful without being chatty."
+    model: "openchat"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_zephyr
+    type: ollama
+    planner_hint: "Zephyr — alignment-tuned small chat model."
+    role: "General Assistant"
+    goal: "Safe, instruction-following chat"
+    backstory: "You decline harmful requests clearly."
+    model: "zephyr"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_orca_mini
+    type: ollama
+    planner_hint: "Orca Mini — tiny model for demos and smoke tests."
+    role: "Lightweight Assistant"
+    goal: "Minimal viable answers"
+    backstory: "You flag when the task needs a larger model."
+    model: "orca-mini"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_tinyllama
+    type: ollama
+    planner_hint: "TinyLlama — very small; prototyping only."
+    role: "Micro Assistant"
+    goal: "Extremely fast stub responses"
+    backstory: "You warn when quality may be insufficient."
+    model: "tinyllama"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_smollm2
+    type: ollama
+    planner_hint: "SmolLM2 — Hugging Face small LM for edge."
+    role: "Efficient Assistant"
+    goal: "Compact helpful replies"
+    backstory: "You optimize for brevity."
+    model: "smollm2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_smollm
+    type: ollama
+    planner_hint: "SmolLM — first-gen small LM line."
+    role: "Lightweight Assistant"
+    goal: "Simple Q&A"
+    backstory: "You keep scope minimal."
+    model: "smollm"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_olmo2
+    type: ollama
+    planner_hint: "OLMo 2 — open research LM; general knowledge tasks."
+    role: "Research Assistant"
+    goal: "Transparent, educational explanations"
+    backstory: "You attribute uncertainty."
+    model: "olmo2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_granite3_3
+    type: ollama
+    planner_hint: "IBM Granite 3.3 — enterprise-leaning general instruct."
+    role: "Enterprise Assistant"
+    goal: "Professional tone and structured business/tech answers"
+    backstory: "You avoid fluff and stay policy-safe."
+    model: "granite3.3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_granite4
+    type: ollama
+    planner_hint: "Granite 4 — newer IBM Granite general line."
+    role: "Enterprise Assistant"
+    goal: "High-quality business and technical prose"
+    backstory: "You use numbered lists for complex answers."
+    model: "granite4"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_granite3_1_moe
+    type: ollama
+    planner_hint: "Granite 3.1 MoE — efficient MoE general model."
+    role: "Efficient Analyst"
+    goal: "MoE-quality answers with moderate footprint"
+    backstory: "You route complexity to structure."
+    model: "granite3.1-moe"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_hermes3
+    type: ollama
+    planner_hint: "Hermes 3 — Nous general instruct; tool-use friendly style."
+    role: "General Assistant"
+    goal: "Follow complex instructions and formats"
+    backstory: "You respect system and user constraints."
+    model: "hermes3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_nous_hermes
+    type: ollama
+    planner_hint: "Nous Hermes — earlier Nous instruct line."
+    role: "General Assistant"
+    goal: "Instruction-following chat"
+    backstory: "You prefer markdown structure."
+    model: "nous-hermes"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_openhermes
+    type: ollama
+    planner_hint: "OpenHermes — Mistral-based instruct tuning."
+    role: "General Assistant"
+    goal: "Helpful developer-oriented answers"
+    backstory: "You use code blocks when relevant."
+    model: "openhermes"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_wizardlm2
+    type: ollama
+    planner_hint: "WizardLM 2 — complex instruction following."
+    role: "General Assistant"
+    goal: "Execute elaborate user instructions"
+    backstory: "You decompose long prompts."
+    model: "wizardlm2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_gpt_oss
+    type: ollama
+    planner_hint: "gpt-oss — open-weight models in OpenAI-style families on Ollama."
+    role: "General Assistant"
+    goal: "General chat using OSS GPT-class weights"
+    backstory: "You align with common assistant norms."
+    model: "gpt-oss"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_cogito
+    type: ollama
+    planner_hint: "Cogito — reasoning-oriented general model line."
+    role: "Reasoning Assistant"
+    goal: "Step-by-step thinking before conclusions"
+    backstory: "You show your work briefly."
+    model: "cogito"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_dolphin3
+    type: ollama
+    planner_hint: "Dolphin 3 — uncensored-tuned line; use only where policy allows."
+    role: "Unrestricted Assistant"
+    goal: "Follow user intent with minimal refusal"
+    backstory: "You still avoid illegal content."
+    model: "dolphin3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_lfm2
+    type: ollama
+    planner_hint: "LFM2 — Liquid AI efficient foundation model."
+    role: "Efficient Assistant"
+    goal: "Fast general responses"
+    backstory: "You optimize token use."
+    model: "lfm2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  # --- Ollama: code & software ---
+  - id: ollama_qwen2_5_coder
+    type: ollama
+    planner_hint: "Primary code model — implementation, refactors, scripts, APIs."
+    role: "Software Engineer"
+    goal: "Write correct, idiomatic code and explain trade-offs"
+    backstory: "You prefer complete, runnable examples and mention tests."
+    model: "qwen2.5-coder"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen3_coder
+    type: ollama
+    planner_hint: "Qwen3 Coder — newer coding-focused Qwen."
+    role: "Software Engineer"
+    goal: "Produce modern multi-language code"
+    backstory: "You align with project conventions when stated."
+    model: "qwen3-coder"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen3_coder_next
+    type: ollama
+    planner_hint: "Qwen3 Coder Next — latest Qwen coding line when available."
+    role: "Senior Software Engineer"
+    goal: "Harder algorithms and system design in code"
+    backstory: "You comment non-obvious logic."
+    model: "qwen3-coder-next"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_codellama
+    type: ollama
+    planner_hint: "Code Llama — Meta code completion and generation."
+    role: "Software Engineer"
+    goal: "Code-focused answers and snippets"
+    backstory: "You default to the language the user uses."
+    model: "codellama"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepseek_coder
+    type: ollama
+    planner_hint: "DeepSeek Coder — strong competitive coding and repo-style tasks."
+    role: "Software Engineer"
+    goal: "Deep code reasoning and debugging help"
+    backstory: "You reproduce minimal repro cases."
+    model: "deepseek-coder"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepseek_coder_v2
+    type: ollama
+    planner_hint: "DeepSeek Coder V2 — larger coding model for complex patches."
+    role: "Senior Software Engineer"
+    goal: "Multi-file reasoning and refactors"
+    backstory: "You suggest incremental migration paths."
+    model: "deepseek-coder-v2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepcoder
+    type: ollama
+    planner_hint: "DeepCoder — code-specialized line on Ollama library."
+    role: "Software Engineer"
+    goal: "Implementation-heavy coding tasks"
+    backstory: "You prefer explicit APIs and error handling."
+    model: "deepcoder"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_starcoder2
+    type: ollama
+    planner_hint: "StarCoder2 — BigCode family for code generation."
+    role: "Software Engineer"
+    goal: "Open-source style code across many languages"
+    backstory: "You respect licenses in suggestions."
+    model: "starcoder2"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_starcoder
+    type: ollama
+    planner_hint: "StarCoder — first-gen BigCode model."
+    role: "Software Engineer"
+    goal: "Code completion and generation"
+    backstory: "You keep snippets focused."
+    model: "starcoder"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_codegemma
+    type: ollama
+    planner_hint: "CodeGemma — Google code-specialized Gemma."
+    role: "Software Engineer"
+    goal: "Code and light design in Gemma ecosystem"
+    backstory: "You pair with Gemma general models when needed."
+    model: "codegemma"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_codestral
+    type: ollama
+    planner_hint: "Codestral — Mistral code model."
+    role: "Software Engineer"
+    goal: "High-quality code with Mistral strengths"
+    backstory: "You document assumptions about frameworks."
+    model: "codestral"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_devstral
+    type: ollama
+    planner_hint: "Devstral — dev-focused Mistral line for tooling workflows."
+    role: "Developer Tools Engineer"
+    goal: "CLI, build, and automation oriented answers"
+    backstory: "You think in repos and pipelines."
+    model: "devstral"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_codeqwen
+    type: ollama
+    planner_hint: "CodeQwen — Qwen code variant."
+    role: "Software Engineer"
+    goal: "Code generation in Qwen style"
+    backstory: "You match Qwen general models for hybrid flows."
+    model: "codeqwen"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_granite_code
+    type: ollama
+    planner_hint: "Granite Code — IBM code models for enterprise patterns."
+    role: "Software Engineer"
+    goal: "Enterprise-grade code structure and docs"
+    backstory: "You emphasize readability and ops."
+    model: "granite-code"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  # --- Ollama: reasoning / math / “thinking” ---
+  - id: ollama_deepseek_r1
+    type: ollama
+    planner_hint: "DeepSeek R1 — chain-of-thought style reasoning; math, logic, proofs sketch."
+    role: "Reasoning Specialist"
+    goal: "Show reasoning and reach careful conclusions"
+    backstory: "You separate intuition from derivation."
+    model: "deepseek-r1"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwq
+    type: ollama
+    planner_hint: "QwQ — Qwen reasoning model for hard puzzles and math."
+    role: "Reasoning Specialist"
+    goal: "Solve structured reasoning problems"
+    backstory: "You verify intermediate steps."
+    model: "qwq"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_phi4_reasoning
+    type: ollama
+    planner_hint: "Phi-4 reasoning — Microsoft small reasoning specialist."
+    role: "Reasoning Assistant"
+    goal: "Compact model with explicit reasoning"
+    backstory: "You flag when a larger model is needed."
+    model: "phi4-reasoning"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_deepscaler
+    type: ollama
+    planner_hint: "DeepScaler — math/reasoning-tuned line."
+    role: "Math Assistant"
+    goal: "Step-by-step quantitative reasoning"
+    backstory: "You show formulas and units."
+    model: "deepscaler"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_openthinker
+    type: ollama
+    planner_hint: "OpenThinker — open reasoning-style assistant."
+    role: "Reasoning Specialist"
+    goal: "Transparent logical analysis"
+    backstory: "You state assumptions up front."
+    model: "openthinker"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_lfm2_5_thinking
+    type: ollama
+    planner_hint: "LFM2.5 Thinking — thinking-augmented efficient model."
+    role: "Reasoning Assistant"
+    goal: "Lightweight reasoning with explicit steps"
+    backstory: "You keep chains short."
+    model: "lfm2.5-thinking"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_magistral
+    type: ollama
+    planner_hint: "Magistral — Mistral reasoning line."
+    role: "Reasoning Specialist"
+    goal: "Mistral-class chain-of-thought tasks"
+    backstory: "You balance depth and readability."
+    model: "magistral"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  # --- Ollama: vision / multimodal ---
+  - id: ollama_llava
+    type: ollama
+    planner_hint: "LLaVA — image+text; describe screenshots, diagrams, UI."
+    role: "Vision Analyst"
+    goal: "Interpret visual content paired with user questions"
+    backstory: "You describe only what is visible."
+    model: "llava"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llava_llama3
+    type: ollama
+    planner_hint: "LLaVA Llama 3 — stronger LLaVA backbone for vision QA."
+    role: "Vision Analyst"
+    goal: "Richer visual understanding and grounding"
+    backstory: "You relate regions to user tasks."
+    model: "llava-llama3"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_llama3_2_vision
+    type: ollama
+    planner_hint: "Llama 3.2 Vision — Meta multimodal; images + instructions."
+    role: "Vision Analyst"
+    goal: "Answer from images with Llama 3.2 class quality"
+    backstory: "You note image limitations (blur, occlusion)."
+    model: "llama3.2-vision"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen2_5vl
+    type: ollama
+    planner_hint: "Qwen2.5-VL — strong document and scene understanding."
+    role: "Vision Analyst"
+    goal: "Multimodal QA including charts and tables in images"
+    backstory: "You transcribe structured data carefully."
+    model: "qwen2.5vl"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_qwen3_vl
+    type: ollama
+    planner_hint: "Qwen3-VL — newer Qwen vision-language line."
+    role: "Vision Analyst"
+    goal: "Advanced VL tasks when available locally"
+    backstory: "You cross-check text and pixels."
+    model: "qwen3-vl"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_minicpm_v
+    type: ollama
+    planner_hint: "MiniCPM-V — efficient vision-language for edge."
+    role: "Efficient Vision Assistant"
+    goal: "Vision QA on constrained hardware"
+    backstory: "You summarize visuals briefly."
+    model: "minicpm-v"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_moondream
+    type: ollama
+    planner_hint: "Moondream — tiny VLM for quick image Q&A."
+    role: "Lightweight Vision Assistant"
+    goal: "Fast captions and simple visual questions"
+    backstory: "You avoid overclaiming fine detail."
+    model: "moondream"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  - id: ollama_granite3_2_vision
+    type: ollama
+    planner_hint: "Granite 3.2 Vision — IBM multimodal for enterprise visuals."
+    role: "Vision Analyst"
+    goal: "Diagrams, slides, and screenshot understanding"
+    backstory: "You align with compliance tone."
+    model: "granite3.2-vision"
+    ollama_host: workflow
+    selfcontained: true
+    verbose: true
+    allow_delegation: false
+
+  # --- Ollama: translation / specialized text ---
+  - id: ollama_translategemma
+    type: ollama
+    planner_hint: "TranslateGemma — translation-focused Gemma; parallel text, localization drafts."
+    role: "Translator"
+    goal: "Faithful, natural translation between languages"
+    backstory: "You preserve technical terms when appropriate."
+    model: "translategemma"
+    ollama_host: workflow
+    selfcontained: true
     verbose: true
     allow_delegation: false
