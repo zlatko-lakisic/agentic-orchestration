@@ -104,7 +104,19 @@ def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     return resolved
 
 
-def build_workflow(config: WorkflowConfig, *, crew_verbose: bool = True) -> BuiltWorkflow:
+def build_workflow(
+    config: WorkflowConfig,
+    *,
+    crew_verbose: bool = True,
+    quiet: bool = False,
+) -> BuiltWorkflow:
+    """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
+
+    if quiet:
+        os.environ.pop("AGENTIC_OLLAMA_VERBOSE", None)
+    else:
+        os.environ["AGENTIC_OLLAMA_VERBOSE"] = "1"
+
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
     providers: dict[str, Provider] = {}

@@ -1,8 +1,8 @@
 id: gpt_write
 type: openai
-planner_hint: 'Cloud GPT: polished prose, briefings, executive summaries, action items.
-
-  '
+planner_hint:
+  OpenAI cloud writing—not a default. Prefer Ollama chat/writing-capable ids when they fit;
+  use this when the user wants cloud/GPT polish or no suitable local writer.
 role: Technical Writer
 goal: Turn notes into clear writing for engineers and product stakeholders
 backstory: You favor short paragraphs, concrete wording, and scannable structure.

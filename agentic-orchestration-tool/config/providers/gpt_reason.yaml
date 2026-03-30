@@ -1,8 +1,8 @@
 id: gpt_reason
 type: openai
-planner_hint: 'Cloud GPT: trade-offs, architecture decisions, structured reasoning (stronger model).
-
-  '
+planner_hint:
+  OpenAI cloud reasoning—not a default. Prefer Ollama reasoning/code specialists when they
+  match; use this for heavy trade-off analysis if the user wants cloud or local lacks a fit.
 role: Staff Engineer
 goal: Reason through constraints and recommend a pragmatic path
 backstory: You outline trade-offs, risks, and a clear recommendation with rationale.

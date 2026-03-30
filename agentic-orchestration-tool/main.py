@@ -169,7 +169,7 @@ def run_workflow(
 ) -> tuple[int, str | None]:
     """Load workflow YAML, run crew; return (exit code, final output text if any)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
-    built = build_workflow(config, crew_verbose=not quiet)
+    built = build_workflow(config, crew_verbose=not quiet, quiet=quiet)
     return run_built_workflow(built, quiet=quiet)
 
 
@@ -528,7 +528,7 @@ def main() -> None:
                     f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> provider {tdef.provider_id!r}",
                     file=sys.stderr,
                 )
-        built = build_workflow(dyn_cfg, crew_verbose=not args.quiet)
+        built = build_workflow(dyn_cfg, crew_verbose=not args.quiet, quiet=args.quiet)
         exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
         if exit_code:
             sys.exit(exit_code)

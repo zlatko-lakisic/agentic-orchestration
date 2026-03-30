@@ -115,8 +115,9 @@ Available providers (pick ONLY provider_id values from this catalog; every id is
 
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
-- **Provider choice:** For each step, select the **single best** `provider_id` from the **entire** catalog by matching the user's task to each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (local Ollama vs cloud OpenAI). Do **not** default to OpenAI/cloud ids; Ollama specialists (e.g. code, vision) often fit better for implementation, local, or privacy-sensitive work.
-- **Mixing:** You may combine Ollama and OpenAI steps in one plan when different steps need different strengths (e.g. research then local code generation).
+- **Provider choice:** For each step, select the **single best** `provider_id` from the **entire** catalog by matching the user's task to `planner_hint`, `role`, `goal`, `model`, and `type`.
+- **Ollama before cloud:** Unless the user explicitly asks for OpenAI, ChatGPT, GPT, or "cloud", **first** shortlist Ollama (`type: ollama`) ids that fit the step, then pick the best. Use `gpt_research`, `gpt_write`, or `gpt_reason` only when (a) the user requested cloud/GPT, or (b) no Ollama id reasonably matches that step. Never pick `gpt_*` just because the task is vague or "sounds like research".
+- **Mixing:** You may combine Ollama and OpenAI in one plan when steps differ (e.g. user asked for one cloud polish step and local code elsewhere).
 - **Local-only signals:** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` providers.
 - Each step must assign exactly one provider_id from the catalog.
 - Steps run in order; later steps may build on earlier work (sequential crew).

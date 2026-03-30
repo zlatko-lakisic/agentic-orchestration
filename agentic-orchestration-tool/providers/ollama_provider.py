@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from typing import Any
+
 import platform
 import shutil
 import subprocess
@@ -18,6 +20,17 @@ _ollama_pull_done: set[str] = set()
 
 # `ollama serve` processes started by selfcontained providers (key = normalized base URL).
 _workflow_ollama_serve_procs: dict[str, subprocess.Popen] = {}
+
+# Set by runner.build_workflow when the CLI run is not --quiet (e.g. web "Show crew log").
+def _ollama_cli_inherit_stdio() -> bool:
+    v = os.getenv("AGENTIC_OLLAMA_VERBOSE", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _ollama_subprocess_stdio() -> tuple[Any, Any]:
+    if _ollama_cli_inherit_stdio():
+        return (None, None)
+    return (subprocess.DEVNULL, subprocess.DEVNULL)
 
 
 def _ollama_serve_key(host: str) -> str:
@@ -53,6 +66,7 @@ def is_ollama_healthy(host: str) -> bool:
 
 def install_ollama() -> None:
     system = platform.system().lower()
+    out, err = _ollama_subprocess_stdio()
     try:
         if "windows" in system:
             subprocess.run(
@@ -66,8 +80,8 @@ def install_ollama() -> None:
                     "--accept-source-agreements",
                 ],
                 check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=out,
+                stderr=err,
             )
             return
 
@@ -75,16 +89,16 @@ def install_ollama() -> None:
             subprocess.run(
                 ["brew", "install", "ollama"],
                 check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=out,
+                stderr=err,
             )
             return
 
         subprocess.run(
             ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
             check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=out,
+            stderr=err,
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
@@ -99,11 +113,12 @@ def start_ollama_server(host: str) -> None:
     env = os.environ.copy()
     env["OLLAMA_HOST"] = listen
 
+    out, err = _ollama_subprocess_stdio()
     proc = subprocess.Popen(
         ["ollama", "serve"],
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=out,
+        stderr=err,
         start_new_session=True,
     )
     _workflow_ollama_register_serve(host, proc)
@@ -128,13 +143,14 @@ def pull_ollama_model(model: str, host: str) -> None:
 
     env = os.environ.copy()
     env["OLLAMA_HOST"] = host
+    out, err = _ollama_subprocess_stdio()
     try:
         subprocess.run(
             ["ollama", "pull", model],
             env=env,
             check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=out,
+            stderr=err,
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
