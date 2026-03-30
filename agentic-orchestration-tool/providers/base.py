@@ -21,6 +21,7 @@ class ProviderConfig:
     provider_options: dict[str, Any] = field(default_factory=dict)
     selfcontained: bool = False
     ollama_host: str = ""
+    openai_base_url: str = ""
     verbose: bool = True
     allow_delegation: bool = False
 

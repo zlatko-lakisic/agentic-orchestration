@@ -178,6 +178,7 @@ def provider_from_dict(data: dict[str, Any], default_model: str) -> Provider:
         "provider_class",
         "selfcontained",
         "ollama_host",
+        "openai_base_url",
         "verbose",
         "allow_delegation",
     }
@@ -194,6 +195,7 @@ def provider_from_dict(data: dict[str, Any], default_model: str) -> Provider:
         provider_options=provider_options,
         selfcontained=bool(data.get("selfcontained", False)),
         ollama_host=str(data.get("ollama_host", "")).strip(),
+        openai_base_url=str(data.get("openai_base_url", "")).strip(),
         verbose=bool(data.get("verbose", True)),
         allow_delegation=bool(data.get("allow_delegation", False)),
     )

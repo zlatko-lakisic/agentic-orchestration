@@ -95,7 +95,8 @@ def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     resolved: list[dict[str, Any]] = []
     for entry in config.providers:
         data = dict(entry)
-        if str(data.get("type", "")).strip().lower() == "ollama":
+        ptype = str(data.get("type", "")).strip().lower()
+        if ptype == "ollama":
             host = str(data.get("ollama_host", "")).strip().lower()
             if host == _WORKFLOW_OLLAMA_HOST_TOKEN:
                 data["ollama_host"] = workflow_host
