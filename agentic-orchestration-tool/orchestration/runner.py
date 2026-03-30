@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from crewai import Crew, Process, Task
 
 from orchestration.config_loader import WorkflowConfig
-from providers.base import Provider, provider_from_dict
+from providers.base import Provider
+from providers.factory import provider_from_dict
 
 
 @dataclass
@@ -31,6 +32,7 @@ def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
         provider = provider_from_dict(provider_data, default_model=default_model)
         if provider.config.id in providers:
             raise ValueError(f"Duplicate provider id: '{provider.config.id}'.")
+        provider.initialize()
         providers[provider.config.id] = provider
 
     agents_by_provider_id = {

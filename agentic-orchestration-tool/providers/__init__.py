@@ -1,1 +1,14 @@
 """Provider package for YAML-driven CrewAI orchestration."""
+
+from providers.base import Provider, ProviderConfig
+from providers.crewai_provider import CrewAIProvider
+from providers.factory import provider_from_dict
+from providers.ollama_provider import OllamaProvider
+
+__all__ = [
+    "Provider",
+    "ProviderConfig",
+    "CrewAIProvider",
+    "OllamaProvider",
+    "provider_from_dict",
+]

@@ -43,3 +43,13 @@ python main.py --config config/workflow.yaml
 - `workflow.providers[]`: provider definitions.
 - `workflow.tasks[]`: tasks referencing `provider_id`.
 - `workflow.task_sequence[]`: ordered list of task IDs to execute.
+
+### Ollama provider options
+
+For a provider with `type: ollama`:
+
+- `model`: Ollama model name (for example `llama3.1`).
+- `selfcontained`:
+  - `true`: bootstrap mode (install Ollama if missing, start server, pull model).
+  - `false` (default): use existing Ollama server as-is.
+- `ollama_host`: optional host (default `http://127.0.0.1:11434`).

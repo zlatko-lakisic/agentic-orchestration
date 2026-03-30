@@ -5,6 +5,7 @@ workflow:
 
   providers:
     - id: "researcher"
+      type: "crewai"
       role: "Research Analyst"
       goal: "Find concise and practical facts about the topic"
       backstory: "You are precise, factual, and focused on relevance."
@@ -13,12 +14,23 @@ workflow:
       allow_delegation: false
 
     - id: "writer"
+      type: "crewai"
       role: "Technical Writer"
       goal: "Convert research into an actionable summary"
       backstory: "You create clear summaries for engineering audiences."
       model: "gpt-4o-mini"
       verbose: true
       allow_delegation: false
+
+    # Example local provider:
+    # - id: "local_researcher"
+    #   type: "ollama"
+    #   role: "Local Research Analyst"
+    #   goal: "Research the topic with local inference"
+    #   backstory: "You are optimized for local model execution."
+    #   model: "llama3.1"
+    #   selfcontained: true
+    #   ollama_host: "http://127.0.0.1:11434"
 
   tasks:
     - id: "research_topic"
