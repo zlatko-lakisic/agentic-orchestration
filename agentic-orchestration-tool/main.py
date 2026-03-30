@@ -7,6 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from orchestration.config_loader import load_workflow_config
 from orchestration.runner import build_workflow
 
@@ -34,7 +36,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    load_dotenv()
     require_env("OPENAI_API_KEY")
 
     args = parse_args()

@@ -22,6 +22,8 @@ copy .env.example .env
 
 Then set your real `OPENAI_API_KEY` in `.env`.
 
+Environment variables are loaded from `.env` **before** provider discovery runs (see `main.py`), so values such as `AGENTIC_EXTRA_PROVIDERS_PATH` take effect when you start the app via `python main.py`.
+
 ## Run
 
 ```powershell
@@ -53,3 +55,55 @@ For a provider with `type: ollama`:
   - `true`: bootstrap mode (install Ollama if missing, start server, pull model).
   - `false` (default): use existing Ollama server as-is.
 - `ollama_host`: optional host (default `http://127.0.0.1:11434`).
+
+### External provider directories (`AGENTIC_EXTRA_PROVIDERS_PATH`)
+
+Set `AGENTIC_EXTRA_PROVIDERS_PATH` to one or more directories, separated by your OS path separator (`;` on Windows, `:` on Linux/macOS). Each directory is scanned for top-level `*.py` files (not subfolders; files whose names start with `_` are skipped).
+
+For every concrete subclass of `Provider` defined in those files:
+
+- The class is registered for YAML `type: ...` if you set a class attribute `PROVIDER_TYPE = "myalias"` (recommended).
+- Otherwise the `type` string is derived from the class name (for example `MyCoolProvider` becomes `mycool`).
+
+Duplicate `type` values across the built-in `providers` package and extra folders are not allowed and raise an error at import time.
+
+Example `.env`:
+
+```env
+AGENTIC_EXTRA_PROVIDERS_PATH=D:\Projects\my-custom-providers
+```
+
+Example external module `D:\Projects\my-custom-providers\echo_provider.py`:
+
+```python
+from providers.base import Provider, ProviderConfig
+from crewai import Agent
+
+class EchoProvider(Provider):
+    PROVIDER_TYPE = "echo"
+
+    def initialize(self) -> None:
+        return None
+
+    def build_agent(self) -> Agent:
+        return Agent(
+            role=self.config.role,
+            goal=self.config.goal,
+            backstory=self.config.backstory,
+            llm=self.config.model,
+            verbose=self.config.verbose,
+            allow_delegation=self.config.allow_delegation,
+        )
+```
+
+Then in YAML you can use `type: echo` for that provider.
+
+### Explicit provider class (`provider_class`)
+
+You can also point at any importable class without putting it in an extra folder:
+
+```yaml
+provider_class: "my_package.providers.CustomProvider"
+```
+
+Unknown keys on the provider entry are passed through as `ProviderConfig.provider_options` for your class to use.
