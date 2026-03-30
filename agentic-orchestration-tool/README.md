@@ -10,6 +10,31 @@ YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, an
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
 - Rich provider lifecycle hooks (see below).
+- Optional **Ollama workflow router**: pass a natural-language task and the app scans a config directory for workflow files that include **`meta`**, picks one, and runs it with your task as the workflow `topic`.
+
+### Workflow router & per-file metadata
+
+Router mode builds the catalog **dynamically** from `--config-dir` (default `config`): every `*.yaml` / `*.yml` that defines **both** top-level `meta` and `workflow` is offered to the model.
+
+**`meta` fields** (for routing):
+
+- **`id`** — stable id the router must return (unique across scanned files).
+- **`summary`** — short line for the model.
+- **`description`** — longer text (optional; defaults to `summary`).
+- **`good_for`** — non-empty list of strings (what the workflow is good at).
+- **`router_include`** — optional; default true. Set `false` to keep a file in the folder but **exclude** it from the router (still usable via `--config`).
+
+**Direct run** (no router): `python main.py` uses `--config` (default `config/workflow.yaml`). Those files do not need `meta` unless you also want them routable.
+
+**Router run**: pass a task as the first argument. Ollama must be reachable (`OLLAMA_HOST`); set `ROUTER_OLLAMA_MODEL` to a pulled model (e.g. `llama3.2`).
+
+```powershell
+$env:PYTHONUTF8=1
+# Ensure Ollama is running and the router model is available: ollama pull llama3.2
+python main.py "Name 10 taglines for a CLI that deploys preview environments"
+```
+
+Optional flags: `--config-dir`, `--router-model`, `--router-host`.
 
 ### Provider lifecycle
 

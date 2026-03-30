@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,10 @@ class WorkflowConfig:
     task_sequence: list[str]
 
 
-def load_workflow_config(config_path: Path) -> WorkflowConfig:
+def load_workflow_config(
+    config_path: Path,
+    topic_override: str | None = None,
+) -> WorkflowConfig:
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
@@ -78,7 +81,7 @@ def load_workflow_config(config_path: Path) -> WorkflowConfig:
             )
         )
 
-    return WorkflowConfig(
+    cfg = WorkflowConfig(
         name=name,
         process=process,
         topic=topic,
@@ -86,3 +89,6 @@ def load_workflow_config(config_path: Path) -> WorkflowConfig:
         tasks=task_definitions,
         task_sequence=[str(task_id).strip() for task_id in sequence],
     )
+    if topic_override is not None and str(topic_override).strip():
+        cfg = replace(cfg, topic=str(topic_override).strip())
+    return cfg

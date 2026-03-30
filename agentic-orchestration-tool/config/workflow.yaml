@@ -1,3 +1,16 @@
+# Router metadata (optional): include this block for Ollama workflow selection.
+# Set meta.router_include: false to keep a workflow file out of the router.
+meta:
+  id: research_brief
+  summary: Factual research plus a structured engineering brief
+  description: >
+    Two-step pipeline: research bullet points on a topic, then a concise written
+    briefing with implementation-style action items for software teams.
+  good_for:
+    - summarizing technical topics with citations-style facts
+    - producing bullet research for stakeholders
+    - writing short briefs with concrete next steps
+
 workflow:
   name: "yaml-driven-demo"
   process: "sequential"

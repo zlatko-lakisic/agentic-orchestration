@@ -1,0 +1,54 @@
+meta:
+  id: brainstorm_ideas
+  summary: Divergent brainstorming then convergence to a shortlist
+  description: >
+    Generates many raw ideas on a prompt, then clusters and ranks them into a
+    top list with brief rationale—suited for naming, features, campaigns, or strategy.
+  good_for:
+    - naming products or features
+    - listing campaign or marketing angles
+    - creative exploration before committing to a plan
+    - feature ideation when you want quantity then filtering
+
+workflow:
+  name: "brainstorm-ideas"
+  process: "sequential"
+  topic: "Brainstorming session"
+
+  providers:
+    - id: "ideator"
+      type: "crewai"
+      role: "Creative Ideator"
+      goal: "Generate diverse, novel angles and options"
+      backstory: "You brainstorm quickly and avoid shutting down ideas."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+    - id: "editor"
+      type: "crewai"
+      role: "Idea Editor"
+      goal: "Organize ideas into a clear shortlist"
+      backstory: "You cluster, dedupe, and rank ideas for decision-makers."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  tasks:
+    - id: "diverge"
+      provider_id: "ideator"
+      description: >
+        For '{topic}', list at least 12 distinct ideas or angles (titles or one-liners).
+        Mix obvious and unexpected; note optional constraints if the user implied any.
+      expected_output: "A numbered list of ideas."
+
+    - id: "converge"
+      provider_id: "editor"
+      description: >
+        Group and merge similar items from the ideation list, then pick the top 5
+        with one sentence each on why they fit the user's task.
+      expected_output: "Grouped themes and top 5 ideas with rationale."
+
+  task_sequence:
+    - "diverge"
+    - "converge"

@@ -74,7 +74,7 @@ python main.py --config config/workflow.yaml
 
 No hardcoded provider/task chain is required in `main.py`; the workflow is assembled from YAML at runtime.
 
-The orchestration tool also supports **extra provider modules** via the environment variable `AGENTIC_EXTRA_PROVIDERS_PATH` (see `agentic-orchestration-tool/README.md` for details). Put provider folders in `.env` and run `python main.py` from that project so `.env` is loaded before provider discovery.
+The orchestration tool also supports **extra provider modules** via `AGENTIC_EXTRA_PROVIDERS_PATH`, and an **Ollama-powered workflow router**: `python main.py "your task"` scans `config/` for YAML files with embedded `meta` and picks a workflow (see `agentic-orchestration-tool/README.md`).
 
 ## Notes
 
