@@ -1,0 +1,40 @@
+workflow:
+  name: "yaml-driven-demo"
+  process: "sequential"
+  topic: "CrewAI orchestration from YAML configuration"
+
+  providers:
+    - id: "researcher"
+      role: "Research Analyst"
+      goal: "Find concise and practical facts about the topic"
+      backstory: "You are precise, factual, and focused on relevance."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+    - id: "writer"
+      role: "Technical Writer"
+      goal: "Convert research into an actionable summary"
+      backstory: "You create clear summaries for engineering audiences."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  tasks:
+    - id: "research_topic"
+      provider_id: "researcher"
+      description: >
+        Research '{topic}' and produce 5 concise bullet points with practical
+        impact for software teams.
+      expected_output: "Five practical bullet points."
+
+    - id: "write_brief"
+      provider_id: "writer"
+      description: >
+        Use research notes to write a short briefing (150-200 words) and
+        include 3 implementation action items.
+      expected_output: "A short briefing and 3 action items."
+
+  task_sequence:
+    - "research_topic"
+    - "write_brief"
