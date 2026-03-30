@@ -33,6 +33,23 @@
       <span id="connStatus" class="status disconnected">Disconnected</span>
     </section>
 
+    <div
+      id="activityBar"
+      class="activity-bar"
+      role="status"
+      aria-live="polite"
+      aria-busy="false"
+      hidden
+    >
+      <div class="activity-bar-inner">
+        <span class="activity-spinner" aria-hidden="true"></span>
+        <span id="activityLabel" class="activity-label">Agents working in the background…</span>
+      </div>
+      <div class="activity-bar-track" aria-hidden="true">
+        <div class="activity-bar-fill"></div>
+      </div>
+    </div>
+
     <main id="chat" class="chat" aria-live="polite"></main>
 
     <footer class="composer">

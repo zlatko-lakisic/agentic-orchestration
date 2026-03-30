@@ -31,15 +31,17 @@ If `AGENTIC_PYTHON` is unset, the web server automatically uses `agentic-orchest
 npm start
 ```
 
-Open **http://127.0.0.1:3847/** (default). The server listens on **127.0.0.1** only.
+Open **http://127.0.0.1:3847/** (default). To listen on **every interface** (LAN, WSL, etc.), copy `.env.example` to `.env` and set `AGENTIC_WEB_HOST=0.0.0.0`, then use this machine’s IP (e.g. `http://192.168.1.10:3847/`).
 
 ## Environment
+
+On `npm start`, **`agentic-orchestration-web/.env`** is read by the server (simple `KEY=value` lines); existing environment variables are not overwritten.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `AGENTIC_TOOL_ROOT` | `../agentic-orchestration-tool` | Directory containing `main.py` |
 | `AGENTIC_PYTHON` | `python` | Python executable |
-| `AGENTIC_WEB_HOST` | `127.0.0.1` | Bind address |
+| `AGENTIC_WEB_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` = all interfaces) |
 | `AGENTIC_WEB_PORT` | `3847` | HTTP + WebSocket port |
 
 ## Security

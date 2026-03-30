@@ -7,6 +7,8 @@
   const resetSessionEl = document.getElementById("resetSession");
   const verboseCrewEl = document.getElementById("verboseCrew");
   const connStatus = document.getElementById("connStatus");
+  const activityBar = document.getElementById("activityBar");
+  const activityLabel = document.getElementById("activityLabel");
 
   let ws = null;
   let assistantBubble = null;
@@ -17,9 +19,9 @@
   let processingTimer = null;
 
   const PROCESSING_HINTS = [
-    "Hang tight while I look into this…",
-    "Running the crew on your request…",
-    "Still working—almost there…",
+    "Agents are working in the background…",
+    "Planning and running tasks—this can take a minute…",
+    "Still on it—almost ready with your answer…",
   ];
 
   function stopProcessingUi() {
@@ -27,18 +29,47 @@
       clearInterval(processingTimer);
       processingTimer = null;
     }
+    hideActivityBar();
+  }
+
+  function showActivityBar() {
+    if (!activityBar || !activityLabel) return;
+    activityBar.hidden = false;
+    activityBar.setAttribute("aria-busy", "true");
+    activityLabel.textContent = PROCESSING_HINTS[0];
+  }
+
+  function hideActivityBar() {
+    if (!activityBar) return;
+    activityBar.hidden = true;
+    activityBar.setAttribute("aria-busy", "false");
   }
 
   function startProcessingUi(el) {
     stopProcessingUi();
+    showActivityBar();
     if (!el) return;
     el.classList.add("processing");
     let i = 0;
-    el.textContent = PROCESSING_HINTS[0];
+    el.textContent = "Preparing your answer…";
     processingTimer = setInterval(() => {
       i = (i + 1) % PROCESSING_HINTS.length;
-      el.textContent = PROCESSING_HINTS[i];
+      if (activityLabel) activityLabel.textContent = PROCESSING_HINTS[i];
+      el.textContent =
+        i === 0
+          ? "Preparing your answer…"
+          : i === 1
+            ? "The crew is running…"
+            : "Finishing up…";
     }, 4500);
+  }
+
+  function startVerboseActivityBar() {
+    stopProcessingUi();
+    showActivityBar();
+    if (activityLabel) {
+      activityLabel.textContent = "Run in progress—streaming crew output below…";
+    }
   }
 
   function proto() {
@@ -85,12 +116,12 @@
         streamVerbose = Boolean(verboseCrewEl?.checked);
         stdoutBuf = "";
         stderrBuf = "";
-        assistantBubble = appendBubble(
-          "assistant",
-          streamVerbose ? "" : "Hang tight while I look into this…",
-        );
+        assistantBubble = appendBubble("assistant", "");
         if (streamVerbose) {
+          startVerboseActivityBar();
           appendMeta(`Run: ${(data.args || []).join(" ")}`);
+        } else {
+          startProcessingUi(assistantBubble);
         }
         runActive = true;
         sendBtn.disabled = true;
@@ -124,8 +155,10 @@
       }
       if (data.type === "run_end") {
         stopProcessingUi();
-        if (!streamVerbose && assistantBubble) {
+        if (assistantBubble) {
           assistantBubble.classList.remove("processing");
+        }
+        if (!streamVerbose && assistantBubble) {
           const out = stdoutBuf.trim();
           const err = stderrBuf.trim();
           if (data.code !== 0 && err) {

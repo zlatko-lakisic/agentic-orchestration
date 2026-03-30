@@ -1,6 +1,6 @@
 /**
  * Static file + WebSocket server. Spawns Python main.py --dynamic for each chat message.
- * Bind to 127.0.0.1 by default (local dev).
+ * Bind to 127.0.0.1 by default; set AGENTIC_WEB_HOST=0.0.0.0 in .env for all interfaces.
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -10,6 +10,32 @@ import { spawn } from "node:child_process";
 import { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Load `.env` next to this file (no extra deps). Does not override existing process.env. */
+function loadLocalEnv() {
+  const envPath = path.join(__dirname, ".env");
+  if (!fs.existsSync(envPath)) return;
+  const raw = fs.readFileSync(envPath, "utf8");
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!key || key in process.env) continue;
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    process.env[key] = val;
+  }
+}
+
+loadLocalEnv();
+
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const TOOL_ROOT = path.resolve(
