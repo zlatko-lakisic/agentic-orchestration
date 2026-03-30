@@ -179,6 +179,7 @@ def provider_from_dict(data: dict[str, Any], default_model: str) -> Provider:
         "selfcontained",
         "ollama_host",
         "openai_base_url",
+        "planner_hint",
         "verbose",
         "allow_delegation",
     }

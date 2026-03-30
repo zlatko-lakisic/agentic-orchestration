@@ -12,6 +12,7 @@ load_dotenv()
 
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
+from orchestration.dynamic_planner import build_dynamic_workflow_config
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.artifact_verify import verify_saved_npm_projects
 from orchestration.output_artifacts import (
@@ -21,6 +22,7 @@ from orchestration.output_artifacts import (
 from orchestration.workflow_router import select_workflow_with_ollama
 
 _DEFAULT_CONFIG_PATH = "config/workflow.yaml"
+_DEFAULT_PROVIDERS_CATALOG = "config/providers_catalog.yaml"
 
 
 def _verification_wanted(*, cli_no_verify: bool) -> bool:
@@ -102,14 +104,8 @@ def _is_quit_command(text: str) -> bool:
     return t in frozenset({"quit", "exit", "q", ":q"})
 
 
-def run_workflow(
-    config_path: Path,
-    *,
-    topic_override: str | None = None,
-) -> tuple[int, str | None]:
-    """Load workflow YAML, run crew; return (exit code, final output text if any)."""
-    config = load_workflow_config(config_path, topic_override=topic_override)
-    built = build_workflow(config)
+def run_built_workflow(built: BuiltWorkflow) -> tuple[int, str | None]:
+    """Execute a pre-built crew; return (exit code, final output text if any)."""
     _on_workflow_start(built)
 
     exit_code = 0
@@ -139,6 +135,17 @@ def run_workflow(
         _cleanup_providers(built)
 
     return exit_code, result_text
+
+
+def run_workflow(
+    config_path: Path,
+    *,
+    topic_override: str | None = None,
+) -> tuple[int, str | None]:
+    """Load workflow YAML, run crew; return (exit code, final output text if any)."""
+    config = load_workflow_config(config_path, topic_override=topic_override)
+    built = build_workflow(config)
+    return run_built_workflow(built)
 
 
 def run_interactive_router(
@@ -360,6 +367,24 @@ def parse_args() -> argparse.Namespace:
             "Verification is on by default unless AGENTIC_VERIFY=0 (or false/no/off)."
         ),
     )
+    parser.add_argument(
+        "--dynamic",
+        action="store_true",
+        help=(
+            "Plan and run a one-off workflow: TASK is the user goal; GPT (AGENTIC_PLANNER_MODEL / "
+            "OPENAI_*) devises steps and picks providers from --providers-catalog, then runs them "
+            "in order. Requires TASK."
+        ),
+    )
+    parser.add_argument(
+        "--providers-catalog",
+        default=_DEFAULT_PROVIDERS_CATALOG,
+        metavar="FILE",
+        help=(
+            f"YAML file listing standalone provider templates for --dynamic "
+            f"(default {_DEFAULT_PROVIDERS_CATALOG!r})."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -388,6 +413,53 @@ def main() -> None:
     no_save = bool(args.no_save)
     prompt_save = bool(args.prompt_save)
     verify_saved = _verification_wanted(cli_no_verify=bool(args.no_verify))
+
+    providers_catalog_path = (
+        (tool_root / args.providers_catalog).resolve()
+        if not Path(args.providers_catalog).is_absolute()
+        else Path(args.providers_catalog)
+    )
+
+    if args.dynamic:
+        if not args.task or not str(args.task).strip():
+            print(
+                "error: --dynamic requires TASK (your goal), e.g. "
+                'python main.py --dynamic "Compare REST vs gRPC for internal APIs"',
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        goal = str(args.task).strip()
+        try:
+            dyn_cfg, plan = build_dynamic_workflow_config(
+                user_prompt=goal,
+                catalog_path=providers_catalog_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"(dynamic) planning failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        summary = plan.get("plan_summary")
+        if isinstance(summary, str) and summary.strip():
+            print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
+        for i, tdef in enumerate(dyn_cfg.tasks, start=1):
+            print(
+                f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> provider {tdef.provider_id!r}",
+                file=sys.stderr,
+            )
+        built = build_workflow(dyn_cfg)
+        exit_code, result_text = run_built_workflow(built)
+        if exit_code:
+            sys.exit(exit_code)
+        if result_text:
+            saved = offer_save_extracted_files(
+                tool_root=tool_root,
+                user_task=goal,
+                result_text=result_text,
+                output_dir=save_output_dir,
+                no_save=no_save,
+                prompt_save=prompt_save,
+            )
+            _run_post_save_verify(saved, verify=verify_saved)
+        return
 
     if args.task:
         entries = discover_workflow_catalog(config_dir)
