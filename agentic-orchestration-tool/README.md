@@ -58,6 +58,16 @@ Not invoked automatically (available for your own code / future runner features)
 
 ## Setup
 
+**One-time script (recommended)** — from `agentic-orchestration-tool/`:
+
+- **Windows (PowerShell):** `.\setup.ps1`  
+  If execution policy blocks it: `powershell -ExecutionPolicy Bypass -File .\setup.ps1`
+- **macOS / Linux / WSL:** `chmod +x setup.sh && ./setup.sh`
+
+Then activate the venv and edit `.env` as below.
+
+**Manual setup:**
+
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
