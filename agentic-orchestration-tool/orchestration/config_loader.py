@@ -20,6 +20,8 @@ class WorkflowConfig:
     name: str
     process: str
     topic: str
+    # meta.id or config filename stem (used for per-workflow Ollama port when host is "workflow").
+    instance_key: str
     providers: list[dict[str, Any]]
     tasks: list[TaskDefinition]
     task_sequence: list[str]
@@ -34,6 +36,11 @@ def load_workflow_config(
 
     with config_path.open("r", encoding="utf-8") as file:
         raw: dict[str, Any] = yaml.safe_load(file) or {}
+
+    meta = raw.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    instance_key = str(meta.get("id", "")).strip() or config_path.stem
 
     workflow = raw.get("workflow", {})
     if not isinstance(workflow, dict):
@@ -85,6 +92,7 @@ def load_workflow_config(
         name=name,
         process=process,
         topic=topic,
+        instance_key=instance_key,
         providers=providers,
         tasks=task_definitions,
         task_sequence=[str(task_id).strip() for task_id in sequence],

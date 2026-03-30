@@ -7,10 +7,44 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 from crewai import Agent
 
 from providers.base import Provider
+
+# Skip redundant `ollama pull` when multiple providers share the same model and host.
+_ollama_pull_done: set[str] = set()
+
+# `ollama serve` processes started by selfcontained providers (key = normalized base URL).
+_workflow_ollama_serve_procs: dict[str, subprocess.Popen] = {}
+_workflow_ollama_serve_refs: dict[str, int] = {}
+
+
+def _workflow_ollama_host_key(host: str) -> str:
+    return host.rstrip("/")
+
+
+def _workflow_ollama_own_ref(host: str) -> None:
+    k = _workflow_ollama_host_key(host)
+    _workflow_ollama_serve_refs[k] = _workflow_ollama_serve_refs.get(k, 0) + 1
+
+
+def _workflow_ollama_register_serve(host: str, proc: subprocess.Popen) -> None:
+    _workflow_ollama_serve_procs[_workflow_ollama_host_key(host)] = proc
+
+
+def _workflow_ollama_release(host: str) -> None:
+    k = _workflow_ollama_host_key(host)
+    if k not in _workflow_ollama_serve_refs:
+        return
+    _workflow_ollama_serve_refs[k] -= 1
+    if _workflow_ollama_serve_refs[k] > 0:
+        return
+    _workflow_ollama_serve_refs.pop(k, None)
+    proc = _workflow_ollama_serve_procs.pop(k, None)
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
 
 
 class OllamaProvider(Provider):
@@ -55,6 +89,14 @@ class OllamaProvider(Provider):
         if host.startswith("http://") or host.startswith("https://"):
             return host.rstrip("/")
         return f"http://{host.rstrip('/')}"
+
+    @staticmethod
+    def _ollama_listen_addr(host: str) -> str:
+        url = host if "://" in host else f"http://{host}"
+        parsed = urlparse(url)
+        hostname = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 11434
+        return f"{hostname}:{port}"
 
     def _ensure_ollama_runtime(self, model: str, host: str) -> None:
         if shutil.which("ollama") is None:
@@ -115,14 +157,20 @@ class OllamaProvider(Provider):
             return False
 
     def _start_ollama_server(self, host: str) -> None:
+        listen = self._ollama_listen_addr(host)
         os.environ["OLLAMA_HOST"] = host
 
-        subprocess.Popen(
+        env = os.environ.copy()
+        env["OLLAMA_HOST"] = listen
+
+        proc = subprocess.Popen(
             ["ollama", "serve"],
+            env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+        _workflow_ollama_register_serve(host, proc)
 
         timeout_seconds = 30
         start = time.time()
@@ -138,6 +186,10 @@ class OllamaProvider(Provider):
 
     @staticmethod
     def _pull_model(model: str, host: str) -> None:
+        cache_key = f"{host.rstrip('/')}\0{model}"
+        if cache_key in _ollama_pull_done:
+            return
+
         env = os.environ.copy()
         env["OLLAMA_HOST"] = host
         try:
@@ -152,3 +204,5 @@ class OllamaProvider(Provider):
             raise RuntimeError(
                 f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
             ) from exc
+
+        _ollama_pull_done.add(cache_key)

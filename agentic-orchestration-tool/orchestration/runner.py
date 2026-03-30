@@ -7,8 +7,11 @@ from typing import Any
 from crewai import Crew, Process, Task
 
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.workflow_ollama import resolve_workflow_ollama_host
 from providers.base import Provider
 from providers.factory import provider_from_dict
+
+_WORKFLOW_OLLAMA_HOST_TOKEN = "workflow"
 
 
 @dataclass
@@ -59,11 +62,24 @@ def _make_after_task_callback(
     return _cb
 
 
+def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
+    workflow_host = resolve_workflow_ollama_host(config.instance_key)
+    resolved: list[dict[str, Any]] = []
+    for entry in config.providers:
+        data = dict(entry)
+        if str(data.get("type", "")).strip().lower() == "ollama":
+            host = str(data.get("ollama_host", "")).strip().lower()
+            if host == _WORKFLOW_OLLAMA_HOST_TOKEN:
+                data["ollama_host"] = workflow_host
+        resolved.append(data)
+    return resolved
+
+
 def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
     providers: dict[str, Provider] = {}
-    for provider_data in config.providers:
+    for provider_data in _resolve_provider_entries(config):
         provider = provider_from_dict(provider_data, default_model=default_model)
         if provider.config.id in providers:
             raise ValueError(f"Duplicate provider id: '{provider.config.id}'.")

@@ -1,10 +1,15 @@
 # Web development pipeline — all agents use Ollama (type: ollama).
-# Pull models before running: e.g. ollama pull llama3.2
-# Swap `model` per provider if you prefer (e.g. qwen2.5-coder, codellama, devstral).
 #
-# Note: Agents produce specs, designs, and code in text form. They do not run shells
-# or install packages unless you add tools later. `main.py` still expects OPENAI_API_KEY
-# in .env today; use a placeholder if you only run Ollama-backed workflows.
+# Self-contained Ollama (selfcontained: true): on first run the providers install Ollama if
+# missing, start `ollama serve` on this workflow's port if nothing is listening, and pull models.
+# `ollama_host: workflow` → dedicated port per workflow (from meta.id), separate from other YAML
+# workflows and from the default 11434 router. Agents in this file still share that one port.
+#
+# Model hints: llama3.2 — general planning; qwen2.5-coder — stronger codegen. Swap `model`
+# tags to match what you prefer; unknown names still get pulled automatically.
+#
+# Note: Agents emit specs/design/code in text only (no shell execution). `main.py` still
+# checks OPENAI_API_KEY unless you use a placeholder for Ollama-only runs.
 
 meta:
   id: web_development
@@ -35,8 +40,8 @@ workflow:
         You specialize in front-end and full-stack web work. You ask implicit questions,
         list assumptions explicitly, and output structured bullets engineers can execute.
       model: "llama3.2"
-      ollama_host: ""
-      selfcontained: false
+      ollama_host: workflow
+      selfcontained: true
       verbose: true
       allow_delegation: false
 
@@ -48,8 +53,8 @@ workflow:
         You choose pragmatic stacks, name files and folders, define routes and component
         boundaries, and keep designs small enough to ship in one or two PRs.
       model: "llama3.2"
-      ollama_host: ""
-      selfcontained: false
+      ollama_host: workflow
+      selfcontained: true
       verbose: true
       allow_delegation: false
 
@@ -61,9 +66,9 @@ workflow:
         You write clean, modern web code. You label each artifact with a path, use markdown
         fences for code, avoid prose inside fences, and add a short "How to run" section with
         shell/CMD commands (do not execute them—only print them).
-      model: "llama3.2"
-      ollama_host: ""
-      selfcontained: false
+      model: "qwen2.5-coder:7b"
+      ollama_host: workflow
+      selfcontained: true
       verbose: true
       allow_delegation: false
 
