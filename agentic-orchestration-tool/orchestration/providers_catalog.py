@@ -64,26 +64,71 @@ def load_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _format_provider_entry(p: dict[str, Any]) -> str:
+    pid = str(p.get("id", "")).strip()
+    typ = str(p.get("type", "")).strip()
+    hint = str(p.get("planner_hint", "")).strip()
+    role = str(p.get("role", "")).strip()
+    goal = str(p.get("goal", "")).strip()
+    model = str(p.get("model", "")).strip()
+    parts = [
+        f"- id: {pid!r}",
+        f"  type: {typ!r}",
+        f"  model: {model!r}",
+        f"  role: {role!r}",
+        f"  goal: {goal!r}",
+    ]
+    if hint:
+        parts.append(f"  planner_hint: {hint!r}")
+    return "\n".join(parts)
+
+
 def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for p in entries:
-        pid = str(p.get("id", "")).strip()
-        typ = str(p.get("type", "")).strip()
-        hint = str(p.get("planner_hint", "")).strip()
-        role = str(p.get("role", "")).strip()
-        goal = str(p.get("goal", "")).strip()
-        model = str(p.get("model", "")).strip()
-        parts = [
-            f"- id: {pid!r}",
-            f"  type: {typ!r}",
-            f"  model: {model!r}",
-            f"  role: {role!r}",
-            f"  goal: {goal!r}",
-        ]
-        if hint:
-            parts.append(f"  planner_hint: {hint!r}")
-        lines.append("\n".join(parts))
-    return "\n".join(lines)
+    """Build planner-facing catalog text, grouped by backend so all providers get equal consideration."""
+
+    def _id_key(p: dict[str, Any]) -> str:
+        return str(p.get("id", "")).strip().lower()
+
+    ollama = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "ollama"),
+        key=_id_key,
+    )
+    openai_list = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "openai"),
+        key=_id_key,
+    )
+    other = sorted(
+        (
+            p
+            for p in entries
+            if str(p.get("type", "")).strip().lower() not in frozenset({"ollama", "openai"})
+        ),
+        key=_id_key,
+    )
+
+    sections: list[str] = []
+
+    if ollama:
+        sections.append(
+            "### Local — Ollama (`type: ollama`)\n"
+            "Models below run on the workflow Ollama host. Treat every `id` as a first-class option: "
+            "match **planner_hint**, **role**, and **goal** to the user's task (code, vision, chat, reasoning, etc.).\n"
+            + "\n".join(_format_provider_entry(p) for p in ollama)
+        )
+    if openai_list:
+        sections.append(
+            "### Cloud — OpenAI-compatible API (`type: openai`)\n"
+            "Use when **planner_hint** / task clearly fits these roles (e.g. broad research synthesis). "
+            "Do not pick these only because the list is shorter — prefer Ollama when the task fits a local specialist.\n"
+            + "\n".join(_format_provider_entry(p) for p in openai_list)
+        )
+    if other:
+        sections.append(
+            "### Other provider types\n"
+            + "\n".join(_format_provider_entry(p) for p in other)
+        )
+
+    return "\n\n".join(sections) if sections else ""
 
 
 def deepcopy_provider(entry: dict[str, Any]) -> dict[str, Any]:
