@@ -26,6 +26,8 @@ Router mode builds the catalog **dynamically** from `--config-dir` (default `con
 
 **Direct run** (no router): `python main.py` uses `--config` (default `config/workflow.yaml`). Those files do not need `meta` unless you also want them routable.
 
+Example routable workflows under `config/`: `workflow.yaml` (research brief), `workflow_brainstorm.yaml`, and **`workflow_web_dev.yaml`** (Ollama-only analysts → architect → implementer for web tasks).
+
 **Router run**: pass a task as the first argument. Ollama must be reachable (`OLLAMA_HOST`); set `ROUTER_OLLAMA_MODEL` to a pulled model (e.g. `llama3.2`).
 
 ```powershell

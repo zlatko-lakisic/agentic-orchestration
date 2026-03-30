@@ -1,0 +1,107 @@
+# Web development pipeline — all agents use Ollama (type: ollama).
+# Pull models before running: e.g. ollama pull llama3.2
+# Swap `model` per provider if you prefer (e.g. qwen2.5-coder, codellama, devstral).
+#
+# Note: Agents produce specs, designs, and code in text form. They do not run shells
+# or install packages unless you add tools later. `main.py` still expects OPENAI_API_KEY
+# in .env today; use a placeholder if you only run Ollama-backed workflows.
+
+meta:
+  id: web_development
+  summary: Local LLM pipeline for web app requirements, design, and implementation drafts
+  description: >
+    Three-step Ollama-only crew: clarify the dev task and acceptance criteria, produce a
+    concrete front-end/back-end design (files, routes, components), then emit copy-paste
+    ready code and suggested terminal commands. Best for greenfield features, UI work,
+    and API sketches when you want everything on local models.
+  good_for:
+    - breaking down a feature or bug into implementable slices
+    - React, Vue, Svelte, or plain HTML/CSS/JS scaffolding
+    - REST or simple API handler outlines
+    - component structure and state management choices
+    - generating first-draft code before you run it locally
+
+workflow:
+  name: "web-dev-ollama"
+  process: "sequential"
+  topic: "Web development task"
+
+  providers:
+    - id: "analyst"
+      type: "ollama"
+      role: "Web Product & Requirements Analyst"
+      goal: "Turn vague requests into clear, testable development criteria"
+      backstory: >
+        You specialize in front-end and full-stack web work. You ask implicit questions,
+        list assumptions explicitly, and output structured bullets engineers can execute.
+      model: "llama3.2"
+      ollama_host: ""
+      selfcontained: false
+      verbose: true
+      allow_delegation: false
+
+    - id: "architect"
+      type: "ollama"
+      role: "Web Application Architect"
+      goal: "Produce a minimal coherent design before any code is written"
+      backstory: >
+        You choose pragmatic stacks, name files and folders, define routes and component
+        boundaries, and keep designs small enough to ship in one or two PRs.
+      model: "llama3.2"
+      ollama_host: ""
+      selfcontained: false
+      verbose: true
+      allow_delegation: false
+
+    - id: "implementer"
+      type: "ollama"
+      role: "Full-Stack Web Implementer"
+      goal: "Deliver runnable-looking code and exact commands to apply the design"
+      backstory: >
+        You write clean, modern web code. You label each artifact with a path, use markdown
+        fences for code, avoid prose inside fences, and add a short "How to run" section with
+        shell/CMD commands (do not execute them—only print them).
+      model: "llama3.2"
+      ollama_host: ""
+      selfcontained: false
+      verbose: true
+      allow_delegation: false
+
+  tasks:
+    - id: "clarify_requirements"
+      provider_id: "analyst"
+      description: >
+        The user task is: '{topic}'.
+        Produce (1) a one-line goal, (2) user-facing acceptance criteria as a checklist,
+        (3) non-functional constraints (browser, a11y, perf), (4) recommended stack
+        (framework, language, styling, package manager) with one-sentence rationale each,
+        (5) open questions / risks. Keep everything actionable for a solo developer.
+      expected_output: "Structured requirements and stack recommendation."
+
+    - id: "design_system"
+      provider_id: "architect"
+      description: >
+        Using the prior requirements for '{topic}', output:
+        (A) directory tree (paths only),
+        (B) list of routes or pages with purpose,
+        (C) main components and props/state outline,
+        (D) data flow and where API calls live,
+        (E) styling approach (CSS modules, Tailwind, etc.).
+        Stay framework-consistent with the recommended stack; if unclear, default to Vite + React + TypeScript.
+      expected_output: "Concise architecture and file plan."
+
+    - id: "implement_code"
+      provider_id: "implementer"
+      description: >
+        Implement the design for '{topic}' as concrete artifacts:
+        - For each file: path, then a markdown code block with full file contents.
+        - Include package.json or pyproject/package additions if new deps are needed.
+        - End with a "Commands" section: ordered list of commands (npm/pnpm/yarn or pip) to create the project or install deps.
+        - If the task is a small change instead of a new app, output only the touched files and patches.
+        Do not omit imports or types; prefer working minimal examples over placeholders like "// TODO".
+      expected_output: "Files with code blocks plus run commands."
+
+  task_sequence:
+    - "clarify_requirements"
+    - "design_system"
+    - "implement_code"
