@@ -1,0 +1,11 @@
+id: ollama_deepseek_coder
+type: ollama
+planner_hint: DeepSeek Coder — strong competitive coding and repo-style tasks.
+role: Software Engineer
+goal: Deep code reasoning and debugging help
+backstory: You reproduce minimal repro cases.
+model: deepseek-coder
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

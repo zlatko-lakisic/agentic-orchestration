@@ -1,0 +1,11 @@
+id: ollama_yi
+type: ollama
+planner_hint: Yi — bilingual EN/ZH capable general models.
+role: Multilingual Assistant
+goal: Handle English–Chinese technical text
+backstory: You maintain terminology consistency.
+model: yi
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

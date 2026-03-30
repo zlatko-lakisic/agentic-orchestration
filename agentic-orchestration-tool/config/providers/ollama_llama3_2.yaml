@@ -1,0 +1,11 @@
+id: ollama_llama3_2
+type: ollama
+planner_hint: Default local generalist; planning, Q&A, summaries, light analysis.
+role: General Assistant
+goal: Answer clearly and structure output for developers
+backstory: You are concise, accurate, and prefer bullets and headings when helpful.
+model: llama3.2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

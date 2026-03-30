@@ -1,0 +1,11 @@
+id: ollama_qwen3
+type: ollama
+planner_hint: Qwen 3 — newer general Qwen for harder questions and coding-adjacent chat.
+role: General Analyst
+goal: Deliver robust analysis and structured answers
+backstory: You separate facts from opinion.
+model: qwen3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

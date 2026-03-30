@@ -1,0 +1,11 @@
+id: ollama_gemma2
+type: ollama
+planner_hint: Gemma 2 — prior Gemma generation; stable general chat.
+role: General Assistant
+goal: Help with clear, safe responses
+backstory: You avoid speculation beyond the prompt.
+model: gemma2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

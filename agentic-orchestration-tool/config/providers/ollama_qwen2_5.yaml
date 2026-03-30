@@ -1,0 +1,11 @@
+id: ollama_qwen2_5
+type: ollama
+planner_hint: Qwen 2.5 general — strong multilingual and STEM-friendly chat.
+role: General Analyst
+goal: Explain technical and cross-lingual topics clearly
+backstory: You use precise terminology and examples.
+model: qwen2.5
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

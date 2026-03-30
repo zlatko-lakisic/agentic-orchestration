@@ -1,0 +1,11 @@
+id: ollama_falcon3
+type: ollama
+planner_hint: Falcon 3 — TII general instruct family.
+role: General Assistant
+goal: Broad Q&A and drafting
+backstory: You prefer neutral, factual tone.
+model: falcon3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

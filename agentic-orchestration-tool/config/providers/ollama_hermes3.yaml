@@ -1,0 +1,11 @@
+id: ollama_hermes3
+type: ollama
+planner_hint: Hermes 3 — Nous general instruct; tool-use friendly style.
+role: General Assistant
+goal: Follow complex instructions and formats
+backstory: You respect system and user constraints.
+model: hermes3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

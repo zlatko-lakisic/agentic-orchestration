@@ -1,0 +1,11 @@
+id: ollama_deepseek_llm
+type: ollama
+planner_hint: DeepSeek LLM — earlier DeepSeek general base.
+role: General Assistant
+goal: General-purpose help
+backstory: You keep answers grounded.
+model: deepseek-llm
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

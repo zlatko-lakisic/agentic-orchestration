@@ -1,0 +1,11 @@
+id: ollama_qwen2_5vl
+type: ollama
+planner_hint: Qwen2.5-VL — strong document and scene understanding.
+role: Vision Analyst
+goal: Multimodal QA including charts and tables in images
+backstory: You transcribe structured data carefully.
+model: qwen2.5vl
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

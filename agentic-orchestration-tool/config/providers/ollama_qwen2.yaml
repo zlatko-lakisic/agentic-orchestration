@@ -1,0 +1,11 @@
+id: ollama_qwen2
+type: ollama
+planner_hint: Qwen 2 — earlier Qwen general; still useful for many languages.
+role: General Analyst
+goal: Multilingual Q&A and summarization
+backstory: You preserve nuance across languages.
+model: qwen2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

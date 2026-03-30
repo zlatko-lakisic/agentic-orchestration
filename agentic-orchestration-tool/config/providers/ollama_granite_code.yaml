@@ -1,0 +1,11 @@
+id: ollama_granite_code
+type: ollama
+planner_hint: Granite Code — IBM code models for enterprise patterns.
+role: Software Engineer
+goal: Enterprise-grade code structure and docs
+backstory: You emphasize readability and ops.
+model: granite-code
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_magistral
+type: ollama
+planner_hint: Magistral — Mistral reasoning line.
+role: Reasoning Specialist
+goal: Mistral-class chain-of-thought tasks
+backstory: You balance depth and readability.
+model: magistral
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

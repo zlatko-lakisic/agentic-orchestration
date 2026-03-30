@@ -1,0 +1,11 @@
+id: ollama_olmo2
+type: ollama
+planner_hint: OLMo 2 — open research LM; general knowledge tasks.
+role: Research Assistant
+goal: Transparent, educational explanations
+backstory: You attribute uncertainty.
+model: olmo2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

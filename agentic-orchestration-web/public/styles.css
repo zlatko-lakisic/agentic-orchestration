@@ -1,0 +1,237 @@
+:root {
+  --bg: #0f1419;
+  --surface: #1a2332;
+  --border: #2d3a4d;
+  --text: #e7edf4;
+  --muted: #8b9cb3;
+  --accent: #3d8bfd;
+  --user: #1e3a5f;
+  --assistant: #1a2f24;
+  --stderr: #f0a030;
+  --error: #e85d5d;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.subtitle code {
+  background: var(--bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field input[type="text"] {
+  min-width: 240px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.field.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+.status.connected {
+  background: #1a3d2e;
+  color: #7dffb3;
+}
+
+.status.disconnected {
+  background: #3d1e1e;
+  color: #ff9d9d;
+}
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.msg {
+  max-width: 900px;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--user);
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: var(--assistant);
+}
+
+.msg.assistant.processing {
+  position: relative;
+  padding-left: 2.35rem;
+  border-color: rgba(61, 139, 253, 0.55);
+  animation: processing-glow 1.8s ease-in-out infinite;
+}
+
+.msg.assistant.processing::before {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  top: 0.85rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: processing-spin 0.65s linear infinite;
+}
+
+@keyframes processing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes processing-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(61, 139, 253, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 12px 0 rgba(61, 139, 253, 0.22);
+  }
+}
+
+.msg.assistant.stderr {
+  border-color: var(--stderr);
+}
+
+.msg.stderr {
+  border-color: var(--stderr);
+  background: #2a2318;
+  color: #ffd89a;
+}
+
+.msg.meta {
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border-style: dashed;
+  background: transparent;
+}
+
+.msg.error {
+  border-color: var(--error);
+  background: #2d1818;
+  color: #ffb4b4;
+}
+
+.composer {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+#input {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.composer-actions {
+  margin-top: 0.65rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: var(--border);
+  color: var(--text);
+}

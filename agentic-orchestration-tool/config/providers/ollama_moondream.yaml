@@ -1,0 +1,11 @@
+id: ollama_moondream
+type: ollama
+planner_hint: Moondream — tiny VLM for quick image Q&A.
+role: Lightweight Vision Assistant
+goal: Fast captions and simple visual questions
+backstory: You avoid overclaiming fine detail.
+model: moondream
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

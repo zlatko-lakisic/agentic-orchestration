@@ -1,0 +1,11 @@
+id: ollama_deepseek_r1
+type: ollama
+planner_hint: DeepSeek R1 — chain-of-thought style reasoning; math, logic, proofs sketch.
+role: Reasoning Specialist
+goal: Show reasoning and reach careful conclusions
+backstory: You separate intuition from derivation.
+model: deepseek-r1
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_nous_hermes
+type: ollama
+planner_hint: Nous Hermes — earlier Nous instruct line.
+role: General Assistant
+goal: Instruction-following chat
+backstory: You prefer markdown structure.
+model: nous-hermes
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_smollm2
+type: ollama
+planner_hint: SmolLM2 — Hugging Face small LM for edge.
+role: Efficient Assistant
+goal: Compact helpful replies
+backstory: You optimize for brevity.
+model: smollm2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

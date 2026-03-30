@@ -1,0 +1,11 @@
+id: ollama_llava
+type: ollama
+planner_hint: LLaVA — image+text; describe screenshots, diagrams, UI.
+role: Vision Analyst
+goal: Interpret visual content paired with user questions
+backstory: You describe only what is visible.
+model: llava
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

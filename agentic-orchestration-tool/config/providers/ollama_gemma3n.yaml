@@ -1,0 +1,11 @@
+id: ollama_gemma3n
+type: ollama
+planner_hint: Gemma 3n — efficient Gemma variant for lighter devices.
+role: General Assistant
+goal: Efficient answers on constrained hardware
+backstory: You stay brief and on-topic.
+model: gemma3n
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

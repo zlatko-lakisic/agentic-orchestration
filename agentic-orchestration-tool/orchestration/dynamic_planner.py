@@ -10,6 +10,13 @@ from typing import Any
 import httpx
 
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.orchestrator_session import (
+    OrchestratorSessionFile,
+    load_session,
+    save_session,
+    stable_instance_key_for_session,
+    trim_planner_history,
+)
 from orchestration.providers_catalog import (
     catalog_for_planner_prompt,
     deepcopy_provider,
@@ -95,12 +102,12 @@ def _planner_chat_completion(
     return content.strip()
 
 
-def _build_planner_messages(
+def _planner_system_prompt(
     *,
-    user_prompt: str,
     catalog_doc: str,
     max_steps: int,
-) -> list[dict[str, str]]:
+    last_crew_excerpt: str | None = None,
+) -> str:
     system = f"""You are an expert orchestration planner for a multi-agent system.
 
 Available providers (pick ONLY provider_id values from this list):
@@ -113,6 +120,7 @@ Rules:
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
+- If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
@@ -126,10 +134,30 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
   ]
 }}
 """
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user_prompt.strip()},
-    ]
+    if last_crew_excerpt and str(last_crew_excerpt).strip():
+        cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
+        excerpt = str(last_crew_excerpt).strip()[:cap]
+        system += (
+            f"\n\n## Previous crew output (same session; excerpt)\n{excerpt}\n"
+            "Use this when the user refers to prior results or asks for follow-up work.\n"
+        )
+    return system
+
+
+def _compose_planner_messages(
+    *,
+    system_text: str,
+    planner_history: list[dict[str, str]],
+    user_prompt: str,
+) -> list[dict[str, str]]:
+    msgs: list[dict[str, str]] = [{"role": "system", "content": system_text}]
+    for turn in planner_history:
+        role = str(turn.get("role", "")).strip()
+        content = str(turn.get("content", ""))
+        if role in ("user", "assistant") and content:
+            msgs.append({"role": role, "content": content})
+    msgs.append({"role": "user", "content": user_prompt.strip()})
+    return msgs
 
 
 def plan_raw_from_llm(
@@ -140,10 +168,15 @@ def plan_raw_from_llm(
     model: str,
 ) -> dict[str, Any]:
     doc = catalog_for_planner_prompt(catalog_entries)
-    messages = _build_planner_messages(
-        user_prompt=user_prompt,
+    system_text = _planner_system_prompt(
         catalog_doc=doc,
         max_steps=max_steps,
+        last_crew_excerpt=None,
+    )
+    messages = _compose_planner_messages(
+        system_text=system_text,
+        planner_history=[],
+        user_prompt=user_prompt,
     )
     content = _planner_chat_completion(messages=messages, model=model)
     return _extract_json_object(content)
@@ -220,9 +253,9 @@ def build_dynamic_workflow_config(
     instance_key: str | None = None,
     max_steps: int | None = None,
     planner_model: str | None = None,
+    session_path: Path | None = None,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_providers_catalog(catalog_path)
-    key = instance_key or _dynamic_instance_key(user_prompt)
     limit = max_steps
     if limit is None:
         limit = int(os.getenv("AGENTIC_PLANNER_MAX_STEPS", "8"))
@@ -232,12 +265,52 @@ def build_dynamic_workflow_config(
         "AGENTIC_PLANNER_MODEL", "gpt-4o-mini"
     ).strip()
 
-    plan = plan_raw_from_llm(
-        user_prompt=user_prompt,
-        catalog_entries=entries,
+    sess: OrchestratorSessionFile | None = None
+    history: list[dict[str, str]] = []
+    last_excerpt: str | None = None
+    if session_path is not None:
+        sess = load_session(session_path)
+        history = trim_planner_history(sess.planner_history)
+        last_excerpt = sess.last_crew_output_excerpt
+
+    if instance_key:
+        key = instance_key
+    elif session_path is not None:
+        assert sess is not None
+        if sess.instance_key:
+            key = sess.instance_key
+        else:
+            key = stable_instance_key_for_session(session_path.stem)
+    else:
+        key = _dynamic_instance_key(user_prompt)
+
+    doc = catalog_for_planner_prompt(entries)
+    system_text = _planner_system_prompt(
+        catalog_doc=doc,
         max_steps=limit,
-        model=model,
+        last_crew_excerpt=last_excerpt,
     )
+    messages = _compose_planner_messages(
+        system_text=system_text,
+        planner_history=history,
+        user_prompt=user_prompt,
+    )
+    raw_content = _planner_chat_completion(messages=messages, model=model)
+    plan = _extract_json_object(raw_content)
+
+    if session_path is not None:
+        assert sess is not None
+        sess.instance_key = key
+        merged = trim_planner_history(
+            history
+            + [
+                {"role": "user", "content": user_prompt.strip()},
+                {"role": "assistant", "content": raw_content.strip()},
+            ]
+        )
+        sess.planner_history = merged
+        save_session(session_path, sess)
+
     cfg = workflow_config_from_plan(
         user_prompt=user_prompt,
         plan=plan,

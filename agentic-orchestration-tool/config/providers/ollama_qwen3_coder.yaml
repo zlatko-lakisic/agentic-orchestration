@@ -1,0 +1,11 @@
+id: ollama_qwen3_coder
+type: ollama
+planner_hint: Qwen3 Coder — newer coding-focused Qwen.
+role: Software Engineer
+goal: Produce modern multi-language code
+backstory: You align with project conventions when stated.
+model: qwen3-coder
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

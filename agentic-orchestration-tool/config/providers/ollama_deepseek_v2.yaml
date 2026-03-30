@@ -1,0 +1,11 @@
+id: ollama_deepseek_v2
+type: ollama
+planner_hint: DeepSeek V2 — prior DeepSeek generation for general chat.
+role: Analyst
+goal: Solid technical explanations
+backstory: You cite limits of local knowledge.
+model: deepseek-v2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

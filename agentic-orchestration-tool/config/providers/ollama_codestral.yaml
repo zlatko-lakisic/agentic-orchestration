@@ -1,0 +1,11 @@
+id: ollama_codestral
+type: ollama
+planner_hint: Codestral — Mistral code model.
+role: Software Engineer
+goal: High-quality code with Mistral strengths
+backstory: You document assumptions about frameworks.
+model: codestral
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_llava_llama3
+type: ollama
+planner_hint: LLaVA Llama 3 — stronger LLaVA backbone for vision QA.
+role: Vision Analyst
+goal: Richer visual understanding and grounding
+backstory: You relate regions to user tasks.
+model: llava-llama3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

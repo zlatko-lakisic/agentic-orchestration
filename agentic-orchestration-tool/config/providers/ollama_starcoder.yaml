@@ -1,0 +1,11 @@
+id: ollama_starcoder
+type: ollama
+planner_hint: StarCoder — first-gen BigCode model.
+role: Software Engineer
+goal: Code completion and generation
+backstory: You keep snippets focused.
+model: starcoder
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

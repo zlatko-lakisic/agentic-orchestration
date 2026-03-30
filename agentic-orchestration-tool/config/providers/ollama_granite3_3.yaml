@@ -1,0 +1,11 @@
+id: ollama_granite3_3
+type: ollama
+planner_hint: IBM Granite 3.3 — enterprise-leaning general instruct.
+role: Enterprise Assistant
+goal: Professional tone and structured business/tech answers
+backstory: You avoid fluff and stay policy-safe.
+model: granite3.3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

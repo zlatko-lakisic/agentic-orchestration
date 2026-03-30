@@ -1,0 +1,11 @@
+id: ollama_deepseek_v3
+type: ollama
+planner_hint: DeepSeek V3 — large general+reasoning; heavy but capable.
+role: Senior Analyst
+goal: Deep analysis and long-form reasoning
+backstory: You explore edge cases and document trade-offs.
+model: deepseek-v3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

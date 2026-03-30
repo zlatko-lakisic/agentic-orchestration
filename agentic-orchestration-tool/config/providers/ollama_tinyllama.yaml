@@ -1,0 +1,11 @@
+id: ollama_tinyllama
+type: ollama
+planner_hint: TinyLlama — very small; prototyping only.
+role: Micro Assistant
+goal: Extremely fast stub responses
+backstory: You warn when quality may be insufficient.
+model: tinyllama
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -7,31 +7,59 @@ from typing import Any
 import yaml
 
 
-def load_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
-    if not catalog_path.exists():
-        raise FileNotFoundError(f"Providers catalog not found: {catalog_path}")
-
-    with catalog_path.open("r", encoding="utf-8") as f:
+def _load_single_catalog_file(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as f:
         raw: dict[str, Any] = yaml.safe_load(f) or {}
 
     entries = raw.get("providers")
     if not isinstance(entries, list) or not entries:
         raise ValueError(
-            f"'providers' must be a non-empty list in {catalog_path}",
+            f"'providers' must be a non-empty list in {path}",
         )
 
     out: list[dict[str, Any]] = []
     for i, item in enumerate(entries):
         if not isinstance(item, dict):
-            raise ValueError(f"providers[{i}] must be a mapping")
+            raise ValueError(f"{path}: providers[{i}] must be a mapping")
         pid = str(item.get("id", "")).strip()
         if not pid:
-            raise ValueError(f"providers[{i}] is missing non-empty 'id'")
+            raise ValueError(f"{path}: providers[{i}] is missing non-empty 'id'")
         out.append(dict(item))
+    return out
+
+
+def _load_provider_fragment_file(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        raw: Any = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: root must be a mapping (one provider per file)")
+    pid = str(raw.get("id", "")).strip()
+    if not pid:
+        raise ValueError(f"{path}: missing non-empty 'id' at file root")
+    return dict(raw)
+
+
+def load_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
+    """Load provider templates from a directory (one ``*.yaml`` per provider) or a legacy bundle file."""
+    if not catalog_path.exists():
+        raise FileNotFoundError(f"Providers catalog not found: {catalog_path}")
+
+    if catalog_path.is_dir():
+        out: list[dict[str, Any]] = []
+        paths = sorted(catalog_path.glob("*.yaml")) + sorted(catalog_path.glob("*.yml"))
+        for path in paths:
+            if path.name.startswith("_"):
+                continue
+            stem = path.stem.lower()
+            if stem in frozenset({"readme", "index"}):
+                continue
+            out.append(_load_provider_fragment_file(path))
+    else:
+        out = _load_single_catalog_file(catalog_path)
 
     ids = [str(p.get("id", "")).strip() for p in out]
     if len(set(ids)) != len(ids):
-        raise ValueError("Duplicate provider 'id' in providers catalog")
+        raise ValueError("Duplicate provider 'id' across catalog files")
 
     return out
 

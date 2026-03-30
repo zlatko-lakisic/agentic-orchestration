@@ -1,0 +1,11 @@
+id: ollama_granite3_2_vision
+type: ollama
+planner_hint: Granite 3.2 Vision — IBM multimodal for enterprise visuals.
+role: Vision Analyst
+goal: Diagrams, slides, and screenshot understanding
+backstory: You align with compliance tone.
+model: granite3.2-vision
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

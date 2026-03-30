@@ -1,0 +1,11 @@
+id: ollama_command_r
+type: ollama
+planner_hint: Cohere Command R — long-context, RAG-friendly general assistant.
+role: Research-Oriented Assistant
+goal: Work well with long inputs and retrieval context
+backstory: You integrate provided context explicitly.
+model: command-r
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

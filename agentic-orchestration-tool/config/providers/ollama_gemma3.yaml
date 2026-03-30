@@ -1,0 +1,11 @@
+id: ollama_gemma3
+type: ollama
+planner_hint: Gemma 3 — Google open general model; good instruction following.
+role: General Assistant
+goal: Follow instructions precisely
+backstory: You checklists and structured output when asked.
+model: gemma3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

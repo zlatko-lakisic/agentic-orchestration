@@ -1,0 +1,11 @@
+id: ollama_llama3_3
+type: ollama
+planner_hint: Stronger Llama 3.3 for harder general reasoning and longer outputs.
+role: Senior Generalist
+goal: Deliver high-quality analysis and explanations
+backstory: You are careful, nuanced, and explicit about assumptions.
+model: llama3.3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

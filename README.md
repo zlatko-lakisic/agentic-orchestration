@@ -11,7 +11,10 @@ Repository for experimenting with CrewAI orchestration in two ways:
   Minimal CrewAI example with two agents and sequential tasks.
 
 - `agentic-orchestration-tool/`  
-  YAML-first orchestration project. `main.py` reads `config/workflow.yaml`, creates providers (agents), builds tasks, applies `task_sequence`, and runs CrewAI.
+  YAML-first orchestration project. `main.py` reads `config/workflows/*.yaml`, creates providers (agents), builds tasks, applies `task_sequence`, and runs CrewAI.
+
+- `agentic-orchestration-web/`  
+  Node **WebSocket** + static chat UI that runs `main.py --dynamic` locally (see its `README.md`).
 
 ## Prerequisites
 
@@ -60,12 +63,12 @@ python main.py
 Optional custom config:
 
 ```powershell
-python main.py --config config/workflow.yaml
+python main.py --config config/workflows/workflow.yaml
 ```
 
 ## YAML-Driven Tool Overview
 
-`agentic-orchestration-tool/config/workflow.yaml` controls:
+`agentic-orchestration-tool/config/workflows/workflow.yaml` (and siblings) control:
 
 - `workflow.providers[]`: provider definitions (mapped to CrewAI agents)
 - `workflow.tasks[]`: task definitions, each linked by `provider_id`
@@ -74,7 +77,7 @@ python main.py --config config/workflow.yaml
 
 No hardcoded provider/task chain is required in `main.py`; the workflow is assembled from YAML at runtime.
 
-The orchestration tool also supports **extra provider modules** via `AGENTIC_EXTRA_PROVIDERS_PATH`, and an **Ollama-powered workflow router**: `python main.py "your task"` scans `config/` for YAML files with embedded `meta` and picks a workflow (see `agentic-orchestration-tool/README.md`).
+The orchestration tool also supports **extra provider modules** via `AGENTIC_EXTRA_PROVIDERS_PATH`, **dynamic planning** (`--dynamic`) using `config/providers/*.yaml`, and an **Ollama-powered workflow router**: `python main.py "your task"` scans `config/workflows/` for YAML with embedded `meta` and picks a workflow (see `agentic-orchestration-tool/README.md`).
 
 ## Notes
 

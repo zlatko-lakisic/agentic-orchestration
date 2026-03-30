@@ -95,6 +95,32 @@ def workflow_result_to_extractable_text(result: Any) -> str:
     return "" if result is None else str(result)
 
 
+def workflow_result_display_text(result: Any) -> str:
+    """Single user-facing answer for chat UIs: last agent output when the crew ran multiple tasks."""
+    try:
+        from crewai.crews.crew_output import CrewOutput
+    except ImportError:
+        CrewOutput = None
+
+    if CrewOutput is None or not isinstance(result, CrewOutput):
+        return "" if result is None else str(result).strip()
+
+    tasks = getattr(result, "tasks_output", None) or []
+    last_raw: str | None = None
+    for t in tasks:
+        r = getattr(t, "raw", None)
+        if r is not None and str(r).strip():
+            last_raw = str(r).strip()
+    if last_raw:
+        return last_raw
+
+    top = getattr(result, "raw", None)
+    if top is not None and str(top).strip():
+        return str(top).strip()
+
+    return workflow_result_to_extractable_text(result).strip()
+
+
 def slugify_topic(topic: str, max_len: int = 48) -> str:
     s = re.sub(r"[^a-zA-Z0-9]+", "-", topic.lower()).strip("-")
     return (s[:max_len] if s else "run").rstrip("-") or "run"

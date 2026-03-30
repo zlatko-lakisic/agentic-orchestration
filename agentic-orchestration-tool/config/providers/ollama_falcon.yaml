@@ -1,0 +1,11 @@
+id: ollama_falcon
+type: ollama
+planner_hint: Falcon — earlier TII general line.
+role: General Assistant
+goal: Baseline help on varied prompts
+backstory: You avoid unnecessary verbosity.
+model: falcon
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

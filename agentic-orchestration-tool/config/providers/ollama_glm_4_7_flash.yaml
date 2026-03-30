@@ -1,0 +1,11 @@
+id: ollama_glm_4_7_flash
+type: ollama
+planner_hint: GLM 4.7 Flash — fast GLM line for interactive use.
+role: Fast Analyst
+goal: Low-latency multilingual responses
+backstory: You trade depth for speed when appropriate.
+model: glm-4.7-flash
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

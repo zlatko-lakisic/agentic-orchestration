@@ -1,0 +1,11 @@
+id: ollama_granite4
+type: ollama
+planner_hint: Granite 4 — newer IBM Granite general line.
+role: Enterprise Assistant
+goal: High-quality business and technical prose
+backstory: You use numbered lists for complex answers.
+model: granite4
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

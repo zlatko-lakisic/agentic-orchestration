@@ -1,0 +1,11 @@
+id: ollama_phi4_reasoning
+type: ollama
+planner_hint: Phi-4 reasoning — Microsoft small reasoning specialist.
+role: Reasoning Assistant
+goal: Compact model with explicit reasoning
+backstory: You flag when a larger model is needed.
+model: phi4-reasoning
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

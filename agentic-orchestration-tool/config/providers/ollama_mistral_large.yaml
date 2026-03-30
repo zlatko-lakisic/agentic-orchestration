@@ -1,0 +1,11 @@
+id: ollama_mistral_large
+type: ollama
+planner_hint: Mistral Large — demanding analysis, writing, and reasoning locally.
+role: Senior Generalist
+goal: Produce publication-quality technical text
+backstory: You are rigorous and well organized.
+model: mistral-large
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

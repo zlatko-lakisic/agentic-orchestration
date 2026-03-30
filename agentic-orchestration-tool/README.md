@@ -5,8 +5,8 @@ YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, an
 ## Features
 
 - Abstract `Provider` class for provider definitions.
-- Providers declared in `config/workflow.yaml`.
-- Tasks declared in `config/workflow.yaml`.
+- Workflow YAML under `config/workflows/` (default `config/workflows/workflow.yaml`).
+- Dynamic mode provider templates: one file per provider under `config/providers/`.
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
 - Rich provider lifecycle hooks (see below).
@@ -14,7 +14,7 @@ YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, an
 
 ### Workflow router & per-file metadata
 
-Router mode builds the catalog **dynamically** from `--config-dir` (default `config`): every `*.yaml` / `*.yml` that defines **both** top-level `meta` and `workflow` is offered to the model.
+Router mode builds the catalog from `--config-dir` (default `config`): it scans **`config/workflows/`** (i.e. `<config-dir>/workflows/*.yaml`) and every file that defines **both** top-level `meta` and `workflow` is offered to the model.
 
 **`meta` fields** (for routing):
 
@@ -24,9 +24,9 @@ Router mode builds the catalog **dynamically** from `--config-dir` (default `con
 - **`good_for`** — non-empty list of strings (what the workflow is good at).
 - **`router_include`** — optional; default true. Set `false` to keep a file in the folder but **exclude** it from the router (still usable via `--config`).
 
-**Direct run** (no router): `python main.py` uses `--config` (default `config/workflow.yaml`). Those files do not need `meta` unless you also want them routable.
+**Direct run** (no router): `python main.py` uses `--config` (default `config/workflows/workflow.yaml`). Those files do not need `meta` unless you also want them routable.
 
-Example routable workflows under `config/`: `workflow.yaml` (research brief), `workflow_brainstorm.yaml`, and **`workflow_web_dev.yaml`** (Ollama-only analysts → architect → implementer for web tasks).
+Example routable workflows under `config/workflows/`: `workflow.yaml` (research brief), `workflow_brainstorm.yaml`, and **`workflow_web_dev.yaml`** (Ollama-only analysts → architect → implementer for web tasks).
 
 **Router run**: pass a task as the first argument. Ollama must be reachable (`OLLAMA_HOST`); set `ROUTER_OLLAMA_MODEL` to a pulled model (e.g. `llama3.2`).
 
@@ -37,6 +37,10 @@ python main.py "Name 10 taglines for a CLI that deploys preview environments"
 ```
 
 Optional flags: `--config-dir`, `--router-model`, `--router-host`.
+
+**Web UI**: optional chat interface with WebSockets in `../agentic-orchestration-web/` (`npm install && npm start`).
+
+**Dynamic + long-running planner context**: `python main.py --dynamic "…" --orchestrator-session myproject` stores planner chat and a truncated last crew output under `__orchestrator_sessions__/myproject.json` (gitignored). Reuse the same session name on the next run so the orchestrator LLM sees prior turns and last results. `--orchestrator-session-reset` clears that file. Env: `AGENTIC_ORCHESTRATOR_SESSION`, `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS`, `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS`.
 
 ### Provider lifecycle
 
@@ -90,7 +94,7 @@ python main.py
 Use a custom config path:
 
 ```powershell
-python main.py --config config/workflow.yaml
+python main.py --config config/workflows/workflow.yaml
 ```
 
 ## YAML Schema (high level)

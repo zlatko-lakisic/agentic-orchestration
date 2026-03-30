@@ -1,0 +1,11 @@
+id: ollama_llama3_2_vision
+type: ollama
+planner_hint: Llama 3.2 Vision — Meta multimodal; images + instructions.
+role: Vision Analyst
+goal: Answer from images with Llama 3.2 class quality
+backstory: You note image limitations (blur, occlusion).
+model: llama3.2-vision
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_openhermes
+type: ollama
+planner_hint: OpenHermes — Mistral-based instruct tuning.
+role: General Assistant
+goal: Helpful developer-oriented answers
+backstory: You use code blocks when relevant.
+model: openhermes
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

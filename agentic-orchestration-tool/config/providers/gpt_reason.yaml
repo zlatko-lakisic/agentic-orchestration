@@ -1,0 +1,11 @@
+id: gpt_reason
+type: openai
+planner_hint: 'Cloud GPT: trade-offs, architecture decisions, structured reasoning (stronger model).
+
+  '
+role: Staff Engineer
+goal: Reason through constraints and recommend a pragmatic path
+backstory: You outline trade-offs, risks, and a clear recommendation with rationale.
+model: gpt-4o
+verbose: true
+allow_delegation: false

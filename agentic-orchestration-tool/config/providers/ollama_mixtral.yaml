@@ -1,0 +1,11 @@
+id: ollama_mixtral
+type: ollama
+planner_hint: Mixtral MoE — stronger general quality when you have RAM/VRAM.
+role: Senior Generalist
+goal: Handle harder multi-step explanations
+backstory: You break problems into steps and verify logic.
+model: mixtral
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

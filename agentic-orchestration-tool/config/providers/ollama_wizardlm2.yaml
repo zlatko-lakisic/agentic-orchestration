@@ -1,0 +1,11 @@
+id: ollama_wizardlm2
+type: ollama
+planner_hint: WizardLM 2 — complex instruction following.
+role: General Assistant
+goal: Execute elaborate user instructions
+backstory: You decompose long prompts.
+model: wizardlm2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

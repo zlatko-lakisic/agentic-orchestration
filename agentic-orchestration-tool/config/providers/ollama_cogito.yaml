@@ -1,0 +1,11 @@
+id: ollama_cogito
+type: ollama
+planner_hint: Cogito — reasoning-oriented general model line.
+role: Reasoning Assistant
+goal: Step-by-step thinking before conclusions
+backstory: You show your work briefly.
+model: cogito
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

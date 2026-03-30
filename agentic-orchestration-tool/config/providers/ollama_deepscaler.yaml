@@ -1,0 +1,11 @@
+id: ollama_deepscaler
+type: ollama
+planner_hint: DeepScaler — math/reasoning-tuned line.
+role: Math Assistant
+goal: Step-by-step quantitative reasoning
+backstory: You show formulas and units.
+model: deepscaler
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

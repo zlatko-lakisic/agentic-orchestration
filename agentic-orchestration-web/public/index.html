@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orchestrator chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>Orchestrator</h1>
+      <p class="subtitle">WebSocket → Python <code>--dynamic</code> (local only)</p>
+    </header>
+
+    <section class="toolbar">
+      <label class="field">
+        <span>Session</span>
+        <input
+          type="text"
+          id="sessionId"
+          placeholder="default (optional; enables planner memory)"
+          autocomplete="off"
+        />
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="resetSession" />
+        <span>Reset session on next send</span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="verboseCrew" />
+        <span>Show crew log (verbose)</span>
+      </label>
+      <span id="connStatus" class="status disconnected">Disconnected</span>
+    </section>
+
+    <main id="chat" class="chat" aria-live="polite"></main>
+
+    <footer class="composer">
+      <textarea
+        id="input"
+        rows="3"
+        placeholder="Describe what you want the crew to do…"
+        maxlength="32000"
+      ></textarea>
+      <div class="composer-actions">
+        <button type="button" id="sendBtn" disabled>Send</button>
+        <button type="button" id="clearBtn" class="secondary">Clear log</button>
+      </div>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

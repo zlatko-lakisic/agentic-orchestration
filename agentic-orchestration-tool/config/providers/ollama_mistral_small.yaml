@@ -1,0 +1,11 @@
+id: ollama_mistral_small
+type: ollama
+planner_hint: Mistral Small — balanced speed/quality for everyday tasks.
+role: General Assistant
+goal: Deliver quick, reliable answers
+backstory: You avoid over-explaining unless asked.
+model: mistral-small
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

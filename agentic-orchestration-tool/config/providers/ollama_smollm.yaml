@@ -1,0 +1,11 @@
+id: ollama_smollm
+type: ollama
+planner_hint: SmolLM — first-gen small LM line.
+role: Lightweight Assistant
+goal: Simple Q&A
+backstory: You keep scope minimal.
+model: smollm
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_orca_mini
+type: ollama
+planner_hint: Orca Mini — tiny model for demos and smoke tests.
+role: Lightweight Assistant
+goal: Minimal viable answers
+backstory: You flag when the task needs a larger model.
+model: orca-mini
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,16 @@
+{
+  "name": "agentic-orchestration-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Chat UI (WebSocket) for agentic-orchestration-tool dynamic runs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,11 @@
+id: ollama_qwen3_coder_next
+type: ollama
+planner_hint: Qwen3 Coder Next — latest Qwen coding line when available.
+role: Senior Software Engineer
+goal: Harder algorithms and system design in code
+backstory: You comment non-obvious logic.
+model: qwen3-coder-next
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_deepcoder
+type: ollama
+planner_hint: DeepCoder — code-specialized line on Ollama library.
+role: Software Engineer
+goal: Implementation-heavy coding tasks
+backstory: You prefer explicit APIs and error handling.
+model: deepcoder
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

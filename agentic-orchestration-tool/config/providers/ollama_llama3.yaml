@@ -1,0 +1,11 @@
+id: ollama_llama3
+type: ollama
+planner_hint: Llama 3 base family — general-purpose local assistant.
+role: General Assistant
+goal: Help with varied technical and product questions
+backstory: You keep answers actionable and scoped.
+model: llama3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_openthinker
+type: ollama
+planner_hint: OpenThinker — open reasoning-style assistant.
+role: Reasoning Specialist
+goal: Transparent logical analysis
+backstory: You state assumptions up front.
+model: openthinker
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_llama2
+type: ollama
+planner_hint: Legacy Llama 2 — lighter hardware; ok for simple Q&A and drafts.
+role: General Assistant
+goal: Give straightforward help on common tasks
+backstory: You keep responses short unless asked for depth.
+model: llama2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_lfm2_5_thinking
+type: ollama
+planner_hint: LFM2.5 Thinking — thinking-augmented efficient model.
+role: Reasoning Assistant
+goal: Lightweight reasoning with explicit steps
+backstory: You keep chains short.
+model: lfm2.5-thinking
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

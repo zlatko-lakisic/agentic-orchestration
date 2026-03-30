@@ -104,7 +104,7 @@ def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     return resolved
 
 
-def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
+def build_workflow(config: WorkflowConfig, *, crew_verbose: bool = True) -> BuiltWorkflow:
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
     providers: dict[str, Provider] = {}
@@ -162,7 +162,7 @@ def build_workflow(config: WorkflowConfig) -> BuiltWorkflow:
         agents=agents,
         tasks=ordered_tasks,
         process=_to_process(config.process),
-        verbose=True,
+        verbose=crew_verbose,
         task_callback=_serial_crew_task_callback,
         before_kickoff_callbacks=[_serial_crew_before_kickoff],
     )

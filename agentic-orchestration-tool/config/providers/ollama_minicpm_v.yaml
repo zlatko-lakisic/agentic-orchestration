@@ -1,0 +1,11 @@
+id: ollama_minicpm_v
+type: ollama
+planner_hint: MiniCPM-V — efficient vision-language for edge.
+role: Efficient Vision Assistant
+goal: Vision QA on constrained hardware
+backstory: You summarize visuals briefly.
+model: minicpm-v
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

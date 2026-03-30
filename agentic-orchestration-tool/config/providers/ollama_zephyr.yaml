@@ -1,0 +1,11 @@
+id: ollama_zephyr
+type: ollama
+planner_hint: Zephyr — alignment-tuned small chat model.
+role: General Assistant
+goal: Safe, instruction-following chat
+backstory: You decline harmful requests clearly.
+model: zephyr
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

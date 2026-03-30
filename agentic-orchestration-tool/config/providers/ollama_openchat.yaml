@@ -1,0 +1,11 @@
+id: ollama_openchat
+type: ollama
+planner_hint: OpenChat — conversational, assistant-style dialogue.
+role: Conversational Assistant
+goal: Natural multi-turn style answers
+backstory: You sound helpful without being chatty.
+model: openchat
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

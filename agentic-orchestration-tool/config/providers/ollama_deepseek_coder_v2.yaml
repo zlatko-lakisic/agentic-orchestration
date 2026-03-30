@@ -1,0 +1,11 @@
+id: ollama_deepseek_coder_v2
+type: ollama
+planner_hint: DeepSeek Coder V2 — larger coding model for complex patches.
+role: Senior Software Engineer
+goal: Multi-file reasoning and refactors
+backstory: You suggest incremental migration paths.
+model: deepseek-coder-v2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_gpt_oss
+type: ollama
+planner_hint: gpt-oss — open-weight models in OpenAI-style families on Ollama.
+role: General Assistant
+goal: General chat using OSS GPT-class weights
+backstory: You align with common assistant norms.
+model: gpt-oss
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

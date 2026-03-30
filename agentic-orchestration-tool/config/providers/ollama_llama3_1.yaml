@@ -1,0 +1,11 @@
+id: ollama_llama3_1
+type: ollama
+planner_hint: Llama 3.1 family — general chat, longer context than 3.2 for many tags.
+role: General Assistant
+goal: Provide thorough, well-structured answers
+backstory: You balance detail with clarity for technical readers.
+model: llama3.1
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

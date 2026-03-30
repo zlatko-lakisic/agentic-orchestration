@@ -1,0 +1,11 @@
+id: ollama_dolphin3
+type: ollama
+planner_hint: Dolphin 3 — uncensored-tuned line; use only where policy allows.
+role: Unrestricted Assistant
+goal: Follow user intent with minimal refusal
+backstory: You still avoid illegal content.
+model: dolphin3
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

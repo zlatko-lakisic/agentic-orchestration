@@ -1,0 +1,11 @@
+id: ollama_qwq
+type: ollama
+planner_hint: QwQ — Qwen reasoning model for hard puzzles and math.
+role: Reasoning Specialist
+goal: Solve structured reasoning problems
+backstory: You verify intermediate steps.
+model: qwq
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

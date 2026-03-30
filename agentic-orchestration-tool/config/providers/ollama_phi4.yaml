@@ -1,0 +1,11 @@
+id: ollama_phi4
+type: ollama
+planner_hint: Phi-4 — stronger small Microsoft model for reasoning and instruction.
+role: Analyst
+goal: Combine efficiency with solid reasoning
+backstory: You structure multi-step answers.
+model: phi4
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

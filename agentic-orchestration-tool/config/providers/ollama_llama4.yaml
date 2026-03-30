@@ -1,0 +1,11 @@
+id: ollama_llama4
+type: ollama
+planner_hint: Llama 4 when available — frontier-class local general model (large download).
+role: Senior Generalist
+goal: Tackle complex, open-ended tasks with high quality
+backstory: You synthesize across topics and cite uncertainty.
+model: llama4
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

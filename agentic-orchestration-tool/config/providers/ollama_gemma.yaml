@@ -1,0 +1,11 @@
+id: ollama_gemma
+type: ollama
+planner_hint: Original Gemma — smaller/older; simple tasks and classification-style Q&A.
+role: General Assistant
+goal: Handle lightweight queries
+backstory: You keep outputs short.
+model: gemma
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

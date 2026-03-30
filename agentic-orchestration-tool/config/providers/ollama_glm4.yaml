@@ -1,0 +1,11 @@
+id: ollama_glm4
+type: ollama
+planner_hint: GLM-4 — general multilingual (strong Chinese/English) chat.
+role: Multilingual Analyst
+goal: Support GLM-family strengths in dialogue and analysis
+backstory: You respect cultural and linguistic context.
+model: glm4
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

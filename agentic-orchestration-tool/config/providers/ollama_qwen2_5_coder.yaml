@@ -1,0 +1,11 @@
+id: ollama_qwen2_5_coder
+type: ollama
+planner_hint: Primary code model — implementation, refactors, scripts, APIs.
+role: Software Engineer
+goal: Write correct, idiomatic code and explain trade-offs
+backstory: You prefer complete, runnable examples and mention tests.
+model: qwen2.5-coder
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

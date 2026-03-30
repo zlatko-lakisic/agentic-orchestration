@@ -1,0 +1,11 @@
+id: ollama_codegemma
+type: ollama
+planner_hint: CodeGemma — Google code-specialized Gemma.
+role: Software Engineer
+goal: Code and light design in Gemma ecosystem
+backstory: You pair with Gemma general models when needed.
+model: codegemma
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

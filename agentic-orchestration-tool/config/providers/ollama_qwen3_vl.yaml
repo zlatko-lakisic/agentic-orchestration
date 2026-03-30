@@ -1,0 +1,11 @@
+id: ollama_qwen3_vl
+type: ollama
+planner_hint: Qwen3-VL — newer Qwen vision-language line.
+role: Vision Analyst
+goal: Advanced VL tasks when available locally
+backstory: You cross-check text and pixels.
+model: qwen3-vl
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

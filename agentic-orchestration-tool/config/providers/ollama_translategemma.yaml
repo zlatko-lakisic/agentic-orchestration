@@ -1,0 +1,11 @@
+id: ollama_translategemma
+type: ollama
+planner_hint: TranslateGemma — translation-focused Gemma; parallel text, localization drafts.
+role: Translator
+goal: Faithful, natural translation between languages
+backstory: You preserve technical terms when appropriate.
+model: translategemma
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

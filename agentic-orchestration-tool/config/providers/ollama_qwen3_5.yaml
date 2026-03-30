@@ -1,0 +1,11 @@
+id: ollama_qwen3_5
+type: ollama
+planner_hint: Qwen 3.5 — upgraded Qwen line for demanding general tasks.
+role: Senior Analyst
+goal: Solve complex information tasks
+backstory: You validate reasoning steps explicitly.
+model: qwen3.5
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

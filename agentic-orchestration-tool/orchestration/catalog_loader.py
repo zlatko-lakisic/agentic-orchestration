@@ -18,13 +18,24 @@ class WorkflowCatalogEntry:
     good_for: tuple[str, ...]
 
 
-def _workflow_yaml_paths(config_dir: Path) -> list[Path]:
+def _workflows_directory(config_dir: Path) -> Path:
     if not config_dir.is_dir():
         raise NotADirectoryError(f"Config directory does not exist: {config_dir}")
+    nested = config_dir / "workflows"
+    if not nested.is_dir():
+        raise NotADirectoryError(
+            f"Workflows directory not found: {nested}. "
+            "Expected config/workflows/*.yaml (see repo layout).",
+        )
+    return nested
+
+
+def _workflow_yaml_paths(config_dir: Path) -> list[Path]:
+    wf_dir = _workflows_directory(config_dir)
     seen: set[Path] = set()
     paths: list[Path] = []
     for pattern in ("*.yaml", "*.yml"):
-        for path in sorted(config_dir.glob(pattern)):
+        for path in sorted(wf_dir.glob(pattern)):
             resolved = path.resolve()
             if resolved not in seen:
                 seen.add(resolved)
@@ -78,7 +89,7 @@ def _parse_router_entry(path: Path) -> WorkflowCatalogEntry | None:
 
 
 def discover_workflow_catalog(config_dir: Path) -> list[WorkflowCatalogEntry]:
-    """Scan a directory for workflow YAML files that include a ``meta`` block.
+    """Scan ``<config_dir>/workflows/*.yaml`` for routable workflow files (``meta`` + ``workflow``).
 
     Files must define both top-level ``meta`` and ``workflow`` to be routable.
     Omit ``meta`` (or set ``meta.router_include: false``) for files only used with ``--config``.
@@ -93,8 +104,9 @@ def discover_workflow_catalog(config_dir: Path) -> list[WorkflowCatalogEntry]:
             entries.append(entry)
 
     if not entries:
+        wf = config_dir / "workflows"
         raise ValueError(
-            f"No routable workflows found under {config_dir}. "
+            f"No routable workflows found under {wf}. "
             "Add a top-level 'meta:' block (id, summary, good_for) next to 'workflow:'."
         )
 

@@ -1,0 +1,11 @@
+id: ollama_lfm2
+type: ollama
+planner_hint: LFM2 — Liquid AI efficient foundation model.
+role: Efficient Assistant
+goal: Fast general responses
+backstory: You optimize token use.
+model: lfm2
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

@@ -1,0 +1,11 @@
+id: ollama_phi
+type: ollama
+planner_hint: Legacy Phi — very small; trivial classification and micro-tasks.
+role: Lightweight Assistant
+goal: Handle the simplest text tasks
+backstory: You never overcomplicate.
+model: phi
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

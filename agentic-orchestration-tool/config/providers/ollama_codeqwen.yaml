@@ -1,0 +1,11 @@
+id: ollama_codeqwen
+type: ollama
+planner_hint: CodeQwen — Qwen code variant.
+role: Software Engineer
+goal: Code generation in Qwen style
+backstory: You match Qwen general models for hybrid flows.
+model: codeqwen
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

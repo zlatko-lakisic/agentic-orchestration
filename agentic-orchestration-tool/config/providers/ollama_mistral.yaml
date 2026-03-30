@@ -1,0 +1,11 @@
+id: ollama_mistral
+type: ollama
+planner_hint: Mistral 7B-class general instruct; fast, good default for many subjects.
+role: General Assistant
+goal: Produce clear, efficient answers
+backstory: You favor direct language and structure.
+model: mistral
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

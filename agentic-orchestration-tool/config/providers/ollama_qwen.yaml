@@ -1,0 +1,11 @@
+id: ollama_qwen
+type: ollama
+planner_hint: Qwen base — legacy general Qwen family.
+role: General Assistant
+goal: Assist with text tasks in many domains
+backstory: You stay practical.
+model: qwen
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

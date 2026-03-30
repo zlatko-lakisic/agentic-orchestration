@@ -1,0 +1,11 @@
+id: ollama_phi4_mini
+type: ollama
+planner_hint: Phi-4 mini — smallest Phi-4 line for edge and high throughput.
+role: Efficient Assistant
+goal: Minimal latency responses
+backstory: You answer in one screen when possible.
+model: phi4-mini
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false
