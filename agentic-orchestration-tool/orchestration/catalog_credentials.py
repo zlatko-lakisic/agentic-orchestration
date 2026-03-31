@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections import Counter
 from typing import Any, Callable
 
 
@@ -74,23 +75,62 @@ def filter_entries_by_api_credentials(
     """
     Keep entries that pass ``catalog_entry_has_api_credentials``.
 
-    When ``verbose`` is True, print a stderr line per skipped provider id.
+    When ``verbose`` is True, print skipped providers. Many skips are summarized into one line
+    (threshold from ``AGENTIC_CREDENTIAL_SKIP_SUMMARY_AT``, default 8). Set
+    ``AGENTIC_CREDENTIAL_SKIP_VERBOSE=1`` to always print one line per skipped id.
+
     Returns ``(kept, skipped_ids)``.
     """
     kept: list[dict[str, Any]] = []
-    skipped_ids: list[str] = []
+    skipped: list[dict[str, Any]] = []
     prefix = f"{log_prefix}: " if log_prefix else ""
     for entry in entries:
         if catalog_entry_has_api_credentials(entry):
             kept.append(entry)
             continue
+        skipped.append(entry)
+
+    skipped_ids = [
+        str(e.get("id", "")).strip() or "(missing id)" for e in skipped
+    ]
+
+    if not verbose or not skipped:
+        return kept, skipped_ids
+
+    force_each = os.getenv("AGENTIC_CREDENTIAL_SKIP_VERBOSE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    try:
+        summary_at = max(1, int(os.getenv("AGENTIC_CREDENTIAL_SKIP_SUMMARY_AT", "8").strip()))
+    except ValueError:
+        summary_at = 8
+
+    if not force_each and len(skipped) >= summary_at:
+        by_type = Counter(
+            str(e.get("type", "")).strip().lower() or "unknown" for e in skipped
+        )
+        parts: list[str] = []
+        for typ in sorted(by_type):
+            n = by_type[typ]
+            hint = credential_skip_reason({"type": typ})
+            parts.append(f"{typ}: {n} ({hint})")
+        print(
+            f"{prefix}credential filter: skipping {len(skipped)} agent provider(s) — "
+            + "; ".join(parts)
+            + ".",
+            file=sys.stderr,
+        )
+        return kept, skipped_ids
+
+    for entry in skipped:
         pid = str(entry.get("id", "")).strip() or "(missing id)"
-        skipped_ids.append(pid)
-        if verbose:
-            typ = str(entry.get("type", "")).strip().lower()
-            hint = credential_skip_reason(entry)
-            print(
-                f"{prefix}skipping agent provider {pid!r} (type={typ!r}): missing credentials; {hint}.",
-                file=sys.stderr,
-            )
+        typ = str(entry.get("type", "")).strip().lower()
+        hint = credential_skip_reason(entry)
+        print(
+            f"{prefix}skipping agent provider {pid!r} (type={typ!r}): missing credentials; {hint}.",
+            file=sys.stderr,
+        )
     return kept, skipped_ids

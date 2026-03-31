@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Sequence
 
 from crewai import Agent
 
@@ -63,7 +63,12 @@ class HuggingfaceProvider(AgentProvider):
                 "Create a token at https://huggingface.co/settings/tokens"
             )
 
-    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
+    def build_agent(
+        self,
+        *,
+        mcps: Sequence[Any] | None = None,
+        role_suffix: str | None = None,
+    ) -> Agent:
         clean = _strip_hf_model_prefix(self.config.model)
         llm_id = f"huggingface/{clean}"
 
@@ -75,8 +80,11 @@ class HuggingfaceProvider(AgentProvider):
             llm_kwargs["api_key"] = api_key
 
         llm = LLM(**llm_kwargs)
+        role = self.config.role
+        if role_suffix:
+            role = f"{self.config.role} ({role_suffix})"
         kwargs: dict[str, Any] = dict(
-            role=self.config.role,
+            role=role,
             goal=self.config.goal,
             backstory=self.config.backstory,
             llm=llm,
@@ -84,5 +92,5 @@ class HuggingfaceProvider(AgentProvider):
             allow_delegation=self.config.allow_delegation,
         )
         if mcps:
-            kwargs["mcps"] = mcps
+            kwargs["mcps"] = list(mcps)
         return Agent(**kwargs)

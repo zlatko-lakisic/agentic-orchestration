@@ -1,0 +1,12 @@
+# MetalBear mirrord documentation MCP (local; no authentication).
+# Point URL at your running docs MCP instance if the host/port differs.
+id: mirrord_docs
+description: >-
+  Mirrord docs and tooling context from an MCP server (traffic mirroring, Kubernetes local
+  development, MetalBear ecosystem).
+planner_hint: >-
+  Use when the task involves mirrord CLI usage, configuration, Kubernetes debugging, or
+  MetalBear product behavior—prefer looking up docs via this server rather than guessing.
+
+refs:
+  - "http://10.0.10.16:8765/mcp"

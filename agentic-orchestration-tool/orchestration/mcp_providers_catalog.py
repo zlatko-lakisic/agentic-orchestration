@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import re
 from pathlib import Path
@@ -96,7 +97,37 @@ def _assert_unique_mcp_ids(entries: list[dict[str, Any]]) -> list[dict[str, Any]
     return entries
 
 
-def _refs_from_mapping(item: dict[str, Any]) -> list[str]:
+def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a CrewAI-style streamable HTTP MCP config (``url``, ``transport``, optional ``headers``)."""
+    raw_sh = item.get("streamable_http")
+    if not isinstance(raw_sh, dict) or not raw_sh:
+        return None
+
+    raw_url = str(raw_sh.get("url", "")).strip()
+    if not raw_url:
+        raise ValueError(
+            f"MCP provider {item.get('id', '?')!r}: streamable_http.url is required when "
+            f"streamable_http is set",
+        )
+    url = substitute_mcp_env_vars(raw_url).strip().rstrip("/")
+
+    headers: dict[str, str] = {}
+    headers_raw = raw_sh.get("headers")
+    if isinstance(headers_raw, dict):
+        for hk, hv in headers_raw.items():
+            key = str(hk).strip()
+            if not key:
+                continue
+            headers[key] = substitute_mcp_env_vars(str(hv))
+
+    return {
+        "url": url,
+        "transport": "streamable-http",
+        **({"headers": headers} if headers else {}),
+    }
+
+
+def _string_refs_from_mapping(item: dict[str, Any]) -> list[str]:
     ref = item.get("ref")
     refs = item.get("refs")
     out: list[str] = []
@@ -106,25 +137,48 @@ def _refs_from_mapping(item: dict[str, Any]) -> list[str]:
         out.extend(str(x).strip() for x in refs if x is not None and str(x).strip())
     if not out:
         raise ValueError(
-            f"MCP provider {item.get('id', '?')!r} must define non-empty 'ref' or 'refs'",
+            f"MCP provider {item.get('id', '?')!r} must define non-empty 'ref'/'refs', "
+            f"or a 'streamable_http' block",
         )
     return out
+
+
+def _mcps_entries_from_mapping(item: dict[str, Any]) -> list[Any]:
+    sh = _streamable_http_mcps_entry(item)
+    if sh is not None:
+        return [sh]
+    strings = _string_refs_from_mapping(item)
+    return strings
+
+
+def _mcps_dedupe_key(entry: Any) -> str:
+    if isinstance(entry, str):
+        return f"s:{entry}"
+    if isinstance(entry, dict):
+        return f"d:{json.dumps(entry, sort_keys=True)}"
+    return f"o:{repr(entry)}"
+
+
+def mcps_list_fingerprint(resolved_mcps: list[Any]) -> tuple[str, ...]:
+    """Stable tuple identity for a resolved ``mcps`` list (order-preserving)."""
+    return tuple(_mcps_dedupe_key(e) for e in resolved_mcps)
 
 
 def resolve_workflow_mcp_refs(
     raw_items: list[Any],
     catalog_entries: list[dict[str, Any]],
-) -> list[str]:
-    """Turn workflow ``mcp_providers`` entries into CrewAI ``mcps`` URL/slug strings (order preserved, de-duped)."""
+) -> list[Any]:
+    """Resolve workflow ``mcp_providers`` into CrewAI ``mcps`` entries (URL strings and/or transport dicts)."""
     if not raw_items:
         return []
 
     catalog_by_id = {str(p["id"]).strip(): p for p in catalog_entries}
 
-    resolved: list[str] = []
+    resolved: list[Any] = []
     seen: set[str] = set()
+
     for i, item in enumerate(raw_items):
-        refs: list[str]
+        entries: list[Any]
         if isinstance(item, str):
             pid = item.strip()
             if not pid or pid not in catalog_by_id:
@@ -132,17 +186,27 @@ def resolve_workflow_mcp_refs(
                 raise ValueError(
                     f"workflow.mcp_providers[{i}] unknown catalog id {pid!r}. Known: {known}",
                 )
-            refs = _refs_from_mapping(catalog_by_id[pid])
+            entries = _mcps_entries_from_mapping(catalog_by_id[pid])
         elif isinstance(item, dict):
-            refs = _refs_from_mapping(item)
+            entries = _mcps_entries_from_mapping(item)
         else:
             raise ValueError(f"workflow.mcp_providers[{i}] must be a string id or a mapping")
 
-        for r in refs:
-            expanded = substitute_mcp_env_vars(r)
-            if expanded and expanded not in seen:
-                seen.add(expanded)
-                resolved.append(expanded)
+        for ent in entries:
+            if isinstance(ent, str):
+                expanded = substitute_mcp_env_vars(ent)
+                if not expanded:
+                    continue
+                key = _mcps_dedupe_key(expanded)
+                if key not in seen:
+                    seen.add(key)
+                    resolved.append(expanded)
+            else:
+                key = _mcps_dedupe_key(ent)
+                if key not in seen:
+                    seen.add(key)
+                    resolved.append(ent)
+
     return resolved
 
 
@@ -155,6 +219,9 @@ def _format_mcp_catalog_entry(p: dict[str, Any]) -> str:
         parts.append(f"  description: {desc!r}")
     if hint:
         parts.append(f"  planner_hint: {hint!r}")
+    sh = p.get("streamable_http")
+    if isinstance(sh, dict) and sh:
+        parts.append("  transport: streamable-http (+ optional headers from env)")
     return "\n".join(parts)
 
 

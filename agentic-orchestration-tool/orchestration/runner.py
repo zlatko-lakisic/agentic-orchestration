@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
+from collections import defaultdict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -16,6 +18,7 @@ from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
 from orchestration.mcp_providers_catalog import (
     load_mcp_providers_catalog_merged,
+    mcps_list_fingerprint,
     resolve_workflow_mcp_refs,
 )
 from orchestration.workflow_ollama import resolve_workflow_ollama_host
@@ -97,6 +100,12 @@ def _to_process(value: str) -> Process:
     raise ValueError("workflow.process must be 'sequential' or 'hierarchical'.")
 
 
+def _raw_mcp_list_for_task(task_def: TaskDefinition, config: WorkflowConfig) -> list[Any]:
+    if task_def.mcp_providers is not None:
+        return list(task_def.mcp_providers)
+    return list(config.mcp_providers)
+
+
 def _resolve_agent_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     workflow_host = resolve_workflow_ollama_host(config.instance_key)
     resolved: list[dict[str, Any]] = []
@@ -116,6 +125,7 @@ def build_workflow(
     *,
     crew_verbose: bool = True,
     quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
 ) -> BuiltWorkflow:
     """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
 
@@ -153,13 +163,31 @@ def build_workflow(
         if mcp_catalog_path is not None
         else []
     )
-    mcps = (
-        resolve_workflow_mcp_refs(config.mcp_providers, mcp_catalog_entries)
-        if config.mcp_providers
-        else []
-    )
-    if mcps and not quiet:
-        print(f"(mcp) attaching {len(mcps)} MCP ref(s) to every agent", file=sys.stderr)
+
+    task_mcps_resolved: dict[str, list[Any]] = {}
+    for tdef in config.tasks:
+        raw = _raw_mcp_list_for_task(tdef, config)
+        task_mcps_resolved[tdef.id] = (
+            resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []
+        )
+
+    fingerprint_by_task: dict[str, tuple[str, ...]] = {
+        tid: mcps_list_fingerprint(mclist) for tid, mclist in task_mcps_resolved.items()
+    }
+
+    groups_by_apid: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+    for tdef in config.tasks:
+        groups_by_apid[tdef.agent_provider_id].add(fingerprint_by_task[tdef.id])
+
+    if not quiet and any(task_mcps_resolved[t.id] for t in config.tasks):
+        for tdef in config.tasks:
+            raw_spec = _raw_mcp_list_for_task(tdef, config)
+            spec_label = raw_spec if raw_spec else "(none — workflow default empty)"
+            print(
+                f"(mcp) task {tdef.id!r} -> {len(task_mcps_resolved[tdef.id])} MCP config(s); "
+                f"yaml/plan spec: {spec_label!r}",
+                file=sys.stderr,
+            )
 
     agent_providers: dict[str, AgentProvider] = {}
     for provider_data in usable_payloads:
@@ -171,13 +199,31 @@ def build_workflow(
         ap.health_check()
         agent_providers[ap.config.id] = ap
 
-    agents_by_apid = {ap_id: ap.build_agent(mcps=mcps) for ap_id, ap in agent_providers.items()}
-    agents = list(agents_by_apid.values())
+    crew_agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
+    for tdef in config.tasks:
+        apid = tdef.agent_provider_id
+        fp = fingerprint_by_task[tdef.id]
+        key = (apid, fp)
+        if key in crew_agent_cache:
+            continue
+        ap = agent_providers[apid]
+        mcps_list = task_mcps_resolved[tdef.id]
+        role_suffix: str | None = None
+        if len(groups_by_apid[apid]) > 1:
+            role_suffix = hashlib.sha256("|".join(fp).encode("utf-8")).hexdigest()[:8]
+        crew_agent_cache[key] = ap.build_agent(
+            mcps=mcps_list if mcps_list else None,
+            role_suffix=role_suffix,
+        )
+
+    agents = list(crew_agent_cache.values())
 
     task_def_by_id: dict[str, TaskDefinition] = {t.id: t for t in config.tasks}
     tasks_by_id: dict[str, Task] = {}
     for task_def in config.tasks:
-        agent = agents_by_apid.get(task_def.agent_provider_id)
+        apid = task_def.agent_provider_id
+        fp = fingerprint_by_task[task_def.id]
+        agent = crew_agent_cache.get((apid, fp))
         if agent is None:
             raise ValueError(
                 f"Task '{task_def.id}' references unknown agent provider "
@@ -224,7 +270,7 @@ def build_workflow(
         "workflow_name": config.name,
         "process": config.process,
         "topic": topic,
-        "workflow_mcps": list(mcps),
+        "task_mcps_resolved": {k: list(v) for k, v in task_mcps_resolved.items()},
     }
     return BuiltWorkflow(
         crew=crew,

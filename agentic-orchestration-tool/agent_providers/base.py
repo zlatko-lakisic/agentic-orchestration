@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 from crewai import Agent
 
@@ -80,5 +80,10 @@ class AgentProvider(ABC):
         """Resume after suspend() (runner does not call this yet)."""
 
     @abstractmethod
-    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
+    def build_agent(
+        self,
+        *,
+        mcps: Sequence[Any] | None = None,
+        role_suffix: str | None = None,
+    ) -> Agent:
         """Build and return a CrewAI agent instance."""

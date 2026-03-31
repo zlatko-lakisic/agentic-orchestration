@@ -13,6 +13,8 @@ class TaskDefinition:
     agent_provider_id: str
     description: str
     expected_output: str
+    # When None, inherit ``WorkflowConfig.mcp_providers``. When [], no MCP for this task only.
+    mcp_providers: list[Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -98,12 +100,30 @@ def load_workflow_config(
         if not expected_output:
             raise ValueError(f"Task '{task_id}' is missing 'expected_output'.")
 
+        task_mcp: list[Any] | None
+        if "mcp_providers" in item:
+            tmcp = item["mcp_providers"]
+            if not isinstance(tmcp, list):
+                raise ValueError(f"Task '{task_id}' mcp_providers must be a list when set.")
+            for j, mcp_item in enumerate(tmcp):
+                if isinstance(mcp_item, str):
+                    continue
+                if isinstance(mcp_item, dict):
+                    continue
+                raise ValueError(
+                    f"Task '{task_id}' mcp_providers[{j}] must be a catalog id or inline mapping",
+                )
+            task_mcp = list(tmcp)
+        else:
+            task_mcp = None
+
         task_definitions.append(
             TaskDefinition(
                 id=task_id,
                 agent_provider_id=apid,
                 description=description,
                 expected_output=expected_output,
+                mcp_providers=task_mcp,
             )
         )
 

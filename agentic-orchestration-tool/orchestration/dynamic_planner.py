@@ -7,6 +7,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -88,16 +89,26 @@ def _planner_chat_completion(
         "Content-Type": "application/json",
     }
 
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(url, headers=headers, json=body)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            detail = response.text[:500] if response.text else ""
-            raise RuntimeError(
-                f"Planner LLM request failed ({response.status_code}): {detail}"
-            ) from exc
-        data = response.json()
+    try:
+        with httpx.Client(timeout=120.0) as client:
+            response = client.post(url, headers=headers, json=body)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detail = response.text[:500] if response.text else ""
+                raise RuntimeError(
+                    f"Planner LLM request failed ({response.status_code}): {detail}"
+                ) from exc
+            data = response.json()
+    except httpx.RequestError as exc:
+        parsed = urlparse(base)
+        host = parsed.netloc or base.strip() or "(invalid base URL)"
+        msg = (
+            f"Planner cannot reach the OpenAI-compatible API ({host!r}, request to {url!r}): {exc}. "
+            "If you see 'getaddrinfo' or 'Name or service not known', DNS cannot resolve the host—"
+            "check network/VPN, corporate firewall, proxies, and OPENAI_BASE_URL / OPENAI_API_BASE."
+        )
+        raise RuntimeError(msg) from exc
 
     choices = data.get("choices") or []
     if not choices:
@@ -123,8 +134,9 @@ def _planner_system_prompt(
 Available **MCP providers** (optional; pick zero or more `mcp_provider_ids` from this catalog only):
 {mcp_catalog_doc}
 
-- When the user's goal clearly benefits from external MCP tools (search, APIs, DBs, etc.), include those ids in top-level `mcp_provider_ids`.
-- When no MCP entry fits, omit `mcp_provider_ids` or use an empty array.
+- **Per-step MCP:** Each step may include `mcp_provider_ids` — only the MCP servers that help *that* step. Pick the minimal relevant set using each MCP entry's description and `planner_hint`.
+- **Default MCP:** Top-level `mcp_provider_ids` applies to any step that **omits** `mcp_provider_ids`. If top-level is omitted or `[]`, steps without their own list use no MCP unless a step sets its own list.
+- **No MCP for one step:** Set that step's `mcp_provider_ids` to `[]`.
 """
     system = f"""You are an expert orchestration planner for a multi-agent system.
 
@@ -141,22 +153,23 @@ Rules:
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
-- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step (not just step order).
+- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step (not just step order), and which MCP(s) each step needs (if any).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
-  "plan_summary": "short rationale for the step order and agent provider choices",
-  "mcp_provider_ids": ["optional MCP catalog ids when the MCP catalog above is non-empty"],
+  "plan_summary": "short rationale for steps, agent providers, and MCP choices",
+  "mcp_provider_ids": ["optional default MCP ids for steps that omit their own list"],
   "steps": [
     {{
       "agent_provider_id": "<id from catalog>",
+      "mcp_provider_ids": ["optional; per-step MCP subset — omit key to use top-level default"],
       "description": "Instructions for the agent. Must mention {{topic}}.",
       "expected_output": "What this step should produce"
     }}
   ]
 }}
-Omit `"mcp_provider_ids"` or set it to `[]` when no MCP tools are needed.
+Use top-level `mcp_provider_ids` only as a default. Prefer per-step `mcp_provider_ids` when the MCP catalog is non-empty. Omit step-level key only when the default is correct for that step.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -220,8 +233,17 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
         match = next((t for t in cfg.tasks if t.id == tid), None)
         if match is None:
             continue
+        mcp_note = ""
+        if match.mcp_providers is not None:
+            if not match.mcp_providers:
+                mcp_note = "\n  - mcp_providers: (none)"
+            else:
+                parts = [str(x) for x in match.mcp_providers]
+                mcp_note = f"\n  - mcp_providers: {', '.join(parts)}"
+        else:
+            mcp_note = "\n  - mcp_providers: (workflow default)"
         task_lines.append(
-            f"- `{match.id}` → agent_provider `{match.agent_provider_id}`\n"
+            f"- `{match.id}` → agent_provider `{match.agent_provider_id}`{mcp_note}\n"
             f"  - description: {clip(match.description, cap_desc)}\n"
             f"  - expected_output: {clip(match.expected_output, cap_exp)}"
         )
@@ -289,6 +311,18 @@ def workflow_config_from_plan(
     task_definitions: list[TaskDefinition] = []
     used_provider_ids: list[str] = []
     seen_providers: set[str] = set()
+    _mcp_step_sentinel: Any = object()
+
+    mcp_raw = plan.get("mcp_provider_ids", [])
+    if mcp_raw is None:
+        mcp_raw = []
+    if not isinstance(mcp_raw, list):
+        raise ValueError("Planner JSON 'mcp_provider_ids' must be an array when present")
+    mcp_plan_ids: list[str] = []
+    for x in mcp_raw:
+        s = str(x).strip()
+        if s:
+            mcp_plan_ids.append(s)
 
     for i, step in enumerate(steps_raw):
         if not isinstance(step, dict):
@@ -308,6 +342,15 @@ def workflow_config_from_plan(
         if "{topic}" not in desc:
             desc = f"{{topic}}\n\n{desc}"
 
+        sm_raw = step.get("mcp_provider_ids", _mcp_step_sentinel)
+        per_step_mcp: list[str] | None
+        if sm_raw is _mcp_step_sentinel:
+            per_step_mcp = None
+        else:
+            if not isinstance(sm_raw, list):
+                raise ValueError(f"steps[{i}].mcp_provider_ids must be an array when present")
+            per_step_mcp = [str(x).strip() for x in sm_raw if str(x).strip()]
+
         tid = f"step_{i + 1}"
         task_definitions.append(
             TaskDefinition(
@@ -315,6 +358,7 @@ def workflow_config_from_plan(
                 agent_provider_id=pid,
                 description=desc,
                 expected_output=expected,
+                mcp_providers=per_step_mcp,
             )
         )
         if pid not in seen_providers:
@@ -323,23 +367,17 @@ def workflow_config_from_plan(
 
     provider_payloads = [deepcopy_agent_provider(catalog_by_id[pid]) for pid in used_provider_ids]
 
-    mcp_raw = plan.get("mcp_provider_ids", [])
-    if mcp_raw is None:
-        mcp_raw = []
-    if not isinstance(mcp_raw, list):
-        raise ValueError("Planner JSON 'mcp_provider_ids' must be an array when present")
-    mcp_plan_ids: list[str] = []
-    for x in mcp_raw:
-        s = str(x).strip()
-        if s:
-            mcp_plan_ids.append(s)
+    referenced_mcp: set[str] = set(mcp_plan_ids)
+    for tdef in task_definitions:
+        if tdef.mcp_providers is not None:
+            referenced_mcp.update(tdef.mcp_providers)
     if mcp_catalog_entries is not None:
         known_mcp = {
             str(p.get("id", "")).strip()
             for p in mcp_catalog_entries
             if str(p.get("id", "")).strip()
         }
-        for mid in mcp_plan_ids:
+        for mid in referenced_mcp:
             if mid not in known_mcp:
                 raise ValueError(
                     f"Unknown mcp_provider_id {mid!r} in plan. Known: {', '.join(sorted(known_mcp))}",

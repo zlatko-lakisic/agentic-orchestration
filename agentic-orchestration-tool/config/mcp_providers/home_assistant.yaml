@@ -1,0 +1,19 @@
+# Home Assistant Model Context Protocol Server (Streamable HTTP).
+# https://www.home-assistant.io/integrations/mcp_server/
+#
+# Set in .env (not committed):
+#   HOME_ASSISTANT_URL=https://your-instance.example.com   # no trailing slash
+#   HOME_ASSISTANT_TOKEN=<long-lived access token from Profile → Security>
+id: home_assistant
+description: >-
+ Home Assistant entities and tools exposed via MCP (Assist API). Control is limited to
+ entities you expose to the MCP integration; uses Streamable HTTP at /api/mcp with a
+ long-lived access token.
+planner_hint: >-
+ Use when the user needs smart-home actions, entity state, or Assist-exposed devices tied
+ to their Home Assistant instance.
+
+streamable_http:
+  url: "${HOME_ASSISTANT_URL}/api/mcp"
+  headers:
+    Authorization: "Bearer ${HOME_ASSISTANT_TOKEN}"

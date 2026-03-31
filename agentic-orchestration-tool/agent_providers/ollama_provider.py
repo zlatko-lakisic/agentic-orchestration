@@ -305,13 +305,21 @@ class OllamaProvider(AgentProvider):
                 f"Ollama is not reachable at {host}. Start the server or use selfcontained: true."
             )
 
-    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
+    def build_agent(
+        self,
+        *,
+        mcps: Sequence[Any] | None = None,
+        role_suffix: str | None = None,
+    ) -> Agent:
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
         model = f"ollama/{model_without_prefix}"
 
+        role = self.config.role
+        if role_suffix:
+            role = f"{self.config.role} ({role_suffix})"
         kwargs: dict[str, Any] = dict(
-            role=self.config.role,
+            role=role,
             goal=self.config.goal,
             backstory=self.config.backstory,
             llm=model,
@@ -319,5 +327,5 @@ class OllamaProvider(AgentProvider):
             allow_delegation=self.config.allow_delegation,
         )
         if mcps:
-            kwargs["mcps"] = mcps
+            kwargs["mcps"] = list(mcps)
         return Agent(**kwargs)

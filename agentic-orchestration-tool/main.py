@@ -436,9 +436,9 @@ def parse_args() -> argparse.Namespace:
         default=_DEFAULT_MCP_PROVIDERS_CATALOG,
         metavar="PATH",
         help=(
-            f"Directory of one YAML per MCP provider (CrewAI ``mcps`` URL/slug strings via ref/refs), "
-            f"or a bundle YAML with top-level 'mcp_providers' (default {_DEFAULT_MCP_PROVIDERS_CATALOG!r}; "
-            f"missing path loads no MCP catalog entries). "
+            f"Directory of one YAML per MCP provider: CrewAI ``mcps`` via ref/refs (URL strings) and/or "
+            f"streamable_http (url + headers, e.g. Home Assistant). Or a bundle YAML with 'mcp_providers'. "
+            f"Default {_DEFAULT_MCP_PROVIDERS_CATALOG!r}; missing path loads no MCP catalog entries. "
             f"Also merges directories in AGENTIC_EXTRA_MCP_PROVIDERS_PATH ({os.pathsep}-separated)."
         ),
     )
@@ -539,11 +539,21 @@ def main() -> None:
             if isinstance(summary, str) and summary.strip():
                 print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
             for i, tdef in enumerate(dyn_cfg.tasks, start=1):
+                if tdef.mcp_providers is not None:
+                    mcp_part = f"; mcp {tdef.mcp_providers!r}"
+                else:
+                    mcp_part = f"; mcp (default {dyn_cfg.mcp_providers!r})"
                 print(
-                    f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> agent_provider {tdef.agent_provider_id!r}",
+                    f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> "
+                    f"agent_provider {tdef.agent_provider_id!r}{mcp_part}",
                     file=sys.stderr,
                 )
-        built = build_workflow(dyn_cfg, crew_verbose=not args.quiet, quiet=args.quiet)
+        built = build_workflow(
+            dyn_cfg,
+            crew_verbose=not args.quiet,
+            quiet=args.quiet,
+            mcp_catalog_path=mcp_catalog_path,
+        )
         exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
         if exit_code:
             sys.exit(exit_code)
