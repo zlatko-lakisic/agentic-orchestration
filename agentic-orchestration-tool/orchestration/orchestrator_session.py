@@ -11,6 +11,10 @@ from typing import Any
 
 
 SESSION_DIR_NAME = "__orchestrator_sessions__"
+# When --orchestrator-session and AGENTIC_ORCHESTRATOR_SESSION are unset, dynamic runs still
+# persist under __orchestrator_sessions__/<this>.json (override with AGENTIC_ORCHESTRATOR_DEFAULT_SESSION).
+DEFAULT_ORCHESTRATOR_SESSION_SLUG = "default"
+DEFAULT_SESSION_SLUG_ENV = "AGENTIC_ORCHESTRATOR_DEFAULT_SESSION"
 
 
 @dataclass
@@ -47,6 +51,26 @@ class OrchestratorSessionFile:
             planner_history=clean_hist,
             last_crew_output_excerpt=data.get("last_crew_output_excerpt"),
         )
+
+
+def implicit_default_orchestrator_slug() -> str:
+    """Filesystem slug used when no session name is set on the CLI or via AGENTIC_ORCHESTRATOR_SESSION."""
+    raw = os.getenv(DEFAULT_SESSION_SLUG_ENV, "").strip()
+    if not raw:
+        raw = DEFAULT_ORCHESTRATOR_SESSION_SLUG
+    return safe_orchestrator_session_slug(raw)
+
+
+def resolve_orchestrator_session_slug(explicit_name: str) -> str:
+    """
+    Resolve the session file slug.
+
+    ``explicit_name`` should be the combined CLI / AGENTIC_ORCHESTRATOR_SESSION value
+    (possibly empty). When empty, ``implicit_default_orchestrator_slug()`` is used.
+    """
+    if explicit_name.strip():
+        return safe_orchestrator_session_slug(explicit_name)
+    return implicit_default_orchestrator_slug()
 
 
 def safe_orchestrator_session_slug(raw: str) -> str:

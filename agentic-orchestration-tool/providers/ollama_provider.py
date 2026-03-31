@@ -38,6 +38,21 @@ def _ollama_subprocess_stdio() -> tuple[Any, Any]:
 # Ollama pull uses TTY progress (CSI sequences, redraw). Strip and emit one updating line.
 _ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[-/]*[@-~])")
 _SPINNER_RUNES_RE = re.compile(r"[\u2800-\u28FF⣾⣽⣻⢿⡿⣟⣯⣷]+")
+# One logical progress stream per layer/blob: "pulling <digest>:" lines update in place.
+_PULLING_LAYER_KEY_RE = re.compile(r"(?is)^(pulling\s+[a-fA-F0-9]+:)\s*")
+_PULLING_MANIFEST_KEY_RE = re.compile(r"(?is)^(pulling\s+manifest)\b")
+
+
+def _ollama_pull_progress_key(line: str) -> str:
+    """Stable key so 97% → 100% updates for the same layer collapse to one output line."""
+    s = line.strip()
+    m = _PULLING_LAYER_KEY_RE.match(s)
+    if m:
+        return m.group(1).casefold()
+    m = _PULLING_MANIFEST_KEY_RE.match(s)
+    if m:
+        return m.group(1).casefold()
+    return s.casefold()
 
 
 def _normalize_ollama_pull_display_line(raw: str) -> str | None:
@@ -60,38 +75,42 @@ def _normalize_ollama_pull_display_line(raw: str) -> str | None:
 
 
 def _rewrite_ollama_pull_to_single_line(stream: TextIO) -> None:
-    """TTY: one \\r-updating line. Piped stdout: periodic newlines so logs stay readable."""
+    """One live line per `pulling <digest>:` / manifest; same key overwrites prior output."""
     tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-    throttle = float(os.getenv("AGENTIC_OLLAMA_PULL_THROTTLE_SEC", "1.2"))
-    if throttle < 0.15:
-        throttle = 0.15
 
     last_len = 0
-    last_emit = 0.0
-    pending = ""
+    prev_key: str | None = None
+    last_line_for_key = ""
 
     for raw in stream:
         line = _normalize_ollama_pull_display_line(raw)
         if not line:
             continue
-        pending = line
+        key = _ollama_pull_progress_key(line)
+
         if tty:
+            if key != prev_key:
+                if prev_key is not None:
+                    sys.stdout.write("\n")
+                prev_key = key
+                last_len = 0
             pad = max(0, last_len - len(line))
             sys.stdout.write("\r" + line + (" " * pad))
             sys.stdout.flush()
             last_len = len(line)
         else:
-            now = time.monotonic()
-            if now - last_emit >= throttle:
-                sys.stdout.write(line + "\n")
-                sys.stdout.flush()
-                last_emit = now
+            if key != prev_key:
+                if prev_key is not None:
+                    sys.stdout.write(last_line_for_key + "\n")
+                    sys.stdout.flush()
+                prev_key = key
+            last_line_for_key = line
 
     if tty and last_len:
         sys.stdout.write("\n")
         sys.stdout.flush()
-    elif not tty and pending:
-        sys.stdout.write(pending + "\n")
+    elif not tty and prev_key is not None:
+        sys.stdout.write(last_line_for_key + "\n")
         sys.stdout.flush()
 
 

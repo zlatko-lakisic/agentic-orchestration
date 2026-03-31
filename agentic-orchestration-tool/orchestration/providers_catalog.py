@@ -97,11 +97,16 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
         (p for p in entries if str(p.get("type", "")).strip().lower() == "openai"),
         key=_id_key,
     )
+    anthropic_list = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "anthropic"),
+        key=_id_key,
+    )
     other = sorted(
         (
             p
             for p in entries
-            if str(p.get("type", "")).strip().lower() not in frozenset({"ollama", "openai"})
+            if str(p.get("type", "")).strip().lower()
+            not in frozenset({"ollama", "openai", "anthropic"})
         ),
         key=_id_key,
     )
@@ -118,9 +123,14 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
     if openai_list:
         sections.append(
             "### Cloud — OpenAI-compatible API (`type: openai`)\n"
-            "Use when **planner_hint** / task clearly fits these roles (e.g. broad research synthesis). "
-            "Do not pick these only because the list is shorter — prefer Ollama when the task fits a local specialist.\n"
+            "Remote models via API; choose when the task aligns with these entries' hints and roles, same as for local.\n"
             + "\n".join(_format_provider_entry(p) for p in openai_list)
+        )
+    if anthropic_list:
+        sections.append(
+            "### Cloud — Anthropic Claude (`type: anthropic`)\n"
+            "Claude via the Anthropic API; choose when hints and roles fit the user's task, same as other cloud entries.\n"
+            + "\n".join(_format_provider_entry(p) for p in anthropic_list)
         )
     if other:
         sections.append(

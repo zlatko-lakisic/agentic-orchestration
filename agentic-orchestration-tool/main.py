@@ -15,7 +15,7 @@ from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_
 from orchestration.config_loader import load_workflow_config
 from orchestration.dynamic_planner import build_dynamic_workflow_config
 from orchestration.orchestrator_session import (
-    safe_orchestrator_session_slug,
+    resolve_orchestrator_session_slug,
     session_file_path,
     update_session_after_crew,
 )
@@ -51,16 +51,6 @@ def _config_option_explicit(argv: list[str]) -> bool:
         if tok == "--config" or tok.startswith("--config="):
             return True
     return False
-
-
-def require_env(var_name: str) -> str:
-    value = os.getenv(var_name, "").strip()
-    if not value:
-        raise RuntimeError(
-            f"Missing required environment variable: {var_name}. "
-            "Create a .env file from .env.example and set it."
-        )
-    return value
 
 
 def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
@@ -431,15 +421,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="NAME",
         help=(
-            "With --dynamic: persist planner LLM chat + crew output excerpt under "
-            "__orchestrator_sessions__/NAME.json for multi-turn planning. "
-            "Override with env AGENTIC_ORCHESTRATOR_SESSION."
+            "With --dynamic: use this session id for planner history + crew excerpt files "
+            "under __orchestrator_sessions__/ (default when unset: see "
+            "AGENTIC_ORCHESTRATOR_DEFAULT_SESSION). "
+            "Override naming with env AGENTIC_ORCHESTRATOR_SESSION."
         ),
     )
     parser.add_argument(
         "--orchestrator-session-reset",
         action="store_true",
-        help="With --orchestrator-session: delete the session file before this run.",
+        help="With --dynamic: delete the resolved session JSON before this run "
+        "(explicit name, env, or default slug).",
     )
     return parser.parse_args()
 
@@ -451,8 +443,6 @@ def _cli_output_dir(raw: str | None) -> Path | None:
 
 
 def main() -> None:
-    require_env("OPENAI_API_KEY")
-
     args = parse_args()
     tool_root = Path(__file__).resolve().parent
     config_dir = (
@@ -485,36 +475,29 @@ def main() -> None:
             )
             sys.exit(2)
         goal = str(args.task).strip()
-        orch_name = (args.orchestrator_session or "").strip() or os.getenv(
+        explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
             "AGENTIC_ORCHESTRATOR_SESSION", ""
         ).strip()
-        if args.orchestrator_session_reset and not orch_name:
-            print(
-                "error: --orchestrator-session-reset requires --orchestrator-session "
-                "(or AGENTIC_ORCHESTRATOR_SESSION).",
-                file=sys.stderr,
-            )
+        try:
+            slug = resolve_orchestrator_session_slug(explicit_session)
+        except ValueError as exc:
+            print(f"(dynamic) invalid session name: {exc}", file=sys.stderr)
             sys.exit(2)
-        orchestrator_session_path: Path | None = None
-        if orch_name:
-            try:
-                slug = safe_orchestrator_session_slug(orch_name)
-            except ValueError as exc:
-                print(f"(dynamic) invalid session name: {exc}", file=sys.stderr)
-                sys.exit(2)
-            orchestrator_session_path = session_file_path(tool_root, slug)
-            if args.orchestrator_session_reset and orchestrator_session_path.exists():
-                orchestrator_session_path.unlink()
-                if not args.quiet:
-                    print(
-                        f"(dynamic) reset orchestrator session {orch_name!r} -> {orchestrator_session_path}",
-                        file=sys.stderr,
-                    )
+        orchestrator_session_path = session_file_path(tool_root, slug)
+        if args.orchestrator_session_reset and orchestrator_session_path.exists():
+            orchestrator_session_path.unlink()
+            if not args.quiet:
+                label = explicit_session if explicit_session else slug
+                print(
+                    f"(dynamic) reset orchestrator session {label!r} -> {orchestrator_session_path}",
+                    file=sys.stderr,
+                )
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=goal,
                 catalog_path=providers_catalog_path,
                 session_path=orchestrator_session_path,
+                quiet=args.quiet,
             )
         except Exception as exc:  # noqa: BLE001
             print(f"(dynamic) planning failed: {exc}", file=sys.stderr)
@@ -532,8 +515,7 @@ def main() -> None:
         exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
         if exit_code:
             sys.exit(exit_code)
-        if orchestrator_session_path is not None:
-            update_session_after_crew(orchestrator_session_path, result_text)
+        update_session_after_crew(orchestrator_session_path, result_text)
         if result_text:
             saved = offer_save_extracted_files(
                 tool_root=tool_root,

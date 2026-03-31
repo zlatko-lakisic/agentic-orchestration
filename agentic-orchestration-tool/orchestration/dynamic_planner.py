@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
 from orchestration.hardware_profile import filter_catalog_by_vram
 from orchestration.orchestrator_session import (
@@ -117,10 +118,9 @@ Available providers (pick ONLY provider_id values from this catalog; every id is
 
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
-- **Provider choice:** For each step, select the **single best** `provider_id` from the **entire** catalog by matching the user's task to `planner_hint`, `role`, `goal`, `model`, and `type`.
-- **Ollama before cloud:** Unless the user explicitly asks for OpenAI, ChatGPT, GPT, or "cloud", **first** shortlist Ollama (`type: ollama`) ids that fit the step, then pick the best. Use `gpt_research`, `gpt_write`, or `gpt_reason` only when (a) the user requested cloud/GPT, or (b) no Ollama id reasonably matches that step. Never pick `gpt_*` just because the task is vague or "sounds like research".
-- **Mixing:** You may combine Ollama and OpenAI in one plan when steps differ (e.g. user asked for one cloud polish step and local code elsewhere).
-- **Local-only signals:** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` providers.
+- **Provider choice:** For each step, pick the **single best** `provider_id` for that step—no default bias toward local vs cloud. Judge purely from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API).
+- **Mixing:** You may combine different `type` values in one plan when different steps call for different capabilities.
+- **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` providers.
 - Each step must assign exactly one provider_id from the catalog.
 - Steps run in order; later steps may build on earlier work (sequential crew).
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
@@ -261,8 +261,20 @@ def build_dynamic_workflow_config(
     max_steps: int | None = None,
     planner_model: str | None = None,
     session_path: Path | None = None,
+    quiet: bool = False,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_providers_catalog(catalog_path)
+    entries, _skipped_cred = filter_entries_by_api_credentials(
+        entries,
+        verbose=not quiet,
+        log_prefix="(dynamic) catalog",
+    )
+    if not entries:
+        raise RuntimeError(
+            "No providers left after API credential filtering. "
+            "Set OPENAI_API_KEY / ANTHROPIC_API_KEY (or OpenAI base URL) for cloud entries, "
+            "or keep Ollama providers in the catalog for local-only runs."
+        )
     entries, excluded_hw, vram_g = filter_catalog_by_vram(entries)
     if not entries:
         raise RuntimeError(

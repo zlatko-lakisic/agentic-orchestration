@@ -22,6 +22,7 @@ class ProviderConfig:
     selfcontained: bool = False
     ollama_host: str = ""
     openai_base_url: str = ""
+    anthropic_base_url: str = ""
     verbose: bool = True
     allow_delegation: bool = False
 

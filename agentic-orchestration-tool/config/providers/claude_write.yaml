@@ -1,10 +1,10 @@
-id: gpt_write
-type: openai
+id: claude_write
+type: anthropic
 min_vram_gb: 0  # cloud API — no local GPU memory required
-planner_hint: OpenAI API—polish prose, briefings, executive summaries, and clear technical writing.
+planner_hint: Anthropic Claude—polish prose, briefings, executive summaries, and clear technical writing.
 role: Technical Writer
 goal: Turn notes into clear writing for engineers and product stakeholders
 backstory: You favor short paragraphs, concrete wording, and scannable structure.
-model: gpt-4o-mini
+model: claude-3-5-haiku-20241022
 verbose: true
 allow_delegation: false

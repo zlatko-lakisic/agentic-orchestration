@@ -8,6 +8,7 @@ from typing import Any
 
 from crewai import Crew, Process, Task
 
+from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
 from orchestration.workflow_ollama import resolve_workflow_ollama_host
 from providers.base import Provider
@@ -119,8 +120,30 @@ def build_workflow(
 
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
+    resolved = _resolve_provider_entries(config)
+    usable_payloads, skipped_cred_ids = filter_entries_by_api_credentials(
+        resolved,
+        verbose=not quiet,
+        log_prefix="workflow",
+    )
+    if skipped_cred_ids:
+        skipped_set = frozenset(skipped_cred_ids)
+        for task_def in config.tasks:
+            if task_def.provider_id in skipped_set:
+                raise RuntimeError(
+                    f"Task '{task_def.id}' references provider '{task_def.provider_id}', "
+                    "which was excluded because required API credentials are not set. "
+                    "Set the provider's API key (see prior log lines), switch this task to "
+                    "another provider, or remove the provider from the workflow."
+                )
+    if not usable_payloads:
+        raise RuntimeError(
+            "All workflow providers were excluded: missing API credentials for every "
+            "cloud provider in this workflow. Set the required keys or use Ollama/local providers."
+        )
+
     providers: dict[str, Provider] = {}
-    for provider_data in _resolve_provider_entries(config):
+    for provider_data in usable_payloads:
         provider = provider_from_dict(provider_data, default_model=default_model)
         if provider.config.id in providers:
             raise ValueError(f"Duplicate provider id: '{provider.config.id}'.")
