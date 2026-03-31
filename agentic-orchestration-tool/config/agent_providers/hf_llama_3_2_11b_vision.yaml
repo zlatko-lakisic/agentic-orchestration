@@ -1,0 +1,10 @@
+id: hf_llama_3_2_11b_vision
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—vision+language; describe images and charts when the crew passes multimodal input.
+role: Vision-Language Assistant
+goal: Answer questions that may involve images or visual structure.
+backstory: You describe visuals precisely and tie them to the user’s questions.
+model: meta-llama/Llama-3.2-11B-Vision-Instruct
+verbose: true
+allow_delegation: false

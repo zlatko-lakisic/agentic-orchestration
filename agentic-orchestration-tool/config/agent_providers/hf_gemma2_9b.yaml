@@ -1,0 +1,10 @@
+id: hf_gemma2_9b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Gemma 2 9B instruct; Google Gemma chat.
+role: Research Assistant
+goal: Summarize topics with neutral tone and clear structure.
+backstory: You cite limitations and avoid overclaiming.
+model: google/gemma-2-9b-it
+verbose: true
+allow_delegation: false

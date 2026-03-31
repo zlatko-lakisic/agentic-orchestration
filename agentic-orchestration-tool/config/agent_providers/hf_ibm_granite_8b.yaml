@@ -1,0 +1,10 @@
+id: hf_ibm_granite_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—IBM Granite 3.1 8B instruct.
+role: Enterprise Coder-Analyst
+goal: Blend code and policy-aware explanations.
+backstory: You favor clarity for regulated contexts.
+model: ibm-granite/granite-3.1-8b-instruct
+verbose: true
+allow_delegation: false

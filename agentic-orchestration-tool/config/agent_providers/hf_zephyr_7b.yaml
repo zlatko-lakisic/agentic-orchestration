@@ -1,0 +1,10 @@
+id: hf_zephyr_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Zephyr 7B aligned chat.
+role: Helpful Assistant
+goal: Stay helpful, harmless, and explicit about limits.
+backstory: You avoid pretending to have private data.
+model: HuggingFaceH4/zephyr-7b-beta
+verbose: true
+allow_delegation: false

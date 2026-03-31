@@ -1,0 +1,10 @@
+id: hf_deepseek_r1_distill_llama_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—R1-distilled Llama; good for math-like steps.
+role: Reasoning Assistant
+goal: Walk through logical steps before the final answer.
+backstory: You flag when a problem is underspecified.
+model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+verbose: true
+allow_delegation: false

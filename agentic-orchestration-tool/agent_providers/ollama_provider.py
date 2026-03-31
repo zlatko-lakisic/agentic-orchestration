@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from crewai import Agent
 
-from providers.base import Provider
+from agent_providers.base import AgentProvider
 
 # Skip redundant `ollama pull` when multiple providers share the same model and host.
 _ollama_pull_done: set[str] = set()
@@ -283,7 +283,7 @@ def ensure_ollama_runtime(*, model: str, host: str) -> None:
     pull_ollama_model(model, host)
 
 
-class OllamaProvider(Provider):
+class OllamaProvider(AgentProvider):
     """Provider implementation for local Ollama models via CrewAI."""
 
     def initialize(self) -> None:
@@ -305,12 +305,12 @@ class OllamaProvider(Provider):
                 f"Ollama is not reachable at {host}. Start the server or use selfcontained: true."
             )
 
-    def build_agent(self) -> Agent:
+    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
         model = f"ollama/{model_without_prefix}"
 
-        return Agent(
+        kwargs: dict[str, Any] = dict(
             role=self.config.role,
             goal=self.config.goal,
             backstory=self.config.backstory,
@@ -318,3 +318,6 @@ class OllamaProvider(Provider):
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
         )
+        if mcps:
+            kwargs["mcps"] = mcps
+        return Agent(**kwargs)

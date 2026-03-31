@@ -70,14 +70,14 @@ python main.py --config config/workflows/workflow.yaml
 
 `agentic-orchestration-tool/config/workflows/workflow.yaml` (and siblings) control:
 
-- `workflow.providers[]`: provider definitions (mapped to CrewAI agents)
-- `workflow.tasks[]`: task definitions, each linked by `provider_id`
+- `workflow.agent_providers[]`: agent-provider definitions (mapped to CrewAI agents; legacy `workflow.providers` still works)
+- `workflow.tasks[]`: task definitions, each linked by `agent_provider_id` (legacy `provider_id` still works)
 - `workflow.task_sequence[]`: ordered task execution
 - `workflow.process`: Crew process (`sequential` or `hierarchical`)
 
 No hardcoded provider/task chain is required in `main.py`; the workflow is assembled from YAML at runtime.
 
-The orchestration tool also supports **extra provider modules** via `AGENTIC_EXTRA_PROVIDERS_PATH`, **dynamic planning** (`--dynamic`) using `config/providers/*.yaml`, and an **Ollama-powered workflow router**: `python main.py "your task"` scans `config/workflows/` for YAML with embedded `meta` and picks a workflow (see `agentic-orchestration-tool/README.md`).
+The orchestration tool also supports **extra agent-provider modules** via `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (or legacy `AGENTIC_EXTRA_PROVIDERS_PATH`), **dynamic planning** (`--dynamic`) using `config/agent_providers/*.yaml`, and an **Ollama-powered workflow router**: `python main.py "your task"` scans `config/workflows/` for YAML with embedded `meta` and picks a workflow (see `agentic-orchestration-tool/README.md`).
 
 ## Notes
 

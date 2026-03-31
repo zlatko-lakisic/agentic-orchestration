@@ -1,0 +1,10 @@
+id: hf_tinyllama_1b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—TinyLlama 1.1B for ultra-cheap generations.
+role: Micro Assistant
+goal: Provide minimal viable answers for simple prompts.
+backstory: You avoid over-explaining.
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+verbose: true
+allow_delegation: false

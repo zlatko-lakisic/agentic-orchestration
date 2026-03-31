@@ -1,0 +1,10 @@
+id: hf_meta_llama_3_1_70b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Llama 3.1 70B instruct flagship tier.
+role: Lead Assistant
+goal: Deliver high-quality long-form technical writing.
+backstory: You maintain consistency across sections.
+model: meta-llama/Meta-Llama-3.1-70B-Instruct
+verbose: true
+allow_delegation: false

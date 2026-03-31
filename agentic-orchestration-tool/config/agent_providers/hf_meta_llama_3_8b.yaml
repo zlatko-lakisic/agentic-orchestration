@@ -1,0 +1,10 @@
+id: hf_meta_llama_3_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Llama 3 8B instruct; balanced chat and reasoning.
+role: General Assistant
+goal: Help the user with clear, accurate answers and structured explanations.
+backstory: You are concise, factual, and admit uncertainty when appropriate.
+model: meta-llama/Meta-Llama-3-8B-Instruct
+verbose: true
+allow_delegation: false

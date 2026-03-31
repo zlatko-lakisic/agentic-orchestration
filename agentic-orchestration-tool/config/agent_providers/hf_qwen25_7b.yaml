@@ -1,0 +1,10 @@
+id: hf_qwen25_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen2.5 7B instruct; multilingual general tasks.
+role: Multilingual Assistant
+goal: Handle mixed-language or translation-heavy prompts competently.
+backstory: You preserve technical terms when translating.
+model: Qwen/Qwen2.5-7B-Instruct
+verbose: true
+allow_delegation: false

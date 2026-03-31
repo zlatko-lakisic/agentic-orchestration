@@ -29,7 +29,8 @@ from orchestration.output_artifacts import (
 from orchestration.workflow_router import select_workflow_with_ollama
 
 _DEFAULT_CONFIG_PATH = "config/workflows/workflow.yaml"
-_DEFAULT_PROVIDERS_CATALOG = "config/providers"
+_DEFAULT_AGENT_PROVIDERS_CATALOG = "config/agent_providers"
+_DEFAULT_MCP_PROVIDERS_CATALOG = "config/mcp_providers"
 
 
 def _verification_wanted(*, cli_no_verify: bool) -> bool:
@@ -59,12 +60,12 @@ def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
 
 def _on_workflow_start(built: BuiltWorkflow) -> None:
     ctx = _workflow_context(built)
-    for provider in built.providers.values():
+    for ap in built.agent_providers.values():
         try:
-            provider.on_workflow_start(ctx)
+            ap.on_workflow_start(ctx)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"Warning: provider '{provider.config.id}' on_workflow_start failed: {exc}",
+                f"Warning: agent provider '{ap.config.id}' on_workflow_start failed: {exc}",
                 file=sys.stderr,
             )
 
@@ -75,23 +76,23 @@ def _on_workflow_end(
     error: BaseException | None,
 ) -> None:
     ctx = _workflow_context(built)
-    for provider in built.providers.values():
+    for ap in built.agent_providers.values():
         try:
-            provider.on_workflow_end(ctx, result, error)
+            ap.on_workflow_end(ctx, result, error)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"Warning: provider '{provider.config.id}' on_workflow_end failed: {exc}",
+                f"Warning: agent provider '{ap.config.id}' on_workflow_end failed: {exc}",
                 file=sys.stderr,
             )
 
 
-def _cleanup_providers(built: BuiltWorkflow) -> None:
-    for provider in built.providers.values():
+def _cleanup_agent_providers(built: BuiltWorkflow) -> None:
+    for ap in built.agent_providers.values():
         try:
-            provider.cleanup()
+            ap.cleanup()
         except Exception as exc:  # noqa: BLE001
             print(
-                f"Warning: provider '{provider.config.id}' cleanup failed: {exc}",
+                f"Warning: agent provider '{ap.config.id}' cleanup failed: {exc}",
                 file=sys.stderr,
             )
 
@@ -146,7 +147,7 @@ def run_built_workflow(
                 result_text = workflow_result_to_extractable_text(workflow_result)
     finally:
         _on_workflow_end(built, workflow_result, workflow_error)
-        _cleanup_providers(built)
+        _cleanup_agent_providers(built)
 
     return exit_code, result_text
 
@@ -156,10 +157,16 @@ def run_workflow(
     *,
     topic_override: str | None = None,
     quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
 ) -> tuple[int, str | None]:
     """Load workflow YAML, run crew; return (exit code, final output text if any)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
-    built = build_workflow(config, crew_verbose=not quiet, quiet=quiet)
+    built = build_workflow(
+        config,
+        crew_verbose=not quiet,
+        quiet=quiet,
+        mcp_catalog_path=mcp_catalog_path,
+    )
     return run_built_workflow(built, quiet=quiet)
 
 
@@ -174,6 +181,7 @@ def run_interactive_router(
     prompt_save: bool,
     verify_saved: bool,
     quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for tasks until quit; Ollama router picks a catalog workflow each time."""
     entries = discover_workflow_catalog(config_dir)
@@ -255,6 +263,7 @@ def run_interactive_fixed_config(
     prompt_save: bool,
     verify_saved: bool,
     quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for topics until quit; always runs the same workflow file."""
     if not config_path.exists():
@@ -283,7 +292,10 @@ def run_interactive_fixed_config(
             break
 
         exit_code, result_text = run_workflow(
-            config_path, topic_override=task, quiet=quiet
+            config_path,
+            topic_override=task,
+            quiet=quiet,
+            mcp_catalog_path=mcp_catalog_path,
         )
         if exit_code == 0 and result_text:
             saved = offer_save_extracted_files(
@@ -403,17 +415,31 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Plan and run a one-off workflow: TASK is the user goal; GPT (AGENTIC_PLANNER_MODEL / "
-            "OPENAI_*) devises steps and picks providers from --providers-catalog, then runs them "
-            "in order. Requires TASK."
+            "OPENAI_*) devises steps and picks agent providers from --agent-providers-catalog, "
+            "then runs them in order. Requires TASK."
         ),
     )
     parser.add_argument(
+        "--agent-providers-catalog",
         "--providers-catalog",
-        default=_DEFAULT_PROVIDERS_CATALOG,
+        default=_DEFAULT_AGENT_PROVIDERS_CATALOG,
+        metavar="PATH",
+        dest="agent_providers_catalog",
+        help=(
+            f"Directory of one YAML file per agent provider, or a legacy bundle YAML with top-level "
+            f"'agent_providers' (or 'providers') list (default {_DEFAULT_AGENT_PROVIDERS_CATALOG!r}). "
+            f"--providers-catalog is a deprecated alias."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-providers-catalog",
+        default=_DEFAULT_MCP_PROVIDERS_CATALOG,
         metavar="PATH",
         help=(
-            f"Directory of one YAML file per provider, or a legacy bundle YAML with a top-level "
-            f"'providers' list (default {_DEFAULT_PROVIDERS_CATALOG!r})."
+            f"Directory of one YAML per MCP provider (CrewAI ``mcps`` URL/slug strings via ref/refs), "
+            f"or a bundle YAML with top-level 'mcp_providers' (default {_DEFAULT_MCP_PROVIDERS_CATALOG!r}; "
+            f"missing path loads no MCP catalog entries). "
+            f"Also merges directories in AGENTIC_EXTRA_MCP_PROVIDERS_PATH ({os.pathsep}-separated)."
         ),
     )
     parser.add_argument(
@@ -460,10 +486,15 @@ def main() -> None:
     prompt_save = bool(args.prompt_save)
     verify_saved = _verification_wanted(cli_no_verify=bool(args.no_verify))
 
-    providers_catalog_path = (
-        (tool_root / args.providers_catalog).resolve()
-        if not Path(args.providers_catalog).is_absolute()
-        else Path(args.providers_catalog)
+    agent_providers_catalog_path = (
+        (tool_root / args.agent_providers_catalog).resolve()
+        if not Path(args.agent_providers_catalog).is_absolute()
+        else Path(args.agent_providers_catalog)
+    )
+    mcp_catalog_path = (
+        (tool_root / args.mcp_providers_catalog).resolve()
+        if not Path(args.mcp_providers_catalog).is_absolute()
+        else Path(args.mcp_providers_catalog)
     )
 
     if args.dynamic:
@@ -495,7 +526,8 @@ def main() -> None:
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=goal,
-                catalog_path=providers_catalog_path,
+                catalog_path=agent_providers_catalog_path,
+                mcp_catalog_path=mcp_catalog_path,
                 session_path=orchestrator_session_path,
                 quiet=args.quiet,
             )
@@ -508,7 +540,7 @@ def main() -> None:
                 print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
             for i, tdef in enumerate(dyn_cfg.tasks, start=1):
                 print(
-                    f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> provider {tdef.provider_id!r}",
+                    f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> agent_provider {tdef.agent_provider_id!r}",
                     file=sys.stderr,
                 )
         built = build_workflow(dyn_cfg, crew_verbose=not args.quiet, quiet=args.quiet)
@@ -547,7 +579,10 @@ def main() -> None:
                 file=sys.stderr,
             )
         exit_code, result_text = run_workflow(
-            entry.path, topic_override=args.task, quiet=args.quiet
+            entry.path,
+            topic_override=args.task,
+            quiet=args.quiet,
+            mcp_catalog_path=mcp_catalog_path,
         )
         if exit_code:
             sys.exit(exit_code)
@@ -586,7 +621,10 @@ def main() -> None:
 
     if config_explicit and not args.interactive:
         exit_code, result_text = run_workflow(
-            config_path, topic_override=None, quiet=args.quiet
+            config_path,
+            topic_override=None,
+            quiet=args.quiet,
+            mcp_catalog_path=mcp_catalog_path,
         )
         if exit_code:
             sys.exit(exit_code)
@@ -624,6 +662,7 @@ def main() -> None:
         prompt_save=prompt_save,
         verify_saved=verify_saved,
         quiet=args.quiet,
+        mcp_catalog_path=mcp_catalog_path,
     )
 
 

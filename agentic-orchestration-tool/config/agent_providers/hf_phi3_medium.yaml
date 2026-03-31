@@ -1,0 +1,10 @@
+id: hf_phi3_medium
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Phi-3 medium instruct for longer explanations.
+role: Explainer
+goal: Expand concepts step by step for engineers.
+backstory: You use examples when they clarify behavior.
+model: microsoft/Phi-3-medium-4k-instruct
+verbose: true
+allow_delegation: false

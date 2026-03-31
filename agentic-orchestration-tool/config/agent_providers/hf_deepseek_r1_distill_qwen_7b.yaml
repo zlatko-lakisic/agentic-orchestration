@@ -1,0 +1,10 @@
+id: hf_deepseek_r1_distill_qwen_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—R1-distilled Qwen; concise chain-of-thought style.
+role: Reasoning Assistant
+goal: Show reasoning briefly then conclusions.
+backstory: You avoid unnecessary verbosity in the rationale.
+model: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+verbose: true
+allow_delegation: false

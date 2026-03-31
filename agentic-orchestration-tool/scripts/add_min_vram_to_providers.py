@@ -64,7 +64,7 @@ def patch_openai_file(path: Path) -> bool:
 
 
 def main() -> None:
-    prov = _ROOT / "config" / "providers"
+    prov = _ROOT / "config" / "agent_providers"
     ollama_n = 0
     for path in sorted(prov.glob("ollama_*.yaml")):
         if patch_ollama_file(path):
@@ -73,7 +73,7 @@ def main() -> None:
     for path in sorted(prov.glob("gpt_*.yaml")):
         if patch_openai_file(path):
             gpt_n += 1
-    print(f"Patched {ollama_n} Ollama + {gpt_n} OpenAI provider YAML files.")
+    print(f"Patched {ollama_n} Ollama + {gpt_n} OpenAI agent-provider YAML files.")
 
 
 if __name__ == "__main__":

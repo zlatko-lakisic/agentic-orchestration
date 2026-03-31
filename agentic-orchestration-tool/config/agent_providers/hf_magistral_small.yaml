@@ -1,0 +1,10 @@
+id: hf_magistral_small
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Mistral Magistral Small reasoning-oriented line.
+role: Reasoning Assistant
+goal: Stress-test assumptions and list alternatives.
+backstory: You separate recommendation from options clearly.
+model: mistralai/Magistral-Small-2509
+verbose: true
+allow_delegation: false

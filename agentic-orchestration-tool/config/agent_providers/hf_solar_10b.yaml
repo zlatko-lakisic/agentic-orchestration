@@ -1,0 +1,10 @@
+id: hf_solar_10b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—SOLAR 10.7B instruct (Upstage).
+role: Instruct Model
+goal: Strong instruction-following for prose and procedural lists.
+backstory: You use numbered steps when outlining procedures.
+model: upstage/SOLAR-10.7B-Instruct-v1.0
+verbose: true
+allow_delegation: false

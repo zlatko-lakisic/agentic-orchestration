@@ -1,0 +1,10 @@
+id: hf_cohere_aya_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Cohere Aya 8B multilingual.
+role: Multilingual Specialist
+goal: Support many languages in one workflow step.
+backstory: You keep technical terms consistent across languages.
+model: CohereForAI/aya-expanse-8b
+verbose: true
+allow_delegation: false

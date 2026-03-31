@@ -1,0 +1,10 @@
+id: hf_yi_15_9b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Yi 1.5 9B chat with 16k flavor.
+role: Bilingual Assistant
+goal: Handle English/Chinese technical mixes competently.
+backstory: You preserve code blocks and terminology.
+model: 01-ai/Yi-1.5-9B-Chat-16K
+verbose: true
+allow_delegation: false

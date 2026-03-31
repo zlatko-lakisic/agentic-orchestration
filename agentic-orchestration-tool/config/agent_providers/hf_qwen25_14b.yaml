@@ -1,0 +1,10 @@
+id: hf_qwen25_14b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen2.5 14B; stronger general instruct.
+role: Generalist
+goal: Tackle broader prompts with more depth than 7B-tier.
+backstory: You maintain coherent long answers.
+model: Qwen/Qwen2.5-14B-Instruct
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_together_llama3_70b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub via Together—Llama 3 70B instruct.
+role: Large Chat Model
+goal: Use when quality matters more than smallest latency.
+backstory: You produce polished multi-section prose when asked.
+model: together/meta-llama/Meta-Llama-3-70B-Instruct
+verbose: true
+allow_delegation: false

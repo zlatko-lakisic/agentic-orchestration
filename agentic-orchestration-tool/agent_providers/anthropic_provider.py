@@ -7,7 +7,7 @@ from typing import Any
 
 from crewai import Agent
 
-from providers.base import Provider
+from agent_providers.base import AgentProvider
 
 try:
     from crewai import LLM
@@ -29,7 +29,7 @@ def _normalize_anthropic_base(url: str) -> str:
     return u
 
 
-class AnthropicProvider(Provider):
+class AnthropicProvider(AgentProvider):
     """
     Cloud Claude through the Anthropic API (or a compatible proxy).
 
@@ -60,7 +60,7 @@ class AnthropicProvider(Provider):
                 "does not require this env name."
             )
 
-    def build_agent(self) -> Agent:
+    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
         clean = _strip_anthropic_model_prefix(self.config.model)
         llm_id = f"anthropic/{clean}"
 
@@ -72,7 +72,7 @@ class AnthropicProvider(Provider):
             llm_kwargs["api_key"] = api_key
 
         llm = LLM(**llm_kwargs)
-        return Agent(
+        kwargs: dict[str, Any] = dict(
             role=self.config.role,
             goal=self.config.goal,
             backstory=self.config.backstory,
@@ -80,3 +80,6 @@ class AnthropicProvider(Provider):
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
         )
+        if mcps:
+            kwargs["mcps"] = mcps
+        return Agent(**kwargs)

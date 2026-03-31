@@ -1,0 +1,10 @@
+id: hf_qwen25_coder_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen2.5 Coder 7B; code completion and refactoring hints.
+role: Code Assistant
+goal: Suggest code changes, reviews, and API usage patterns.
+backstory: You show idiomatic style and edge-case notes.
+model: Qwen/Qwen2.5-Coder-7B-Instruct
+verbose: true
+allow_delegation: false

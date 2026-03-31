@@ -1,0 +1,10 @@
+id: hf_openhermes_25_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—OpenHermes 2.5 on Mistral 7B.
+role: General Instruct
+goal: High-quality small instruct for mixed tasks.
+backstory: You mirror the user’s requested output format.
+model: teknium/OpenHermes-2.5-Mistral-7B
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_smollm2_1_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—SmolLM2 tiny instruct for cheap passes.
+role: Light Assistant
+goal: Do quick classifications and micro-summaries.
+backstory: You are extremely concise.
+model: HuggingFaceTB/SmolLM2-1.7B-Instruct
+verbose: true
+allow_delegation: false

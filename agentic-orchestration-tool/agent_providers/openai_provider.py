@@ -9,7 +9,7 @@ from typing import Any
 
 from crewai import Agent
 
-from providers.base import Provider
+from agent_providers.base import AgentProvider
 
 try:
     from crewai import LLM
@@ -52,7 +52,7 @@ def _openai_models_reachable(base: str) -> bool:
         return False
 
 
-class OpenAIProvider(Provider):
+class OpenAIProvider(AgentProvider):
     """
     Same *shape* as ``OllamaProvider``: read base URL from YAML + env, health check, build ``Agent``.
 
@@ -90,7 +90,7 @@ class OpenAIProvider(Provider):
                 "OPENAI_BASE_URL for a local OpenAI-compatible server."
             )
 
-    def build_agent(self) -> Agent:
+    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
         clean = _strip_openai_model_prefix(self.config.model)
         llm_id = f"openai/{clean}"
 
@@ -102,7 +102,7 @@ class OpenAIProvider(Provider):
             llm_kwargs["api_key"] = api_key
 
         llm = LLM(**llm_kwargs)
-        return Agent(
+        kwargs: dict[str, Any] = dict(
             role=self.config.role,
             goal=self.config.goal,
             backstory=self.config.backstory,
@@ -110,3 +110,6 @@ class OpenAIProvider(Provider):
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
         )
+        if mcps:
+            kwargs["mcps"] = mcps
+        return Agent(**kwargs)

@@ -1,4 +1,4 @@
-"""Drop provider catalog / workflow entries when required API keys are missing."""
+"""Drop agent-provider catalog / workflow entries when required API keys are missing."""
 
 from __future__ import annotations
 
@@ -31,10 +31,18 @@ def _anthropic_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
     return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
 
 
+def _huggingface_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
+    _ = entry
+    return bool(
+        os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACE_API_KEY", "").strip()
+    )
+
+
 # Extend when adding cloud providers that need an API key for catalog / workflow use.
 _CREDENTIAL_CHECKERS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "openai": _openai_catalog_entry_has_credentials,
     "anthropic": _anthropic_catalog_entry_has_credentials,
+    "huggingface": _huggingface_catalog_entry_has_credentials,
 }
 
 
@@ -52,6 +60,8 @@ def credential_skip_reason(entry: dict[str, Any]) -> str:
         return "set OPENAI_API_KEY or openai_base_url / OPENAI_BASE_URL for a reachable server"
     if typ == "anthropic":
         return "set ANTHROPIC_API_KEY"
+    if typ == "huggingface":
+        return "set HF_TOKEN or HUGGINGFACE_API_KEY"
     return "set the provider's required API credentials"
 
 
@@ -80,7 +90,7 @@ def filter_entries_by_api_credentials(
             typ = str(entry.get("type", "")).strip().lower()
             hint = credential_skip_reason(entry)
             print(
-                f"{prefix}skipping provider {pid!r} (type={typ!r}): missing credentials; {hint}.",
+                f"{prefix}skipping agent provider {pid!r} (type={typ!r}): missing credentials; {hint}.",
                 file=sys.stderr,
             )
     return kept, skipped_ids

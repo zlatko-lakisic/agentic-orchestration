@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import os
+import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from crewai import Crew, Process, Task
 
+from agent_providers.base import AgentProvider
+from agent_providers.factory import agent_provider_from_dict
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.mcp_providers_catalog import (
+    load_mcp_providers_catalog_merged,
+    resolve_workflow_mcp_refs,
+)
 from orchestration.workflow_ollama import resolve_workflow_ollama_host
-from providers.base import Provider
-from providers.factory import provider_from_dict
 
 _WORKFLOW_OLLAMA_HOST_TOKEN = "workflow"
 
@@ -25,7 +31,7 @@ _KICKOFF_CB_STATE: ContextVar[_SequentialKickoffState | None] = ContextVar(
 class _SequentialKickoffState:
     """Mutable state for module-level Crew callbacks (sequential task order)."""
 
-    task_run_order: list[tuple[str, Task, Provider]]
+    task_run_order: list[tuple[str, Task, AgentProvider]]
     inputs_holder: dict[str, Any]
     last_completed: int = field(default=-1)
 
@@ -34,7 +40,7 @@ class _SequentialKickoffState:
 class BuiltWorkflow:
     crew: Crew
     inputs: dict[str, str]
-    providers: dict[str, Provider]
+    agent_providers: dict[str, AgentProvider]
     workflow_context: dict[str, Any]
     kickoff_callback_state: _SequentialKickoffState | None = None
 
@@ -63,8 +69,8 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
     state.inputs_holder.update(merged)
     state.last_completed = -1
     if state.task_run_order:
-        first_id, first_task, first_provider = state.task_run_order[0]
-        first_provider.before_task(first_id, first_task, dict(state.inputs_holder))
+        first_id, first_task, ap = state.task_run_order[0]
+        ap.before_task(first_id, first_task, dict(state.inputs_holder))
     return merged
 
 
@@ -76,11 +82,11 @@ def _serial_crew_task_callback(output: Any) -> None:
     k = state.last_completed
     if k < 0 or k >= len(state.task_run_order):
         return
-    task_id, task_ref, provider = state.task_run_order[k]
-    provider.after_task(task_id, task_ref, output, None)
+    task_id, task_ref, ap = state.task_run_order[k]
+    ap.after_task(task_id, task_ref, output, None)
     if k + 1 < len(state.task_run_order):
-        next_id, next_task, next_provider = state.task_run_order[k + 1]
-        next_provider.before_task(next_id, next_task, dict(state.inputs_holder))
+        next_id, next_task, next_ap = state.task_run_order[k + 1]
+        next_ap.before_task(next_id, next_task, dict(state.inputs_holder))
 
 
 def _to_process(value: str) -> Process:
@@ -91,10 +97,10 @@ def _to_process(value: str) -> Process:
     raise ValueError("workflow.process must be 'sequential' or 'hierarchical'.")
 
 
-def _resolve_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
+def _resolve_agent_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     workflow_host = resolve_workflow_ollama_host(config.instance_key)
     resolved: list[dict[str, Any]] = []
-    for entry in config.providers:
+    for entry in config.agent_providers:
         data = dict(entry)
         ptype = str(data.get("type", "")).strip().lower()
         if ptype == "ollama":
@@ -120,7 +126,7 @@ def build_workflow(
 
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
-    resolved = _resolve_provider_entries(config)
+    resolved = _resolve_agent_provider_entries(config)
     usable_payloads, skipped_cred_ids = filter_entries_by_api_credentials(
         resolved,
         verbose=not quiet,
@@ -129,42 +135,53 @@ def build_workflow(
     if skipped_cred_ids:
         skipped_set = frozenset(skipped_cred_ids)
         for task_def in config.tasks:
-            if task_def.provider_id in skipped_set:
+            if task_def.agent_provider_id in skipped_set:
                 raise RuntimeError(
-                    f"Task '{task_def.id}' references provider '{task_def.provider_id}', "
+                    f"Task '{task_def.id}' references agent provider '{task_def.agent_provider_id}', "
                     "which was excluded because required API credentials are not set. "
                     "Set the provider's API key (see prior log lines), switch this task to "
-                    "another provider, or remove the provider from the workflow."
+                    "another agent provider, or remove it from the workflow."
                 )
     if not usable_payloads:
         raise RuntimeError(
-            "All workflow providers were excluded: missing API credentials for every "
-            "cloud provider in this workflow. Set the required keys or use Ollama/local providers."
+            "All workflow agent providers were excluded: missing API credentials for every "
+            "cloud entry. Set the required keys or use Ollama/local agent providers."
         )
 
-    providers: dict[str, Provider] = {}
-    for provider_data in usable_payloads:
-        provider = provider_from_dict(provider_data, default_model=default_model)
-        if provider.config.id in providers:
-            raise ValueError(f"Duplicate provider id: '{provider.config.id}'.")
-        provider.validate_config()
-        provider.initialize()
-        provider.health_check()
-        providers[provider.config.id] = provider
+    mcp_catalog_entries: list[dict[str, Any]] = (
+        load_mcp_providers_catalog_merged(mcp_catalog_path)
+        if mcp_catalog_path is not None
+        else []
+    )
+    mcps = (
+        resolve_workflow_mcp_refs(config.mcp_providers, mcp_catalog_entries)
+        if config.mcp_providers
+        else []
+    )
+    if mcps and not quiet:
+        print(f"(mcp) attaching {len(mcps)} MCP ref(s) to every agent", file=sys.stderr)
 
-    agents_by_provider_id = {
-        provider_id: provider.build_agent() for provider_id, provider in providers.items()
-    }
-    agents = list(agents_by_provider_id.values())
+    agent_providers: dict[str, AgentProvider] = {}
+    for provider_data in usable_payloads:
+        ap = agent_provider_from_dict(provider_data, default_model=default_model)
+        if ap.config.id in agent_providers:
+            raise ValueError(f"Duplicate agent provider id: '{ap.config.id}'.")
+        ap.validate_config()
+        ap.initialize()
+        ap.health_check()
+        agent_providers[ap.config.id] = ap
+
+    agents_by_apid = {ap_id: ap.build_agent(mcps=mcps) for ap_id, ap in agent_providers.items()}
+    agents = list(agents_by_apid.values())
 
     task_def_by_id: dict[str, TaskDefinition] = {t.id: t for t in config.tasks}
     tasks_by_id: dict[str, Task] = {}
     for task_def in config.tasks:
-        agent = agents_by_provider_id.get(task_def.provider_id)
+        agent = agents_by_apid.get(task_def.agent_provider_id)
         if agent is None:
             raise ValueError(
-                f"Task '{task_def.id}' references unknown provider "
-                f"'{task_def.provider_id}'."
+                f"Task '{task_def.id}' references unknown agent provider "
+                f"'{task_def.agent_provider_id}'."
             )
 
         tasks_by_id[task_def.id] = Task(
@@ -180,12 +197,12 @@ def build_workflow(
             raise ValueError(f"task_sequence references unknown task id '{task_id}'.")
         ordered_tasks.append(task)
 
-    task_run_order: list[tuple[str, Task, Provider]] = []
+    task_run_order: list[tuple[str, Task, AgentProvider]] = []
     for task_id in config.task_sequence:
         task_obj = tasks_by_id[task_id]
         task_definition = task_def_by_id[task_id]
-        provider = providers[task_definition.provider_id]
-        task_run_order.append((task_id, task_obj, provider))
+        ap = agent_providers[task_definition.agent_provider_id]
+        task_run_order.append((task_id, task_obj, ap))
 
     inputs_holder: dict[str, Any] = {}
     kickoff_state = _SequentialKickoffState(
@@ -207,11 +224,12 @@ def build_workflow(
         "workflow_name": config.name,
         "process": config.process,
         "topic": topic,
+        "workflow_mcps": list(mcps),
     }
     return BuiltWorkflow(
         crew=crew,
         inputs={"topic": topic},
-        providers=providers,
+        agent_providers=agent_providers,
         workflow_context=workflow_context,
         kickoff_callback_state=kickoff_state,
     )

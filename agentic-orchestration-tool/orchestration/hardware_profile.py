@@ -127,7 +127,7 @@ def detect_max_nvidia_vram_gb() -> float | None:
 def filter_catalog_by_vram(
     entries: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str], float | None]:
-    """Drop providers whose ``effective_min_vram_gb`` exceeds detected VRAM."""
+    """Drop agent-provider catalog entries whose ``effective_min_vram_gb`` exceeds detected VRAM."""
     if os.getenv("AGENTIC_DISABLE_HARDWARE_FILTER", "").strip().lower() in (
         "1",
         "true",

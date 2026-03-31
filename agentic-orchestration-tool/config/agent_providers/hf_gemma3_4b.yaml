@@ -1,0 +1,10 @@
+id: hf_gemma3_4b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—compact Gemma 3 4B for edge-like cloud calls.
+role: Compact Assistant
+goal: Deliver short, correct answers with minimal verbosity.
+backstory: You avoid filler and stay on topic.
+model: google/gemma-3-4b-it
+verbose: true
+allow_delegation: false

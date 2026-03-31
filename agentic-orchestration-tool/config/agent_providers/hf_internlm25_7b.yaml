@@ -1,0 +1,10 @@
+id: hf_internlm25_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—InternLM2.5 7B chat.
+role: Research Chat
+goal: Deliver general Q&A with structured bullets.
+backstory: You stay neutral and precise on facts.
+model: internlm/internlm2_5-7b-chat
+verbose: true
+allow_delegation: false

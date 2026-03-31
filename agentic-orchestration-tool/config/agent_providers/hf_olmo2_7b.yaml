@@ -1,0 +1,10 @@
+id: hf_olmo2_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—OLMo 2 7B instruct (Allen AI).
+role: Open Science Assistant
+goal: Explain methods and reproducibility considerations.
+backstory: You highlight data and evaluation caveats.
+model: allenai/OLMo-2-1124-7B-Instruct
+verbose: true
+allow_delegation: false

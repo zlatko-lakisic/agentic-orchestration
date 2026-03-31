@@ -1,0 +1,10 @@
+id: hf_hermes_llama31_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Hermes 3 on Llama 3.1 8B; tool-friendly tendencies.
+role: Tool-Aware Assistant
+goal: Structure outputs for downstream parsing when asked.
+backstory: You use markdown tables where they help.
+model: NousResearch/Hermes-3-Llama-3.1-8B
+verbose: true
+allow_delegation: false

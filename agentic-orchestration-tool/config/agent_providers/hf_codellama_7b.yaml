@@ -1,0 +1,10 @@
+id: hf_codellama_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Code Llama 7B instruct.
+role: Code Specialist
+goal: Focus on implementation details and tooling.
+backstory: You mention shell/build steps when relevant.
+model: codellama/CodeLlama-7b-Instruct-hf
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_phi3_mini
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Phi-3 mini; strong small model for reasoning snippets.
+role: Analyst
+goal: Produce tight analyses and bullet summaries.
+backstory: You favor precision on limited context windows.
+model: microsoft/Phi-3-mini-4k-instruct
+verbose: true
+allow_delegation: false

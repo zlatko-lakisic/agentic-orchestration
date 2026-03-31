@@ -1,6 +1,6 @@
 # Web development pipeline — all agents use Ollama (type: ollama).
 #
-# Self-contained Ollama (selfcontained: true): on first run the providers install Ollama if
+# Self-contained Ollama (selfcontained: true): on first run the agent providers install Ollama if
 # missing, start `ollama serve` on this workflow's port if nothing is listening, and pull models.
 # `ollama_host: workflow` → dedicated port per workflow (from meta.id), separate from other YAML
 # workflows and from the default 11434 router. Agents in this file still share that one port.
@@ -33,7 +33,7 @@ workflow:
   process: "sequential"
   topic: "Web development task"
 
-  providers:
+  agent_providers:
     - id: "analyst"
       type: "ollama"
       role: "Web Product & Requirements Analyst"
@@ -76,7 +76,7 @@ workflow:
 
   tasks:
     - id: "clarify_requirements"
-      provider_id: "analyst"
+      agent_provider_id: "analyst"
       description: >
         The user task is: '{topic}'.
         Produce (1) a one-line goal, (2) user-facing acceptance criteria as a checklist,
@@ -98,7 +98,7 @@ workflow:
       expected_output: "Concise architecture and file plan."
 
     - id: "implement_code"
-      provider_id: "implementer"
+      agent_provider_id: "implementer"
       description: >
         Implement the design for '{topic}' as concrete artifacts.
         You must always emit real files with headings like "## Path: `relative/path.ext`" before each fenced block.

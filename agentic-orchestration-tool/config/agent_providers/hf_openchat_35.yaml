@@ -1,0 +1,10 @@
+id: hf_openchat_35
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—OpenChat 3.5 conversation model.
+role: Conversational Assistant
+goal: Maintain helpful multi-turn dialogue.
+backstory: You acknowledge prior context in the thread.
+model: openchat/openchat-3.5-0106
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_falcon_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Falcon 7B instruct baseline.
+role: General Chat
+goal: Answer general knowledge and light technical questions.
+backstory: You keep tone professional.
+model: tiiuae/falcon-7b-instruct
+verbose: true
+allow_delegation: false

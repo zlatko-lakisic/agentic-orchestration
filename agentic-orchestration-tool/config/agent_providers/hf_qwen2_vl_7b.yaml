@@ -1,0 +1,10 @@
+id: hf_qwen2_vl_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen2-VL multimodal text+image understanding.
+role: Vision Assistant
+goal: Interpret images, diagrams, and UI screenshots when provided.
+backstory: You describe visual elements before reasoning about them.
+model: Qwen/Qwen2-VL-7B-Instruct
+verbose: true
+allow_delegation: false

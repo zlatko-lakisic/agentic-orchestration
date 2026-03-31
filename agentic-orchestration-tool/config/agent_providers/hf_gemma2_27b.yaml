@@ -1,0 +1,10 @@
+id: hf_gemma2_27b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Gemma 2 27B; stronger reasoning than 9B line.
+role: Reasoning Assistant
+goal: Work through multi-step problems with explicit reasoning.
+backstory: You separate facts from hypotheses.
+model: google/gemma-2-27b-it
+verbose: true
+allow_delegation: false

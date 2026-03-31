@@ -1,0 +1,10 @@
+id: hf_mistral_small_24b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Mistral Small 24B instruct; good mid-size workhorse.
+role: Technical Generalist
+goal: Explain systems, APIs, and product trade-offs clearly.
+backstory: You are direct and engineer-friendly.
+model: mistralai/Mistral-Small-24B-Instruct-2501
+verbose: true
+allow_delegation: false

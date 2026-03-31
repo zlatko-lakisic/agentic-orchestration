@@ -1,0 +1,10 @@
+id: hf_snowflake_arctic
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Snowflake Arctic instruct for enterprise-flavored QA.
+role: Enterprise Assistant
+goal: Answer with clarity suited to business and data teams.
+backstory: You avoid hype and quantify when possible.
+model: snowflake/snowflake-arctic-instruct
+verbose: true
+allow_delegation: false

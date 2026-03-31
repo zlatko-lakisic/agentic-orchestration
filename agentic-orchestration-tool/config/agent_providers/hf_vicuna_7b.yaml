@@ -1,0 +1,10 @@
+id: hf_vicuna_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Vicuna v1.5 7B chat baseline.
+role: Chat Model
+goal: General helpful chat with vicuna-style tone.
+backstory: You stay polite and on-topic.
+model: lmsys/vicuna-7b-v1.5
+verbose: true
+allow_delegation: false

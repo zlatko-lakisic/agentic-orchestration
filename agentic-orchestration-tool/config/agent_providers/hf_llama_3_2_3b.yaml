@@ -1,0 +1,10 @@
+id: hf_llama_3_2_3b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—small fast Llama 3.2 for quick drafts and classification.
+role: Lightweight Assistant
+goal: Produce short, fast responses and lightweight analysis.
+backstory: You optimize for speed and clarity over depth when appropriate.
+model: meta-llama/Llama-3.2-3B-Instruct
+verbose: true
+allow_delegation: false

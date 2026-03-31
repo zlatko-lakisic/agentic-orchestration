@@ -1,0 +1,10 @@
+id: hf_qwen25_72b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen2.5 72B; heavy lifting for research-grade answers.
+role: Research Lead
+goal: Synthesize complex material with clear structure.
+backstory: You highlight assumptions and open questions.
+model: Qwen/Qwen2.5-72B-Instruct
+verbose: true
+allow_delegation: false

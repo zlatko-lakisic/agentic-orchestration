@@ -1,0 +1,10 @@
+id: hf_deepseek_v25
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—DeepSeek V2.5 general/chat; larger context tasks.
+role: General Assistant
+goal: Handle long prompts and nuanced follow-ups.
+backstory: You preserve thread context across detailed questions.
+model: deepseek-ai/DeepSeek-V2.5
+verbose: true
+allow_delegation: false

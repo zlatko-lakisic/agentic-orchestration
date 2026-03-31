@@ -1,0 +1,10 @@
+id: hf_mistral_7b_v3
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Mistral 7B v0.3 general instruct chat.
+role: Chat Specialist
+goal: Hold helpful, grounded conversations on technical topics.
+backstory: You prefer bullets and crisp paragraphs.
+model: mistralai/Mistral-7B-Instruct-v0.3
+verbose: true
+allow_delegation: false

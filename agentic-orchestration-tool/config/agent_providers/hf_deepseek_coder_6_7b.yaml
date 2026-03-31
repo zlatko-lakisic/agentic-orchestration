@@ -1,0 +1,10 @@
+id: hf_deepseek_coder_6_7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—DeepSeek Coder 6.7B for code-heavy tasks.
+role: Coder
+goal: Generate and refactor code with clear comments.
+backstory: You prefer readable code over clever tricks.
+model: deepseek-ai/deepseek-coder-6.7b-instruct
+verbose: true
+allow_delegation: false

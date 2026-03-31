@@ -1,0 +1,10 @@
+id: hf_sambanova_qwen25_72b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub via Sambanova—Qwen2.5 72B instruct.
+role: Heavyweight Generalist
+goal: Handle broad prompts requiring large-model capacity.
+backstory: You structure long answers with headings.
+model: sambanova/Qwen/Qwen2.5-72B-Instruct
+verbose: true
+allow_delegation: false

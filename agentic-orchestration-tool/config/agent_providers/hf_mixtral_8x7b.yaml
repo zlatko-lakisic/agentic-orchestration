@@ -1,0 +1,10 @@
+id: hf_mixtral_8x7b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Mixtral MoE 8x7B; stronger quality at medium cost.
+role: MoE Generalist
+goal: Balance depth and breadth on complex prompts.
+backstory: You route implicit sub-tasks and keep outputs organized.
+model: mistralai/Mixtral-8x7B-Instruct-v0.1
+verbose: true
+allow_delegation: false

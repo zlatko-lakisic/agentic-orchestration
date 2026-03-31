@@ -1,15 +1,15 @@
 # Agentic Orchestration Tool
 
-YAML-driven CrewAI runner that dynamically creates providers (agents), tasks, and task sequence from configuration.
+YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration—distinct from future MCP integrations.
 
 ## Features
 
-- Abstract `Provider` class for provider definitions.
+- Abstract `AgentProvider` class for agent-provider definitions.
 - Workflow YAML under `config/workflows/` (default `config/workflows/workflow.yaml`).
-- Dynamic mode provider templates: one file per provider under `config/providers/`.
+- Dynamic mode agent-provider templates: one YAML file per entry under `config/agent_providers/`.
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
-- Rich provider lifecycle hooks (see below).
+- Rich agent-provider lifecycle hooks (see below).
 - Optional **Ollama workflow router**: pass a natural-language task and the app scans a config directory for workflow files that include **`meta`**, picks one, and runs it with your task as the workflow `topic`.
 
 ### Workflow router & per-file metadata
@@ -42,7 +42,7 @@ Optional flags: `--config-dir`, `--router-model`, `--router-host`.
 
 **Dynamic + long-running planner context**: `python main.py --dynamic "…" --orchestrator-session myproject` stores planner chat and a truncated last crew output under `__orchestrator_sessions__/myproject.json` (gitignored). Reuse the same session name on the next run so the orchestrator LLM sees prior turns and last results. `--orchestrator-session-reset` clears that file. Env: `AGENTIC_ORCHESTRATOR_SESSION`, `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS`, `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS`.
 
-### Provider lifecycle
+### Agent provider lifecycle
 
 Called by the runner / `main.py` in this order:
 
@@ -82,7 +82,7 @@ copy .env.example .env
 
 Then set your real `OPENAI_API_KEY` in `.env`.
 
-Environment variables are loaded from `.env` **before** provider discovery runs (see `main.py`), so values such as `AGENTIC_EXTRA_PROVIDERS_PATH` take effect when you start the app via `python main.py`.
+Environment variables are loaded from `.env` **before** agent-provider discovery runs (see `main.py`), so values such as `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` / `AGENTIC_EXTRA_PROVIDERS_PATH` take effect when you start the app via `python main.py`.
 
 ## Run
 
@@ -102,8 +102,8 @@ python main.py --config config/workflows/workflow.yaml
 - `workflow.name`: workflow name.
 - `workflow.process`: `sequential` or `hierarchical`.
 - `workflow.topic`: input used by task templates (`{topic}`).
-- `workflow.providers[]`: provider definitions.
-- `workflow.tasks[]`: tasks referencing `provider_id`.
+- `workflow.agent_providers[]`: agent-provider definitions (legacy key `workflow.providers` still accepted).
+- `workflow.tasks[]`: tasks referencing `agent_provider_id` (legacy `provider_id` still accepted).
 - `workflow.task_sequence[]`: ordered list of task IDs to execute.
 
 ### Ollama provider options
@@ -116,11 +116,11 @@ For a provider with `type: ollama`:
   - `false` (default): use existing Ollama server as-is.
 - `ollama_host`: optional host (default `http://127.0.0.1:11434`).
 
-### External provider directories (`AGENTIC_EXTRA_PROVIDERS_PATH`)
+### External agent-provider directories (`AGENTIC_EXTRA_AGENT_PROVIDERS_PATH`)
 
-Set `AGENTIC_EXTRA_PROVIDERS_PATH` to one or more directories, separated by your OS path separator (`;` on Windows, `:` on Linux/macOS). Each directory is scanned for top-level `*.py` files (not subfolders; files whose names start with `_` are skipped).
+Set `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (preferred) or legacy `AGENTIC_EXTRA_PROVIDERS_PATH` to one or more directories, separated by your OS path separator (`;` on Windows, `:` on Linux/macOS). Each directory is scanned for top-level `*.py` files (not subfolders; files whose names start with `_` are skipped).
 
-For every concrete subclass of `Provider` defined in those files:
+For every concrete subclass of `AgentProvider` defined in those files:
 
 - The class is registered for YAML `type: ...` if you set a class attribute `PROVIDER_TYPE = "myalias"` (recommended).
 - Otherwise the `type` string is derived from the class name (for example `MyCoolProvider` becomes `mycool`).
@@ -130,16 +130,16 @@ Duplicate `type` values across the built-in `providers` package and extra folder
 Example `.env`:
 
 ```env
-AGENTIC_EXTRA_PROVIDERS_PATH=D:\Projects\my-custom-providers
+AGENTIC_EXTRA_AGENT_PROVIDERS_PATH=D:\Projects\my-custom-agent-providers
 ```
 
-Example external module `D:\Projects\my-custom-providers\echo_provider.py`:
+Example external module `D:\Projects\my-custom-agent-providers\echo_provider.py`:
 
 ```python
-from providers.base import Provider, ProviderConfig
+from agent_providers.base import AgentProvider, AgentProviderConfig
 from crewai import Agent
 
-class EchoProvider(Provider):
+class EchoProvider(AgentProvider):
     PROVIDER_TYPE = "echo"
 
     def validate_config(self) -> None:
@@ -190,14 +190,14 @@ class EchoProvider(Provider):
         )
 ```
 
-Then in YAML you can use `type: echo` for that provider.
+Then in YAML you can use `type: echo` for that agent provider.
 
-### Explicit provider class (`provider_class`)
+### Explicit agent-provider class (`provider_class`)
 
 You can also point at any importable class without putting it in an extra folder:
 
 ```yaml
-provider_class: "my_package.providers.CustomProvider"
+provider_class: "my_package.agent_providers.CustomAgentProvider"
 ```
 
-Unknown keys on the provider entry are passed through as `ProviderConfig.provider_options` for your class to use.
+Unknown keys on the agent-provider entry are passed through as `AgentProviderConfig.provider_options` for your class to use.

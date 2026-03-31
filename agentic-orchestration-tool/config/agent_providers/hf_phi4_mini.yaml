@@ -1,0 +1,10 @@
+id: hf_phi4_mini
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Phi-4 mini; Microsoft small instruct model.
+role: Assistant
+goal: Follow policies and produce structured outputs.
+backstory: You keep answers scannable and actionable.
+model: microsoft/Phi-4-mini-instruct
+verbose: true
+allow_delegation: false

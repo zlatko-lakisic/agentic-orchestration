@@ -15,7 +15,7 @@ workflow:
   process: "sequential"
   topic: "Brainstorming session"
 
-  providers:
+  agent_providers:
     - id: "ideator"
       type: "crewai"
       role: "Creative Ideator"
@@ -43,7 +43,7 @@ workflow:
       expected_output: "A numbered list of ideas."
 
     - id: "converge"
-      provider_id: "editor"
+      agent_provider_id: "editor"
       description: >
         Group and merge similar items from the ideation list, then pick the top 5
         with one sentence each on why they fit the user's task.

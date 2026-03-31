@@ -11,38 +11,40 @@ def _load_single_catalog_file(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         raw: dict[str, Any] = yaml.safe_load(f) or {}
 
-    entries = raw.get("providers")
+    entries = raw.get("agent_providers")
+    if entries is None:
+        entries = raw.get("providers")
     if not isinstance(entries, list) or not entries:
         raise ValueError(
-            f"'providers' must be a non-empty list in {path}",
+            f"'agent_providers' (or legacy 'providers') must be a non-empty list in {path}",
         )
 
     out: list[dict[str, Any]] = []
     for i, item in enumerate(entries):
         if not isinstance(item, dict):
-            raise ValueError(f"{path}: providers[{i}] must be a mapping")
+            raise ValueError(f"{path}: agent_providers[{i}] must be a mapping")
         pid = str(item.get("id", "")).strip()
         if not pid:
-            raise ValueError(f"{path}: providers[{i}] is missing non-empty 'id'")
+            raise ValueError(f"{path}: agent_providers[{i}] is missing non-empty 'id'")
         out.append(dict(item))
     return out
 
 
-def _load_provider_fragment_file(path: Path) -> dict[str, Any]:
+def _load_agent_provider_fragment_file(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         raw: Any = yaml.safe_load(f)
     if not isinstance(raw, dict):
-        raise ValueError(f"{path}: root must be a mapping (one provider per file)")
+        raise ValueError(f"{path}: root must be a mapping (one agent provider per file)")
     pid = str(raw.get("id", "")).strip()
     if not pid:
         raise ValueError(f"{path}: missing non-empty 'id' at file root")
     return dict(raw)
 
 
-def load_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
-    """Load provider templates from a directory (one ``*.yaml`` per provider) or a legacy bundle file."""
+def load_agent_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
+    """Load agent-provider templates from a directory (one ``*.yaml`` per entry) or a legacy bundle file."""
     if not catalog_path.exists():
-        raise FileNotFoundError(f"Providers catalog not found: {catalog_path}")
+        raise FileNotFoundError(f"Agent providers catalog not found: {catalog_path}")
 
     if catalog_path.is_dir():
         out: list[dict[str, Any]] = []
@@ -53,18 +55,18 @@ def load_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
             stem = path.stem.lower()
             if stem in frozenset({"readme", "index"}):
                 continue
-            out.append(_load_provider_fragment_file(path))
+            out.append(_load_agent_provider_fragment_file(path))
     else:
         out = _load_single_catalog_file(catalog_path)
 
     ids = [str(p.get("id", "")).strip() for p in out]
     if len(set(ids)) != len(ids):
-        raise ValueError("Duplicate provider 'id' across catalog files")
+        raise ValueError("Duplicate agent provider 'id' across catalog files")
 
     return out
 
 
-def _format_provider_entry(p: dict[str, Any]) -> str:
+def _format_agent_provider_entry(p: dict[str, Any]) -> str:
     pid = str(p.get("id", "")).strip()
     typ = str(p.get("type", "")).strip()
     hint = str(p.get("planner_hint", "")).strip()
@@ -84,7 +86,7 @@ def _format_provider_entry(p: dict[str, Any]) -> str:
 
 
 def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
-    """Build planner-facing catalog text, grouped by backend so all providers get equal consideration."""
+    """Build planner-facing catalog text, grouped by backend."""
 
     def _id_key(p: dict[str, Any]) -> str:
         return str(p.get("id", "")).strip().lower()
@@ -101,12 +103,16 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
         (p for p in entries if str(p.get("type", "")).strip().lower() == "anthropic"),
         key=_id_key,
     )
+    huggingface_list = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "huggingface"),
+        key=_id_key,
+    )
     other = sorted(
         (
             p
             for p in entries
             if str(p.get("type", "")).strip().lower()
-            not in frozenset({"ollama", "openai", "anthropic"})
+            not in frozenset({"ollama", "openai", "anthropic", "huggingface"})
         ),
         key=_id_key,
     )
@@ -118,28 +124,39 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
             "### Local — Ollama (`type: ollama`)\n"
             "Models below run on the workflow Ollama host. Treat every `id` as a first-class option: "
             "match **planner_hint**, **role**, and **goal** to the user's task (code, vision, chat, reasoning, etc.).\n"
-            + "\n".join(_format_provider_entry(p) for p in ollama)
+            + "\n".join(_format_agent_provider_entry(p) for p in ollama)
         )
     if openai_list:
         sections.append(
             "### Cloud — OpenAI-compatible API (`type: openai`)\n"
             "Remote models via API; choose when the task aligns with these entries' hints and roles, same as for local.\n"
-            + "\n".join(_format_provider_entry(p) for p in openai_list)
+            + "\n".join(_format_agent_provider_entry(p) for p in openai_list)
         )
     if anthropic_list:
         sections.append(
             "### Cloud — Anthropic Claude (`type: anthropic`)\n"
             "Claude via the Anthropic API; choose when hints and roles fit the user's task, same as other cloud entries.\n"
-            + "\n".join(_format_provider_entry(p) for p in anthropic_list)
+            + "\n".join(_format_agent_provider_entry(p) for p in anthropic_list)
+        )
+    if huggingface_list:
+        sections.append(
+            "### Cloud — Hugging Face Hub (`type: huggingface`)\n"
+            "Hub-hosted models via HF inference (LiteLLM); match **planner_hint** to task (chat, code, vision, MoE, etc.).\n"
+            + "\n".join(_format_agent_provider_entry(p) for p in huggingface_list)
         )
     if other:
         sections.append(
-            "### Other provider types\n"
-            + "\n".join(_format_provider_entry(p) for p in other)
+            "### Other agent provider types\n"
+            + "\n".join(_format_agent_provider_entry(p) for p in other)
         )
 
     return "\n\n".join(sections) if sections else ""
 
 
-def deepcopy_provider(entry: dict[str, Any]) -> dict[str, Any]:
+def deepcopy_agent_provider(entry: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(entry)
+
+
+# Backward-compatible names (deprecated).
+load_providers_catalog = load_agent_providers_catalog
+deepcopy_provider = deepcopy_agent_provider

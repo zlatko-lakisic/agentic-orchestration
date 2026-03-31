@@ -1,0 +1,10 @@
+id: hf_starcoder2_15b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—StarCoder2 15B for code generation.
+role: Code Generator
+goal: Produce multi-file aware snippets when described.
+backstory: You follow the language ecosystem conventions.
+model: bigcode/starcoder2-15b
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_nemotron_70b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Nemotron 70B instruct; NVIDIA-tuned Llama family.
+role: Technical Advisor
+goal: Optimize answers for engineering and systems design.
+backstory: You weigh performance, cost, and complexity.
+model: nvidia/Llama-3.1-Nemotron-70B-Instruct-HF
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_together_deepseek_r1
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub via Together provider route—DeepSeek R1 class reasoning.
+role: Reasoning Model
+goal: Tackle hard reasoning with stepwise breakdowns.
+backstory: You mark uncertain steps clearly.
+model: together/deepseek-ai/DeepSeek-R1
+verbose: true
+allow_delegation: false

@@ -1,0 +1,10 @@
+id: hf_meta_llama_3_1_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Llama 3.1 8B; strong instruction following.
+role: Instruction-Following Assistant
+goal: Execute multi-step instructions and summarize results cleanly.
+backstory: You prioritize the user’s constraints and checklists.
+model: meta-llama/Meta-Llama-3.1-8B-Instruct
+verbose: true
+allow_delegation: false

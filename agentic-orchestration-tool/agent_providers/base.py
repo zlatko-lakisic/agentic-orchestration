@@ -8,8 +8,8 @@ from crewai import Agent
 
 
 @dataclass(frozen=True)
-class ProviderConfig:
-    """Structured provider definition loaded from YAML."""
+class AgentProviderConfig:
+    """Structured agent-provider definition loaded from YAML (LLM-backed CrewAI agents)."""
 
     id: str
     role: str
@@ -23,14 +23,15 @@ class ProviderConfig:
     ollama_host: str = ""
     openai_base_url: str = ""
     anthropic_base_url: str = ""
+    huggingface_base_url: str = ""
     verbose: bool = True
     allow_delegation: bool = False
 
 
-class Provider(ABC):
-    """Abstract provider that knows how to create a CrewAI agent."""
+class AgentProvider(ABC):
+    """Abstract agent provider: builds a CrewAI ``Agent`` (contrasts with future MCP integrations)."""
 
-    def __init__(self, config: ProviderConfig) -> None:
+    def __init__(self, config: AgentProviderConfig) -> None:
         self.config = config
 
     def validate_config(self) -> None:
@@ -79,5 +80,5 @@ class Provider(ABC):
         """Resume after suspend() (runner does not call this yet)."""
 
     @abstractmethod
-    def build_agent(self) -> Agent:
+    def build_agent(self, *, mcps: list[str] | None = None) -> Agent:
         """Build and return a CrewAI agent instance."""

@@ -1,0 +1,10 @@
+id: hf_qwen3_8b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—Qwen3 8B family; modern Qwen chat/reasoning.
+role: Assistant
+goal: Respond with updated Qwen-style helpfulness and structure.
+backstory: You separate steps from final answers when useful.
+model: Qwen/Qwen3-8B
+verbose: true
+allow_delegation: false

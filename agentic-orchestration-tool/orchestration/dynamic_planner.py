@@ -20,10 +20,14 @@ from orchestration.orchestrator_session import (
     stable_instance_key_for_session,
     trim_planner_history,
 )
-from orchestration.providers_catalog import (
+from orchestration.agent_providers_catalog import (
     catalog_for_planner_prompt,
-    deepcopy_provider,
-    load_providers_catalog,
+    deepcopy_agent_provider,
+    load_agent_providers_catalog,
+)
+from orchestration.mcp_providers_catalog import (
+    load_mcp_providers_catalog_merged,
+    mcp_catalog_for_planner_prompt,
 )
 
 
@@ -110,36 +114,49 @@ def _planner_system_prompt(
     catalog_doc: str,
     max_steps: int,
     last_crew_excerpt: str | None = None,
+    mcp_catalog_doc: str = "",
 ) -> str:
+    mcp_block = ""
+    if mcp_catalog_doc.strip():
+        mcp_block = f"""
+
+Available **MCP providers** (optional; pick zero or more `mcp_provider_ids` from this catalog only):
+{mcp_catalog_doc}
+
+- When the user's goal clearly benefits from external MCP tools (search, APIs, DBs, etc.), include those ids in top-level `mcp_provider_ids`.
+- When no MCP entry fits, omit `mcp_provider_ids` or use an empty array.
+"""
     system = f"""You are an expert orchestration planner for a multi-agent system.
 
-Available providers (pick ONLY provider_id values from this catalog; every id is valid):
+Available **agent providers** (pick ONLY `agent_provider_id` values from this catalog; every id is valid):
 {catalog_doc}
-
+{mcp_block}
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
-- **Provider choice:** For each step, pick the **single best** `provider_id` for that step—no default bias toward local vs cloud. Judge purely from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API).
+- **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`—no default bias toward local vs cloud. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference).
 - **Mixing:** You may combine different `type` values in one plan when different steps call for different capabilities.
-- **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` providers.
-- Each step must assign exactly one provider_id from the catalog.
+- **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` agent providers.
+- Each step must assign exactly one `agent_provider_id` from the catalog (legacy key `provider_id` is also accepted if you output it by mistake).
 - Steps run in order; later steps may build on earlier work (sequential crew).
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
-- In `plan_summary`, briefly justify **why** each provider_id fits that step (not just step order).
+- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step (not just step order).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
-  "plan_summary": "short rationale for the step order and provider choices",
+  "plan_summary": "short rationale for the step order and agent provider choices",
+  "mcp_provider_ids": ["optional MCP catalog ids when the MCP catalog above is non-empty"],
   "steps": [
     {{
-      "provider_id": "<id from catalog>",
+      "agent_provider_id": "<id from catalog>",
       "description": "Instructions for the agent. Must mention {{topic}}.",
       "expected_output": "What this step should produce"
     }}
   ]
 }}
+Omit `"mcp_provider_ids"` or set it to `[]` when no MCP tools are needed.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -168,7 +185,7 @@ def _compose_planner_messages(
 
 
 def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
-    """Rich context appended to the planner assistant turn: concrete providers and tasks."""
+    """Rich context appended to the planner assistant turn: agent providers and tasks."""
     cap_desc = max(80, min(4000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_DESC_CHARS", "500"))))
     cap_exp = max(60, min(2000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_OUTPUT_CHARS", "320"))))
 
@@ -179,7 +196,7 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
         return s[: n - 1] + "…"
 
     prov_lines: list[str] = []
-    for p in cfg.providers:
+    for p in cfg.agent_providers:
         if not isinstance(p, dict):
             continue
         pid = str(p.get("id", "")).strip()
@@ -204,21 +221,29 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
         if match is None:
             continue
         task_lines.append(
-            f"- `{match.id}` → provider `{match.provider_id}`\n"
+            f"- `{match.id}` → agent_provider `{match.agent_provider_id}`\n"
             f"  - description: {clip(match.description, cap_desc)}\n"
             f"  - expected_output: {clip(match.expected_output, cap_exp)}"
         )
 
-    if not prov_lines and not task_lines:
+    if not prov_lines and not task_lines and not cfg.mcp_providers:
         return ""
+
+    mcp_line = ""
+    if cfg.mcp_providers:
+        mcp_line = (
+            "\n\n### MCP providers (workflow)\n"
+            + "\n".join(f"- `{str(x)}`" if not isinstance(x, dict) else f"- (inline) `{x!r}`" for x in cfg.mcp_providers)
+        )
 
     return (
         "\n\n---\n"
-        "## Workflow built from this plan (providers and tasks; use for continuity)\n\n"
-        "### Providers\n"
+        "## Workflow built from this plan (agent providers and tasks; use for continuity)\n\n"
+        "### Agent providers\n"
         + ("\n".join(prov_lines) if prov_lines else "(none)")
         + "\n\n### Tasks (execution order)\n"
         + ("\n".join(task_lines) if task_lines else "(none)")
+        + mcp_line
     )
 
 
@@ -251,6 +276,7 @@ def workflow_config_from_plan(
     catalog_entries: list[dict[str, Any]],
     instance_key: str,
     max_steps: int,
+    mcp_catalog_entries: list[dict[str, Any]] | None = None,
 ) -> WorkflowConfig:
     catalog_by_id = {str(p["id"]).strip(): p for p in catalog_entries}
     steps_raw = plan.get("steps")
@@ -267,13 +293,13 @@ def workflow_config_from_plan(
     for i, step in enumerate(steps_raw):
         if not isinstance(step, dict):
             raise ValueError(f"steps[{i}] must be an object")
-        pid = str(step.get("provider_id", "")).strip()
+        pid = str(step.get("agent_provider_id") or step.get("provider_id", "")).strip()
         desc = str(step.get("description", "")).strip()
         expected = str(step.get("expected_output", "")).strip()
         if not pid or pid not in catalog_by_id:
             known = ", ".join(sorted(catalog_by_id))
             raise ValueError(
-                f"Unknown provider_id {pid!r} in step {i}. Known: {known}",
+                f"Unknown agent_provider_id {pid!r} in step {i}. Known: {known}",
             )
         if not desc:
             raise ValueError(f"Step {i} is missing description")
@@ -286,7 +312,7 @@ def workflow_config_from_plan(
         task_definitions.append(
             TaskDefinition(
                 id=tid,
-                provider_id=pid,
+                agent_provider_id=pid,
                 description=desc,
                 expected_output=expected,
             )
@@ -295,14 +321,37 @@ def workflow_config_from_plan(
             seen_providers.add(pid)
             used_provider_ids.append(pid)
 
-    provider_payloads = [deepcopy_provider(catalog_by_id[pid]) for pid in used_provider_ids]
+    provider_payloads = [deepcopy_agent_provider(catalog_by_id[pid]) for pid in used_provider_ids]
+
+    mcp_raw = plan.get("mcp_provider_ids", [])
+    if mcp_raw is None:
+        mcp_raw = []
+    if not isinstance(mcp_raw, list):
+        raise ValueError("Planner JSON 'mcp_provider_ids' must be an array when present")
+    mcp_plan_ids: list[str] = []
+    for x in mcp_raw:
+        s = str(x).strip()
+        if s:
+            mcp_plan_ids.append(s)
+    if mcp_catalog_entries is not None:
+        known_mcp = {
+            str(p.get("id", "")).strip()
+            for p in mcp_catalog_entries
+            if str(p.get("id", "")).strip()
+        }
+        for mid in mcp_plan_ids:
+            if mid not in known_mcp:
+                raise ValueError(
+                    f"Unknown mcp_provider_id {mid!r} in plan. Known: {', '.join(sorted(known_mcp))}",
+                )
 
     return WorkflowConfig(
         name="dynamic-plan",
         process="sequential",
         topic=user_prompt.strip(),
         instance_key=instance_key,
-        providers=provider_payloads,
+        agent_providers=provider_payloads,
+        mcp_providers=mcp_plan_ids,
         tasks=task_definitions,
         task_sequence=[t.id for t in task_definitions],
     )
@@ -312,13 +361,14 @@ def build_dynamic_workflow_config(
     *,
     user_prompt: str,
     catalog_path: Path,
+    mcp_catalog_path: Path | None = None,
     instance_key: str | None = None,
     max_steps: int | None = None,
     planner_model: str | None = None,
     session_path: Path | None = None,
     quiet: bool = False,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
-    entries = load_providers_catalog(catalog_path)
+    entries = load_agent_providers_catalog(catalog_path)
     entries, _skipped_cred = filter_entries_by_api_credentials(
         entries,
         verbose=not quiet,
@@ -326,14 +376,14 @@ def build_dynamic_workflow_config(
     )
     if not entries:
         raise RuntimeError(
-            "No providers left after API credential filtering. "
-            "Set OPENAI_API_KEY / ANTHROPIC_API_KEY (or OpenAI base URL) for cloud entries, "
-            "or keep Ollama providers in the catalog for local-only runs."
+            "No agent providers left after API credential filtering. "
+            "Set OPENAI_API_KEY / ANTHROPIC_API_KEY / HF_TOKEN (or OpenAI base URL) for cloud entries, "
+            "or keep Ollama agent providers in the catalog for local-only runs."
         )
     entries, excluded_hw, vram_g = filter_catalog_by_vram(entries)
     if not entries:
         raise RuntimeError(
-            "No providers left after hardware (VRAM) filtering. "
+            "No agent providers left after hardware (VRAM) filtering. "
             "Use a smaller Ollama model in catalog YAML (lower min_vram_gb), set "
             "AGENTIC_ASSUME_VRAM_GB to your real GPU size, set AGENTIC_VRAM_HEURISTICS=0, "
             "or disable filtering with AGENTIC_DISABLE_HARDWARE_FILTER=1."
@@ -383,11 +433,17 @@ def build_dynamic_workflow_config(
     else:
         key = _dynamic_instance_key(user_prompt)
 
+    mcp_entries: list[dict[str, Any]] = []
+    if mcp_catalog_path is not None:
+        mcp_entries = load_mcp_providers_catalog_merged(mcp_catalog_path)
+    mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
+
     doc = catalog_for_planner_prompt(entries)
     system_text = _planner_system_prompt(
         catalog_doc=doc,
         max_steps=limit,
         last_crew_excerpt=last_excerpt,
+        mcp_catalog_doc=mcp_doc,
     )
     messages = _compose_planner_messages(
         system_text=system_text,
@@ -403,6 +459,7 @@ def build_dynamic_workflow_config(
         catalog_entries=entries,
         instance_key=key,
         max_steps=limit,
+        mcp_catalog_entries=mcp_entries,
     )
 
     if session_path is not None:

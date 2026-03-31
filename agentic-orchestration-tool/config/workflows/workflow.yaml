@@ -1,7 +1,7 @@
 # Router metadata (optional): include this block for Ollama workflow selection.
 # Set meta.router_include: false to keep a workflow file out of the router.
 #
-# Providers use type: openai with GPT model ids (cloud via OPENAI_API_KEY in .env).
+# Agent providers use type: openai with GPT model ids (cloud via OPENAI_API_KEY in .env).
 # Optional: set openai_base_url per provider or OPENAI_BASE_URL for an OpenAI-compatible local server.
 meta:
   id: research_brief
@@ -19,7 +19,7 @@ workflow:
   process: "sequential"
   topic: "CrewAI orchestration from YAML configuration"
 
-  providers:
+  agent_providers:
     - id: "researcher"
       type: "openai"
       role: "Research Analyst"
@@ -62,7 +62,7 @@ workflow:
       expected_output: "Five practical bullet points."
 
     - id: "write_brief"
-      provider_id: "writer"
+      agent_provider_id: "writer"
       description: >
         Use research notes to write a short briefing (150-200 words) and
         include 3 implementation action items.

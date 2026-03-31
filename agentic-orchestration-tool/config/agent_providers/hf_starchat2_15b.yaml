@@ -1,0 +1,10 @@
+id: hf_starchat2_15b
+type: huggingface
+min_vram_gb: 0
+planner_hint: HF Hub—StarChat2 code conversation.
+role: Code Chat
+goal: Discuss code architecture and debugging collaboratively.
+backstory: You ask clarifying questions when inputs are ambiguous.
+model: HuggingFaceH4/starchat2-15b-v0.1
+verbose: true
+allow_delegation: false

@@ -10,7 +10,7 @@ import yaml
 @dataclass(frozen=True)
 class TaskDefinition:
     id: str
-    provider_id: str
+    agent_provider_id: str
     description: str
     expected_output: str
 
@@ -22,7 +22,9 @@ class WorkflowConfig:
     topic: str
     # meta.id or config filename stem (used for per-workflow Ollama port when host is "workflow").
     instance_key: str
-    providers: list[dict[str, Any]]
+    agent_providers: list[dict[str, Any]]
+    # Catalog ids (strings) and/or inline mappings with ``ref`` / ``refs`` (CrewAI MCP DSL strings).
+    mcp_providers: list[Any]
     tasks: list[TaskDefinition]
     task_sequence: list[str]
 
@@ -50,30 +52,47 @@ def load_workflow_config(
     process = str(workflow.get("process", "sequential")).strip().lower()
     topic = str(workflow.get("topic", "")).strip()
 
-    providers = workflow.get("providers", [])
+    agent_providers = workflow.get("agent_providers")
+    if agent_providers is None:
+        agent_providers = workflow.get("providers", [])
+    mcp_providers = workflow.get("mcp_providers", [])
     tasks = workflow.get("tasks", [])
     sequence = workflow.get("task_sequence", [])
 
-    if not isinstance(providers, list) or not providers:
-        raise ValueError("'workflow.providers' must be a non-empty list.")
+    if not isinstance(agent_providers, list) or not agent_providers:
+        raise ValueError(
+            "'workflow.agent_providers' (or legacy 'workflow.providers') must be a non-empty list."
+        )
     if not isinstance(tasks, list) or not tasks:
         raise ValueError("'workflow.tasks' must be a non-empty list.")
     if not isinstance(sequence, list) or not sequence:
         raise ValueError("'workflow.task_sequence' must be a non-empty list.")
+    if not isinstance(mcp_providers, list):
+        raise ValueError("'workflow.mcp_providers' must be a list when set.")
+    for j, mcp_item in enumerate(mcp_providers):
+        if isinstance(mcp_item, str):
+            continue
+        if isinstance(mcp_item, dict):
+            continue
+        raise ValueError(
+            f"workflow.mcp_providers[{j}] must be a catalog id string or an inline mapping",
+        )
 
     task_definitions: list[TaskDefinition] = []
     for item in tasks:
         if not isinstance(item, dict):
             raise ValueError("Each item in 'workflow.tasks' must be a mapping.")
         task_id = str(item.get("id", "")).strip()
-        provider_id = str(item.get("provider_id", "")).strip()
+        apid = str(item.get("agent_provider_id") or item.get("provider_id", "")).strip()
         description = str(item.get("description", "")).strip()
         expected_output = str(item.get("expected_output", "")).strip()
 
         if not task_id:
             raise ValueError("Each task must include a non-empty 'id'.")
-        if not provider_id:
-            raise ValueError(f"Task '{task_id}' is missing 'provider_id'.")
+        if not apid:
+            raise ValueError(
+                f"Task '{task_id}' is missing 'agent_provider_id' (or legacy 'provider_id')."
+            )
         if not description:
             raise ValueError(f"Task '{task_id}' is missing 'description'.")
         if not expected_output:
@@ -82,7 +101,7 @@ def load_workflow_config(
         task_definitions.append(
             TaskDefinition(
                 id=task_id,
-                provider_id=provider_id,
+                agent_provider_id=apid,
                 description=description,
                 expected_output=expected_output,
             )
@@ -93,7 +112,8 @@ def load_workflow_config(
         process=process,
         topic=topic,
         instance_key=instance_key,
-        providers=providers,
+        agent_providers=agent_providers,
+        mcp_providers=list(mcp_providers),
         tasks=task_definitions,
         task_sequence=[str(task_id).strip() for task_id in sequence],
     )
