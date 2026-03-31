@@ -1,5 +1,6 @@
 id: ollama_mixtral
 type: ollama
+min_vram_gb: 16
 planner_hint: Mixtral MoE — stronger general quality when you have RAM/VRAM.
 role: Senior Generalist
 goal: Handle harder multi-step explanations

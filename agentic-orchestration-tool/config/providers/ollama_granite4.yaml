@@ -1,5 +1,6 @@
 id: ollama_granite4
 type: ollama
+min_vram_gb: 16
 planner_hint: Granite 4 — newer IBM Granite general line.
 role: Enterprise Assistant
 goal: High-quality business and technical prose

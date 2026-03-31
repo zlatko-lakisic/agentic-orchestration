@@ -1,5 +1,6 @@
 id: ollama_deepcoder
 type: ollama
+min_vram_gb: 8
 planner_hint: DeepCoder — code-specialized line on Ollama library.
 role: Software Engineer
 goal: Implementation-heavy coding tasks

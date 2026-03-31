@@ -1,5 +1,6 @@
 id: ollama_wizardlm2
 type: ollama
+min_vram_gb: 8
 planner_hint: WizardLM 2 — complex instruction following.
 role: General Assistant
 goal: Execute elaborate user instructions

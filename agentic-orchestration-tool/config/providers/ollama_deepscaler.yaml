@@ -1,5 +1,6 @@
 id: ollama_deepscaler
 type: ollama
+min_vram_gb: 14
 planner_hint: DeepScaler — math/reasoning-tuned line.
 role: Math Assistant
 goal: Step-by-step quantitative reasoning

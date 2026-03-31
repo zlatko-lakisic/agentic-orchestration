@@ -1,5 +1,6 @@
 id: ollama_gpt_oss
 type: ollama
+min_vram_gb: 8
 planner_hint: gpt-oss — open-weight models in OpenAI-style families on Ollama.
 role: General Assistant
 goal: General chat using OSS GPT-class weights

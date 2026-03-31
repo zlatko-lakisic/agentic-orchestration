@@ -1,5 +1,6 @@
 id: ollama_ministral_3
 type: ollama
+min_vram_gb: 8
 planner_hint: Ministral 3 — efficient Mistral line for edge and fast iteration.
 role: General Assistant
 goal: Respond quickly with acceptable depth

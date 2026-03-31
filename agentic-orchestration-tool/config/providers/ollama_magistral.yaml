@@ -1,5 +1,6 @@
 id: ollama_magistral
 type: ollama
+min_vram_gb: 16
 planner_hint: Magistral — Mistral reasoning line.
 role: Reasoning Specialist
 goal: Mistral-class chain-of-thought tasks

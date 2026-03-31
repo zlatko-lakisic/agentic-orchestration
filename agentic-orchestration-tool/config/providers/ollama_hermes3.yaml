@@ -1,5 +1,6 @@
 id: ollama_hermes3
 type: ollama
+min_vram_gb: 8
 planner_hint: Hermes 3 — Nous general instruct; tool-use friendly style.
 role: General Assistant
 goal: Follow complex instructions and formats

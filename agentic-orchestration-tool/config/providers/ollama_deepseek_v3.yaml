@@ -1,5 +1,7 @@
 id: ollama_deepseek_v3
 type: ollama
+# Minimum dedicated VRAM (GiB) for comfortable local load; override if you use aggressive quant.
+min_vram_gb: 16
 planner_hint: DeepSeek V3 — large general+reasoning; heavy but capable.
 role: Senior Analyst
 goal: Deep analysis and long-form reasoning

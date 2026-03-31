@@ -1,5 +1,6 @@
 id: ollama_phi4
 type: ollama
+min_vram_gb: 8
 planner_hint: Phi-4 — stronger small Microsoft model for reasoning and instruction.
 role: Analyst
 goal: Combine efficiency with solid reasoning

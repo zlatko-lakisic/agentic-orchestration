@@ -1,5 +1,6 @@
 id: ollama_glm4
 type: ollama
+min_vram_gb: 8
 planner_hint: GLM-4 — general multilingual (strong Chinese/English) chat.
 role: Multilingual Analyst
 goal: Support GLM-family strengths in dialogue and analysis

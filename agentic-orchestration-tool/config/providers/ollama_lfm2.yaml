@@ -1,5 +1,6 @@
 id: ollama_lfm2
 type: ollama
+min_vram_gb: 8
 planner_hint: LFM2 — Liquid AI efficient foundation model.
 role: Efficient Assistant
 goal: Fast general responses

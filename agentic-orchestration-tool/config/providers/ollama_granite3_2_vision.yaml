@@ -1,5 +1,6 @@
 id: ollama_granite3_2_vision
 type: ollama
+min_vram_gb: 10
 planner_hint: Granite 3.2 Vision — IBM multimodal for enterprise visuals.
 role: Vision Analyst
 goal: Diagrams, slides, and screenshot understanding

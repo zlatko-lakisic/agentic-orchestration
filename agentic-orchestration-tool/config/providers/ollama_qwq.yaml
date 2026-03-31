@@ -1,5 +1,6 @@
 id: ollama_qwq
 type: ollama
+min_vram_gb: 16
 planner_hint: QwQ — Qwen reasoning model for hard puzzles and math.
 role: Reasoning Specialist
 goal: Solve structured reasoning problems

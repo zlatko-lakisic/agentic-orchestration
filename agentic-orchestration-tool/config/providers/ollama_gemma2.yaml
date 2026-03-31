@@ -1,5 +1,6 @@
 id: ollama_gemma2
 type: ollama
+min_vram_gb: 8
 planner_hint: Gemma 2 — prior Gemma generation; stable general chat.
 role: General Assistant
 goal: Help with clear, safe responses

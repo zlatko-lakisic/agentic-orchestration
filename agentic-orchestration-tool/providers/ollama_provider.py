@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+import re
+import sys
+from typing import Any, TextIO
 
 import platform
 import shutil
@@ -31,6 +33,66 @@ def _ollama_subprocess_stdio() -> tuple[Any, Any]:
     if _ollama_cli_inherit_stdio():
         return (None, None)
     return (subprocess.DEVNULL, subprocess.DEVNULL)
+
+
+# Ollama pull uses TTY progress (CSI sequences, redraw). Strip and emit one updating line.
+_ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[-/]*[@-~])")
+_SPINNER_RUNES_RE = re.compile(r"[\u2800-\u28FF⣾⣽⣻⢿⡿⣟⣯⣷]+")
+
+
+def _normalize_ollama_pull_display_line(raw: str) -> str | None:
+    """Turn one raw pull output chunk into a single human-readable progress line."""
+    line = _ANSI_ESCAPE_RE.sub("", raw)
+    line = line.replace("\r", " ")
+    line = _SPINNER_RUNES_RE.sub(" ", line)
+    line = " ".join(line.split())
+    if not line:
+        return None
+    idx = line.casefold().rfind("pulling manifest")
+    if idx != -1:
+        line = line[:idx].rstrip()
+    line = " ".join(line.split())
+    if not line or "pulling" not in line.casefold():
+        return None
+    if not any(x in line for x in ("%", "MB", "GB", "KB")):
+        return None
+    return line
+
+
+def _rewrite_ollama_pull_to_single_line(stream: TextIO) -> None:
+    """TTY: one \\r-updating line. Piped stdout: periodic newlines so logs stay readable."""
+    tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    throttle = float(os.getenv("AGENTIC_OLLAMA_PULL_THROTTLE_SEC", "1.2"))
+    if throttle < 0.15:
+        throttle = 0.15
+
+    last_len = 0
+    last_emit = 0.0
+    pending = ""
+
+    for raw in stream:
+        line = _normalize_ollama_pull_display_line(raw)
+        if not line:
+            continue
+        pending = line
+        if tty:
+            pad = max(0, last_len - len(line))
+            sys.stdout.write("\r" + line + (" " * pad))
+            sys.stdout.flush()
+            last_len = len(line)
+        else:
+            now = time.monotonic()
+            if now - last_emit >= throttle:
+                sys.stdout.write(line + "\n")
+                sys.stdout.flush()
+                last_emit = now
+
+    if tty and last_len:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    elif not tty and pending:
+        sys.stdout.write(pending + "\n")
+        sys.stdout.flush()
 
 
 def _ollama_serve_key(host: str) -> str:
@@ -112,13 +174,15 @@ def start_ollama_server(host: str) -> None:
 
     env = os.environ.copy()
     env["OLLAMA_HOST"] = listen
+    # Quieter embedded server (default OLLAMA_DEBUG=INFO is very chatty).
+    env["OLLAMA_DEBUG"] = os.getenv("AGENTIC_OLLAMA_SERVE_DEBUG", "false").strip()
 
-    out, err = _ollama_subprocess_stdio()
+    # Background daemon: do not inherit logs (GPU discovery, GIN, etc.). Pull shows progress.
     proc = subprocess.Popen(
         ["ollama", "serve"],
         env=env,
-        stdout=out,
-        stderr=err,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
     _workflow_ollama_register_serve(host, proc)
@@ -143,19 +207,49 @@ def pull_ollama_model(model: str, host: str) -> None:
 
     env = os.environ.copy()
     env["OLLAMA_HOST"] = host
-    out, err = _ollama_subprocess_stdio()
+
+    if not _ollama_cli_inherit_stdio():
+        out, err = _ollama_subprocess_stdio()
+        try:
+            subprocess.run(
+                ["ollama", "pull", model],
+                env=env,
+                check=True,
+                stdout=out,
+                stderr=err,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
+            ) from exc
+        _ollama_pull_done.add(cache_key)
+        return
+
     try:
-        subprocess.run(
+        proc = subprocess.Popen(
             ["ollama", "pull", model],
             env=env,
-            check=True,
-            stdout=out,
-            stderr=err,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
         ) from exc
+
+    assert proc.stdout is not None
+    try:
+        _rewrite_ollama_pull_to_single_line(proc.stdout)
+    finally:
+        rc = proc.wait()
+    if rc != 0:
+        raise RuntimeError(
+            f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
+        )
 
     _ollama_pull_done.add(cache_key)
 

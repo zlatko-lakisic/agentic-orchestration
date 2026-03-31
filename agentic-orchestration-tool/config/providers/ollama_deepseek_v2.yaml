@@ -1,5 +1,6 @@
 id: ollama_deepseek_v2
 type: ollama
+min_vram_gb: 16
 planner_hint: DeepSeek V2 — prior DeepSeek generation for general chat.
 role: Analyst
 goal: Solid technical explanations

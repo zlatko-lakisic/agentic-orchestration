@@ -1,5 +1,6 @@
 id: ollama_nous_hermes
 type: ollama
+min_vram_gb: 8
 planner_hint: Nous Hermes — earlier Nous instruct line.
 role: General Assistant
 goal: Instruction-following chat

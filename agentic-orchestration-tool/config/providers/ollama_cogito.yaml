@@ -1,5 +1,6 @@
 id: ollama_cogito
 type: ollama
+min_vram_gb: 8
 planner_hint: Cogito — reasoning-oriented general model line.
 role: Reasoning Assistant
 goal: Step-by-step thinking before conclusions

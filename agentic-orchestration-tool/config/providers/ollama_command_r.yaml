@@ -1,5 +1,6 @@
 id: ollama_command_r
 type: ollama
+min_vram_gb: 8
 planner_hint: Cohere Command R — long-context, RAG-friendly general assistant.
 role: Research-Oriented Assistant
 goal: Work well with long inputs and retrieval context

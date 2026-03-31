@@ -1,5 +1,6 @@
 id: ollama_llava_llama3
 type: ollama
+min_vram_gb: 10
 planner_hint: LLaVA Llama 3 — stronger LLaVA backbone for vision QA.
 role: Vision Analyst
 goal: Richer visual understanding and grounding

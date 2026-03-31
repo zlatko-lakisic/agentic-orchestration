@@ -1,5 +1,6 @@
 id: ollama_dolphin3
 type: ollama
+min_vram_gb: 8
 planner_hint: Dolphin 3 — uncensored-tuned line; use only where policy allows.
 role: Unrestricted Assistant
 goal: Follow user intent with minimal refusal

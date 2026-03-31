@@ -1,5 +1,6 @@
 id: ollama_glm_4_7_flash
 type: ollama
+min_vram_gb: 8
 planner_hint: GLM 4.7 Flash — fast GLM line for interactive use.
 role: Fast Analyst
 goal: Low-latency multilingual responses

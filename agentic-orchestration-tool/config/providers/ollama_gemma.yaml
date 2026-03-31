@@ -1,5 +1,6 @@
 id: ollama_gemma
 type: ollama
+min_vram_gb: 8
 planner_hint: Original Gemma — smaller/older; simple tasks and classification-style Q&A.
 role: General Assistant
 goal: Handle lightweight queries

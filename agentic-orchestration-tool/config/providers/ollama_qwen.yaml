@@ -1,5 +1,6 @@
 id: ollama_qwen
 type: ollama
+min_vram_gb: 8
 planner_hint: Qwen base — legacy general Qwen family.
 role: General Assistant
 goal: Assist with text tasks in many domains

@@ -1,5 +1,6 @@
 id: ollama_llava
 type: ollama
+min_vram_gb: 10
 planner_hint: LLaVA — image+text; describe screenshots, diagrams, UI.
 role: Vision Analyst
 goal: Interpret visual content paired with user questions

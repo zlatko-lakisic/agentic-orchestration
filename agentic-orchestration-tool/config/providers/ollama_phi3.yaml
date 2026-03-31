@@ -1,5 +1,6 @@
 id: ollama_phi3
 type: ollama
+min_vram_gb: 8
 planner_hint: Phi-3 — Microsoft small model; fast reasoning on modest hardware.
 role: Efficient Assistant
 goal: Quick helpful answers with low resource use

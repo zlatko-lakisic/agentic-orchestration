@@ -1,5 +1,6 @@
 id: ollama_llama3
 type: ollama
+min_vram_gb: 8
 planner_hint: Llama 3 base family — general-purpose local assistant.
 role: General Assistant
 goal: Help with varied technical and product questions

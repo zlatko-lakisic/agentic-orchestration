@@ -1,5 +1,6 @@
 id: ollama_gemma3
 type: ollama
+min_vram_gb: 8
 planner_hint: Gemma 3 — Google open general model; good instruction following.
 role: General Assistant
 goal: Follow instructions precisely

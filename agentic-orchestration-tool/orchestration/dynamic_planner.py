@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
-import hashlib
+import sys
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.hardware_profile import filter_catalog_by_vram
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
     load_session,
@@ -261,6 +263,31 @@ def build_dynamic_workflow_config(
     session_path: Path | None = None,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_providers_catalog(catalog_path)
+    entries, excluded_hw, vram_g = filter_catalog_by_vram(entries)
+    if not entries:
+        raise RuntimeError(
+            "No providers left after hardware (VRAM) filtering. "
+            "Use a smaller Ollama model in catalog YAML (lower min_vram_gb), set "
+            "AGENTIC_ASSUME_VRAM_GB to your real GPU size, set AGENTIC_VRAM_HEURISTICS=0, "
+            "or disable filtering with AGENTIC_DISABLE_HARDWARE_FILTER=1."
+        )
+    if excluded_hw and os.getenv("AGENTIC_HARDWARE_FILTER_QUIET", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        cap = 24
+        show = excluded_hw[:cap]
+        more = len(excluded_hw) - cap
+        suffix = f" (+{more} more)" if more > 0 else ""
+        print(
+            f"(dynamic) hardware: NVIDIA VRAM ~{vram_g:.1f} GiB; excluded "
+            f"{len(excluded_hw)} provider(s) (min_vram_gb / heuristic): "
+            f"{', '.join(show)}{suffix}",
+            file=sys.stderr,
+        )
+
     limit = max_steps
     if limit is None:
         limit = int(os.getenv("AGENTIC_PLANNER_MAX_STEPS", "8"))

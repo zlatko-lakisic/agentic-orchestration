@@ -1,5 +1,6 @@
 id: ollama_codeqwen
 type: ollama
+min_vram_gb: 8
 planner_hint: CodeQwen — Qwen code variant.
 role: Software Engineer
 goal: Code generation in Qwen style

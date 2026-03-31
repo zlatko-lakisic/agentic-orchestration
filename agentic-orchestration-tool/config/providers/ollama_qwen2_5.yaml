@@ -1,5 +1,6 @@
 id: ollama_qwen2_5
 type: ollama
+min_vram_gb: 8
 planner_hint: Qwen 2.5 general — strong multilingual and STEM-friendly chat.
 role: General Analyst
 goal: Explain technical and cross-lingual topics clearly

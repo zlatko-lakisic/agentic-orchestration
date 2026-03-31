@@ -1,5 +1,6 @@
 id: ollama_qwen2
 type: ollama
+min_vram_gb: 8
 planner_hint: Qwen 2 — earlier Qwen general; still useful for many languages.
 role: General Analyst
 goal: Multilingual Q&A and summarization

@@ -1,5 +1,6 @@
 id: ollama_devstral
 type: ollama
+min_vram_gb: 12
 planner_hint: Devstral — dev-focused Mistral line for tooling workflows.
 role: Developer Tools Engineer
 goal: CLI, build, and automation oriented answers

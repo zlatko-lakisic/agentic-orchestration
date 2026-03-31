@@ -1,5 +1,6 @@
 id: ollama_mistral
 type: ollama
+min_vram_gb: 8
 planner_hint: Mistral 7B-class general instruct; fast, good default for many subjects.
 role: General Assistant
 goal: Produce clear, efficient answers

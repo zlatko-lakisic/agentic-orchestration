@@ -1,5 +1,6 @@
 id: ollama_starcoder2
 type: ollama
+min_vram_gb: 8
 planner_hint: StarCoder2 — BigCode family for code generation.
 role: Software Engineer
 goal: Open-source style code across many languages

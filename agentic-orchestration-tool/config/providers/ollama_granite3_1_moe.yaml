@@ -1,5 +1,6 @@
 id: ollama_granite3_1_moe
 type: ollama
+min_vram_gb: 8
 planner_hint: Granite 3.1 MoE — efficient MoE general model.
 role: Efficient Analyst
 goal: MoE-quality answers with moderate footprint

@@ -1,5 +1,6 @@
 id: ollama_mistral_large
 type: ollama
+min_vram_gb: 8
 planner_hint: Mistral Large — demanding analysis, writing, and reasoning locally.
 role: Senior Generalist
 goal: Produce publication-quality technical text

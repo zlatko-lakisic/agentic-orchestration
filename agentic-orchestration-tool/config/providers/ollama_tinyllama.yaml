@@ -1,5 +1,6 @@
 id: ollama_tinyllama
 type: ollama
+min_vram_gb: 4
 planner_hint: TinyLlama — very small; prototyping only.
 role: Micro Assistant
 goal: Extremely fast stub responses

@@ -1,5 +1,6 @@
 id: ollama_falcon
 type: ollama
+min_vram_gb: 8
 planner_hint: Falcon — earlier TII general line.
 role: General Assistant
 goal: Baseline help on varied prompts

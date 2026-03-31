@@ -1,5 +1,6 @@
 id: ollama_codestral
 type: ollama
+min_vram_gb: 12
 planner_hint: Codestral — Mistral code model.
 role: Software Engineer
 goal: High-quality code with Mistral strengths

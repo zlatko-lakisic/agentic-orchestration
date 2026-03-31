@@ -1,5 +1,6 @@
 id: ollama_openchat
 type: ollama
+min_vram_gb: 8
 planner_hint: OpenChat — conversational, assistant-style dialogue.
 role: Conversational Assistant
 goal: Natural multi-turn style answers

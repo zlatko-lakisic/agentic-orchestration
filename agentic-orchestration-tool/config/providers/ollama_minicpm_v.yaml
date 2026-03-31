@@ -1,5 +1,6 @@
 id: ollama_minicpm_v
 type: ollama
+min_vram_gb: 10
 planner_hint: MiniCPM-V — efficient vision-language for edge.
 role: Efficient Vision Assistant
 goal: Vision QA on constrained hardware

@@ -1,5 +1,6 @@
 id: ollama_gemma3n
 type: ollama
+min_vram_gb: 8
 planner_hint: Gemma 3n — efficient Gemma variant for lighter devices.
 role: General Assistant
 goal: Efficient answers on constrained hardware

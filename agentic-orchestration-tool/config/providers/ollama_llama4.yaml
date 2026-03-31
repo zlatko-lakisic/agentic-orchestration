@@ -1,5 +1,6 @@
 id: ollama_llama4
 type: ollama
+min_vram_gb: 8
 planner_hint: Llama 4 when available — frontier-class local general model (large download).
 role: Senior Generalist
 goal: Tackle complex, open-ended tasks with high quality

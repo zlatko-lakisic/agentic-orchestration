@@ -1,5 +1,6 @@
 id: ollama_llama3_2_vision
 type: ollama
+min_vram_gb: 10
 planner_hint: Llama 3.2 Vision — Meta multimodal; images + instructions.
 role: Vision Analyst
 goal: Answer from images with Llama 3.2 class quality

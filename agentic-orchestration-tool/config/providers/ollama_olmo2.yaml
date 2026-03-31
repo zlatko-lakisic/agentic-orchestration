@@ -1,5 +1,6 @@
 id: ollama_olmo2
 type: ollama
+min_vram_gb: 8
 planner_hint: OLMo 2 — open research LM; general knowledge tasks.
 role: Research Assistant
 goal: Transparent, educational explanations

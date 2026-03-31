@@ -1,5 +1,6 @@
 id: ollama_llama3_1
 type: ollama
+min_vram_gb: 8
 planner_hint: Llama 3.1 family — general chat, longer context than 3.2 for many tags.
 role: General Assistant
 goal: Provide thorough, well-structured answers

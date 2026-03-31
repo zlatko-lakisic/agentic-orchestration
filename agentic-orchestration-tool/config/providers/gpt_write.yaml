@@ -1,5 +1,6 @@
 id: gpt_write
 type: openai
+min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint:
   OpenAI cloud writing—not a default. Prefer Ollama chat/writing-capable ids when they fit;
   use this when the user wants cloud/GPT polish or no suitable local writer.

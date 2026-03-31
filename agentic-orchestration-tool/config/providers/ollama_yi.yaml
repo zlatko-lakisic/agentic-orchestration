@@ -1,5 +1,6 @@
 id: ollama_yi
 type: ollama
+min_vram_gb: 8
 planner_hint: Yi — bilingual EN/ZH capable general models.
 role: Multilingual Assistant
 goal: Handle English–Chinese technical text

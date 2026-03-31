@@ -1,5 +1,6 @@
 id: ollama_phi
 type: ollama
+min_vram_gb: 8
 planner_hint: Legacy Phi — very small; trivial classification and micro-tasks.
 role: Lightweight Assistant
 goal: Handle the simplest text tasks

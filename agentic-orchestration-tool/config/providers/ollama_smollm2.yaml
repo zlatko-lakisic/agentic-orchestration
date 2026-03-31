@@ -1,5 +1,6 @@
 id: ollama_smollm2
 type: ollama
+min_vram_gb: 4
 planner_hint: SmolLM2 — Hugging Face small LM for edge.
 role: Efficient Assistant
 goal: Compact helpful replies

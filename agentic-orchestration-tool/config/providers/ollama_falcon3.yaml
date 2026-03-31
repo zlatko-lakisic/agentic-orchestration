@@ -1,5 +1,6 @@
 id: ollama_falcon3
 type: ollama
+min_vram_gb: 8
 planner_hint: Falcon 3 — TII general instruct family.
 role: General Assistant
 goal: Broad Q&A and drafting

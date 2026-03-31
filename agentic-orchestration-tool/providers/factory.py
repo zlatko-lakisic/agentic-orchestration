@@ -182,6 +182,8 @@ def provider_from_dict(data: dict[str, Any], default_model: str) -> Provider:
         "planner_hint",
         "verbose",
         "allow_delegation",
+        "min_vram_gb",
+        "hardware",
     }
     provider_options = {k: v for k, v in data.items() if k not in known_keys}
 

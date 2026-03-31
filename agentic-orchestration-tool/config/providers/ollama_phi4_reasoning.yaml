@@ -1,5 +1,6 @@
 id: ollama_phi4_reasoning
 type: ollama
+min_vram_gb: 14
 planner_hint: Phi-4 reasoning — Microsoft small reasoning specialist.
 role: Reasoning Assistant
 goal: Compact model with explicit reasoning

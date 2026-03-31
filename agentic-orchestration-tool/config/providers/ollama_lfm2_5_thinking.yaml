@@ -1,5 +1,6 @@
 id: ollama_lfm2_5_thinking
 type: ollama
+min_vram_gb: 14
 planner_hint: LFM2.5 Thinking — thinking-augmented efficient model.
 role: Reasoning Assistant
 goal: Lightweight reasoning with explicit steps

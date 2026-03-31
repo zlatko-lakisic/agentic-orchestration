@@ -1,5 +1,6 @@
 id: ollama_orca_mini
 type: ollama
+min_vram_gb: 8
 planner_hint: Orca Mini — tiny model for demos and smoke tests.
 role: Lightweight Assistant
 goal: Minimal viable answers

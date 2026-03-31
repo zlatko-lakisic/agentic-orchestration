@@ -1,5 +1,6 @@
 id: ollama_qwen3_5
 type: ollama
+min_vram_gb: 8
 planner_hint: Qwen 3.5 — upgraded Qwen line for demanding general tasks.
 role: Senior Analyst
 goal: Solve complex information tasks

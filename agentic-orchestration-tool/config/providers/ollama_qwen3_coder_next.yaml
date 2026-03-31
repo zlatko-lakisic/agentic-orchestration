@@ -1,5 +1,6 @@
 id: ollama_qwen3_coder_next
 type: ollama
+min_vram_gb: 12
 planner_hint: Qwen3 Coder Next — latest Qwen coding line when available.
 role: Senior Software Engineer
 goal: Harder algorithms and system design in code

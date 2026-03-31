@@ -1,5 +1,6 @@
 id: ollama_smollm
 type: ollama
+min_vram_gb: 4
 planner_hint: SmolLM — first-gen small LM line.
 role: Lightweight Assistant
 goal: Simple Q&A

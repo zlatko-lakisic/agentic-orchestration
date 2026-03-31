@@ -1,5 +1,6 @@
 id: ollama_mistral_nemo
 type: ollama
+min_vram_gb: 8
 planner_hint: Mistral Nemo — strong multilingual and general instruct mid-size.
 role: General Assistant
 goal: Support multilingual and technical Q&A

@@ -1,5 +1,6 @@
 id: ollama_llama3_2
 type: ollama
+min_vram_gb: 8
 planner_hint: Default local generalist; planning, Q&A, summaries, light analysis.
 role: General Assistant
 goal: Answer clearly and structure output for developers

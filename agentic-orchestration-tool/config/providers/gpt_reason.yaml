@@ -1,5 +1,6 @@
 id: gpt_reason
 type: openai
+min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint:
   OpenAI cloud reasoning—not a default. Prefer Ollama reasoning/code specialists when they
   match; use this for heavy trade-off analysis if the user wants cloud or local lacks a fit.

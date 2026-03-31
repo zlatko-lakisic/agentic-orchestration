@@ -1,5 +1,6 @@
 id: ollama_granite3_3
 type: ollama
+min_vram_gb: 8
 planner_hint: IBM Granite 3.3 — enterprise-leaning general instruct.
 role: Enterprise Assistant
 goal: Professional tone and structured business/tech answers

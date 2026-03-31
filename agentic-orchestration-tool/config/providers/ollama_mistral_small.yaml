@@ -1,5 +1,6 @@
 id: ollama_mistral_small
 type: ollama
+min_vram_gb: 8
 planner_hint: Mistral Small — balanced speed/quality for everyday tasks.
 role: General Assistant
 goal: Deliver quick, reliable answers

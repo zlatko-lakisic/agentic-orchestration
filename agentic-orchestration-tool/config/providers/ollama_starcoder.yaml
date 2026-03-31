@@ -1,5 +1,6 @@
 id: ollama_starcoder
 type: ollama
+min_vram_gb: 8
 planner_hint: StarCoder — first-gen BigCode model.
 role: Software Engineer
 goal: Code completion and generation

@@ -1,5 +1,6 @@
 id: ollama_codellama
 type: ollama
+min_vram_gb: 8
 planner_hint: Code Llama — Meta code completion and generation.
 role: Software Engineer
 goal: Code-focused answers and snippets

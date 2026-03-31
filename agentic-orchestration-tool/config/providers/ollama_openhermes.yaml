@@ -1,5 +1,6 @@
 id: ollama_openhermes
 type: ollama
+min_vram_gb: 8
 planner_hint: OpenHermes — Mistral-based instruct tuning.
 role: General Assistant
 goal: Helpful developer-oriented answers

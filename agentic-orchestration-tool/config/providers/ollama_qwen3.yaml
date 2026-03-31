@@ -1,5 +1,6 @@
 id: ollama_qwen3
 type: ollama
+min_vram_gb: 8
 planner_hint: Qwen 3 — newer general Qwen for harder questions and coding-adjacent chat.
 role: General Analyst
 goal: Deliver robust analysis and structured answers

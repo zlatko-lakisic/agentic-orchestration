@@ -1,5 +1,6 @@
 id: ollama_deepseek_llm
 type: ollama
+min_vram_gb: 8
 planner_hint: DeepSeek LLM — earlier DeepSeek general base.
 role: General Assistant
 goal: General-purpose help

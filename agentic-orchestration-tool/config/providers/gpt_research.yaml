@@ -1,5 +1,6 @@
 id: gpt_research
 type: openai
+min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint:
   OpenAI cloud research—not a default. Prefer an Ollama id whose hint/role fits research or
   general Q&A unless the user asks for GPT/ChatGPT/cloud or no local entry matches.
