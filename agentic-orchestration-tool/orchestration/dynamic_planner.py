@@ -167,6 +167,61 @@ def _compose_planner_messages(
     return msgs
 
 
+def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
+    """Rich context appended to the planner assistant turn: concrete providers and tasks."""
+    cap_desc = max(80, min(4000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_DESC_CHARS", "500"))))
+    cap_exp = max(60, min(2000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_OUTPUT_CHARS", "320"))))
+
+    def clip(text: str, n: int) -> str:
+        s = text.strip().replace("\n", " ")
+        if len(s) <= n:
+            return s
+        return s[: n - 1] + "…"
+
+    prov_lines: list[str] = []
+    for p in cfg.providers:
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("id", "")).strip()
+        if not pid:
+            continue
+        typ = str(p.get("type", "")).strip()
+        model = str(p.get("model", "")).strip()
+        role = str(p.get("role", "")).strip()
+        meta = []
+        if typ:
+            meta.append(f"type={typ!r}")
+        if model:
+            meta.append(f"model={model!r}")
+        if role:
+            meta.append(f"role={role!r}")
+        suffix = (" " + " ".join(meta)) if meta else ""
+        prov_lines.append(f"- `{pid}`{suffix}")
+
+    task_lines: list[str] = []
+    for tid in cfg.task_sequence:
+        match = next((t for t in cfg.tasks if t.id == tid), None)
+        if match is None:
+            continue
+        task_lines.append(
+            f"- `{match.id}` → provider `{match.provider_id}`\n"
+            f"  - description: {clip(match.description, cap_desc)}\n"
+            f"  - expected_output: {clip(match.expected_output, cap_exp)}"
+        )
+
+    if not prov_lines and not task_lines:
+        return ""
+
+    return (
+        "\n\n---\n"
+        "## Workflow built from this plan (providers and tasks; use for continuity)\n\n"
+        "### Providers\n"
+        + ("\n".join(prov_lines) if prov_lines else "(none)")
+        + "\n\n### Tasks (execution order)\n"
+        + ("\n".join(task_lines) if task_lines else "(none)")
+    )
+
+
 def plan_raw_from_llm(
     *,
     user_prompt: str,
@@ -342,19 +397,6 @@ def build_dynamic_workflow_config(
     raw_content = _planner_chat_completion(messages=messages, model=model)
     plan = _extract_json_object(raw_content)
 
-    if session_path is not None:
-        assert sess is not None
-        sess.instance_key = key
-        merged = trim_planner_history(
-            history
-            + [
-                {"role": "user", "content": user_prompt.strip()},
-                {"role": "assistant", "content": raw_content.strip()},
-            ]
-        )
-        sess.planner_history = merged
-        save_session(session_path, sess)
-
     cfg = workflow_config_from_plan(
         user_prompt=user_prompt,
         plan=plan,
@@ -362,4 +404,19 @@ def build_dynamic_workflow_config(
         instance_key=key,
         max_steps=limit,
     )
+
+    if session_path is not None:
+        assert sess is not None
+        sess.instance_key = key
+        assistant_content = raw_content.strip() + _workflow_snapshot_for_planner_history(cfg)
+        merged = trim_planner_history(
+            history
+            + [
+                {"role": "user", "content": user_prompt.strip()},
+                {"role": "assistant", "content": assistant_content},
+            ]
+        )
+        sess.planner_history = merged
+        save_session(session_path, sess)
+
     return cfg, plan
