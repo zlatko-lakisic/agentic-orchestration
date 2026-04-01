@@ -68,6 +68,21 @@ body {
   color: var(--muted);
 }
 
+.field select,
+.field input[type="number"] {
+  min-width: 180px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.6;
+}
+
 .field input[type="text"] {
   min-width: 240px;
   padding: 0.45rem 0.65rem;

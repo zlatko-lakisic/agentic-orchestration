@@ -15,7 +15,7 @@ from crewai import Crew, Process, Task
 from agent_providers.base import AgentProvider
 from agent_providers.factory import agent_provider_from_dict
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
 from orchestration.mcp_providers_catalog import (
     load_mcp_providers_catalog_merged,
     mcps_list_fingerprint,
@@ -100,12 +100,6 @@ def _to_process(value: str) -> Process:
     raise ValueError("workflow.process must be 'sequential' or 'hierarchical'.")
 
 
-def _raw_mcp_list_for_task(task_def: TaskDefinition, config: WorkflowConfig) -> list[Any]:
-    if task_def.mcp_providers is not None:
-        return list(task_def.mcp_providers)
-    return list(config.mcp_providers)
-
-
 def _resolve_agent_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
     workflow_host = resolve_workflow_ollama_host(config.instance_key)
     resolved: list[dict[str, Any]] = []
@@ -166,7 +160,7 @@ def build_workflow(
 
     task_mcps_resolved: dict[str, list[Any]] = {}
     for tdef in config.tasks:
-        raw = _raw_mcp_list_for_task(tdef, config)
+        raw = raw_mcp_spec_for_task(tdef, config)
         task_mcps_resolved[tdef.id] = (
             resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []
         )
@@ -181,7 +175,7 @@ def build_workflow(
 
     if not quiet and any(task_mcps_resolved[t.id] for t in config.tasks):
         for tdef in config.tasks:
-            raw_spec = _raw_mcp_list_for_task(tdef, config)
+            raw_spec = raw_mcp_spec_for_task(tdef, config)
             spec_label = raw_spec if raw_spec else "(none — workflow default empty)"
             print(
                 f"(mcp) task {tdef.id!r} -> {len(task_mcps_resolved[tdef.id])} MCP config(s); "

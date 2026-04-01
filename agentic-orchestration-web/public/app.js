@@ -3,6 +3,9 @@
   const input = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
   const clearBtn = document.getElementById("clearBtn");
+  const runModeEl = document.getElementById("runMode");
+  const iterRoundsEl = document.getElementById("iterRounds");
+  const noSynthesizeEl = document.getElementById("noSynthesize");
   const sessionIdEl = document.getElementById("sessionId");
   const resetSessionEl = document.getElementById("resetSession");
   const verboseCrewEl = document.getElementById("verboseCrew");
@@ -206,6 +209,16 @@
     const text = input.value.trim();
     if (!text || !ws || ws.readyState !== WebSocket.OPEN || runActive) return;
 
+    const modeRaw = (runModeEl?.value || "dynamic").trim();
+    const runMode =
+      modeRaw === "dynamic-iterative" ? "dynamic-iterative" : "dynamic";
+
+    let iterRounds = 4;
+    if (iterRoundsEl) {
+      const parsed = Number(iterRoundsEl.value);
+      if (Number.isFinite(parsed)) iterRounds = Math.max(1, Math.min(32, parsed));
+    }
+
     const sessionRaw = sessionIdEl.value.trim();
     const sessionId = sessionRaw || undefined;
 
@@ -215,6 +228,9 @@
     const payload = {
       type: "chat",
       text,
+      runMode,
+      iterativeRounds: iterRounds,
+      noSynthesize: Boolean(noSynthesizeEl?.checked),
       sessionId,
       noVerify: true,
       verboseCrew: Boolean(verboseCrewEl?.checked),
@@ -224,6 +240,12 @@
     }
     ws.send(JSON.stringify(payload));
     resetSessionEl.checked = false;
+  }
+
+  function syncIterativeUi() {
+    const iterative = (runModeEl?.value || "") === "dynamic-iterative";
+    if (iterRoundsEl) iterRoundsEl.disabled = !iterative;
+    if (noSynthesizeEl) noSynthesizeEl.disabled = !iterative;
   }
 
   sendBtn.addEventListener("click", sendChat);
@@ -236,6 +258,9 @@
   clearBtn.addEventListener("click", () => {
     chat.innerHTML = "";
   });
+
+  runModeEl?.addEventListener("change", syncIterativeUi);
+  syncIterativeUi();
 
   connect();
 })();

@@ -420,6 +420,33 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dynamic-iterative",
+        action="store_true",
+        help=(
+            "Iterative dynamic mode: plan and execute one step at a time, re-planning between "
+            "steps using the same orchestrator session. This allows mid-run adaptation "
+            "(adding/swapping agents, changing MCPs, etc.). Requires TASK."
+        ),
+    )
+    parser.add_argument(
+        "--dynamic-iterative-rounds",
+        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_ROUNDS", "4")),
+        type=int,
+        metavar="N",
+        help=(
+            "With --dynamic-iterative: maximum number of stepwise rounds to run before the "
+            "final synthesis step (default env AGENTIC_DYNAMIC_ITERATIVE_ROUNDS or 4)."
+        ),
+    )
+    parser.add_argument(
+        "--dynamic-iterative-no-synthesize",
+        action="store_true",
+        help=(
+            "With --dynamic-iterative: skip the final synthesis step. Useful if you want to "
+            "inspect intermediate outputs and synthesize manually."
+        ),
+    )
+    parser.add_argument(
         "--agent-providers-catalog",
         "--providers-catalog",
         default=_DEFAULT_AGENT_PROVIDERS_CATALOG,
@@ -496,6 +523,127 @@ def main() -> None:
         if not Path(args.mcp_providers_catalog).is_absolute()
         else Path(args.mcp_providers_catalog)
     )
+
+    if args.dynamic and args.dynamic_iterative:
+        print("error: choose only one of --dynamic or --dynamic-iterative", file=sys.stderr)
+        sys.exit(2)
+
+    if args.dynamic_iterative:
+        if not args.task or not str(args.task).strip():
+            print(
+                "error: --dynamic-iterative requires TASK (your goal), e.g. "
+                'python main.py --dynamic-iterative "Explain mirrord and how to get started"',
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        goal = str(args.task).strip()
+        explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
+            "AGENTIC_ORCHESTRATOR_SESSION", ""
+        ).strip()
+        try:
+            slug = resolve_orchestrator_session_slug(explicit_session)
+        except ValueError as exc:
+            print(f"(dynamic) invalid session name: {exc}", file=sys.stderr)
+            sys.exit(2)
+        orchestrator_session_path = session_file_path(tool_root, slug)
+        if args.orchestrator_session_reset and orchestrator_session_path.exists():
+            orchestrator_session_path.unlink()
+            if not args.quiet:
+                label = explicit_session if explicit_session else slug
+                print(
+                    f"(dynamic) reset orchestrator session {label!r} -> {orchestrator_session_path}",
+                    file=sys.stderr,
+                )
+
+        rounds = max(1, int(args.dynamic_iterative_rounds))
+        for r in range(1, rounds + 1):
+            if not args.quiet:
+                print(f"(dynamic-iter) round {r}/{rounds}", file=sys.stderr)
+            try:
+                dyn_cfg, plan = build_dynamic_workflow_config(
+                    user_prompt=goal,
+                    catalog_path=agent_providers_catalog_path,
+                    mcp_catalog_path=mcp_catalog_path,
+                    session_path=orchestrator_session_path,
+                    max_steps=1,
+                    quiet=args.quiet,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"(dynamic-iter) planning failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+
+            summary = plan.get("plan_summary")
+            if not args.quiet and isinstance(summary, str) and summary.strip():
+                print(f"(dynamic-iter) plan: {summary.strip()}", file=sys.stderr)
+            if not args.quiet and dyn_cfg.tasks:
+                tdef = dyn_cfg.tasks[0]
+                if tdef.mcp_providers is not None:
+                    mcp_part = f"mcp {tdef.mcp_providers!r}"
+                else:
+                    mcp_part = f"mcp (default {dyn_cfg.mcp_providers!r})"
+                print(
+                    f"(dynamic-iter) step: {tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
+                    file=sys.stderr,
+                )
+
+            built = build_workflow(
+                dyn_cfg,
+                crew_verbose=not args.quiet,
+                quiet=args.quiet,
+                mcp_catalog_path=mcp_catalog_path,
+            )
+            exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
+            if exit_code:
+                sys.exit(exit_code)
+            update_session_after_crew(orchestrator_session_path, result_text)
+
+        if not args.dynamic_iterative_no_synthesize:
+            # Final synthesis: use the last crew excerpt as context.
+            sess = load_session(orchestrator_session_path)
+            excerpt = (sess.last_crew_output_excerpt or "").strip()
+            synth_prompt = (
+                f"{goal}\n\n"
+                "Synthesize a final answer by combining the intermediate results below. "
+                "Resolve contradictions; if information is missing, explicitly list assumptions.\n\n"
+                "## Intermediate results (excerpt)\n"
+                f"{excerpt}\n"
+            )
+            try:
+                synth_cfg, plan = build_dynamic_workflow_config(
+                    user_prompt=synth_prompt,
+                    catalog_path=agent_providers_catalog_path,
+                    mcp_catalog_path=mcp_catalog_path,
+                    session_path=orchestrator_session_path,
+                    max_steps=1,
+                    quiet=args.quiet,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"(dynamic-iter) synthesis planning failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+
+            built = build_workflow(
+                synth_cfg,
+                crew_verbose=not args.quiet,
+                quiet=args.quiet,
+                mcp_catalog_path=mcp_catalog_path,
+            )
+            exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
+            if exit_code:
+                sys.exit(exit_code)
+            update_session_after_crew(orchestrator_session_path, result_text)
+
+            if result_text:
+                saved = offer_save_extracted_files(
+                    tool_root=tool_root,
+                    user_task=goal,
+                    result_text=result_text,
+                    output_dir=save_output_dir,
+                    no_save=no_save,
+                    prompt_save=prompt_save,
+                )
+                _run_post_save_verify(saved, verify=verify_saved)
+        return
 
     if args.dynamic:
         if not args.task or not str(args.task).strip():

@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider
+from agent_providers.base import AgentProvider, augment_backstory_for_mcp_tools
 
 # Skip redundant `ollama pull` when multiple providers share the same model and host.
 _ollama_pull_done: set[str] = set()
@@ -321,7 +321,7 @@ class OllamaProvider(AgentProvider):
         kwargs: dict[str, Any] = dict(
             role=role,
             goal=self.config.goal,
-            backstory=self.config.backstory,
+            backstory=augment_backstory_for_mcp_tools(self.config.backstory, mcps),
             llm=model,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,

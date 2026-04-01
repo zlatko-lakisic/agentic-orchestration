@@ -124,6 +124,36 @@ def detect_max_nvidia_vram_gb() -> float | None:
         return None
 
 
+def _apply_vram_caps(vram_gb: float) -> float:
+    """
+    Apply user-defined VRAM caps.
+
+    - AGENTIC_MAX_VRAM_GB: absolute cap in GiB
+    - AGENTIC_MAX_VRAM_FRACTION: multiplier in (0, 1]; e.g. 0.7 to treat 8 GiB as 5.6 GiB
+    """
+    v = float(vram_gb)
+
+    frac_raw = os.getenv("AGENTIC_MAX_VRAM_FRACTION", "").strip()
+    if frac_raw:
+        try:
+            frac = float(frac_raw)
+            if frac > 0:
+                v *= min(1.0, frac)
+        except ValueError:
+            pass
+
+    cap_raw = os.getenv("AGENTIC_MAX_VRAM_GB", "").strip()
+    if cap_raw:
+        try:
+            cap = float(cap_raw)
+            if cap > 0:
+                v = min(v, cap)
+        except ValueError:
+            pass
+
+    return v
+
+
 def filter_catalog_by_vram(
     entries: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str], float | None]:
@@ -139,6 +169,7 @@ def filter_catalog_by_vram(
     vram = detect_max_nvidia_vram_gb()
     if vram is None:
         return list(entries), [], None
+    vram = _apply_vram_caps(vram)
 
     kept: list[dict[str, Any]] = []
     excluded: list[str] = []

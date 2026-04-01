@@ -236,3 +236,79 @@ def mcp_catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
 
 def deepcopy_mcp_catalog_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(entry)
+
+
+# Terms that appear in many MCP hints but are poor keyword triggers for goal matching.
+_MCP_GOAL_MATCH_BLOCKLIST = frozenset({
+    "assistant",
+    "service",
+    "server",
+    "catalog",
+    "context",
+    "protocol",
+    "provider",
+    "optional",
+    "default",
+    "behavior",
+    "entities",
+    "integration",
+    "configuration",
+    "instructions",
+    "https",
+    "http",
+    "model",
+})
+
+
+def _terms_from_mcp_catalog_entry(entry: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    eid = str(entry.get("id", "")).strip().lower()
+    if eid:
+        out.add(eid)
+        out.add(eid.replace("_", " "))
+        for p in eid.split("_"):
+            if len(p) >= 5 and p not in _MCP_GOAL_MATCH_BLOCKLIST:
+                out.add(p)
+    for key in ("user_goal_keywords", "match_keywords"):
+        raw = entry.get(key)
+        if isinstance(raw, list):
+            for x in raw:
+                s = str(x).strip().lower()
+                if s:
+                    out.add(s)
+    hint = str(entry.get("planner_hint", "")).lower()
+    for w in re.findall(r"[a-z][a-z0-9-]{5,}", hint):
+        if w not in _MCP_GOAL_MATCH_BLOCKLIST:
+            out.add(w)
+    return out
+
+
+def suggest_mcp_ids_from_user_goal(
+    user_text: str,
+    entries: list[dict[str, Any]],
+) -> list[str]:
+    """
+    Heuristic MCP catalog ids whose keywords appear in the user goal (dynamic fallback when
+    the planner omits ``mcp_provider_ids``). Used only when no task resolves any MCP.
+    """
+    u = user_text.strip().lower()
+    if not u:
+        return []
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for e in entries:
+        eid = str(e.get("id", "")).strip()
+        if not eid:
+            continue
+        matched = False
+        for term in _terms_from_mcp_catalog_entry(e):
+            if len(term) < 3:
+                continue
+            if term in u:
+                matched = True
+                break
+        if matched and eid not in seen:
+            seen.add(eid)
+            ordered.append(eid)
+    return ordered

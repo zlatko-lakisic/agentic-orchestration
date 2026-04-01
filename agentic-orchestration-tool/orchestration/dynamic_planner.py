@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -12,7 +13,7 @@ from urllib.parse import urlparse
 import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
 from orchestration.hardware_profile import filter_catalog_by_vram
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
@@ -29,6 +30,8 @@ from orchestration.agent_providers_catalog import (
 from orchestration.mcp_providers_catalog import (
     load_mcp_providers_catalog_merged,
     mcp_catalog_for_planner_prompt,
+    resolve_workflow_mcp_refs,
+    suggest_mcp_ids_from_user_goal,
 )
 
 
@@ -131,18 +134,31 @@ def _planner_system_prompt(
     if mcp_catalog_doc.strip():
         mcp_block = f"""
 
-Available **MCP providers** (optional; pick zero or more `mcp_provider_ids` from this catalog only):
+Available **MCP providers** — pick ids **only** from this catalog (docs/API/tools the agents can call via CrewAI):
 {mcp_catalog_doc}
 
-- **Per-step MCP:** Each step may include `mcp_provider_ids` — only the MCP servers that help *that* step. Pick the minimal relevant set using each MCP entry's description and `planner_hint`.
-- **Default MCP:** Top-level `mcp_provider_ids` applies to any step that **omits** `mcp_provider_ids`. If top-level is omitted or `[]`, steps without their own list use no MCP unless a step sets its own list.
+- **You must attach MCP when relevant:** If the user's goal matches **any** entry's scope (read each `id`, `description`, and `planner_hint`), include those ids in `mcp_provider_ids` (top-level default and/or per-step). Do **not** fake product knowledge from memory when an MCP can retrieve authoritative docs (mirrord vs similarly named consumer apps, Home Assistant, etc.).
+- **Per-step MCP:** Prefer a **minimal** per-step `mcp_provider_ids` list for each step that needs tools; use the same top-level default only when every step needs the same set.
+- **Default MCP:** Top-level `mcp_provider_ids` applies to steps that **omit** `mcp_provider_ids`.
 - **No MCP for one step:** Set that step's `mcp_provider_ids` to `[]`.
 """
+    agi_traits = ""
+    if os.getenv("AGENTIC_AGI_TRAITS", "1").strip().lower() not in ("0", "false", "no", "off"):
+        agi_traits = """
+
+Core operating traits (AGI-inspired, practical constraints apply):
+- **Cross-domain transfer:** Reuse methods across domains (e.g., take debugging habits into doc research; take writing structure into planning).
+- **Autonomous learning:** Actively identify unknowns, then use available tools (MCP) or decomposition to fill gaps before proceeding.
+- **Common-sense reasoning:** Sanity-check outputs for obvious inconsistencies, missing steps, and real-world constraints.
+- **Zero-shot problem solving:** When facing novelty, improvise a minimal viable approach from first principles, then validate/iterate.
+"""
+
     system = f"""You are an expert orchestration planner for a multi-agent system.
 
 Available **agent providers** (pick ONLY `agent_provider_id` values from this catalog; every id is valid):
 {catalog_doc}
 {mcp_block}
+{agi_traits}
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
 - **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`—no default bias toward local vs cloud. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference).
@@ -153,7 +169,7 @@ Rules:
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
-- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step (not just step order), and which MCP(s) each step needs (if any).
+- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)** each step uses (or state explicitly when none apply).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
@@ -169,7 +185,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
     }}
   ]
 }}
-Use top-level `mcp_provider_ids` only as a default. Prefer per-step `mcp_provider_ids` when the MCP catalog is non-empty. Omit step-level key only when the default is correct for that step.
+When the MCP catalog block above is present: **never** return an empty `mcp_provider_ids` default **and** omit per-step lists if the user's words clearly relate to any catalog entry (e.g. mirrord / MetalBear / Kubernetes local dev → `mirrord_docs` if listed).
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -300,6 +316,26 @@ def workflow_config_from_plan(
     max_steps: int,
     mcp_catalog_entries: list[dict[str, Any]] | None = None,
 ) -> WorkflowConfig:
+    def _user_wants_local_only(text: str) -> bool:
+        t = text.strip().lower()
+        return any(
+            k in t
+            for k in (
+                "offline",
+                "local-only",
+                "local only",
+                "locally",
+                "on my machine",
+                "no cloud",
+                "private",
+                "airgapped",
+                "air-gapped",
+                "ollama-only",
+                "ollama only",
+                "use ollama",
+            )
+        )
+
     catalog_by_id = {str(p["id"]).strip(): p for p in catalog_entries}
     steps_raw = plan.get("steps")
     if not isinstance(steps_raw, list) or not steps_raw:
@@ -351,6 +387,35 @@ def workflow_config_from_plan(
                 raise ValueError(f"steps[{i}].mcp_provider_ids must be an array when present")
             per_step_mcp = [str(x).strip() for x in sm_raw if str(x).strip()]
 
+        # If the step needs MCP tools, prefer a non-local agent provider that can reliably
+        # call tools with correct argument shape. Local-only requests override this.
+        if not _user_wants_local_only(user_prompt):
+            effective_mcp = per_step_mcp if per_step_mcp is not None else mcp_plan_ids
+            if effective_mcp:
+                chosen = catalog_by_id.get(pid, {})
+                chosen_type = str(chosen.get("type", "")).strip().lower()
+                if chosen_type == "ollama":
+                    # Prefer an explicit writing/research OpenAI entry if present.
+                    preferred_ids = [
+                        "gpt_write",
+                        "gpt_reason",
+                        "gpt_research",
+                        "gpt_mini",
+                    ]
+                    replacement: str | None = None
+                    for cand in preferred_ids:
+                        match = catalog_by_id.get(cand)
+                        if match and str(match.get("type", "")).strip().lower() == "openai":
+                            replacement = cand
+                            break
+                    if replacement is None:
+                        for cand_id, entry in catalog_by_id.items():
+                            if str(entry.get("type", "")).strip().lower() == "openai":
+                                replacement = cand_id
+                                break
+                    if replacement and replacement != pid:
+                        pid = replacement
+
         tid = f"step_{i + 1}"
         task_definitions.append(
             TaskDefinition(
@@ -393,6 +458,64 @@ def workflow_config_from_plan(
         tasks=task_definitions,
         task_sequence=[t.id for t in task_definitions],
     )
+
+
+def _dynamic_plan_resolves_no_mcp(
+    cfg: WorkflowConfig,
+    mcp_catalog: list[dict[str, Any]],
+) -> bool:
+    if not mcp_catalog:
+        return False
+    for t in cfg.tasks:
+        raw = raw_mcp_spec_for_task(t, cfg)
+        if resolve_workflow_mcp_refs(raw, mcp_catalog):
+            return False
+    return True
+
+
+def _maybe_augment_mcp_from_user_goal(
+    cfg: WorkflowConfig,
+    *,
+    user_prompt: str,
+    mcp_catalog: list[dict[str, Any]],
+    quiet: bool,
+) -> WorkflowConfig:
+    if not mcp_catalog:
+        return cfg
+    if os.getenv("AGENTIC_DISABLE_MCP_GOAL_MATCH", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return cfg
+    if not _dynamic_plan_resolves_no_mcp(cfg, mcp_catalog):
+        return cfg
+    suggested = suggest_mcp_ids_from_user_goal(user_prompt, mcp_catalog)
+    if not suggested:
+        return cfg
+
+    merged: list[Any] = []
+    seen_ids: set[str] = set()
+    for x in cfg.mcp_providers:
+        if isinstance(x, str) and (sx := x.strip()):
+            if sx not in seen_ids:
+                seen_ids.add(sx)
+                merged.append(sx)
+        else:
+            merged.append(x)
+    for sid in suggested:
+        if sid not in seen_ids:
+            seen_ids.add(sid)
+            merged.append(sid)
+
+    if not quiet:
+        print(
+            f"(dynamic) mcp auto-match: default mcp_provider_ids {merged!r} "
+            f"(planner resolved no MCP; user goal matched {suggested!r})",
+            file=sys.stderr,
+        )
+    return replace(cfg, mcp_providers=merged)
 
 
 def build_dynamic_workflow_config(
@@ -498,6 +621,12 @@ def build_dynamic_workflow_config(
         instance_key=key,
         max_steps=limit,
         mcp_catalog_entries=mcp_entries,
+    )
+    cfg = _maybe_augment_mcp_from_user_goal(
+        cfg,
+        user_prompt=user_prompt,
+        mcp_catalog=mcp_entries,
+        quiet=quiet,
     )
 
     if session_path is not None:

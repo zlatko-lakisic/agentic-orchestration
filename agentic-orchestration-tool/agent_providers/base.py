@@ -1,10 +1,37 @@
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from crewai import Agent
+
+# Appended to agent backstory when MCP tools are enabled—local LLMs often emit OpenAI-style
+# {"tool_name": ..., "parameters": {...}} but CrewAI passes inputs straight to the MCP schema.
+_MCP_TOOL_HINT_MARKER = "[agentic: MCP tool arguments]"
+
+_MCP_TOOL_CALLING_HINT = (
+    f"{_MCP_TOOL_HINT_MARKER} Use only each tool schema's parameter names as top-level "
+    "fields (e.g. `question`, optional `version`). Do not nest under `parameters` or add "
+    '`tool_name`. Wrong: {"tool_name": "...", "parameters": {"question": "..."}}. '
+    'Right: {"question": "...", "version": "latest"}.'
+)
+
+
+def augment_backstory_for_mcp_tools(backstory: str, mcps: Sequence[Any] | None) -> str:
+    if not mcps:
+        return backstory
+    if os.getenv("AGENTIC_DISABLE_MCP_TOOL_HINT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return backstory
+    if _MCP_TOOL_HINT_MARKER in backstory:
+        return backstory
+    return backstory.rstrip() + "\n\n" + _MCP_TOOL_CALLING_HINT
 
 
 @dataclass(frozen=True)

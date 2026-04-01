@@ -9,10 +9,34 @@
   <body>
     <header class="header">
       <h1>Orchestrator</h1>
-      <p class="subtitle">WebSocket → Python <code>--dynamic</code> (local only)</p>
+      <p class="subtitle">
+        WebSocket → Python <code>--dynamic</code> / <code>--dynamic-iterative</code> (local only)
+      </p>
     </header>
 
     <section class="toolbar">
+      <label class="field">
+        <span>Mode</span>
+        <select id="runMode">
+          <option value="dynamic" selected>Dynamic</option>
+          <option value="dynamic-iterative">Dynamic (iterative)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Iterative rounds</span>
+        <input
+          type="number"
+          id="iterRounds"
+          min="1"
+          max="32"
+          step="1"
+          value="4"
+        />
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="noSynthesize" />
+        <span>Skip final synthesis</span>
+      </label>
       <label class="field">
         <span>Session</span>
         <input

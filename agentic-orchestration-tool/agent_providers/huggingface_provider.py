@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider
+from agent_providers.base import AgentProvider, augment_backstory_for_mcp_tools
 
 try:
     from crewai import LLM
@@ -86,7 +86,7 @@ class HuggingfaceProvider(AgentProvider):
         kwargs: dict[str, Any] = dict(
             role=role,
             goal=self.config.goal,
-            backstory=self.config.backstory,
+            backstory=augment_backstory_for_mcp_tools(self.config.backstory, mcps),
             llm=llm,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,

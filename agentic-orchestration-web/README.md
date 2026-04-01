@@ -1,8 +1,9 @@
 # Agentic orchestration web UI
 
-Chat-style front-end that talks to the Python tool over **WebSockets**. Each message runs:
+Chat-style front-end that talks to the Python tool over **WebSockets**. Each message runs either:
 
-`python main.py --dynamic "<your text>" --no-save --no-verify` (+ optional `--orchestrator-session`).
+- `python main.py --dynamic "<your text>" --no-save --no-verify` (+ optional `--orchestrator-session`)
+- `python main.py --dynamic-iterative "<your text>" --dynamic-iterative-rounds N --no-save --no-verify` (+ optional `--orchestrator-session`)
 
 ## Setup
 

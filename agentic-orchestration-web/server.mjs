@@ -89,8 +89,21 @@ function serveStatic(req, res) {
   });
 }
 
-function runDynamic({ text, sessionId, resetSession, noVerify, verboseCrew }, ws) {
-  const args = ["main.py", "--dynamic", text, "--no-save"];
+function runDynamic(
+  { text, runMode, iterativeRounds, noSynthesize, sessionId, resetSession, noVerify, verboseCrew },
+  ws,
+) {
+  const mode = String(runMode || "dynamic").trim();
+  const args = ["main.py"];
+  if (mode === "dynamic-iterative") {
+    args.push("--dynamic-iterative", text);
+    const rounds = Math.max(1, Math.min(32, Number(iterativeRounds || 4)));
+    args.push("--dynamic-iterative-rounds", String(rounds));
+    if (noSynthesize) args.push("--dynamic-iterative-no-synthesize");
+  } else {
+    args.push("--dynamic", text);
+  }
+  args.push("--no-save");
   if (!verboseCrew) args.push("--quiet");
   if (noVerify !== false) args.push("--no-verify");
   const sess = sessionId && String(sessionId).trim();
@@ -162,6 +175,9 @@ wss.on("connection", (ws) => {
     runDynamic(
       {
         text,
+        runMode: msg.runMode,
+        iterativeRounds: msg.iterativeRounds,
+        noSynthesize: Boolean(msg.noSynthesize),
         sessionId: msg.sessionId,
         resetSession: Boolean(msg.resetSession),
         noVerify: msg.noVerify !== false,

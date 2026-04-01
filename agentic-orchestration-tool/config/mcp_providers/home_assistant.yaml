@@ -13,6 +13,12 @@ planner_hint: >-
  Use when the user needs smart-home actions, entity state, or Assist-exposed devices tied
  to their Home Assistant instance.
 
+user_goal_keywords:
+  - home assistant
+  - homeassistant
+  - hass
+  - hassio
+
 streamable_http:
   url: "${HOME_ASSISTANT_URL}/api/mcp"
   headers:

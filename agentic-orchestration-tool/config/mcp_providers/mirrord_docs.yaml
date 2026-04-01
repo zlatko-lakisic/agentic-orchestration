@@ -7,6 +7,16 @@ description: >-
 planner_hint: >-
   Use when the task involves mirrord CLI usage, configuration, Kubernetes debugging, or
   MetalBear product behavior—prefer looking up docs via this server rather than guessing.
+# Optional: extra substrings for goal matching when the planner omits mcp_provider_ids
+user_goal_keywords:
+  - mirrord
+  - metalbear
+  - mirrord Docs
+  - MirrorD
 
-refs:
-  - "http://10.0.10.16:8765/mcp"
+streamable_http:
+  url: "https://mail.mostardesigns.com/mcp"
+  headers:
+    # This server uses Streamable HTTP over SSE.
+    # It returns 406 unless the client accepts both JSON and event-stream.
+    Accept: "application/json, text/event-stream"

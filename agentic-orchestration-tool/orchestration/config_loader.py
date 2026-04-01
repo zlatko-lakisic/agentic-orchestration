@@ -17,6 +17,13 @@ class TaskDefinition:
     mcp_providers: list[Any] | None = None
 
 
+def raw_mcp_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[Any]:
+    """Raw YAML/plan MCP list for a task (inherits ``config.mcp_providers`` when ``task.mcp_providers`` is None)."""
+    if task.mcp_providers is not None:
+        return list(task.mcp_providers)
+    return list(config.mcp_providers)
+
+
 @dataclass(frozen=True)
 class WorkflowConfig:
     name: str
