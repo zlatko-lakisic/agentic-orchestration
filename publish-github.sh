@@ -89,6 +89,10 @@ fi
 if [[ "$WIKI_COMMIT_MESSAGE" == "Update wiki" && -n "${GITHUB_WIKI_COMMIT_MESSAGE:-}" ]]; then
   WIKI_COMMIT_MESSAGE="$GITHUB_WIKI_COMMIT_MESSAGE"
 fi
+# GitHub wiki clone URL; set GITHUB_WIKI_GIT_URL in .env to override.
+if [[ -z "${GITHUB_WIKI_GIT_URL:-}" ]]; then
+  GITHUB_WIKI_GIT_URL="https://github.com/zlatko-lakisic/agentic-orchestration.wiki.git"
+fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "GitHub CLI not authenticated. Run: gh auth login" >&2
@@ -174,7 +178,7 @@ if [[ "$PUBLISH_WIKI" == "1" ]]; then
   fi
   echo
   echo "Publishing wiki repo: $wiki_path"
-  github_wiki_url="https://github.com/${gh_owner}/${REPO_NAME}.wiki.git"
+  github_wiki_url="$GITHUB_WIKI_GIT_URL"
   (
     cd "$wiki_path"
     wiki_dirty="$(git status --porcelain || true)"

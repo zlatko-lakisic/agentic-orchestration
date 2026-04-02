@@ -10,7 +10,9 @@ param(
   [string]$WikiDir = "../agentic-orchestration.wiki",
   [string]$WikiBranch = "main",
   [bool]$WikiAutoCommit = $true,
-  [string]$WikiCommitMessage = "Update wiki"
+  [string]$WikiCommitMessage = "Update wiki",
+  # GitHub wiki remote (clone URL). Override with GITHUB_WIKI_GIT_URL in .env.
+  [string]$WikiGitUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,6 +98,9 @@ if (-not $WikiAutoCommit -and ((Get-EnvOrEmpty "GITHUB_WIKI_AUTO_COMMIT").Trim()
 if ($WikiCommitMessage -eq "Update wiki") {
   $wm = (Get-EnvOrEmpty "GITHUB_WIKI_COMMIT_MESSAGE").Trim()
   if ($wm) { $WikiCommitMessage = $wm }
+}
+if (-not $WikiGitUrl.Trim()) {
+  $WikiGitUrl = (Get-EnvOrEmpty "GITHUB_WIKI_GIT_URL").Trim()
 }
 
 # Auth check (will error with a helpful message if not logged in)
@@ -196,7 +201,10 @@ if (-not $SkipWikiPublish) {
   Write-Host ""
   Write-Host ("Publishing wiki repo: " + $wikiRoot)
   $githubWikiRemoteName = "github"
-  $githubWikiUrl = "https://github.com/" + $ghOwner + "/" + $RepoName + ".wiki.git"
+  $githubWikiUrl = $WikiGitUrl.Trim()
+  if (-not $githubWikiUrl) {
+    $githubWikiUrl = "https://github.com/zlatko-lakisic/agentic-orchestration.wiki.git"
+  }
   Push-Location $wikiRoot
   try {
     $wikiStatus = (git status --porcelain)
