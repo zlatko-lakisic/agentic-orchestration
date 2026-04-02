@@ -23,6 +23,8 @@ You are not locked to one vendor or one model. The same orchestrator can mix **O
 
 ## Vision: orchestration, not a single chatbot
 
+![Vision — agentic orchestration overview](vision.png)
+
 This stack is an **orchestration layer**, not a replacement for any one LLM:
 
 1. **Planner** — Interprets the user goal (and session history) and emits a structured plan: steps, agent provider IDs, optional MCP IDs.
