@@ -497,8 +497,9 @@ def parse_args() -> argparse.Namespace:
         default=_DEFAULT_MCP_PROVIDERS_CATALOG,
         metavar="PATH",
         help=(
-            f"Directory of one YAML per MCP provider: CrewAI ``mcps`` via ref/refs (URL strings) and/or "
-            f"streamable_http (url + headers, e.g. Home Assistant). Or a bundle YAML with 'mcp_providers'. "
+            f"Directory of one YAML per MCP provider: CrewAI ``mcps`` via ref/refs (URL strings), "
+            f"streamable_http (url + headers), or stdio (command + args + optional env). "
+            f"Or a bundle YAML with 'mcp_providers'. "
             f"Default {_DEFAULT_MCP_PROVIDERS_CATALOG!r}; missing path loads no MCP catalog entries. "
             f"Also merges directories in AGENTIC_EXTRA_MCP_PROVIDERS_PATH ({os.pathsep}-separated)."
         ),

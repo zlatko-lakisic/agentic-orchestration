@@ -1,0 +1,34 @@
+# Exa AI search & code-context MCP (stdio via official npm server).
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "Search & data extraction" → exa-labs/exa-mcp-server
+# Docs: https://docs.exa.ai/reference/exa-mcp
+#
+# Set EXA_API_KEY from https://dashboard.exa.ai/api-keys — same pattern as Cursor/Claude docs in the Exa README.
+id: search_exa
+description: >-
+  Neural / semantic web search, targeted webpage crawling, and a dedicated “code context” tool that pulls
+  snippets and documentation-style answers from the public web (including GitHub and technical docs). Designed
+  for agents that need ranked, citation-friendly results rather than a single raw URL fetch.
+capabilities: >-
+  web_search_exa (topic search with clean excerpts); get_code_context_exa (libraries, APIs, examples, SO/GitHub);
+  crawling_exa (full page body from a URL you already trust). Good overlap with “research assistant” and “coding aide” workflows.
+good_for: >-
+  Product and competitor research, “what’s the latest on X”, finding library usage examples, and narrowing down
+  authoritative pages before deeper analysis. Complements URL-fetch MCPs: Exa finds and summarizes; fetch MCP retrieves a known URL.
+planner_hint: >-
+  Prefer when the user wants fast, high-quality web or code-aware search (APIs, repos, docs) with Exa-backed ranking.
+  Use alongside Tavily/Brave when you need another search provider or Exa-specific code context.
+user_goal_keywords:
+  - exa
+  - semantic search
+  - code context
+  - company research
+  - web research
+
+required_env_any:
+  - EXA_API_KEY
+
+stdio:
+  command: npx
+  args: ["-y", "exa-mcp-server"]
+  env:
+    EXA_API_KEY: "${EXA_API_KEY}"

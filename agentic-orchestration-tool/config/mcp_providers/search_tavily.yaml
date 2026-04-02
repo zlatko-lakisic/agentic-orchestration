@@ -1,7 +1,16 @@
-# Tavily web search MCP (requires API key).
+# Tavily web search MCP (hosted Streamable HTTP; API key required).
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "Search & data extraction" → tavily-ai/tavily-mcp, Tomatio13/mcp-server-tavily, kshern/mcp-tavily
 id: search_tavily
 description: >-
-  Internet search for up-to-date information using Tavily.
+  Search and “research-lite” retrieval tuned for agents: Tavily returns concise, citation-oriented excerpts optimized
+  for RAG and planning loops. Default wiring uses Tavily’s hosted MCP endpoint (API key in URL per their docs). Strong
+  fit when you want minimal ops — no self-hosted search pod.
+capabilities: >-
+  Web search with LLM-oriented snippets, optional answer-style compression depending on tool version, and straightforward
+  HTTP integration. Often faster to adopt than self-hosting Brave/Exa MCP stacks.
+good_for: >-
+  Current events, regulatory/public docs, product comparisons, market snapshots, and any task where “recent web context”
+  beats stale parametric knowledge. Use beside Exa when you need both Tavily’s packaging and Exa’s code-context tools.
 planner_hint: >-
   Use for web research (current events, product docs, medical device regulations, competitors).
   Prefer this over guessing when the user asks for recent facts or citations.

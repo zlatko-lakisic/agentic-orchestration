@@ -214,6 +214,13 @@ Unknown keys on the agent-provider entry are passed through as `AgentProviderCon
 
 ## MCP provider catalog
 
-Templates live in **`config/mcp_providers/`** (one YAML per integration). The CLI flag **`--mcp-providers-catalog`** points at that directory (or an extra path via **`AGENTIC_EXTRA_MCP_PROVIDERS_PATH`**). Shipped entries include **Home Assistant** (official HA MCP HTTP endpoint), **Brave Search**, and **Tavily**; see comments inside each file for env vars.
+Templates live in **`config/mcp_providers/`** (one YAML per integration). The CLI flag **`--mcp-providers-catalog`** points at that directory (or an extra path via **`AGENTIC_EXTRA_MCP_PROVIDERS_PATH`**).
 
-Documentation: **`../wiki/MCP-providers.md`** (GitLab wiki–style). For more MCP servers, browse the community list **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** — the wiki page maps those listings to our YAML `id`s and notes when to prefer vendor or official endpoints.
+Each file documents **what the integration does**, **capabilities**, and **when to use it** (`description`, `capabilities`, `good_for`, `planner_hint`). Connections use either:
+
+- **`streamable_http`** — remote URL + headers (e.g. Home Assistant, Tavily, your Brave MCP host), or  
+- **`stdio`** — local subprocess (`command` / `args` / optional `env`), e.g. Exa via `npx`, official memory/filesystem servers, or `python -m mcp_server_fetch` for URL fetch.
+
+Shipped ids include **`home_assistant`**, **`search_brave`**, **`search_tavily`**, **`search_exa`**, **`fetch_url`**, **`memory_knowledge_graph`**, **`filesystem_local`** — see comments in each YAML for required env vars and awesome-mcp-servers cross-links.
+
+Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository for this project (often checked out beside the main repo). Broader discovery: **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)**.

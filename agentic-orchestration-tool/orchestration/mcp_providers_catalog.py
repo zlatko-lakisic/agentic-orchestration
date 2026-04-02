@@ -203,6 +203,43 @@ def filter_mcp_entries_by_api_credentials(
     return kept, skipped_ids
 
 
+def _stdio_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a CrewAI-style stdio MCP config (``command``, ``args``, optional ``env``)."""
+    raw = item.get("stdio")
+    if not isinstance(raw, dict) or not raw:
+        return None
+
+    command = str(raw.get("command", "")).strip()
+    if not command:
+        raise ValueError(
+            f"MCP provider {item.get('id', '?')!r}: stdio.command is required when stdio is set",
+        )
+
+    args_raw = raw.get("args")
+    if args_raw is None:
+        args_list: list[str] = []
+    elif isinstance(args_raw, list):
+        args_list = [substitute_mcp_env_vars(str(a)) for a in args_raw]
+    else:
+        raise ValueError(
+            f"MCP provider {item.get('id', '?')!r}: stdio.args must be a list when set",
+        )
+
+    env: dict[str, str] | None = None
+    env_raw = raw.get("env")
+    if isinstance(env_raw, dict) and env_raw:
+        env = {
+            str(k).strip(): substitute_mcp_env_vars(str(v))
+            for k, v in env_raw.items()
+            if str(k).strip()
+        }
+
+    out: dict[str, Any] = {"command": command, "args": args_list}
+    if env:
+        out["env"] = env
+    return out
+
+
 def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
     """Build a CrewAI-style streamable HTTP MCP config (``url``, ``transport``, optional ``headers``)."""
     raw_sh = item.get("streamable_http")
@@ -251,8 +288,16 @@ def _string_refs_from_mapping(item: dict[str, Any]) -> list[str]:
 
 def _mcps_entries_from_mapping(item: dict[str, Any]) -> list[Any]:
     sh = _streamable_http_mcps_entry(item)
+    st = _stdio_mcps_entry(item)
+    if sh is not None and st is not None:
+        raise ValueError(
+            f"MCP provider {item.get('id', '?')!r}: define only one of "
+            f"'streamable_http' or 'stdio'",
+        )
     if sh is not None:
         return [sh]
+    if st is not None:
+        return [st]
     strings = _string_refs_from_mapping(item)
     return strings
 
@@ -320,14 +365,23 @@ def _format_mcp_catalog_entry(p: dict[str, Any]) -> str:
     pid = str(p.get("id", "")).strip()
     desc = str(p.get("description", "")).strip()
     hint = str(p.get("planner_hint", "")).strip()
+    caps = str(p.get("capabilities", "")).strip()
+    good_for = str(p.get("good_for", "")).strip()
     parts = [f"- id: {pid!r}"]
     if desc:
         parts.append(f"  description: {desc!r}")
+    if caps:
+        parts.append(f"  capabilities: {caps!r}")
+    if good_for:
+        parts.append(f"  good_for: {good_for!r}")
     if hint:
         parts.append(f"  planner_hint: {hint!r}")
     sh = p.get("streamable_http")
     if isinstance(sh, dict) and sh:
         parts.append("  transport: streamable-http (+ optional headers from env)")
+    st = p.get("stdio")
+    if isinstance(st, dict) and st:
+        parts.append("  transport: stdio (local subprocess via npx/node)")
     return "\n".join(parts)
 
 

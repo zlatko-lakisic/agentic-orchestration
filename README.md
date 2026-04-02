@@ -173,8 +173,8 @@ Treat this repo as a **personal / team experimentation** codebase unless you add
 
 ## Further reading
 
-- **`wiki/`** — extended documentation (agent and MCP catalogs, architecture, CLI, configuration) suitable for [GitLab Wiki](https://docs.gitlab.com/user/project/wiki/) or browsing in-repo; see `wiki/GitLab-Wiki-publish.md` to copy pages into the wiki Git remote.
-- **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** — community-maintained directory of MCP servers; `wiki/MCP-providers.md` maps our shipped `config/mcp_providers/*.yaml` entries to related listings (Brave, Tavily, Home Assistant).
+- **Wiki docs** — extended documentation (agent and MCP catalogs, architecture, CLI, configuration) in the linked [GitLab Wiki](https://docs.gitlab.com/user/project/wiki/) Git repo (e.g. sibling `agentic-orchestration.wiki`); start at **`MCP-providers.md`** / **`Home.md`**.
+- **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** — community directory of MCP servers; **`MCP-providers.md`** maps shipped catalog `id`s (search, HA, memory, filesystem, fetch, Exa, …) to related listings and notes official vs community hosts.
 - **[CrewAI documentation](https://docs.crewai.com/)** — core concepts for crews, agents, and tasks.
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** — how MCP tools integrate with agents.
 

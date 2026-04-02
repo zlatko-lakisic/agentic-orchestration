@@ -6,12 +6,21 @@
 #   HOME_ASSISTANT_TOKEN=<long-lived access token from Profile → Security>
 id: home_assistant
 description: >-
- Home Assistant entities and tools exposed via MCP (Assist API). Control is limited to
- entities you expose to the MCP integration; uses Streamable HTTP at /api/mcp with a
- long-lived access token.
+  Home Assistant’s first-party MCP integration exposes entities and actions you deliberately
+  allow through Assist. The model talks to your instance over Streamable HTTP at `/api/mcp`
+  with a long-lived token — ideal for “turn on the lights”, climate, media players, and any
+  custom entities you’ve surfaced to Assist. It is not a generic web API: scope is exactly
+  what you configure in HA.
+capabilities: >-
+  Read/write entity states, run exposed actions, and use tools bound to your MCP-enabled
+  assistants. Transport is Streamable HTTP with Bearer auth; tools mirror what Home Assistant
+  publishes to MCP (varies by HA version and your `configuration.yaml`).
+good_for: >-
+  Voice-adjacent automations from an agent, dashboards-driven control, and testing scenes or
+  scripts using natural language — **only** when you manage the Home Assistant instance and tokens.
 planner_hint: >-
- Use when the user needs smart-home actions, entity state, or Assist-exposed devices tied
- to their Home Assistant instance.
+  Use when the user needs smart-home actions, entity state, or Assist-exposed devices tied
+  to their Home Assistant instance.
 
 user_goal_keywords:
   - home assistant

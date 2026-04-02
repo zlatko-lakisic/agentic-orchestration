@@ -1,0 +1,33 @@
+# Official Model Context Protocol “fetch” server — fetches remote URLs and returns LLM-friendly content.
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "Search & data extraction" → modelcontextprotocol/server-fetch
+# Upstream is distributed as the PyPI package `mcp-server-fetch` (not npm). Install into the **same** environment you use for `main.py`:
+#   pip install mcp-server-fetch
+#
+# Opt-in only: set AGENTIC_MCP_FETCH_ENABLED=1 so the planner only sees this when you intend to run subprocess fetch.
+id: fetch_url
+description: >-
+  Fetches HTTP/HTTPS URLs and normalizes HTML into readable text/markdown suitable for agents. No search index:
+  you must supply URLs (from the user, from a prior search step, or from citations). Implements the official MCP
+  fetch tool surface for “read this page” workflows.
+capabilities: >-
+  Single-URL retrieval, polite fetching with configurable user-agent/proxy (see `python -m mcp_server_fetch --help`).
+  Best for ingesting docs, blog posts, small pages, and API reference HTML — not for bulk crawling.
+good_for: >-
+  “Open this link and summarize”, reproducing steps from documentation, extracting tables or sections from a known URL,
+  and grounding answers in one or a few pages after search MCPs have surfaced candidates.
+planner_hint: >-
+  Use when the user gives explicit URLs or when a prior step produced links that must be read in full. Requires
+  `pip install mcp-server-fetch` and AGENTIC_MCP_FETCH_ENABLED=1.
+user_goal_keywords:
+  - fetch url
+  - read this page
+  - open link
+  - scrape
+  - webpage content
+
+required_env:
+  - AGENTIC_MCP_FETCH_ENABLED
+
+stdio:
+  command: python
+  args: ["-m", "mcp_server_fetch"]

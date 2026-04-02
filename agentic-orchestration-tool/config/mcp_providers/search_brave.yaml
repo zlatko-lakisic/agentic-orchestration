@@ -1,9 +1,18 @@
-# Brave Search MCP (requires API key).
+# Brave Search MCP (requires API key + your Streamable HTTP MCP endpoint).
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "Search & data extraction" → brave/brave-search-mcp-server, mikechao/brave-search-mcp
 id: search_brave
 description: >-
-  Internet search via Brave Search. Good general web results with an API key.
+  General-purpose web (and often news/image/local) search backed by Brave’s index. You host or subscribe to a Brave
+  Search–compatible MCP server and supply `BRAVE_SEARCH_MCP_URL`; this catalog entry only wires the HTTP transport and API key.
+  Good default when you want independent index results with explicit API billing control.
+capabilities: >-
+  Depends on the MCP server build you deploy — typically web search, query refinement, and sometimes news or local
+  POI-style lookups. Pair with `fetch_url` when the model must read full pages from URLs returned in results.
+good_for: >-
+  Timely facts, competitor/news scans, finding primary sources, and reducing hallucinations by grounding on search snippets
+  before synthesis. Complementary to Exa/Tavily when you want multiple engine perspectives.
 planner_hint: >-
-  Use for web research when a question needs current information or sources.
+  Use for web research when a question needs current information or sources and Brave is your configured engine.
 user_goal_keywords:
   - brave search
   - internet search

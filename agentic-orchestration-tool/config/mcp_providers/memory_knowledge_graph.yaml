@@ -1,0 +1,31 @@
+# Official MCP in-process knowledge graph memory (stdio).
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "Knowledge & Memory" → modelcontextprotocol/server-memory
+#
+# Opt-in: set AGENTIC_MCP_MEMORY_MCP_ENABLED=1. Uses `npx`; Node.js required on PATH.
+id: memory_knowledge_graph
+description: >-
+  Persistent, structured memory exposed as MCP tools: store entities and relations in a knowledge graph the model can
+  query across turns. Suited for long-running sessions where you want “remember X about Y” semantics instead of only
+  ephemeral chat context.
+capabilities: >-
+  Create/update/query graph-style memories (entities, observations, relations — exact tool names follow the server
+  version shipped by `@modelcontextprotocol/server-memory`). Survives for the lifetime of the MCP subprocess.
+good_for: >-
+  Multi-step projects with evolving facts, customer or domain glossaries, episodic “what we decided last time” notes,
+  and any workflow that benefits from explicit recall rather than hoping the LLM retains everything in context.
+planner_hint: >-
+  Attach when the user asks to remember, recall, or build structured knowledge across steps within the same run.
+  Set AGENTIC_MCP_MEMORY_MCP_ENABLED=1 and ensure `npx` is available.
+user_goal_keywords:
+  - remember
+  - memory
+  - knowledge graph
+  - recall earlier
+  - store fact
+
+required_env:
+  - AGENTIC_MCP_MEMORY_MCP_ENABLED
+
+stdio:
+  command: npx
+  args: ["-y", "@modelcontextprotocol/server-memory"]

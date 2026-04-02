@@ -1,0 +1,30 @@
+# Official MCP filesystem server — scoped read/write under one or more allowed directories (stdio).
+# Awesome list: https://github.com/punkpeye/awesome-mcp-servers — "File Systems" → modelcontextprotocol/server-filesystem
+#
+# Security: only grant directories you are willing to expose to the LLM. Use an absolute path in FILESYSTEM_MCP_ALLOWED_DIRECTORY.
+id: filesystem_local
+description: >-
+  File and directory tools under a strict allow-list: list, read, search, and (depending on server version) write
+  within configured roots. The model cannot escape the declared paths — appropriate for “edit my repo” or “read logs
+  in this folder” tasks behind your own guardrails.
+capabilities: >-
+  Browsing trees, reading text and binary-aware workflows, and batch file operations as exposed by the reference
+  server. Pairs well with coding agents that must inspect or patch project files without ad-hoc shell.
+good_for: >-
+  Repository exploration, summarizing local markdown/docs, ingesting config files, and controlled edits inside a
+  single workspace directory (e.g. CI artifacts, generated reports, or a documentation site root).
+planner_hint: >-
+  Use when work is clearly on-machine under a known directory. Set FILESYSTEM_MCP_ALLOWED_DIRECTORY to an absolute path.
+user_goal_keywords:
+  - local files
+  - read file
+  - project directory
+  - workspace
+  - filesystem
+
+required_env:
+  - FILESYSTEM_MCP_ALLOWED_DIRECTORY
+
+stdio:
+  command: npx
+  args: ["-y", "@modelcontextprotocol/server-filesystem", "${FILESYSTEM_MCP_ALLOWED_DIRECTORY}"]
