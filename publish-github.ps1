@@ -15,6 +15,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 compatible (no ?? or $env:$dynamicName); PowerShell 7+ has those shortcuts.
+function Get-EnvOrEmpty([string]$Name) {
+  $v = [Environment]::GetEnvironmentVariable($Name, "Process")
+  if ($null -eq $v) { return "" }
+  return [string]$v
+}
+
 function Load-RootDotEnv {
   $envPath = Join-Path (Get-Location) ".env"
   if (-not (Test-Path -Path $envPath)) { return }
@@ -27,12 +34,12 @@ function Load-RootDotEnv {
     if ($eq -le 0) { continue }
     $key = $trimmed.Substring(0, $eq).Trim()
     if (-not $key) { continue }
-    if (Test-Path Env:$key) { continue }
+    if (Test-Path -LiteralPath ("Env:{0}" -f $key)) { continue }
     $val = $trimmed.Substring($eq + 1).Trim()
     if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
       $val = $val.Substring(1, $val.Length - 2)
     }
-    $env:$key = $val
+    Set-Item -LiteralPath ("Env:{0}" -f $key) -Value $val
   }
 }
 
@@ -63,18 +70,33 @@ Write-Host ("Repo root: " + $top)
 # Allow publish defaults from repo-root .env (script-only; does not affect tool/web env loading).
 Load-RootDotEnv
 
-if (-not $RepoName.Trim()) { $RepoName = ($env:GITHUB_REPO_NAME ?? "").Trim() }
-if (-not $RepoName.Trim()) { $RepoName = ($env:AGENTIC_GITHUB_REPO_NAME ?? "").Trim() }
-if ($Visibility -eq "private" -and ($env:GITHUB_VISIBILITY ?? "").Trim()) { $Visibility = $env:GITHUB_VISIBILITY.Trim() }
-if ($CommitMessage -eq "Publish project" -and ($env:GITHUB_COMMIT_MESSAGE ?? "").Trim()) { $CommitMessage = $env:GITHUB_COMMIT_MESSAGE.Trim() }
-if (-not $AllowDirty -and (($env:GITHUB_ALLOW_DIRTY ?? "").Trim() -eq "1")) { $AllowDirty = $true }
-if (-not $AutoCommit -and (($env:GITHUB_AUTO_COMMIT ?? "").Trim() -eq "1")) { $AutoCommit = $true }
-if (-not $SkipPush -and (($env:GITHUB_SKIP_PUSH ?? "").Trim() -eq "1")) { $SkipPush = $true }
-if (-not $SkipWikiPublish -and (($env:GITHUB_PUBLISH_WIKI ?? "").Trim() -match "^(0|false|no|off)$")) { $SkipWikiPublish = $true }
-if ($WikiDir -eq "../agentic-orchestration.wiki" -and ($env:GITHUB_WIKI_DIR ?? "").Trim()) { $WikiDir = $env:GITHUB_WIKI_DIR.Trim() }
-if ($WikiBranch -eq "main" -and ($env:GITHUB_WIKI_BRANCH ?? "").Trim()) { $WikiBranch = $env:GITHUB_WIKI_BRANCH.Trim() }
-if (-not $WikiAutoCommit -and (($env:GITHUB_WIKI_AUTO_COMMIT ?? "").Trim() -eq "1")) { $WikiAutoCommit = $true }
-if ($WikiCommitMessage -eq "Update wiki" -and ($env:GITHUB_WIKI_COMMIT_MESSAGE ?? "").Trim()) { $WikiCommitMessage = $env:GITHUB_WIKI_COMMIT_MESSAGE.Trim() }
+if (-not $RepoName.Trim()) { $RepoName = (Get-EnvOrEmpty "GITHUB_REPO_NAME").Trim() }
+if (-not $RepoName.Trim()) { $RepoName = (Get-EnvOrEmpty "AGENTIC_GITHUB_REPO_NAME").Trim() }
+if ($Visibility -eq "private") {
+  $gv = (Get-EnvOrEmpty "GITHUB_VISIBILITY").Trim()
+  if ($gv) { $Visibility = $gv }
+}
+if ($CommitMessage -eq "Publish project") {
+  $gm = (Get-EnvOrEmpty "GITHUB_COMMIT_MESSAGE").Trim()
+  if ($gm) { $CommitMessage = $gm }
+}
+if (-not $AllowDirty -and ((Get-EnvOrEmpty "GITHUB_ALLOW_DIRTY").Trim() -eq "1")) { $AllowDirty = $true }
+if (-not $AutoCommit -and ((Get-EnvOrEmpty "GITHUB_AUTO_COMMIT").Trim() -eq "1")) { $AutoCommit = $true }
+if (-not $SkipPush -and ((Get-EnvOrEmpty "GITHUB_SKIP_PUSH").Trim() -eq "1")) { $SkipPush = $true }
+if (-not $SkipWikiPublish -and ((Get-EnvOrEmpty "GITHUB_PUBLISH_WIKI").Trim() -match "^(0|false|no|off)$")) { $SkipWikiPublish = $true }
+if ($WikiDir -eq "../agentic-orchestration.wiki") {
+  $wd = (Get-EnvOrEmpty "GITHUB_WIKI_DIR").Trim()
+  if ($wd) { $WikiDir = $wd }
+}
+if ($WikiBranch -eq "main") {
+  $wb = (Get-EnvOrEmpty "GITHUB_WIKI_BRANCH").Trim()
+  if ($wb) { $WikiBranch = $wb }
+}
+if (-not $WikiAutoCommit -and ((Get-EnvOrEmpty "GITHUB_WIKI_AUTO_COMMIT").Trim() -eq "1")) { $WikiAutoCommit = $true }
+if ($WikiCommitMessage -eq "Update wiki") {
+  $wm = (Get-EnvOrEmpty "GITHUB_WIKI_COMMIT_MESSAGE").Trim()
+  if ($wm) { $WikiCommitMessage = $wm }
+}
 
 # Auth check (will error with a helpful message if not logged in)
 try {
