@@ -1,6 +1,6 @@
 param(
-  [int]$Port = 3847,
-  [string]$Host = "127.0.0.1"
+  [int]$Port = 0,
+  [string]$Host = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +15,36 @@ Require-Command npm
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
+
+function Load-LocalDotEnv {
+  $envPath = Join-Path $here ".env"
+  if (-not (Test-Path -Path $envPath)) { return }
+  $raw = Get-Content -Path $envPath -Raw
+  foreach ($line in $raw -split "`n") {
+    $trimmed = $line.Trim()
+    if (-not $trimmed) { continue }
+    if ($trimmed.StartsWith("#")) { continue }
+    $eq = $trimmed.IndexOf("=")
+    if ($eq -le 0) { continue }
+    $key = $trimmed.Substring(0, $eq).Trim()
+    if (-not $key) { continue }
+    if (Test-Path Env:$key) { continue }
+    $val = $trimmed.Substring($eq + 1).Trim()
+    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+      $val = $val.Substring(1, $val.Length - 2)
+    }
+    $env:$key = $val
+  }
+}
+
+Load-LocalDotEnv
+
+# Defaults from .env unless caller passed parameters.
+if (-not $Host.Trim()) { $Host = ($env:AGENTIC_WEB_HOST ?? "127.0.0.1").Trim() }
+if ($Port -le 0) {
+  $p = ($env:AGENTIC_WEB_PORT ?? "3847").Trim()
+  try { $Port = [int]$p } catch { $Port = 3847 }
+}
 
 # Ensure deps exist
 if (-not (Test-Path -Path "node_modules")) {
