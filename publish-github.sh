@@ -12,6 +12,28 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1
 need git
 need gh
 
+load_root_env() {
+  local envfile=".env"
+  [[ -f "$envfile" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
+    [[ "${line:0:1}" == "#" ]] && continue
+    if [[ "$line" != *"="* ]]; then
+      continue
+    fi
+    local key="${line%%=*}"
+    local val="${line#*=}"
+    key="$(echo "$key" | xargs)"
+    val="$(echo "$val" | xargs)"
+    [[ -z "$key" ]] && continue
+    if [[ -z "${!key:-}" ]]; then
+      export "$key=$val"
+    fi
+  done <"$envfile"
+}
+
 top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$top" ]]; then
   echo "Not a git repository (run from inside your repo)." >&2
@@ -19,6 +41,28 @@ if [[ -z "$top" ]]; then
 fi
 cd "$top"
 echo "Repo root: $top"
+
+load_root_env
+
+# Allow script defaults from root .env (no effect on tool/web).
+if [[ -z "$REPO_NAME" ]]; then
+  REPO_NAME="${GITHUB_REPO_NAME:-${AGENTIC_GITHUB_REPO_NAME:-}}"
+fi
+if [[ "$VISIBILITY" == "private" && -n "${GITHUB_VISIBILITY:-}" ]]; then
+  VISIBILITY="$GITHUB_VISIBILITY"
+fi
+if [[ "$COMMIT_MESSAGE" == "Publish project" && -n "${GITHUB_COMMIT_MESSAGE:-}" ]]; then
+  COMMIT_MESSAGE="$GITHUB_COMMIT_MESSAGE"
+fi
+if [[ "$ALLOW_DIRTY" == "0" && "${GITHUB_ALLOW_DIRTY:-}" == "1" ]]; then
+  ALLOW_DIRTY="1"
+fi
+if [[ "$AUTO_COMMIT" == "0" && "${GITHUB_AUTO_COMMIT:-}" == "1" ]]; then
+  AUTO_COMMIT="1"
+fi
+if [[ "$SKIP_PUSH" == "0" && "${GITHUB_SKIP_PUSH:-}" == "1" ]]; then
+  SKIP_PUSH="1"
+fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "GitHub CLI not authenticated. Run: gh auth login" >&2

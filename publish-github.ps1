@@ -10,6 +10,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Load-RootDotEnv {
+  $envPath = Join-Path (Get-Location) ".env"
+  if (-not (Test-Path -Path $envPath)) { return }
+  $raw = Get-Content -Path $envPath -Raw
+  foreach ($line in $raw -split "`n") {
+    $trimmed = $line.Trim()
+    if (-not $trimmed) { continue }
+    if ($trimmed.StartsWith("#")) { continue }
+    $eq = $trimmed.IndexOf("=")
+    if ($eq -le 0) { continue }
+    $key = $trimmed.Substring(0, $eq).Trim()
+    if (-not $key) { continue }
+    if (Test-Path Env:$key) { continue }
+    $val = $trimmed.Substring($eq + 1).Trim()
+    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+      $val = $val.Substring(1, $val.Length - 2)
+    }
+    $env:$key = $val
+  }
+}
+
 function Require-Command($name) {
   if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
     throw "Missing required command '$name'. Install it and ensure it's on PATH."
@@ -33,6 +54,17 @@ try {
 
 Set-Location $top
 Write-Host ("Repo root: " + $top)
+
+# Allow publish defaults from repo-root .env (script-only; does not affect tool/web env loading).
+Load-RootDotEnv
+
+if (-not $RepoName.Trim()) { $RepoName = ($env:GITHUB_REPO_NAME ?? "").Trim() }
+if (-not $RepoName.Trim()) { $RepoName = ($env:AGENTIC_GITHUB_REPO_NAME ?? "").Trim() }
+if ($Visibility -eq "private" -and ($env:GITHUB_VISIBILITY ?? "").Trim()) { $Visibility = $env:GITHUB_VISIBILITY.Trim() }
+if ($CommitMessage -eq "Publish project" -and ($env:GITHUB_COMMIT_MESSAGE ?? "").Trim()) { $CommitMessage = $env:GITHUB_COMMIT_MESSAGE.Trim() }
+if (-not $AllowDirty -and (($env:GITHUB_ALLOW_DIRTY ?? "").Trim() -eq "1")) { $AllowDirty = $true }
+if (-not $AutoCommit -and (($env:GITHUB_AUTO_COMMIT ?? "").Trim() -eq "1")) { $AutoCommit = $true }
+if (-not $SkipPush -and (($env:GITHUB_SKIP_PUSH ?? "").Trim() -eq "1")) { $SkipPush = $true }
 
 # Auth check (will error with a helpful message if not logged in)
 try {
