@@ -18,6 +18,7 @@ env/
 __output__/
 __orchestrator_sessions__/
 __orchestrator_learning__/
+__orchestrator_kb__/
 
 # Node (web UI)
 node_modules/

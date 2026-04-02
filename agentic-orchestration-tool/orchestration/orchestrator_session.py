@@ -26,6 +26,11 @@ class OrchestratorSessionFile:
     instance_key: str | None = None
     planner_history: list[dict[str, str]] = field(default_factory=list)
     last_crew_output_excerpt: str | None = None
+    # Answer cache (last finalized response for a given user goal).
+    last_user_goal: str | None = None
+    last_final_answer_excerpt: str | None = None
+    # When we serve a cached answer, we store the goal here so a subsequent "no" can trigger re-run.
+    pending_reprocess_goal: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -50,6 +55,9 @@ class OrchestratorSessionFile:
             instance_key=data.get("instance_key"),
             planner_history=clean_hist,
             last_crew_output_excerpt=data.get("last_crew_output_excerpt"),
+            last_user_goal=data.get("last_user_goal"),
+            last_final_answer_excerpt=data.get("last_final_answer_excerpt"),
+            pending_reprocess_goal=data.get("pending_reprocess_goal"),
         )
 
 
@@ -145,4 +153,17 @@ def update_session_after_crew(path: Path, result_text: str | None) -> None:
         return
     data = load_session(path)
     data.last_crew_output_excerpt = text[: excerpt_max_chars()]
+    save_session(path, data)
+
+
+def update_session_after_final(path: Path, *, user_goal: str, result_text: str | None) -> None:
+    """Store the finalized answer for answer caching."""
+    text = (result_text or "").strip()
+    if not text:
+        return
+    data = load_session(path)
+    data.last_user_goal = str(user_goal or "").strip()
+    data.last_final_answer_excerpt = text[: excerpt_max_chars()]
+    # Clear any pending "reprocess" marker once we have a new finalized answer.
+    data.pending_reprocess_goal = None
     save_session(path, data)

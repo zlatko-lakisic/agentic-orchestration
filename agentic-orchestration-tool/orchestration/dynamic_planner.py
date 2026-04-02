@@ -311,6 +311,7 @@ def _planner_system_prompt(
     last_crew_excerpt: str | None = None,
     mcp_catalog_doc: str = "",
     learning_summary: str = "",
+    kb_context: str = "",
 ) -> str:
     mcp_block = ""
     if mcp_catalog_doc.strip():
@@ -344,6 +345,7 @@ Available **agent providers** (pick ONLY `agent_provider_id` values from this ca
 {agi_traits}
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
+- Common-sense check: when the user expects numeric calculations, ensure any equations are correctly labeled (LHS is the computed metric, not a raw expression), and avoid mismatched variable names.
 - **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`—no default bias toward local vs cloud. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference).
 - **Mixing:** You may combine different `type` values in one plan when different steps call for different capabilities.
 - **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` agent providers.
@@ -379,6 +381,8 @@ If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `
         )
     if learning_summary and learning_summary.strip():
         system += str(learning_summary)
+    if kb_context and kb_context.strip():
+        system += str(kb_context)
     return system
 
 
@@ -850,6 +854,7 @@ def build_dynamic_workflow_config(
 
     doc = catalog_for_planner_prompt(entries)
     learning_summary = ""
+    kb_context = ""
     try:
         from orchestration.learning_store import (
             consume_pending_ratings,
@@ -866,12 +871,20 @@ def build_dynamic_workflow_config(
             learning_summary = planner_performance_summary(stats=st, user_prompt=user_prompt)
     except Exception:  # noqa: BLE001
         learning_summary = ""
+    try:
+        from orchestration.knowledge_base import kb_enabled, planner_kb_context
+
+        if tool_root is not None and kb_enabled():
+            kb_context = planner_kb_context(tool_root=tool_root, user_prompt=user_prompt)
+    except Exception:  # noqa: BLE001
+        kb_context = ""
     system_text = _planner_system_prompt(
         catalog_doc=doc,
         max_steps=limit,
         last_crew_excerpt=last_excerpt,
         mcp_catalog_doc=mcp_doc,
         learning_summary=learning_summary,
+        kb_context=kb_context,
     )
     messages = _compose_planner_messages(
         system_text=system_text,

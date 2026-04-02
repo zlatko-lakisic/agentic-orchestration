@@ -23,6 +23,7 @@ from orchestration.orchestrator_session import (
     resolve_orchestrator_session_slug,
     session_file_path,
     update_session_after_crew,
+    update_session_after_final,
 )
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.artifact_verify import verify_saved_npm_projects
@@ -570,6 +571,20 @@ def main() -> None:
             )
             sys.exit(2)
 
+        def _norm(s: str) -> str:
+            return " ".join(str(s or "").strip().lower().split())
+
+        def _is_negative(s: str) -> bool:
+            return _norm(s) in ("no", "nope", "nah", "rerun", "re-run", "reprocess", "run again")
+
+        def _cache_enabled() -> bool:
+            return os.getenv("AGENTIC_ANSWER_CACHE", "1").strip().lower() not in (
+                "0",
+                "false",
+                "no",
+                "off",
+            )
+
         goal = str(args.task).strip()
         explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
             "AGENTIC_ORCHESTRATOR_SESSION", ""
@@ -588,6 +603,28 @@ def main() -> None:
                     f"(dynamic) reset orchestrator session {label!r} -> {orchestrator_session_path}",
                     file=sys.stderr,
                 )
+
+        # Answer cache: if the user repeats the same goal, return cached final answer and ask for confirmation.
+        if _cache_enabled() and orchestrator_session_path.exists() and not args.orchestrator_session_reset:
+            sess0 = load_session(orchestrator_session_path)
+            # If user says "no" after a cached answer, rerun the pending goal.
+            if sess0.pending_reprocess_goal and _is_negative(goal):
+                goal = str(sess0.pending_reprocess_goal).strip()
+                sess0.pending_reprocess_goal = None
+                from orchestration.orchestrator_session import save_session
+
+                save_session(orchestrator_session_path, sess0)
+            else:
+                if sess0.last_user_goal and sess0.last_final_answer_excerpt:
+                    if _norm(sess0.last_user_goal) == _norm(goal):
+                        # Mark pending so a follow-up "no" can trigger a re-run of the same goal.
+                        sess0.pending_reprocess_goal = goal
+                        from orchestration.orchestrator_session import save_session
+
+                        save_session(orchestrator_session_path, sess0)
+                        print(sess0.last_final_answer_excerpt.strip())
+                        print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
+                        return
 
         manual_rounds = max(1, int(args.dynamic_iterative_rounds))
         max_rounds = manual_rounds
@@ -745,6 +782,10 @@ def main() -> None:
                 f"{goal}\n\n"
                 "Synthesize a final answer by combining the intermediate results below. "
                 "Resolve contradictions; if information is missing, explicitly list assumptions.\n\n"
+                "Math/finance formatting rules:\n"
+                "- If you show a calculation like Total Savings - Total Costs, label the left-hand side as the computed metric, e.g. "
+                "`Net Impact = Total Savings - Total Costs = ...`, not `Total Savings - Total Costs = ...`.\n"
+                "- Prefer clear variable names and avoid mismatched labels.\n\n"
                 "## Intermediate results (excerpt)\n"
                 f"{excerpt}\n"
             )
@@ -772,6 +813,30 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
+            update_session_after_final(
+                orchestrator_session_path, user_goal=str(args.task).strip(), result_text=result_text
+            )
+            try:
+                from orchestration.knowledge_base import add_document
+                from orchestration.learning_store import mcp_fingerprint_from_ids
+
+                provider_id = synth_cfg.tasks[0].agent_provider_id if synth_cfg.tasks else "unknown"
+                mcp_ids = (
+                    synth_cfg.tasks[0].mcp_providers
+                    if (synth_cfg.tasks and synth_cfg.tasks[0].mcp_providers is not None)
+                    else synth_cfg.mcp_providers
+                )
+                fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
+                add_document(
+                    tool_root=tool_root,
+                    session_slug=slug,
+                    user_goal=str(args.task).strip(),
+                    content=result_text or "",
+                    provider_id=provider_id,
+                    mcp_fingerprint=fp,
+                )
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 from orchestration.learning_store import (
                     append_trace_event,
@@ -838,6 +903,20 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(2)
+        def _norm(s: str) -> str:
+            return " ".join(str(s or "").strip().lower().split())
+
+        def _is_negative(s: str) -> bool:
+            return _norm(s) in ("no", "nope", "nah", "rerun", "re-run", "reprocess", "run again")
+
+        def _cache_enabled() -> bool:
+            return os.getenv("AGENTIC_ANSWER_CACHE", "1").strip().lower() not in (
+                "0",
+                "false",
+                "no",
+                "off",
+            )
+
         goal = str(args.task).strip()
         explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
             "AGENTIC_ORCHESTRATOR_SESSION", ""
@@ -856,6 +935,24 @@ def main() -> None:
                     f"(dynamic) reset orchestrator session {label!r} -> {orchestrator_session_path}",
                     file=sys.stderr,
                 )
+        if _cache_enabled() and orchestrator_session_path.exists() and not args.orchestrator_session_reset:
+            sess0 = load_session(orchestrator_session_path)
+            if sess0.pending_reprocess_goal and _is_negative(goal):
+                goal = str(sess0.pending_reprocess_goal).strip()
+                sess0.pending_reprocess_goal = None
+                from orchestration.orchestrator_session import save_session
+
+                save_session(orchestrator_session_path, sess0)
+            else:
+                if sess0.last_user_goal and sess0.last_final_answer_excerpt:
+                    if _norm(sess0.last_user_goal) == _norm(goal):
+                        sess0.pending_reprocess_goal = goal
+                        from orchestration.orchestrator_session import save_session
+
+                        save_session(orchestrator_session_path, sess0)
+                        print(sess0.last_final_answer_excerpt.strip())
+                        print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
+                        return
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=goal,
@@ -892,6 +989,26 @@ def main() -> None:
         if exit_code:
             sys.exit(exit_code)
         update_session_after_crew(orchestrator_session_path, result_text)
+        update_session_after_final(
+            orchestrator_session_path, user_goal=str(args.task).strip(), result_text=result_text
+        )
+        try:
+            from orchestration.knowledge_base import add_document
+            from orchestration.learning_store import mcp_fingerprint_from_ids
+
+            provider_id = dyn_cfg.tasks[-1].agent_provider_id if dyn_cfg.tasks else "unknown"
+            # Use workflow default MCP ids for KB metadata (good enough).
+            fp = mcp_fingerprint_from_ids(list(dyn_cfg.mcp_providers or []))
+            add_document(
+                tool_root=tool_root,
+                session_slug=slug,
+                user_goal=str(args.task).strip(),
+                content=result_text or "",
+                provider_id=provider_id,
+                mcp_fingerprint=fp,
+            )
+        except Exception:  # noqa: BLE001
+            pass
         try:
             from orchestration.learning_store import (
                 append_trace_event,

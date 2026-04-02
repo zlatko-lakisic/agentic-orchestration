@@ -50,6 +50,8 @@ Optional flags: `--config-dir`, `--router-model`, `--router-host`.
 
 This “learning” improves *future provider/tool selection* by feeding a short **historical performance summary** back into the planner prompt for similar task types. Toggle via env: `AGENTIC_LEARNING`, `AGENTIC_LEARNING_EVAL`, `AGENTIC_EVAL_MODEL`.
 
+**Local knowledge base (output aggregation)**: finalized answers are stored under `__orchestrator_kb__/kb.sqlite3` (gitignored) and **queried on new runs**. When relevant, the planner receives a short “Local knowledge base” snippet block it can reuse, so you don’t have to re-process the same information every time. Toggle via env: `AGENTIC_KB`, tune with `AGENTIC_KB_MAX_HITS` / `AGENTIC_KB_SNIPPET_CHARS`.
+
 ### Agent provider lifecycle
 
 Called by the runner / `main.py` in this order:
