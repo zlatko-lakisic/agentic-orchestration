@@ -613,12 +613,13 @@ def main() -> None:
                 print(f"(dynamic-iter) plan: {summary.strip()}", file=sys.stderr)
             if not args.quiet and dyn_cfg.tasks:
                 tdef = dyn_cfg.tasks[0]
+                first_line = str(tdef.description or "").strip().splitlines()[0].strip()
                 if tdef.mcp_providers is not None:
                     mcp_part = f"mcp {tdef.mcp_providers!r}"
                 else:
                     mcp_part = f"mcp (default {dyn_cfg.mcp_providers!r})"
                 print(
-                    f"(dynamic-iter) step: {tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
+                    f"(dynamic-iter) step: {first_line or tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
                     file=sys.stderr,
                 )
 

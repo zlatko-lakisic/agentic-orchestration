@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 from collections import defaultdict
 from contextlib import contextmanager
@@ -84,6 +85,22 @@ def _progress(msg: str) -> None:
         return
 
 
+_GENERIC_STEP_ID_RE = re.compile(r"^step_\d+$", re.IGNORECASE)
+
+
+def _task_human_label(task_id: str, task: Task) -> str:
+    first = ""
+    try:
+        first = str(getattr(task, "description", "") or "").strip().splitlines()[0].strip()
+    except Exception:  # noqa: BLE001
+        first = ""
+    if _GENERIC_STEP_ID_RE.match(str(task_id or "").strip()) and first:
+        return first
+    if first:
+        return f"{task_id}: {first}"
+    return str(task_id or "").strip() or "task"
+
+
 def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]:
     state = _KICKOFF_CB_STATE.get()
     if state is None:
@@ -95,7 +112,7 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
     state.last_output_text = ""
     if state.task_run_order:
         first_id, first_task, ap = state.task_run_order[0]
-        _progress(f"starting {first_id}: {first_task.description.splitlines()[0].strip()}")
+        _progress(f"starting {_task_human_label(first_id, first_task)}")
         ap.before_task(first_id, first_task, dict(state.inputs_holder))
     return merged
 
@@ -141,11 +158,11 @@ def _serial_crew_task_callback(output: Any) -> None:
         state.last_output_text = str(output) if output is not None else ""
     except Exception:  # noqa: BLE001
         state.last_output_text = ""
-    _progress(f"completed {task_id}")
+    _progress(f"completed {_task_human_label(task_id, task_ref)}")
     if k + 1 < len(state.task_run_order):
         next_id, next_task, next_ap = state.task_run_order[k + 1]
         _inject_previous_output_into_next_task(next_task, state.last_output_text)
-        _progress(f"starting {next_id}: {next_task.description.splitlines()[0].strip()}")
+        _progress(f"starting {_task_human_label(next_id, next_task)}")
         next_ap.before_task(next_id, next_task, dict(state.inputs_holder))
 
 
