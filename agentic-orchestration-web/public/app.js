@@ -22,6 +22,8 @@
   let stderrBuf = "";
   let streamVerbose = false;
   let processingTimer = null;
+  let lastProgressText = "";
+  let lastProgressPct = null;
 
   const PROCESSING_HINTS = [
     "Agents are working in the background…",
@@ -29,6 +31,34 @@
     "Still on it—almost ready with your answer…",
   ];
   const PROGRESS_PREFIX = "(progress)";
+
+  function formatProgressLine(msg) {
+    const raw = String(msg || "").trim();
+    if (!raw) return null;
+    // Expected percent shape (from iterative controller):
+    // "~65% complete; estimated rounds remaining: ~2 (medium)"
+    const m = raw.match(/~?\s*(\d{1,3})%\s*complete\s*[;:,-]?\s*(.*)$/i);
+    let pct = null;
+    let rest = raw;
+    if (m) {
+      pct = Number(m[1]);
+      if (Number.isFinite(pct)) {
+        pct = Math.max(0, Math.min(100, pct));
+        lastProgressPct = pct;
+      }
+      rest = (m[2] || "").trim() || "Working…";
+    } else {
+      // No percent in this progress line (e.g. "starting …"). Carry forward.
+      if (typeof lastProgressPct === "number") {
+        pct = lastProgressPct;
+      } else {
+        pct = 0;
+        lastProgressPct = 0;
+      }
+      rest = raw;
+    }
+    return `${pct}% - ${rest}`;
+  }
 
   function applyProgressFromText(text) {
     if (!text || !activityLabel) return;
@@ -38,7 +68,14 @@
       const line = parts[i].trim();
       if (!line) continue;
       if (line.toLowerCase().startsWith(PROGRESS_PREFIX)) {
-        activityLabel.textContent = line.slice(PROGRESS_PREFIX.length).trim();
+        const msg = line.slice(PROGRESS_PREFIX.length).trim();
+        const formatted = formatProgressLine(msg);
+        lastProgressText = formatted || msg;
+        activityLabel.textContent = lastProgressText;
+        // In non-verbose mode, show progress inside the assistant bubble (not only above chat).
+        if (!streamVerbose && assistantBubble && assistantBubble.classList.contains("processing")) {
+          assistantBubble.textContent = lastProgressText || "0% - Working…";
+        }
         return;
       }
     }
@@ -67,20 +104,19 @@
 
   function startProcessingUi(el) {
     stopProcessingUi();
-    showActivityBar();
+    // Non-verbose: keep the UI quiet above the chat and show progress in-bubble.
+    hideActivityBar();
     if (!el) return;
     el.classList.add("processing");
     let i = 0;
-    el.textContent = "Preparing your answer…";
+    lastProgressText = "";
+    lastProgressPct = 0;
+    el.textContent = "0% - Working…";
     processingTimer = setInterval(() => {
       i = (i + 1) % PROCESSING_HINTS.length;
-      if (activityLabel) activityLabel.textContent = PROCESSING_HINTS[i];
-      el.textContent =
-        i === 0
-          ? "Preparing your answer…"
-          : i === 1
-            ? "The crew is running…"
-            : "Finishing up…";
+      // If we have real progress, don't overwrite it with generic hints.
+      if (lastProgressText) return;
+      el.textContent = `0% - ${PROCESSING_HINTS[i]}`;
     }, 4500);
   }
 

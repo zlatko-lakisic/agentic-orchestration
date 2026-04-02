@@ -91,7 +91,12 @@ _GENERIC_STEP_ID_RE = re.compile(r"^step_\d+$", re.IGNORECASE)
 def _task_human_label(task_id: str, task: Task) -> str:
     first = ""
     try:
-        first = str(getattr(task, "description", "") or "").strip().splitlines()[0].strip()
+        lines = [ln.strip() for ln in str(getattr(task, "description", "") or "").splitlines()]
+        lines = [ln for ln in lines if ln]
+        # Dynamic planner often prepends "{topic}" as a required marker; skip it for user-facing labels.
+        if lines and lines[0] == "{topic}":
+            lines = lines[1:]
+        first = lines[0] if lines else ""
     except Exception:  # noqa: BLE001
         first = ""
     if _GENERIC_STEP_ID_RE.match(str(task_id or "").strip()) and first:
