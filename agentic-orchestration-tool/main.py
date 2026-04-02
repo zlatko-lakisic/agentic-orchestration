@@ -646,8 +646,34 @@ def main() -> None:
                 done = bool(decision.get("done", False))
                 reason = str(decision.get("reason", "")).strip()
                 next_goal = str(decision.get("next_goal", "")).strip()
+                est_left = decision.get("estimated_rounds_remaining", None)
+                conf = str(decision.get("estimate_confidence", "")).strip().lower()
+                try:
+                    est_left_i = int(est_left) if est_left is not None else None
+                except Exception:  # noqa: BLE001
+                    est_left_i = None
                 if not args.quiet and reason:
                     print(f"(dynamic-iter) controller: done={done} reason={reason}", file=sys.stderr)
+                if est_left_i is not None:
+                    conf_part = f" ({conf})" if conf in ("low", "medium", "high") else ""
+                    # Estimated percent complete: rounds done / (done + remaining).
+                    denom = max(1, int(r) + int(est_left_i))
+                    pct = int(round((int(r) / denom) * 100))
+                    pct = max(0, min(100, pct))
+                    if not args.quiet:
+                        print(
+                            f"(dynamic-iter) controller: ~{est_left_i} round(s) remaining{conf_part} "
+                            f"(~{pct}% complete)",
+                            file=sys.stderr,
+                        )
+                    # Emit progress line even in quiet mode so non-verbose UIs can surface it.
+                    try:
+                        sys.__stdout__.write(
+                            f"(progress) ~{pct}% complete; estimated rounds remaining: ~{est_left_i}{conf_part}\n"
+                        )
+                        sys.__stdout__.flush()
+                    except Exception:  # noqa: BLE001
+                        pass
                 if next_goal:
                     goal = next_goal
                 if done and r >= min_rounds:

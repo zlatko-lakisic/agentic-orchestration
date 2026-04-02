@@ -913,6 +913,8 @@ def iterative_controller_decision(
     - done: bool
     - reason: str
     - next_goal: optional str (refine the goal for the next round)
+    - estimated_rounds_remaining: optional int (0..max_rounds-round_index)
+    - estimate_confidence: optional str ("low"|"medium"|"high")
     """
     m = (model or "").strip() or os.getenv(
         "AGENTIC_ITERATIVE_CONTROLLER_MODEL",
@@ -936,7 +938,9 @@ Respond with a single JSON object only:
 {{
   "done": true/false,
   "reason": "short justification",
-  "next_goal": "optional refined goal for the next round"
+  "next_goal": "optional refined goal for the next round",
+  "estimated_rounds_remaining": 0,
+  "estimate_confidence": "low|medium|high"
 }}
 """
 
@@ -954,4 +958,20 @@ Respond with a single JSON object only:
     data = _extract_json_object(raw)
     if not isinstance(data, dict):
         return {"done": False, "reason": "controller returned non-object", "next_goal": ""}
+    # Clamp estimate if present; always provide a usable fallback estimate.
+    remaining_max = max(0, int(max_rounds) - int(round_index))
+    est_raw = data.get("estimated_rounds_remaining", None)
+    try:
+        est = int(est_raw) if est_raw is not None else None
+    except Exception:  # noqa: BLE001
+        est = None
+    if est is None:
+        # Default: assume we might need to go to the cap (pessimistic, but safe).
+        est = remaining_max
+        data.setdefault("estimate_confidence", "low")
+    est = max(0, min(remaining_max, est))
+    data["estimated_rounds_remaining"] = est
+    conf = str(data.get("estimate_confidence", "")).strip().lower()
+    if conf not in ("low", "medium", "high"):
+        data["estimate_confidence"] = "low"
     return data
