@@ -12,7 +12,6 @@ You are not locked to one vendor or one model. The same orchestrator can mix **O
 
 | You want… | Start here |
 |-----------|------------|
-| **Hands-on CrewAI** (minimal two-agent demo) | [`crew-ai-demo/`](crew-ai-demo/) |
 | **Production-style orchestration** (YAML workflows, dynamic planning, MCP, sessions, learning, KB) | [`agentic-orchestration-tool/`](agentic-orchestration-tool/) |
 | **Browser chat** over local WebSockets (dynamic & iterative modes) | [`agentic-orchestration-web/`](agentic-orchestration-web/) |
 
@@ -43,7 +42,6 @@ The design goal is **swap models and providers without rewriting orchestration l
 
 ```
 agentic-orchestration/
-├── crew-ai-demo/                 # Minimal CrewAI tutorial-style demo
 ├── agentic-orchestration-tool/  # Python orchestration engine (main entry: main.py)
 │   ├── config/
 │   │   ├── workflows/           # Static workflow YAML
@@ -114,13 +112,6 @@ Open **http://127.0.0.1:3847/** by default. For LAN access, set `AGENTIC_WEB_HOS
 Host/port are read from `AGENTIC_WEB_HOST` / `AGENTIC_WEB_PORT` in that folder’s `.env` unless you override on the command line.
 
 **Security:** the web server runs local Python with user-supplied text. Do not expose it to the internet without authentication and hardening. Details: **[`agentic-orchestration-web/README.md`](agentic-orchestration-web/README.md)**.
-
-### 3) Minimal demo
-
-```powershell
-cd crew-ai-demo
-# Follow the same venv + pip + .env pattern as in the root README’s original quick start
-```
 
 ---
 
