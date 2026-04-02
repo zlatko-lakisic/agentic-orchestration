@@ -174,6 +174,7 @@ if [[ "$PUBLISH_WIKI" == "1" ]]; then
   fi
   echo
   echo "Publishing wiki repo: $wiki_path"
+  github_wiki_url="https://github.com/${gh_owner}/${REPO_NAME}.wiki.git"
   (
     cd "$wiki_path"
     wiki_dirty="$(git status --porcelain || true)"
@@ -186,7 +187,12 @@ if [[ "$PUBLISH_WIKI" == "1" ]]; then
         exit 0
       fi
     fi
-    git push -u origin "$WIKI_BRANCH"
+    if git remote | grep -qx github; then
+      git remote set-url github "$github_wiki_url"
+    else
+      git remote add github "$github_wiki_url"
+    fi
+    git push -u github "$WIKI_BRANCH"
   )
 fi
 

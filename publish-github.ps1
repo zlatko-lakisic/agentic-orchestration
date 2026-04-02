@@ -147,9 +147,20 @@ $githubRemoteName = "github"
 $githubRemoteUrl = "https://github.com/" + $ghOwner + "/" + $RepoName + ".git"
 
 $createArgs = @("repo", "create", $RepoName, "--source", ".", ("--" + $Visibility), "--remote", $githubRemoteName)
-$createOut = (& gh @createArgs 2>&1 | ForEach-Object { $_ })
-if ($LASTEXITCODE -ne 0) {
-  $createMsg = ($createOut | Out-String)
+# Run gh via Start-Process so stderr is plain text. With $ErrorActionPreference Stop, calling gh directly
+# surfaces GraphQL errors as terminating RemoteExceptions before we can treat "already exists" as success.
+$ghOutFile = [System.IO.Path]::GetTempFileName()
+$ghErrFile = [System.IO.Path]::GetTempFileName()
+try {
+  $ghProc = Start-Process -FilePath "gh" -ArgumentList $createArgs -WorkingDirectory $top -Wait -PassThru -NoNewWindow `
+    -RedirectStandardOutput $ghOutFile -RedirectStandardError $ghErrFile
+  $createExitCode = $ghProc.ExitCode
+  $errRaw = Get-Content -LiteralPath $ghErrFile -Raw -ErrorAction SilentlyContinue
+  $createMsg = if ($null -eq $errRaw) { "" } else { $errRaw.Trim() }
+} finally {
+  Remove-Item -LiteralPath $ghOutFile, $ghErrFile -ErrorAction SilentlyContinue
+}
+if ($createExitCode -ne 0) {
   if ($createMsg -match "already exists|Name already exists") {
     Write-Host "GitHub repo already exists; ensuring git remote '$githubRemoteName' points at GitHub."
     if (@(git remote) -contains $githubRemoteName) {
@@ -184,6 +195,8 @@ if (-not $SkipWikiPublish) {
   }
   Write-Host ""
   Write-Host ("Publishing wiki repo: " + $wikiRoot)
+  $githubWikiRemoteName = "github"
+  $githubWikiUrl = "https://github.com/" + $ghOwner + "/" + $RepoName + ".wiki.git"
   Push-Location $wikiRoot
   try {
     $wikiStatus = (git status --porcelain)
@@ -196,7 +209,12 @@ if (-not $SkipWikiPublish) {
         exit 0
       }
     }
-    Run ("git push -u origin " + $WikiBranch)
+    if (@(git remote) -contains $githubWikiRemoteName) {
+      Run ("git remote set-url " + $githubWikiRemoteName + " " + $githubWikiUrl)
+    } else {
+      Run ("git remote add " + $githubWikiRemoteName + " " + $githubWikiUrl)
+    }
+    Run ("git push -u " + $githubWikiRemoteName + " " + $WikiBranch)
   } finally {
     Pop-Location
   }
