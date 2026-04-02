@@ -222,7 +222,10 @@ if (-not $SkipWikiPublish) {
     } else {
       Run ("git remote add " + $githubWikiRemoteName + " " + $githubWikiUrl)
     }
-    Run ("git push -u " + $githubWikiRemoteName + " " + $WikiBranch)
+    # GitHub wiki is a separate repo; the web "Home" page creates unrelated commits. Non-force push
+    # often rejects or leaves GitHub unchanged. --force makes local branch the source of truth.
+    Write-Host "Force-pushing wiki to GitHub (overwrites remote branch history there)."
+    Run ("git push --force -u " + $githubWikiRemoteName + " " + $WikiBranch)
   } finally {
     Pop-Location
   }

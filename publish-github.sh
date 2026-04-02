@@ -196,7 +196,9 @@ if [[ "$PUBLISH_WIKI" == "1" ]]; then
     else
       git remote add github "$github_wiki_url"
     fi
-    git push -u github "$WIKI_BRANCH"
+    # GitHub wiki history is unrelated to GitLab/local if pages were created on github.com; use --force.
+    echo "Force-pushing wiki to GitHub (overwrites remote branch history there)."
+    git push --force -u github "$WIKI_BRANCH"
   )
 fi
 
