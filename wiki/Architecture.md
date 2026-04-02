@@ -48,7 +48,7 @@ Under `agentic-orchestration-tool/orchestration/`:
 ## Extension points
 
 - **More agents:** add YAML under `config/agent_providers/` or `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (Python provider classes).
-- **More MCPs:** add YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`.
+- **More MCPs:** add YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Discover third-party servers via [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (see [MCP-providers](MCP-providers) for shipped examples).
 - **Custom workflows:** add files under `config/workflows/`; optional `meta` for router inclusion.
 
 See also: [Agent-provider-catalog](Agent-provider-catalog), [MCP-providers](MCP-providers), [Configuration](Configuration).

@@ -18,6 +18,20 @@ This page summarizes **upstream products and libraries** used or integrated by t
 | [Brave Search](https://brave.com/search/api/) | Optional search MCP (`search_brave`). |
 | [Tavily](https://tavily.com/) | Optional search MCP (`search_tavily`). |
 
+## MCP server discovery (community catalog)
+
+The **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** repository is a large, category-organized index of MCP server implementations (search, automation, databases, and more). It is useful for **discovering** servers to add to your own `AGENTIC_EXTRA_MCP_PROVIDERS_PATH` or new YAML under `config/mcp_providers/`.
+
+Shipped catalog entries in **this** repo and **example** related projects from that list:
+
+| Our YAML `id` | Primary vendor / docs | Example related repos on awesome-mcp-servers |
+|---------------|----------------------|-----------------------------------------------|
+| `home_assistant` | [HA MCP integration](https://www.home-assistant.io/integrations/mcp_server/) | [allenporter/mcp-server-home-assistant](https://github.com/allenporter/mcp-server-home-assistant), [tevonsb/homeassistant-mcp](https://github.com/tevonsb/homeassistant-mcp) |
+| `search_brave` | [Brave Search API](https://brave.com/search/api/) | [brave/brave-search-mcp-server](https://github.com/brave/brave-search-mcp-server), [mikechao/brave-search-mcp](https://github.com/mikechao/brave-search-mcp) |
+| `search_tavily` | [Tavily MCP](https://docs.tavily.com/guides/mcp) | [tavily-ai/tavily-mcp](https://github.com/tavily-ai/tavily-mcp), [Tomatio13/mcp-server-tavily](https://github.com/Tomatio13/mcp-server-tavily), [kshern/mcp-tavily](https://github.com/kshern/mcp-tavily) |
+
+Details and caveats (official HA endpoint vs community servers, env vars): **[MCP-providers](MCP-providers)**.
+
 ## Model providers (configuration targets)
 
 Catalog YAMLs reference **vendor APIs** or runtimes; you configure keys in `.env`:

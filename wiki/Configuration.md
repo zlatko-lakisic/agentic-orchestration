@@ -40,6 +40,6 @@ Never commit `.env` or tokens. `.env` files are gitignored by convention.
 
 ## Related
 
-- [MCP-providers](MCP-providers) — required env per integration
+- [MCP-providers](MCP-providers) — required env per integration; [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) cross-reference
 - [CLI-reference](CLI-reference)
 - Root `README.md` — summary table

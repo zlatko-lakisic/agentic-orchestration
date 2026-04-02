@@ -40,3 +40,4 @@ When the wiki and repo diverge, prefer the **repository** for filenames, line-ac
 - Web: `agentic-orchestration-web/README.md`
 - Environment template: `agentic-orchestration-tool/.env.example`
 - Third-party list: `THIRD_PARTY_NOTICES.md`
+- Community MCP index: [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) — see [MCP-providers](MCP-providers) for how our YAML maps to example entries there.

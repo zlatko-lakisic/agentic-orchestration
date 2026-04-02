@@ -1,6 +1,6 @@
 # Agentic Orchestration Tool
 
-YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration—distinct from future MCP integrations.
+YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration, plus an MCP **catalog** under `config/mcp_providers/` for dynamic and static runs (Streamable HTTP, env-gated entries, optional `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`).
 
 ## Features
 
@@ -211,3 +211,9 @@ provider_class: "my_package.agent_providers.CustomAgentProvider"
 ```
 
 Unknown keys on the agent-provider entry are passed through as `AgentProviderConfig.provider_options` for your class to use.
+
+## MCP provider catalog
+
+Templates live in **`config/mcp_providers/`** (one YAML per integration). The CLI flag **`--mcp-providers-catalog`** points at that directory (or an extra path via **`AGENTIC_EXTRA_MCP_PROVIDERS_PATH`**). Shipped entries include **Home Assistant** (official HA MCP HTTP endpoint), **Brave Search**, and **Tavily**; see comments inside each file for env vars.
+
+Documentation: **`../wiki/MCP-providers.md`** (GitLab wiki–style). For more MCP servers, browse the community list **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** — the wiki page maps those listings to our YAML `id`s and notes when to prefer vendor or official endpoints.
