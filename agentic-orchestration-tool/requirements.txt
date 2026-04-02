@@ -1,4 +1,5 @@
 crewai
+litellm
 python-dotenv
 pyyaml
 httpx

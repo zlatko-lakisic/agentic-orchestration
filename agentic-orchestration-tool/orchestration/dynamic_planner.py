@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,132 @@ def _planner_chat_completion(
     messages: list[dict[str, str]],
     model: str,
 ) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for dynamic planning.")
+    def _shrink_messages_for_tpm_limit(
+        msgs: list[dict[str, str]],
+        *,
+        keep_last: int,
+        per_message_chars: int,
+    ) -> list[dict[str, str]]:
+        if not msgs:
+            return []
+        keep_last = max(1, keep_last)
+        per_message_chars = max(500, per_message_chars)
+        # Preserve the first system prompt if present.
+        head: list[dict[str, str]] = []
+        tail = msgs
+        if msgs and (msgs[0].get("role") == "system"):
+            head = [dict(msgs[0])]
+            tail = msgs[1:]
+        tail = list(tail[-keep_last:])
+        out: list[dict[str, str]] = head + tail
+        for m in out:
+            c = m.get("content")
+            if isinstance(c, str) and len(c) > per_message_chars:
+                m["content"] = c[: per_message_chars - 1] + "…"
+        return out
+
+    # Prefer a model-agnostic planner call through LiteLLM (Crews use it already).
+    # This allows planner models like:
+    # - openai/gpt-4o-mini
+    # - anthropic/claude-3-5-sonnet-20241022
+    # - huggingface/meta-llama/Llama-3.3-70B-Instruct
+    # - ollama/llama3.2
+    use_litellm = os.getenv("AGENTIC_PLANNER_USE_LITELLM", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    if use_litellm:
+        try:
+            import litellm  # type: ignore[import-not-found]
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "Planner is configured to use LiteLLM but litellm is not importable. "
+                "Install it (recommended): `pip install litellm` (or `pip install -r agentic-orchestration-tool/requirements.txt`), "
+                "or set AGENTIC_PLANNER_USE_LITELLM=0 to use the legacy OpenAI-only planner call."
+            ) from exc
+
+        clean_model = model.strip()
+        if "/" not in clean_model:
+            clean_model = f"openai/{clean_model}"
+
+        kwargs: dict[str, Any] = {
+            "model": clean_model,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        json_mode = os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        max_retries = 0
+        try:
+            max_retries = int(os.getenv("AGENTIC_PLANNER_429_RETRIES", "2"))
+        except ValueError:
+            max_retries = 2
+        max_retries = max(0, min(8, max_retries))
+
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                resp_raw = litellm.completion(**kwargs)
+                # LiteLLM usually returns an OpenAI-shaped dict, but sometimes returns objects.
+                if hasattr(resp_raw, "model_dump"):  # pydantic v2
+                    resp = resp_raw.model_dump()  # type: ignore[no-any-return]
+                elif hasattr(resp_raw, "dict"):  # pydantic v1
+                    resp = resp_raw.dict()  # type: ignore[no-any-return]
+                else:
+                    resp = resp_raw
+                if not isinstance(resp, dict):
+                    raise RuntimeError(f"Planner LLM returned unexpected response type: {type(resp)!r}")
+
+                choices = resp.get("choices") or []
+                first = choices[0] if isinstance(choices, list) and choices else {}
+                content: str | None = None
+                if isinstance(first, dict):
+                    msg = first.get("message")
+                    if isinstance(msg, dict):
+                        c = msg.get("content")
+                        if isinstance(c, str) and c.strip():
+                            content = c.strip()
+                    if content is None:
+                        t = first.get("text")
+                        if isinstance(t, str) and t.strip():
+                            content = t.strip()
+
+                if not content:
+                    # Include a tiny bit of structure for debugging without dumping secrets.
+                    finish_reason = first.get("finish_reason") if isinstance(first, dict) else None
+                    have = []
+                    if isinstance(first, dict) and isinstance(first.get("message"), dict):
+                        have = sorted([k for k in (first.get("message") or {}).keys()])  # type: ignore[union-attr]
+                    raise RuntimeError(
+                        f"Planner LLM returned empty content. finish_reason={finish_reason!r}, "
+                        f"choice_keys={sorted(list(first.keys())) if isinstance(first, dict) else 'n/a'}, "
+                        f"message_keys={have}"
+                    )
+                return content
+            except Exception as exc:  # noqa: BLE001
+                detail = str(exc)
+                # Some backends don't support response_format; retry once without it.
+                if json_mode and "response_format" in kwargs and (
+                    "response_format" in detail.lower() or "unsupported" in detail.lower()
+                ):
+                    kwargs.pop("response_format", None)
+                    json_mode = False
+                    continue
+                # Retry on rate-limit-ish errors.
+                if attempt <= max_retries + 1 and ("429" in detail or "rate limit" in detail.lower()):
+                    time.sleep(min(30.0, 2.0 * (2 ** (attempt - 1))))
+                    continue
+                raise RuntimeError(f"Planner LLM request failed: {detail}") from exc
 
     base = _normalize_openai_api_base()
     url = f"{base.rstrip('/')}/chat/completions"
@@ -88,40 +212,96 @@ def _planner_chat_completion(
     ):
         body["response_format"] = {"type": "json_object"}
 
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is required for dynamic planning when AGENTIC_PLANNER_USE_LITELLM=0."
+        )
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
+    max_retries = 0
     try:
-        with httpx.Client(timeout=120.0) as client:
-            response = client.post(url, headers=headers, json=body)
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                detail = response.text[:500] if response.text else ""
-                raise RuntimeError(
-                    f"Planner LLM request failed ({response.status_code}): {detail}"
-                ) from exc
-            data = response.json()
-    except httpx.RequestError as exc:
-        parsed = urlparse(base)
-        host = parsed.netloc or base.strip() or "(invalid base URL)"
-        msg = (
-            f"Planner cannot reach the OpenAI-compatible API ({host!r}, request to {url!r}): {exc}. "
-            "If you see 'getaddrinfo' or 'Name or service not known', DNS cannot resolve the host—"
-            "check network/VPN, corporate firewall, proxies, and OPENAI_BASE_URL / OPENAI_API_BASE."
-        )
-        raise RuntimeError(msg) from exc
+        max_retries = int(os.getenv("AGENTIC_PLANNER_429_RETRIES", "2"))
+    except ValueError:
+        max_retries = 2
+    max_retries = max(0, min(8, max_retries))
 
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError("Planner LLM returned no choices.")
-    message = choices[0].get("message") or {}
-    content = message.get("content")
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("Planner LLM returned empty content.")
-    return content.strip()
+    attempt = 0
+    last_exc: Exception | None = None
+    while True:
+        attempt += 1
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(url, headers=headers, json=body)
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    status = response.status_code
+                    detail = response.text[:2000] if response.text else ""
+                    # If the request is too large for the org's TPM, waiting won't help.
+                    if status == 429 and (
+                        "Request too large" in detail
+                        or "tokens per min" in detail
+                        or "\"code\":\"rate_limit_exceeded\"" in detail
+                    ):
+                        try:
+                            keep_last = int(os.getenv("AGENTIC_PLANNER_CONTEXT_TURNS", "6"))
+                        except ValueError:
+                            keep_last = 6
+                        try:
+                            per_msg = int(os.getenv("AGENTIC_PLANNER_MESSAGE_CHARS", "8000"))
+                        except ValueError:
+                            per_msg = 8000
+                        shrunk = _shrink_messages_for_tpm_limit(
+                            messages, keep_last=keep_last, per_message_chars=per_msg
+                        )
+                        # Only retry if we actually reduced something.
+                        if shrunk != body.get("messages") and attempt <= max_retries + 1:
+                            body["messages"] = shrunk
+                            # Also reduce output to avoid inflating TPM usage.
+                            body["temperature"] = 0.0
+                            body.setdefault("max_tokens", 1200)
+                            continue
+
+                    # Normal retry-able 429: backoff and retry.
+                    if status == 429 and attempt <= max_retries + 1:
+                        sleep_s = min(30.0, 2.0 * (2 ** (attempt - 1)))
+                        time.sleep(sleep_s)
+                        continue
+
+                    raise RuntimeError(
+                        f"Planner LLM request failed ({status}): {detail[:500]}"
+                    ) from exc
+                data = response.json()
+        except httpx.RequestError as exc:
+            parsed = urlparse(base)
+            host = parsed.netloc or base.strip() or "(invalid base URL)"
+            msg = (
+                f"Planner cannot reach the OpenAI-compatible API ({host!r}, request to {url!r}): {exc}. "
+                "If you see 'getaddrinfo' or 'Name or service not known', DNS cannot resolve the host—"
+                "check network/VPN, corporate firewall, proxies, and OPENAI_BASE_URL / OPENAI_API_BASE."
+            )
+            raise RuntimeError(msg) from exc
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            break
+        else:
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError("Planner LLM returned no choices.")
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError("Planner LLM returned empty content.")
+            return content.strip()
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Planner LLM request failed.")
 
 
 def _planner_system_prompt(
@@ -390,34 +570,9 @@ def workflow_config_from_plan(
                 raise ValueError(f"steps[{i}].mcp_provider_ids must be an array when present")
             per_step_mcp = [str(x).strip() for x in sm_raw if str(x).strip()]
 
-        # If the step needs MCP tools, prefer a non-local agent provider that can reliably
-        # call tools with correct argument shape. Local-only requests override this.
-        if not _user_wants_local_only(user_prompt):
-            effective_mcp = per_step_mcp if per_step_mcp is not None else mcp_plan_ids
-            if effective_mcp:
-                chosen = catalog_by_id.get(pid, {})
-                chosen_type = str(chosen.get("type", "")).strip().lower()
-                if chosen_type == "ollama":
-                    # Prefer an explicit writing/research OpenAI entry if present.
-                    preferred_ids = [
-                        "gpt_write",
-                        "gpt_reason",
-                        "gpt_research",
-                        "gpt_mini",
-                    ]
-                    replacement: str | None = None
-                    for cand in preferred_ids:
-                        match = catalog_by_id.get(cand)
-                        if match and str(match.get("type", "")).strip().lower() == "openai":
-                            replacement = cand
-                            break
-                    if replacement is None:
-                        for cand_id, entry in catalog_by_id.items():
-                            if str(entry.get("type", "")).strip().lower() == "openai":
-                                replacement = cand_id
-                                break
-                    if replacement and replacement != pid:
-                        pid = replacement
+        # NOTE: We intentionally do not "prefer" a backend here.
+        # The planner should choose the most relevant agent provider (including Ollama),
+        # based on each entry's planner_hint/role/goal and the user's description.
 
         tid = f"step_{i + 1}"
         task_definitions.append(
