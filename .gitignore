@@ -17,6 +17,7 @@ env/
 # Agentic tool: LLM-extracted file dumps
 __output__/
 __orchestrator_sessions__/
+__orchestrator_learning__/
 
 # Node (web UI)
 node_modules/

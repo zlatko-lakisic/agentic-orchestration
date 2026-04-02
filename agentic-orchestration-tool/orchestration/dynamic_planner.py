@@ -310,6 +310,7 @@ def _planner_system_prompt(
     max_steps: int,
     last_crew_excerpt: str | None = None,
     mcp_catalog_doc: str = "",
+    learning_summary: str = "",
 ) -> str:
     mcp_block = ""
     if mcp_catalog_doc.strip():
@@ -376,6 +377,8 @@ If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `
             f"\n\n## Previous crew output (same session; excerpt)\n{excerpt}\n"
             "Use this when the user refers to prior results or asks for follow-up work.\n"
         )
+    if learning_summary and learning_summary.strip():
+        system += str(learning_summary)
     return system
 
 
@@ -767,6 +770,7 @@ def build_dynamic_workflow_config(
     max_steps: int | None = None,
     planner_model: str | None = None,
     session_path: Path | None = None,
+    tool_root: Path | None = None,
     quiet: bool = False,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_agent_providers_catalog(catalog_path)
@@ -845,11 +849,29 @@ def build_dynamic_workflow_config(
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
     doc = catalog_for_planner_prompt(entries)
+    learning_summary = ""
+    try:
+        from orchestration.learning_store import (
+            consume_pending_ratings,
+            learning_enabled,
+            load_stats,
+            planner_performance_summary,
+            save_stats,
+        )
+
+        if tool_root is not None and learning_enabled():
+            st = load_stats(tool_root)
+            st = consume_pending_ratings(tool_root, st)
+            save_stats(tool_root, st)
+            learning_summary = planner_performance_summary(stats=st, user_prompt=user_prompt)
+    except Exception:  # noqa: BLE001
+        learning_summary = ""
     system_text = _planner_system_prompt(
         catalog_doc=doc,
         max_steps=limit,
         last_crew_excerpt=last_excerpt,
         mcp_catalog_doc=mcp_doc,
+        learning_summary=learning_summary,
     )
     messages = _compose_planner_messages(
         system_text=system_text,
@@ -974,4 +996,58 @@ Respond with a single JSON object only:
     conf = str(data.get("estimate_confidence", "")).strip().lower()
     if conf not in ("low", "medium", "high"):
         data["estimate_confidence"] = "low"
+    return data
+
+
+def evaluate_run_quality(
+    *,
+    user_goal: str,
+    output_text: str,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """
+    LLM-as-judge evaluator (local to this orchestrator).
+
+    Returns JSON dict with:
+      - score: float 0..1
+      - verdict: short string
+      - strengths: list[str]
+      - weaknesses: list[str]
+      - missing: list[str] (key missing info / next actions)
+    """
+    if os.getenv("AGENTIC_LEARNING_EVAL", "1").strip().lower() in ("0", "false", "no", "off"):
+        return {"score": None, "verdict": "disabled", "strengths": [], "weaknesses": [], "missing": []}
+
+    m = (model or "").strip() or os.getenv(
+        "AGENTIC_EVAL_MODEL",
+        os.getenv("AGENTIC_ITERATIVE_CONTROLLER_MODEL", os.getenv("AGENTIC_PLANNER_MODEL", "gpt-4o-mini")),
+    ).strip()
+
+    cap_goal = int(os.getenv("AGENTIC_EVAL_GOAL_CHARS", "2000"))
+    cap_out = int(os.getenv("AGENTIC_EVAL_OUTPUT_CHARS", "12000"))
+    goal = (user_goal or "").strip()[: max(200, cap_goal)]
+    out = (output_text or "").strip()[: max(500, cap_out)]
+
+    system = """You are a strict evaluator of an AI orchestration run.
+
+Score the output ONLY on usefulness for the user goal, factuality, completeness, and whether it followed constraints.
+
+Return JSON only:
+{
+  "score": 0.0,
+  "verdict": "one-line verdict",
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "missing": ["..."]
+}
+Rules:
+- score must be a number between 0 and 1.
+- If the output is empty or clearly unrelated, score <= 0.2.
+- Do not invent achievements; judge only from the provided output text.
+"""
+    user = f"## User goal\n{goal}\n\n## Output\n{out}\n"
+    raw = _planner_chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], model=m)
+    data = _extract_json_object(raw)
+    if not isinstance(data, dict):
+        return {"score": None, "verdict": "invalid", "strengths": [], "weaknesses": [], "missing": []}
     return data

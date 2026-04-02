@@ -42,6 +42,14 @@ Optional flags: `--config-dir`, `--router-model`, `--router-host`.
 
 **Dynamic + long-running planner context**: `python main.py --dynamic "…" --orchestrator-session myproject` stores planner chat and a truncated last crew output under `__orchestrator_sessions__/myproject.json` (gitignored). Reuse the same session name on the next run so the orchestrator LLM sees prior turns and last results. `--orchestrator-session-reset` clears that file. Env: `AGENTIC_ORCHESTRATOR_SESSION`, `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS`, `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS`.
 
+**Local learning loop (no model training)**: when enabled (default), runs record lightweight traces and quality evaluations under `__orchestrator_learning__/` (gitignored):
+
+- `stats.json`: aggregated per-provider stats (eval averages + user votes)
+- `traces.jsonl`: append-only decision/outcome events
+- `pending_ratings.jsonl`: web UI ratings (consumed on next planner run)
+
+This “learning” improves *future provider/tool selection* by feeding a short **historical performance summary** back into the planner prompt for similar task types. Toggle via env: `AGENTIC_LEARNING`, `AGENTIC_LEARNING_EVAL`, `AGENTIC_EVAL_MODEL`.
+
 ### Agent provider lifecycle
 
 Called by the runner / `main.py` in this order:

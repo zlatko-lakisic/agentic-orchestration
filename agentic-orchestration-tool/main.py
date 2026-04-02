@@ -13,7 +13,11 @@ load_dotenv()
 
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
-from orchestration.dynamic_planner import build_dynamic_workflow_config, iterative_controller_decision
+from orchestration.dynamic_planner import (
+    build_dynamic_workflow_config,
+    evaluate_run_quality,
+    iterative_controller_decision,
+)
 from orchestration.orchestrator_session import (
     load_session,
     resolve_orchestrator_session_slug,
@@ -602,6 +606,7 @@ def main() -> None:
                     mcp_catalog_path=mcp_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
+                    tool_root=tool_root,
                     quiet=args.quiet,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -633,6 +638,53 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
+            # Learning: evaluate + update local stats (best-effort).
+            try:
+                from orchestration.learning_store import (
+                    append_trace_event,
+                    learning_enabled,
+                    load_stats,
+                    mcp_fingerprint_from_ids,
+                    save_stats,
+                    update_provider_score,
+                )
+
+                if learning_enabled():
+                    provider_id = dyn_cfg.tasks[0].agent_provider_id if dyn_cfg.tasks else "unknown"
+                    mcp_ids = (
+                        dyn_cfg.tasks[0].mcp_providers
+                        if (dyn_cfg.tasks and dyn_cfg.tasks[0].mcp_providers is not None)
+                        else dyn_cfg.mcp_providers
+                    )
+                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
+                    eval_data = evaluate_run_quality(
+                        user_goal=str(args.task).strip(),
+                        output_text=result_text or "",
+                        model=None,
+                    )
+                    score = eval_data.get("score", None)
+                    append_trace_event(
+                        tool_root,
+                        {
+                            "kind": "round_result",
+                            "mode": "dynamic-iterative",
+                            "round": r,
+                            "provider_id": provider_id,
+                            "mcp_fingerprint": fp,
+                            "eval": eval_data,
+                        },
+                    )
+                    st = load_stats(tool_root)
+                    st = update_provider_score(
+                        stats=st,
+                        provider_id=provider_id,
+                        mcp_fingerprint=fp,
+                        user_prompt=goal,
+                        eval_score=float(score) if isinstance(score, (int, float)) else None,
+                    )
+                    save_stats(tool_root, st)
+            except Exception:  # noqa: BLE001
+                pass
 
             if args.dynamic_iterative_auto:
                 sess = load_session(orchestrator_session_path)
@@ -703,6 +755,7 @@ def main() -> None:
                     mcp_catalog_path=mcp_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
+                    tool_root=tool_root,
                     quiet=args.quiet,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -719,6 +772,51 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
+            try:
+                from orchestration.learning_store import (
+                    append_trace_event,
+                    learning_enabled,
+                    load_stats,
+                    mcp_fingerprint_from_ids,
+                    save_stats,
+                    update_provider_score,
+                )
+
+                if learning_enabled():
+                    provider_id = synth_cfg.tasks[0].agent_provider_id if synth_cfg.tasks else "unknown"
+                    mcp_ids = (
+                        synth_cfg.tasks[0].mcp_providers
+                        if (synth_cfg.tasks and synth_cfg.tasks[0].mcp_providers is not None)
+                        else synth_cfg.mcp_providers
+                    )
+                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
+                    eval_data = evaluate_run_quality(
+                        user_goal=str(args.task).strip(),
+                        output_text=result_text or "",
+                        model=None,
+                    )
+                    score = eval_data.get("score", None)
+                    append_trace_event(
+                        tool_root,
+                        {
+                            "kind": "final_synthesis_result",
+                            "mode": "dynamic-iterative",
+                            "provider_id": provider_id,
+                            "mcp_fingerprint": fp,
+                            "eval": eval_data,
+                        },
+                    )
+                    st = load_stats(tool_root)
+                    st = update_provider_score(
+                        stats=st,
+                        provider_id=provider_id,
+                        mcp_fingerprint=fp,
+                        user_prompt=goal,
+                        eval_score=float(score) if isinstance(score, (int, float)) else None,
+                    )
+                    save_stats(tool_root, st)
+            except Exception:  # noqa: BLE001
+                pass
 
             if result_text:
                 saved = offer_save_extracted_files(
@@ -764,6 +862,7 @@ def main() -> None:
                 catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
                 session_path=orchestrator_session_path,
+                tool_root=tool_root,
                 quiet=args.quiet,
             )
         except Exception as exc:  # noqa: BLE001
@@ -793,6 +892,44 @@ def main() -> None:
         if exit_code:
             sys.exit(exit_code)
         update_session_after_crew(orchestrator_session_path, result_text)
+        try:
+            from orchestration.learning_store import (
+                append_trace_event,
+                learning_enabled,
+                load_stats,
+                mcp_fingerprint_from_ids,
+                save_stats,
+                update_provider_score,
+            )
+
+            if learning_enabled():
+                used = []
+                for t in dyn_cfg.tasks:
+                    mcp_ids = t.mcp_providers if t.mcp_providers is not None else dyn_cfg.mcp_providers
+                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
+                    used.append((t.agent_provider_id, fp))
+                eval_data = evaluate_run_quality(
+                    user_goal=str(args.task).strip(),
+                    output_text=result_text or "",
+                    model=None,
+                )
+                score = eval_data.get("score", None)
+                append_trace_event(
+                    tool_root,
+                    {"kind": "run_result", "mode": "dynamic", "used": used, "eval": eval_data},
+                )
+                st = load_stats(tool_root)
+                for pid, fp in used:
+                    st = update_provider_score(
+                        stats=st,
+                        provider_id=pid,
+                        mcp_fingerprint=fp,
+                        user_prompt=goal,
+                        eval_score=float(score) if isinstance(score, (int, float)) else None,
+                    )
+                save_stats(tool_root, st)
+        except Exception:  # noqa: BLE001
+            pass
         if result_text:
             saved = offer_save_extracted_files(
                 tool_root=tool_root,

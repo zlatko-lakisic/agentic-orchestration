@@ -14,6 +14,8 @@
   const connStatus = document.getElementById("connStatus");
   const activityBar = document.getElementById("activityBar");
   const activityLabel = document.getElementById("activityLabel");
+  const rateUpBtn = document.getElementById("rateUpBtn");
+  const rateDownBtn = document.getElementById("rateDownBtn");
 
   let ws = null;
   let assistantBubble = null;
@@ -24,6 +26,7 @@
   let processingTimer = null;
   let lastProgressText = "";
   let lastProgressPct = null;
+  let lastRunRatingPayload = null;
 
   const PROCESSING_HINTS = [
     "Agents are working in the background…",
@@ -181,6 +184,9 @@
         }
         runActive = true;
         sendBtn.disabled = true;
+        if (rateUpBtn) rateUpBtn.disabled = true;
+        if (rateDownBtn) rateDownBtn.disabled = true;
+        lastRunRatingPayload = null;
         return;
       }
       if (data.type === "chunk") {
@@ -237,6 +243,8 @@
         assistantBubble = null;
         runActive = false;
         sendBtn.disabled = false;
+        if (rateUpBtn) rateUpBtn.disabled = !lastRunRatingPayload;
+        if (rateDownBtn) rateDownBtn.disabled = !lastRunRatingPayload;
         return;
       }
     };
@@ -282,6 +290,16 @@
     const sessionRaw = sessionIdEl.value.trim();
     const sessionId = sessionRaw || undefined;
 
+    function inferTaskTag(t) {
+      const s = String(t || "").toLowerCase();
+      if (s.includes("home assistant") || s.includes("hass") || s.includes("automation")) return "home_assistant";
+      if (s.includes("mirrord") || s.includes("kubernetes") || s.includes("k8s")) return "devops";
+      if (s.includes("error") || s.includes("traceback") || s.includes("exception")) return "debug";
+      if (s.includes("refactor") || s.includes("implement") || s.includes("write code")) return "build";
+      if (s.includes("research") || s.includes("compare") || s.includes("explain")) return "research";
+      return "general";
+    }
+
     appendBubble("user", text);
     input.value = "";
 
@@ -302,6 +320,28 @@
     }
     ws.send(JSON.stringify(payload));
     resetSessionEl.checked = false;
+    // Prepare rating envelope; provider/mcp are filled by Python traces (not available in UI).
+    lastRunRatingPayload = {
+      sessionId: sessionId || "",
+      providerId: "",
+      mcpFingerprint: "none",
+      taskTag: inferTaskTag(text),
+    };
+  }
+
+  function sendRating(rating) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!lastRunRatingPayload) return;
+    ws.send(
+      JSON.stringify({
+        type: "rate",
+        rating,
+        ...lastRunRatingPayload,
+      }),
+    );
+    if (rateUpBtn) rateUpBtn.disabled = true;
+    if (rateDownBtn) rateDownBtn.disabled = true;
+    appendMeta("Thanks — feedback saved for future runs.");
   }
 
   function syncIterativeUi() {
@@ -327,6 +367,10 @@
   runModeEl?.addEventListener("change", syncIterativeUi);
   autoIterEl?.addEventListener("change", syncIterativeUi);
   syncIterativeUi();
+
+  // Rate the last run (stored by the orchestrator into a pending file; consumed on next plan).
+  rateUpBtn?.addEventListener("click", () => sendRating(1));
+  rateDownBtn?.addEventListener("click", () => sendRating(-1));
 
   connect();
 })();

@@ -69,6 +69,18 @@ function sendJson(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
 }
 
+function appendPendingRating(event) {
+  const dir = path.join(TOOL_ROOT, "__orchestrator_learning__");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, "pending_ratings.jsonl");
+    const payload = { ts: Date.now() / 1000, ...event };
+    fs.appendFileSync(p, JSON.stringify(payload) + "\n", "utf8");
+  } catch {
+    // best-effort
+  }
+}
+
 function serveStatic(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   let p = url.pathname;
@@ -173,6 +185,17 @@ wss.on("connection", (ws) => {
     }
     if (msg.type === "ping") {
       sendJson(ws, { type: "pong" });
+      return;
+    }
+    if (msg.type === "rate") {
+      appendPendingRating({
+        session_slug: msg.sessionId || "",
+        provider_id: msg.providerId || "",
+        mcp_fingerprint: msg.mcpFingerprint || "none",
+        task_tag: msg.taskTag || "general",
+        rating: msg.rating,
+      });
+      sendJson(ws, { type: "rated", ok: true });
       return;
     }
     if (msg.type !== "chat") {
