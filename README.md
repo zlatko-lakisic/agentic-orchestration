@@ -52,8 +52,7 @@ agentic-orchestration/
 │   ├── public/
 │   ├── start-web.ps1 / .sh      # Foreground + auto-restart
 │   └── start-web-bg.ps1 / .sh   # Background (detached) starters
-├── publish-github.ps1           # Create GitHub repo + push (Windows)
-└── publish-github.sh            # Same for bash
+└── (optional helper scripts at root)
 ```
 
 **Gitignored runtime data** (local only):
@@ -143,23 +142,6 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, `AGENTIC_ITERATIVE_CONTROLLER_*` (and CLI flags) |
 | **Web server** | `AGENTIC_WEB_HOST`, `AGENTIC_WEB_PORT`, `AGENTIC_TOOL_ROOT`, `AGENTIC_PYTHON` — in **`agentic-orchestration-web/.env`** |
 
-### Publish-to-GitHub script env (optional root `.env`)
-
-The **`publish-github.ps1`** / **`publish-github.sh`** scripts can read a **repo root** `.env` (gitignored) for defaults only—**they do not change** how `main.py` or the web server load env:
-
-| Variable | Purpose |
-|----------|---------|
-| `GITHUB_REPO_NAME` or `AGENTIC_GITHUB_REPO_NAME` | New repo name |
-| `GITHUB_VISIBILITY` | `public` or `private` |
-| `GITHUB_AUTO_COMMIT` | `1` to auto-commit before publish |
-| `GITHUB_ALLOW_DIRTY` | `1` to allow dirty tree without auto-commit |
-| `GITHUB_COMMIT_MESSAGE` | Commit message when auto-committing |
-| `GITHUB_SKIP_PUSH` | `1` to create repo but not push |
-
-Requires **`git`** and **`gh`** (`gh auth login`).
-
----
-
 ## Key features (orchestration tool)
 
 - **CrewAI-native** — Agents, tasks, crews, sequential/hierarchical process.
@@ -175,12 +157,10 @@ Requires **`git`** and **`gh`** (`gh auth login`).
 
 ---
 
-## Scripts reference (root & web)
+## Scripts reference (web)
 
 | Script | Purpose |
 |--------|---------|
-| [`publish-github.ps1`](publish-github.ps1) | Windows: create GitHub repo, set `origin`, push |
-| [`publish-github.sh`](publish-github.sh) | Linux/macOS: same |
 | [`agentic-orchestration-web/start-web.ps1`](agentic-orchestration-web/start-web.ps1) | Foreground npm with auto-restart |
 | [`agentic-orchestration-web/start-web-bg.ps1`](agentic-orchestration-web/start-web-bg.ps1) | Windows: detached server |
 | [`agentic-orchestration-web/stop-web-bg.ps1`](agentic-orchestration-web/stop-web-bg.ps1) | Windows: stop detached server |
