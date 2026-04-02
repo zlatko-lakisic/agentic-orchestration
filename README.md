@@ -4,6 +4,8 @@
 
 You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, and **Hugging Face** models—picked per task from a catalog, filtered by credentials and (optionally) GPU memory, with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.
 
+**Why YAML and agnostic wiring?** So teams can **adopt this on top of what they already have**: fine-tuned or self-hosted models, **MCP** servers and in-house tools, and existing credentials—then **blend** those with generic, off-the-shelf agents from Ollama, OpenAI, Anthropic, and Hugging Face when that is faster or good enough. The aim is a **short path to a proof of concept** driven by catalogs and environment variables, without building planners, crews, or tool glue from scratch.
+
 ---
 
 ## What this repository is for
@@ -33,7 +35,7 @@ This stack is an **orchestration layer**, not a replacement for any one LLM:
 4. **Adaptation** — Iterative dynamic mode re-plans between steps; a small controller can stop early or suggest refined goals; step output can flow into the next task for continuity.
 5. **Memory & aggregation** — Sessions persist planner turns and excerpts; an optional local **knowledge base** (SQLite + FTS) stores finalized outputs for reuse in future plans; an optional **learning** loop scores runs and nudges provider choice over time.
 
-The design goal is **swap models and providers without rewriting orchestration logic**—only YAML catalogs and environment variables change.
+The design goal is **swap models and providers without rewriting orchestration logic**—only YAML catalogs and environment variables change. Practically, that means **your stack + this orchestration layer**: plug in trained models and MCPs you trust, use commodity cloud APIs where they help, and still get multi-step planning, execution, and optional web UI **as configuration**, not a new greenfield build.
 
 ---
 
