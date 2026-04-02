@@ -5,7 +5,12 @@ param(
   [switch]$AllowDirty,
   [switch]$AutoCommit,
   [string]$CommitMessage = "Publish project",
-  [switch]$SkipPush
+  [switch]$SkipPush,
+  [switch]$SkipWikiPublish,
+  [string]$WikiDir = "../agentic-orchestration.wiki",
+  [string]$WikiBranch = "main",
+  [bool]$WikiAutoCommit = $true,
+  [string]$WikiCommitMessage = "Update wiki"
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +70,11 @@ if ($CommitMessage -eq "Publish project" -and ($env:GITHUB_COMMIT_MESSAGE ?? "")
 if (-not $AllowDirty -and (($env:GITHUB_ALLOW_DIRTY ?? "").Trim() -eq "1")) { $AllowDirty = $true }
 if (-not $AutoCommit -and (($env:GITHUB_AUTO_COMMIT ?? "").Trim() -eq "1")) { $AutoCommit = $true }
 if (-not $SkipPush -and (($env:GITHUB_SKIP_PUSH ?? "").Trim() -eq "1")) { $SkipPush = $true }
+if (-not $SkipWikiPublish -and (($env:GITHUB_PUBLISH_WIKI ?? "").Trim() -match "^(0|false|no|off)$")) { $SkipWikiPublish = $true }
+if ($WikiDir -eq "../agentic-orchestration.wiki" -and ($env:GITHUB_WIKI_DIR ?? "").Trim()) { $WikiDir = $env:GITHUB_WIKI_DIR.Trim() }
+if ($WikiBranch -eq "main" -and ($env:GITHUB_WIKI_BRANCH ?? "").Trim()) { $WikiBranch = $env:GITHUB_WIKI_BRANCH.Trim() }
+if (-not $WikiAutoCommit -and (($env:GITHUB_WIKI_AUTO_COMMIT ?? "").Trim() -eq "1")) { $WikiAutoCommit = $true }
+if ($WikiCommitMessage -eq "Update wiki" -and ($env:GITHUB_WIKI_COMMIT_MESSAGE ?? "").Trim()) { $WikiCommitMessage = $env:GITHUB_WIKI_COMMIT_MESSAGE.Trim() }
 
 # Auth check (will error with a helpful message if not logged in)
 try {
@@ -118,5 +128,36 @@ if (-not $SkipPush) {
   Write-Host "Done. Open the repo with: gh repo view --web"
 } else {
   Write-Host "Repo created and remote set, push skipped."
+}
+
+if (-not $SkipWikiPublish) {
+  $wikiPath = Resolve-Path -Path (Join-Path $top $WikiDir) -ErrorAction SilentlyContinue
+  if (-not $wikiPath) {
+    Write-Host ("Wiki directory not found (" + $WikiDir + "). Skipping wiki publish.")
+    exit 0
+  }
+  $wikiRoot = $wikiPath.Path
+  if (-not (Test-Path -Path (Join-Path $wikiRoot ".git"))) {
+    Write-Host ("Wiki directory is not a git repository (" + $wikiRoot + "). Skipping wiki publish.")
+    exit 0
+  }
+  Write-Host ""
+  Write-Host ("Publishing wiki repo: " + $wikiRoot)
+  Push-Location $wikiRoot
+  try {
+    $wikiStatus = (git status --porcelain)
+    if ($wikiStatus) {
+      if ($WikiAutoCommit) {
+        Run "git add -A"
+        Run ("git commit -m " + ('"' + $WikiCommitMessage.Replace('"','\"') + '"'))
+      } else {
+        Write-Host "Wiki has uncommitted changes and -WikiAutoCommit was not set. Skipping wiki push."
+        exit 0
+      }
+    }
+    Run ("git push -u origin " + $WikiBranch)
+  } finally {
+    Pop-Location
+  }
 }
 

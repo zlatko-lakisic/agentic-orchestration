@@ -7,6 +7,11 @@ ALLOW_DIRTY="${ALLOW_DIRTY:-0}"       # 1 to allow dirty tree
 AUTO_COMMIT="${AUTO_COMMIT:-0}"       # 1 to auto-commit
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-Publish project}"
 SKIP_PUSH="${SKIP_PUSH:-0}"           # 1 to skip push
+PUBLISH_WIKI="${PUBLISH_WIKI:-1}"     # 1 to publish sibling wiki repo
+WIKI_DIR="${WIKI_DIR:-../agentic-orchestration.wiki}"
+WIKI_BRANCH="${WIKI_BRANCH:-main}"
+WIKI_AUTO_COMMIT="${WIKI_AUTO_COMMIT:-1}"  # 1 to auto-commit wiki changes
+WIKI_COMMIT_MESSAGE="${WIKI_COMMIT_MESSAGE:-Update wiki}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 1; }; }
 need git
@@ -63,6 +68,27 @@ fi
 if [[ "$SKIP_PUSH" == "0" && "${GITHUB_SKIP_PUSH:-}" == "1" ]]; then
   SKIP_PUSH="1"
 fi
+if [[ "$PUBLISH_WIKI" == "1" && -n "${GITHUB_PUBLISH_WIKI:-}" ]]; then
+  case "${GITHUB_PUBLISH_WIKI,,}" in
+    0|false|no|off) PUBLISH_WIKI="0" ;;
+    *) PUBLISH_WIKI="1" ;;
+  esac
+fi
+if [[ "$WIKI_DIR" == "../agentic-orchestration.wiki" && -n "${GITHUB_WIKI_DIR:-}" ]]; then
+  WIKI_DIR="$GITHUB_WIKI_DIR"
+fi
+if [[ "$WIKI_BRANCH" == "main" && -n "${GITHUB_WIKI_BRANCH:-}" ]]; then
+  WIKI_BRANCH="$GITHUB_WIKI_BRANCH"
+fi
+if [[ "$WIKI_AUTO_COMMIT" == "1" && -n "${GITHUB_WIKI_AUTO_COMMIT:-}" ]]; then
+  case "${GITHUB_WIKI_AUTO_COMMIT,,}" in
+    0|false|no|off) WIKI_AUTO_COMMIT="0" ;;
+    *) WIKI_AUTO_COMMIT="1" ;;
+  esac
+fi
+if [[ "$WIKI_COMMIT_MESSAGE" == "Update wiki" && -n "${GITHUB_WIKI_COMMIT_MESSAGE:-}" ]]; then
+  WIKI_COMMIT_MESSAGE="$GITHUB_WIKI_COMMIT_MESSAGE"
+fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "GitHub CLI not authenticated. Run: gh auth login" >&2
@@ -110,5 +136,33 @@ if [[ "$SKIP_PUSH" != "1" ]]; then
   echo "Done. Open the repo with: gh repo view --web"
 else
   echo "Repo created and remote set, push skipped."
+fi
+
+if [[ "$PUBLISH_WIKI" == "1" ]]; then
+  wiki_path="$(cd "$top" && cd "$WIKI_DIR" 2>/dev/null && pwd -P || true)"
+  if [[ -z "$wiki_path" ]]; then
+    echo "Wiki directory not found ($WIKI_DIR). Skipping wiki publish."
+    exit 0
+  fi
+  if [[ ! -d "$wiki_path/.git" ]]; then
+    echo "Wiki directory is not a git repository ($wiki_path). Skipping wiki publish."
+    exit 0
+  fi
+  echo
+  echo "Publishing wiki repo: $wiki_path"
+  (
+    cd "$wiki_path"
+    wiki_dirty="$(git status --porcelain || true)"
+    if [[ -n "$wiki_dirty" ]]; then
+      if [[ "$WIKI_AUTO_COMMIT" == "1" ]]; then
+        git add -A
+        git commit -m "$WIKI_COMMIT_MESSAGE"
+      else
+        echo "Wiki has uncommitted changes and WIKI_AUTO_COMMIT=0. Skipping wiki push."
+        exit 0
+      fi
+    fi
+    git push -u origin "$WIKI_BRANCH"
+  )
 fi
 

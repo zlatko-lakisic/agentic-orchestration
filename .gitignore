@@ -22,3 +22,7 @@ __orchestrator_kb__/
 
 # Node (web UI)
 node_modules/
+
+# Local publish helpers (do not commit)
+publish-github.sh
+publish-github.ps1
