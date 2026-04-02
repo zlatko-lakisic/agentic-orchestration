@@ -140,14 +140,33 @@ if ($confirm.ToLower().Trim() -ne "y") {
   exit 0
 }
 
-# Create repo on GitHub; keep it simple and rely on gh defaults for owner.
-Run ("gh repo create " + $RepoName + " --source . --" + $Visibility + " --remote origin")
+# Create repo on GitHub with remote name `github` so `origin` (e.g. internal server) is unchanged.
+$ghOwner = (gh api user -q .login).Trim()
+if (-not $ghOwner) { throw "Could not resolve GitHub username. Run: gh auth login" }
+$githubRemoteName = "github"
+$githubRemoteUrl = "https://github.com/" + $ghOwner + "/" + $RepoName + ".git"
+
+$createArgs = @("repo", "create", $RepoName, "--source", ".", ("--" + $Visibility), "--remote", $githubRemoteName)
+$createOut = (& gh @createArgs 2>&1 | ForEach-Object { $_ })
+if ($LASTEXITCODE -ne 0) {
+  $createMsg = ($createOut | Out-String)
+  if ($createMsg -match "already exists|Name already exists") {
+    Write-Host "GitHub repo already exists; ensuring git remote '$githubRemoteName' points at GitHub."
+    if (@(git remote) -contains $githubRemoteName) {
+      Run ("git remote set-url " + $githubRemoteName + " " + $githubRemoteUrl)
+    } else {
+      Run ("git remote add " + $githubRemoteName + " " + $githubRemoteUrl)
+    }
+  } else {
+    throw ("gh repo create failed: " + $createMsg.Trim())
+  }
+}
 
 if (-not $SkipPush) {
-  # Push current branch and set upstream.
-  Run ("git push -u origin " + $currentBranch)
+  # Push current branch to GitHub (not necessarily `origin`).
+  Run ("git push -u " + $githubRemoteName + " " + $currentBranch)
   Write-Host ""
-  Write-Host "Done. Open the repo with: gh repo view --web"
+  Write-Host ("Done. Open the repo with: gh repo view " + $RepoName + " --web")
 } else {
   Write-Host "Repo created and remote set, push skipped."
 }

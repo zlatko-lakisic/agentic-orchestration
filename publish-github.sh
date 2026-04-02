@@ -128,12 +128,36 @@ if [[ "${ok,,}" != "y" ]]; then
   exit 0
 fi
 
-gh repo create "$REPO_NAME" --source . --"$VISIBILITY" --remote origin
+github_remote="github"
+gh_owner="$(gh api user -q .login)"
+if [[ -z "$gh_owner" ]]; then
+  echo "Could not resolve GitHub username. Run: gh auth login" >&2
+  exit 1
+fi
+github_url="https://github.com/${gh_owner}/${REPO_NAME}.git"
+
+set +e
+out="$(gh repo create "$REPO_NAME" --source . --"$VISIBILITY" --remote "$github_remote" 2>&1)"
+code=$?
+set -e
+if [[ "$code" -ne 0 ]]; then
+  if echo "$out" | grep -qiE 'already exists|Name already exists'; then
+    echo "GitHub repo already exists; ensuring git remote '$github_remote' points at GitHub."
+    if git remote | grep -qx "$github_remote"; then
+      git remote set-url "$github_remote" "$github_url"
+    else
+      git remote add "$github_remote" "$github_url"
+    fi
+  else
+    echo "gh repo create failed: $out" >&2
+    exit 1
+  fi
+fi
 
 if [[ "$SKIP_PUSH" != "1" ]]; then
-  git push -u origin "$branch"
+  git push -u "$github_remote" "$branch"
   echo
-  echo "Done. Open the repo with: gh repo view --web"
+  echo "Done. Open the repo with: gh repo view $REPO_NAME --web"
 else
   echo "Repo created and remote set, push skipped."
 fi
