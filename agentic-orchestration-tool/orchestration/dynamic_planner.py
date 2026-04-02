@@ -878,18 +878,55 @@ def build_dynamic_workflow_config(
         planner_history=history,
         user_prompt=user_prompt,
     )
+    def _repair_and_retry(reason: str) -> tuple[str, dict[str, Any], WorkflowConfig]:
+        repair_msgs = list(messages)
+        repair_msgs.append(
+            {
+                "role": "user",
+                "content": (
+                    "Your previous response was invalid for this orchestrator.\n"
+                    f"Problem: {reason}\n\n"
+                    "Return a corrected JSON object that strictly matches the schema. "
+                    "You MUST include a non-empty steps array (1..max_steps)."
+                ),
+            }
+        )
+        raw2 = _planner_chat_completion(messages=repair_msgs, model=model)
+        plan2 = _extract_json_object(raw2)
+        cfg2 = workflow_config_from_plan(
+            user_prompt=user_prompt,
+            plan=plan2,
+            catalog_entries=entries,
+            instance_key=key,
+            max_steps=limit,
+            mcp_catalog_entries=mcp_entries,
+            quiet=quiet,
+        )
+        return raw2, plan2, cfg2
+
     raw_content = _planner_chat_completion(messages=messages, model=model)
     plan = _extract_json_object(raw_content)
 
-    cfg = workflow_config_from_plan(
-        user_prompt=user_prompt,
-        plan=plan,
-        catalog_entries=entries,
-        instance_key=key,
-        max_steps=limit,
-        mcp_catalog_entries=mcp_entries,
-        quiet=quiet,
-    )
+    try:
+        cfg = workflow_config_from_plan(
+            user_prompt=user_prompt,
+            plan=plan,
+            catalog_entries=entries,
+            instance_key=key,
+            max_steps=limit,
+            mcp_catalog_entries=mcp_entries,
+            quiet=quiet,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if os.getenv("AGENTIC_PLANNER_REPAIR_RETRY", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            raw_content, plan, cfg = _repair_and_retry(str(exc))
+        else:
+            raise
     cfg = _prune_irrelevant_mcp_from_user_goal(
         cfg,
         user_prompt=user_prompt,
