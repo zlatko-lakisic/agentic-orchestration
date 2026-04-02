@@ -17,6 +17,7 @@ from agent_providers.factory import agent_provider_from_dict
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
 from orchestration.mcp_providers_catalog import (
+    filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
     mcps_list_fingerprint,
     resolve_workflow_mcp_refs,
@@ -37,6 +38,8 @@ class _SequentialKickoffState:
     task_run_order: list[tuple[str, Task, AgentProvider]]
     inputs_holder: dict[str, Any]
     last_completed: int = field(default=-1)
+    last_output_text: str = field(default="")
+    progress_enabled: bool = field(default=False)
 
 
 @dataclass
@@ -63,6 +66,24 @@ def crew_kickoff_context(built: BuiltWorkflow):
         _KICKOFF_CB_STATE.reset(token)
 
 
+def _progress(msg: str) -> None:
+    """
+    Emit a short progress line for UIs that don't stream verbose Crew logs.
+    Written to the original stdout so it still appears when caller redirects stdout.
+    """
+    state = _KICKOFF_CB_STATE.get()
+    if state is None or not state.progress_enabled:
+        return
+    text = str(msg).strip()
+    if not text:
+        return
+    try:
+        sys.__stdout__.write(f"(progress) {text}\n")
+        sys.__stdout__.flush()
+    except Exception:  # noqa: BLE001
+        return
+
+
 def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]:
     state = _KICKOFF_CB_STATE.get()
     if state is None:
@@ -71,10 +92,38 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
     state.inputs_holder.clear()
     state.inputs_holder.update(merged)
     state.last_completed = -1
+    state.last_output_text = ""
     if state.task_run_order:
         first_id, first_task, ap = state.task_run_order[0]
+        _progress(f"starting {first_id}: {first_task.description.splitlines()[0].strip()}")
         ap.before_task(first_id, first_task, dict(state.inputs_holder))
     return merged
+
+
+_STEP_CONTEXT_MARKER = "\n\n---\n## Previous step output (for continuity)\n"
+
+
+def _inject_previous_output_into_next_task(next_task: Task, prev_output: str) -> None:
+    if not prev_output:
+        return
+    if os.getenv("AGENTIC_STEP_CONTEXT_INJECT", "1").strip().lower() in ("0", "false", "no", "off"):
+        return
+
+    # Try not to blow up token count.
+    try:
+        cap = int(os.getenv("AGENTIC_STEP_CONTEXT_CHARS", "4000"))
+    except ValueError:
+        cap = 4000
+    cap = max(500, min(20000, cap))
+    snippet = prev_output.strip()
+    if len(snippet) > cap:
+        snippet = snippet[: cap - 1] + "…"
+
+    desc = str(getattr(next_task, "description", "") or "")
+    if _STEP_CONTEXT_MARKER in desc:
+        return
+    setattr(next_task, "description", desc + _STEP_CONTEXT_MARKER + snippet + "\n")
+    _progress("using previous step output to inform next step")
 
 
 def _serial_crew_task_callback(output: Any) -> None:
@@ -87,8 +136,16 @@ def _serial_crew_task_callback(output: Any) -> None:
         return
     task_id, task_ref, ap = state.task_run_order[k]
     ap.after_task(task_id, task_ref, output, None)
+    # Capture a best-effort textual form of the output for next-step continuity.
+    try:
+        state.last_output_text = str(output) if output is not None else ""
+    except Exception:  # noqa: BLE001
+        state.last_output_text = ""
+    _progress(f"completed {task_id}")
     if k + 1 < len(state.task_run_order):
         next_id, next_task, next_ap = state.task_run_order[k + 1]
+        _inject_previous_output_into_next_task(next_task, state.last_output_text)
+        _progress(f"starting {next_id}: {next_task.description.splitlines()[0].strip()}")
         next_ap.before_task(next_id, next_task, dict(state.inputs_holder))
 
 
@@ -157,6 +214,12 @@ def build_workflow(
         if mcp_catalog_path is not None
         else []
     )
+    if mcp_catalog_entries:
+        mcp_catalog_entries, _skipped_mcp = filter_mcp_entries_by_api_credentials(
+            mcp_catalog_entries,
+            verbose=not quiet,
+            log_prefix="workflow mcp catalog",
+        )
 
     task_mcps_resolved: dict[str, list[Any]] = {}
     for tdef in config.tasks:
@@ -248,6 +311,9 @@ def build_workflow(
     kickoff_state = _SequentialKickoffState(
         task_run_order=task_run_order,
         inputs_holder=inputs_holder,
+    )
+    kickoff_state.progress_enabled = (
+        os.getenv("AGENTIC_PROGRESS", "1").strip().lower() not in ("0", "false", "no", "off")
     )
 
     crew = Crew(

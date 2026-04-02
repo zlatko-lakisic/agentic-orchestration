@@ -15,7 +15,9 @@ _MCP_TOOL_CALLING_HINT = (
     f"{_MCP_TOOL_HINT_MARKER} Use only each tool schema's parameter names as top-level "
     "fields (e.g. `question`, optional `version`). Do not nest under `parameters` or add "
     '`tool_name`. Wrong: {"tool_name": "...", "parameters": {"question": "..."}}. '
-    'Right: {"question": "...", "version": "latest"}.'
+    'Right: {"question": "...", "version": "latest"}. '
+    "If a tool call fails (validation/network/server error), continue the task without it: "
+    "produce a best-effort answer and clearly state what could not be verified."
 )
 
 

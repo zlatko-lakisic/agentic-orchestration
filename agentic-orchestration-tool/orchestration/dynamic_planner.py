@@ -28,6 +28,7 @@ from orchestration.agent_providers_catalog import (
     load_agent_providers_catalog,
 )
 from orchestration.mcp_providers_catalog import (
+    filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
     mcp_catalog_for_planner_prompt,
     resolve_workflow_mcp_refs,
@@ -137,7 +138,8 @@ def _planner_system_prompt(
 Available **MCP providers** — pick ids **only** from this catalog (docs/API/tools the agents can call via CrewAI):
 {mcp_catalog_doc}
 
-- **You must attach MCP when relevant:** If the user's goal matches **any** entry's scope (read each `id`, `description`, and `planner_hint`), include those ids in `mcp_provider_ids` (top-level default and/or per-step). Do **not** fake product knowledge from memory when an MCP can retrieve authoritative docs (mirrord vs similarly named consumer apps, Home Assistant, etc.).
+- **Attach MCP only when relevant:** If the user's goal clearly matches an entry's scope (read each `id`, `description`, and `planner_hint`), include those ids in `mcp_provider_ids` (top-level default and/or per-step). If none match, use `[]` and omit per-step lists.
+- **Avoid irrelevant MCPs:** Do not include MCP providers that are unrelated to the user's question just because they exist in the catalog.
 - **Per-step MCP:** Prefer a **minimal** per-step `mcp_provider_ids` list for each step that needs tools; use the same top-level default only when every step needs the same set.
 - **Default MCP:** Top-level `mcp_provider_ids` applies to steps that **omit** `mcp_provider_ids`.
 - **No MCP for one step:** Set that step's `mcp_provider_ids` to `[]`.
@@ -185,7 +187,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
     }}
   ]
 }}
-When the MCP catalog block above is present: **never** return an empty `mcp_provider_ids` default **and** omit per-step lists if the user's words clearly relate to any catalog entry (e.g. mirrord / MetalBear / Kubernetes local dev → `mirrord_docs` if listed).
+If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `mcp_provider_ids`.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -315,6 +317,7 @@ def workflow_config_from_plan(
     instance_key: str,
     max_steps: int,
     mcp_catalog_entries: list[dict[str, Any]] | None = None,
+    quiet: bool = False,
 ) -> WorkflowConfig:
     def _user_wants_local_only(text: str) -> bool:
         t = text.strip().lower()
@@ -432,21 +435,57 @@ def workflow_config_from_plan(
 
     provider_payloads = [deepcopy_agent_provider(catalog_by_id[pid]) for pid in used_provider_ids]
 
-    referenced_mcp: set[str] = set(mcp_plan_ids)
-    for tdef in task_definitions:
-        if tdef.mcp_providers is not None:
-            referenced_mcp.update(tdef.mcp_providers)
     if mcp_catalog_entries is not None:
         known_mcp = {
             str(p.get("id", "")).strip()
             for p in mcp_catalog_entries
             if str(p.get("id", "")).strip()
         }
-        for mid in referenced_mcp:
-            if mid not in known_mcp:
-                raise ValueError(
-                    f"Unknown mcp_provider_id {mid!r} in plan. Known: {', '.join(sorted(known_mcp))}",
+        # Planner history may reference MCP ids that were removed from the catalog.
+        # Default to pruning unknown ids (warn) instead of failing the entire run.
+        strict = os.getenv("AGENTIC_STRICT_MCP_IDS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+
+        def _filter_known(xs: list[str]) -> tuple[list[str], list[str]]:
+            kept: list[str] = []
+            dropped: list[str] = []
+            for x in xs:
+                if x in known_mcp:
+                    kept.append(x)
+                else:
+                    dropped.append(x)
+            return kept, dropped
+
+        mcp_plan_ids, dropped_default = _filter_known(mcp_plan_ids)
+        if dropped_default and not quiet:
+            msg = (
+                f"(dynamic) warning: dropping unknown mcp_provider_id(s) from plan default: "
+                f"{dropped_default!r}. Known: {', '.join(sorted(known_mcp))}"
+            )
+            if strict:
+                raise ValueError(msg)
+            print(msg, file=sys.stderr)
+
+        new_task_defs: list[TaskDefinition] = []
+        for t in task_definitions:
+            if t.mcp_providers is None:
+                new_task_defs.append(t)
+                continue
+            kept, dropped = _filter_known(list(t.mcp_providers))
+            if dropped and not quiet:
+                msg = (
+                    f"(dynamic) warning: dropping unknown mcp_provider_id(s) from {t.id}: "
+                    f"{dropped!r}. Known: {', '.join(sorted(known_mcp))}"
                 )
+                if strict:
+                    raise ValueError(msg)
+                print(msg, file=sys.stderr)
+            new_task_defs.append(replace(t, mcp_providers=kept))
+        task_definitions = new_task_defs
 
     return WorkflowConfig(
         name="dynamic-plan",
@@ -516,6 +555,52 @@ def _maybe_augment_mcp_from_user_goal(
             file=sys.stderr,
         )
     return replace(cfg, mcp_providers=merged)
+
+
+def _prune_irrelevant_mcp_from_user_goal(
+    cfg: WorkflowConfig,
+    *,
+    user_prompt: str,
+    mcp_catalog: list[dict[str, Any]],
+    quiet: bool,
+) -> WorkflowConfig:
+    """
+    Guardrail: if the planner selected MCP provider ids that don't match the user goal,
+    drop them instead of forcing irrelevant tool usage.
+    """
+    if not mcp_catalog:
+        return cfg
+    if not cfg.mcp_providers:
+        return cfg
+    suggested = set(suggest_mcp_ids_from_user_goal(user_prompt, mcp_catalog))
+    if not suggested:
+        # No MCP appears relevant by heuristic; drop planner-selected defaults.
+        if not quiet:
+            print(
+                f"(dynamic) mcp relevance: dropping default mcp_provider_ids {cfg.mcp_providers!r} "
+                f"(no MCP keywords matched goal)",
+                file=sys.stderr,
+            )
+        return replace(cfg, mcp_providers=[])
+
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for x in cfg.mcp_providers:
+        if isinstance(x, str) and x.strip():
+            if x.strip() in suggested:
+                kept.append(x.strip())
+            else:
+                dropped.append(x.strip())
+        else:
+            # Inline MCP configs are assumed intentional; keep them.
+            kept.append(x)
+
+    if dropped and not quiet:
+        print(
+            f"(dynamic) mcp relevance: dropped {dropped!r}; kept {kept!r}",
+            file=sys.stderr,
+        )
+    return replace(cfg, mcp_providers=kept)
 
 
 def build_dynamic_workflow_config(
@@ -597,6 +682,11 @@ def build_dynamic_workflow_config(
     mcp_entries: list[dict[str, Any]] = []
     if mcp_catalog_path is not None:
         mcp_entries = load_mcp_providers_catalog_merged(mcp_catalog_path)
+        mcp_entries, _skipped_mcp = filter_mcp_entries_by_api_credentials(
+            mcp_entries,
+            verbose=not quiet,
+            log_prefix="(dynamic) mcp catalog",
+        )
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
     doc = catalog_for_planner_prompt(entries)
@@ -621,6 +711,13 @@ def build_dynamic_workflow_config(
         instance_key=key,
         max_steps=limit,
         mcp_catalog_entries=mcp_entries,
+        quiet=quiet,
+    )
+    cfg = _prune_irrelevant_mcp_from_user_goal(
+        cfg,
+        user_prompt=user_prompt,
+        mcp_catalog=mcp_entries,
+        quiet=quiet,
     )
     cfg = _maybe_augment_mcp_from_user_goal(
         cfg,
@@ -644,3 +741,62 @@ def build_dynamic_workflow_config(
         save_session(session_path, sess)
 
     return cfg, plan
+
+
+def iterative_controller_decision(
+    *,
+    original_goal: str,
+    latest_excerpt: str,
+    round_index: int,
+    max_rounds: int,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """
+    Decide whether iterative orchestration should stop early.
+
+    Returns a dict with keys:
+    - done: bool
+    - reason: str
+    - next_goal: optional str (refine the goal for the next round)
+    """
+    m = (model or "").strip() or os.getenv(
+        "AGENTIC_ITERATIVE_CONTROLLER_MODEL",
+        os.getenv("AGENTIC_PLANNER_MODEL", "gpt-4o-mini").strip(),
+    ).strip()
+
+    cap = int(os.getenv("AGENTIC_ITERATIVE_CONTROLLER_EXCERPT_CHARS", "12000"))
+    excerpt = (latest_excerpt or "").strip()[:cap]
+
+    system = f"""You are an iterative orchestration controller.
+
+You decide whether we should stop running more rounds and proceed to final synthesis.
+
+Rules:
+- Prefer stopping early when the user's request is already satisfied.
+- Continue when key information is missing, tool failures prevented verification, or the output quality is clearly insufficient.
+- If you continue, you may refine the goal into a tighter next_goal that focuses on the biggest remaining gap.
+- Keep it pragmatic: we can run at most {max_rounds} rounds total.
+
+Respond with a single JSON object only:
+{{
+  "done": true/false,
+  "reason": "short justification",
+  "next_goal": "optional refined goal for the next round"
+}}
+"""
+
+    user = (
+        "## Original goal\n"
+        f"{original_goal.strip()}\n\n"
+        f"## Round\n{round_index}\n\n"
+        "## Latest intermediate results (excerpt)\n"
+        f"{excerpt}\n"
+    )
+    raw = _planner_chat_completion(
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=m,
+    )
+    data = _extract_json_object(raw)
+    if not isinstance(data, dict):
+        return {"done": False, "reason": "controller returned non-object", "next_goal": ""}
+    return data

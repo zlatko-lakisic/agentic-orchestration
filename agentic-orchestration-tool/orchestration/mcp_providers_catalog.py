@@ -4,6 +4,8 @@ import copy
 import json
 import os
 import re
+import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +97,110 @@ def _assert_unique_mcp_ids(entries: list[dict[str, Any]]) -> list[dict[str, Any]
     if len(set(ids)) != len(ids):
         raise ValueError("Duplicate MCP provider 'id' across MCP catalog files")
     return entries
+
+
+def mcp_entry_has_api_credentials(entry: dict[str, Any]) -> bool:
+    """
+    True when this MCP entry can be used with current environment.
+
+    Supported keys on entry:
+    - required_env: list[str] (all must be set and non-empty)
+    - required_env_any: list[str] (at least one must be set and non-empty)
+    """
+    raw_all = entry.get("required_env")
+    if isinstance(raw_all, list) and raw_all:
+        for k in raw_all:
+            key = str(k).strip()
+            if not key:
+                continue
+            if not os.getenv(key, "").strip():
+                return False
+
+    raw_any = entry.get("required_env_any")
+    if isinstance(raw_any, list) and raw_any:
+        keys = [str(k).strip() for k in raw_any if str(k).strip()]
+        if keys and not any(os.getenv(k, "").strip() for k in keys):
+            return False
+
+    return True
+
+
+def mcp_credential_skip_reason(entry: dict[str, Any]) -> str:
+    raw_all = entry.get("required_env")
+    raw_any = entry.get("required_env_any")
+    if isinstance(raw_all, list) and raw_all:
+        keys = [str(k).strip() for k in raw_all if str(k).strip()]
+        if keys:
+            return "set " + " + ".join(keys)
+    if isinstance(raw_any, list) and raw_any:
+        keys = [str(k).strip() for k in raw_any if str(k).strip()]
+        if keys:
+            return "set one of [" + ", ".join(keys) + "]"
+    return "set required env vars"
+
+
+def filter_mcp_entries_by_api_credentials(
+    entries: list[dict[str, Any]],
+    *,
+    verbose: bool,
+    log_prefix: str = "",
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """
+    Drop MCP catalog entries when required env vars are missing.
+
+    Many skips are summarized into one line (threshold from
+    ``AGENTIC_MCP_CREDENTIAL_SKIP_SUMMARY_AT``, default 6). Set
+    ``AGENTIC_MCP_CREDENTIAL_SKIP_VERBOSE=1`` to always print one line per skipped id.
+    """
+    kept: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    prefix = f"{log_prefix}: " if log_prefix else ""
+
+    for entry in entries:
+        if mcp_entry_has_api_credentials(entry):
+            kept.append(entry)
+        else:
+            skipped.append(entry)
+
+    skipped_ids = [str(e.get("id", "")).strip() or "(missing id)" for e in skipped]
+    if not verbose or not skipped:
+        return kept, skipped_ids
+
+    force_each = os.getenv("AGENTIC_MCP_CREDENTIAL_SKIP_VERBOSE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    try:
+        summary_at = max(
+            1, int(os.getenv("AGENTIC_MCP_CREDENTIAL_SKIP_SUMMARY_AT", "6").strip())
+        )
+    except ValueError:
+        summary_at = 6
+
+    if not force_each and len(skipped) >= summary_at:
+        by_id: Counter[str] = Counter(
+            str(e.get("id", "")).strip() or "(missing id)" for e in skipped
+        )
+        sample = [k for k, _ in by_id.most_common(6)]
+        more = len(by_id) - len(sample)
+        suffix = f" (+{more} more)" if more > 0 else ""
+        print(
+            f"{prefix}credential filter: skipping {len(skipped)} MCP provider(s): "
+            f"{', '.join(sample)}{suffix}.",
+            file=sys.stderr,
+        )
+        return kept, skipped_ids
+
+    for entry in skipped:
+        pid = str(entry.get("id", "")).strip() or "(missing id)"
+        hint = mcp_credential_skip_reason(entry)
+        print(
+            f"{prefix}skipping MCP provider {pid!r}: missing credentials; {hint}.",
+            file=sys.stderr,
+        )
+    return kept, skipped_ids
 
 
 def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -295,20 +401,43 @@ def suggest_mcp_ids_from_user_goal(
     if not u:
         return []
 
-    ordered: list[str] = []
-    seen: set[str] = set()
+    def _is_wordish_match(term: str) -> bool:
+        t = term.strip().lower()
+        if not t:
+            return False
+        if len(t) <= 4:
+            # avoid overly-generic short matches like "mail", "home", etc.
+            return False
+        if " " in t:
+            return t in u
+        return re.search(rf"\b{re.escape(t)}\b", u) is not None
+
+    scored: list[tuple[int, str]] = []
     for e in entries:
         eid = str(e.get("id", "")).strip()
         if not eid:
             continue
-        matched = False
-        for term in _terms_from_mcp_catalog_entry(e):
-            if len(term) < 3:
+        terms = _terms_from_mcp_catalog_entry(e)
+        hits = 0
+        for term in terms:
+            if _is_wordish_match(term):
+                hits += 1
+        if hits <= 0:
+            continue
+
+        # Penalize Home Assistant unless the user explicitly mentions it.
+        if eid == "home_assistant" and hits == 1:
+            # The only hit is likely generic; require explicit HA mention.
+            if not any(k in u for k in ("home assistant", "homeassistant", "hass", "hassio")):
                 continue
-            if term in u:
-                matched = True
-                break
-        if matched and eid not in seen:
+
+        scored.append((hits, eid))
+
+    scored.sort(key=lambda t: (-t[0], t[1].lower()))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _hits, eid in scored:
+        if eid not in seen:
             seen.add(eid)
-            ordered.append(eid)
-    return ordered
+            out.append(eid)
+    return out

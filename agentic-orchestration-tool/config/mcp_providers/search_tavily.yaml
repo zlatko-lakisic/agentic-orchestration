@@ -1,0 +1,25 @@
+# Tavily web search MCP (requires API key).
+id: search_tavily
+description: >-
+  Internet search for up-to-date information using Tavily.
+planner_hint: >-
+  Use for web research (current events, product docs, medical device regulations, competitors).
+  Prefer this over guessing when the user asks for recent facts or citations.
+user_goal_keywords:
+  - web search
+  - internet search
+  - google
+  - find sources
+  - cite
+
+# Hide this entry unless the API key is set.
+required_env_any:
+  - TAVILY_API_KEY
+
+# Default: use Tavily-hosted remote MCP server (Streamable HTTP over SSE).
+# Docs: https://docs.tavily.com/guides/mcp
+streamable_http:
+  url: "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"
+  headers:
+    Accept: "application/json, text/event-stream"
+

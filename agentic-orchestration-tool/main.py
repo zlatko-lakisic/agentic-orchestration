@@ -13,8 +13,9 @@ load_dotenv()
 
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
-from orchestration.dynamic_planner import build_dynamic_workflow_config
+from orchestration.dynamic_planner import build_dynamic_workflow_config, iterative_controller_decision
 from orchestration.orchestrator_session import (
+    load_session,
     resolve_orchestrator_session_slug,
     session_file_path,
     update_session_after_crew,
@@ -439,6 +440,34 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dynamic-iterative-auto",
+        action="store_true",
+        help=(
+            "With --dynamic-iterative: automatically stop early or continue as needed (up to "
+            "--dynamic-iterative-max-rounds) by using a small controller model after each round."
+        ),
+    )
+    parser.add_argument(
+        "--dynamic-iterative-max-rounds",
+        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS", "8")),
+        type=int,
+        metavar="N",
+        help=(
+            "With --dynamic-iterative-auto: hard cap on rounds (default env "
+            "AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS or 8)."
+        ),
+    )
+    parser.add_argument(
+        "--dynamic-iterative-min-rounds",
+        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS", "1")),
+        type=int,
+        metavar="N",
+        help=(
+            "With --dynamic-iterative-auto: minimum rounds to run before the controller may stop "
+            "(default env AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS or 1)."
+        ),
+    )
+    parser.add_argument(
         "--dynamic-iterative-no-synthesize",
         action="store_true",
         help=(
@@ -556,10 +585,16 @@ def main() -> None:
                     file=sys.stderr,
                 )
 
-        rounds = max(1, int(args.dynamic_iterative_rounds))
-        for r in range(1, rounds + 1):
+        manual_rounds = max(1, int(args.dynamic_iterative_rounds))
+        max_rounds = manual_rounds
+        if args.dynamic_iterative_auto:
+            max_rounds = max(1, int(args.dynamic_iterative_max_rounds))
+        min_rounds = max(1, int(args.dynamic_iterative_min_rounds))
+
+        for r in range(1, max_rounds + 1):
             if not args.quiet:
-                print(f"(dynamic-iter) round {r}/{rounds}", file=sys.stderr)
+                label = f"{r}/{max_rounds}" if args.dynamic_iterative_auto else f"{r}/{manual_rounds}"
+                print(f"(dynamic-iter) round {label}", file=sys.stderr)
             try:
                 dyn_cfg, plan = build_dynamic_workflow_config(
                     user_prompt=goal,
@@ -597,6 +632,31 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
+
+            if args.dynamic_iterative_auto:
+                sess = load_session(orchestrator_session_path)
+                excerpt = (sess.last_crew_output_excerpt or "").strip()
+                decision = iterative_controller_decision(
+                    original_goal=str(args.task).strip(),
+                    latest_excerpt=excerpt,
+                    round_index=r,
+                    max_rounds=max_rounds,
+                    model=None,
+                )
+                done = bool(decision.get("done", False))
+                reason = str(decision.get("reason", "")).strip()
+                next_goal = str(decision.get("next_goal", "")).strip()
+                if not args.quiet and reason:
+                    print(f"(dynamic-iter) controller: done={done} reason={reason}", file=sys.stderr)
+                if next_goal:
+                    goal = next_goal
+                if done and r >= min_rounds:
+                    if not args.quiet:
+                        print(f"(dynamic-iter) stopping early at round {r}", file=sys.stderr)
+                    break
+
+            if not args.dynamic_iterative_auto and r >= manual_rounds:
+                break
 
         if not args.dynamic_iterative_no_synthesize:
             # Final synthesis: use the last crew excerpt as context.

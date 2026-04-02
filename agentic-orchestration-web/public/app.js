@@ -5,6 +5,8 @@
   const clearBtn = document.getElementById("clearBtn");
   const runModeEl = document.getElementById("runMode");
   const iterRoundsEl = document.getElementById("iterRounds");
+  const autoIterEl = document.getElementById("autoIter");
+  const iterMaxRoundsEl = document.getElementById("iterMaxRounds");
   const noSynthesizeEl = document.getElementById("noSynthesize");
   const sessionIdEl = document.getElementById("sessionId");
   const resetSessionEl = document.getElementById("resetSession");
@@ -26,6 +28,21 @@
     "Planning and running tasks—this can take a minute…",
     "Still on it—almost ready with your answer…",
   ];
+  const PROGRESS_PREFIX = "(progress)";
+
+  function applyProgressFromText(text) {
+    if (!text || !activityLabel) return;
+    // Update activity bar with the latest "(progress) ..." line.
+    const parts = String(text).split(/\r?\n/);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const line = parts[i].trim();
+      if (!line) continue;
+      if (line.toLowerCase().startsWith(PROGRESS_PREFIX)) {
+        activityLabel.textContent = line.slice(PROGRESS_PREFIX.length).trim();
+        return;
+      }
+    }
+  }
 
   function stopProcessingUi() {
     if (processingTimer != null) {
@@ -140,6 +157,7 @@
           }
         } else if (data.stream === "stdout") {
           stdoutBuf += line;
+          applyProgressFromText(line);
         } else {
           stderrBuf += line;
         }
@@ -218,6 +236,12 @@
       const parsed = Number(iterRoundsEl.value);
       if (Number.isFinite(parsed)) iterRounds = Math.max(1, Math.min(32, parsed));
     }
+    const autoIter = Boolean(autoIterEl?.checked);
+    let iterMaxRounds = 8;
+    if (iterMaxRoundsEl) {
+      const parsed = Number(iterMaxRoundsEl.value);
+      if (Number.isFinite(parsed)) iterMaxRounds = Math.max(1, Math.min(32, parsed));
+    }
 
     const sessionRaw = sessionIdEl.value.trim();
     const sessionId = sessionRaw || undefined;
@@ -230,6 +254,8 @@
       text,
       runMode,
       iterativeRounds: iterRounds,
+      autoIter,
+      iterativeMaxRounds: iterMaxRounds,
       noSynthesize: Boolean(noSynthesizeEl?.checked),
       sessionId,
       noVerify: true,
@@ -244,7 +270,10 @@
 
   function syncIterativeUi() {
     const iterative = (runModeEl?.value || "") === "dynamic-iterative";
-    if (iterRoundsEl) iterRoundsEl.disabled = !iterative;
+    const auto = Boolean(autoIterEl?.checked);
+    if (iterRoundsEl) iterRoundsEl.disabled = !iterative || auto;
+    if (autoIterEl) autoIterEl.disabled = !iterative;
+    if (iterMaxRoundsEl) iterMaxRoundsEl.disabled = !iterative || !auto;
     if (noSynthesizeEl) noSynthesizeEl.disabled = !iterative;
   }
 
@@ -260,6 +289,7 @@
   });
 
   runModeEl?.addEventListener("change", syncIterativeUi);
+  autoIterEl?.addEventListener("change", syncIterativeUi);
   syncIterativeUi();
 
   connect();

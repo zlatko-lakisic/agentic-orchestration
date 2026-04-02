@@ -1,0 +1,20 @@
+# Brave Search MCP (requires API key).
+id: search_brave
+description: >-
+  Internet search via Brave Search. Good general web results with an API key.
+planner_hint: >-
+  Use for web research when a question needs current information or sources.
+user_goal_keywords:
+  - brave search
+  - internet search
+  - web research
+  - sources
+
+required_env_any:
+  - BRAVE_SEARCH_API_KEY
+
+streamable_http:
+  url: "${BRAVE_SEARCH_MCP_URL}"
+  headers:
+    Accept: "application/json, text/event-stream"
+
