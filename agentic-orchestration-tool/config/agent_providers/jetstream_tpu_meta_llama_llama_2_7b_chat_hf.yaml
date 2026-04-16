@@ -1,0 +1,12 @@
+id: jetstream_tpu_meta_llama_llama_2_7b_chat_hf
+type: jetstream
+hardware:
+  architecture: [tpu]
+min_vram_gb: 0
+planner_hint: JetStream PyTorch listed model: meta-llama/Llama-2-7b-chat-hf.
+role: TPU Inference Specialist
+goal: Produce high-quality answers using TPU-optimized inference endpoints
+backstory: You are tuned for stable, efficient inference on TPU-serving backends.
+model: meta-llama/Llama-2-7b-chat-hf
+verbose: true
+allow_delegation: false

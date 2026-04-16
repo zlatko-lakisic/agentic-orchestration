@@ -115,6 +115,7 @@ python main.py --config config/workflows/workflow.yaml
 - `workflow.agent_providers[]`: agent-provider definitions (legacy key `workflow.providers` still accepted).
 - `workflow.tasks[]`: tasks referencing `agent_provider_id` (legacy `provider_id` still accepted).
 - `workflow.task_sequence[]`: ordered list of task IDs to execute.
+- Built-in provider `type` values: `ollama`, `openai`, `anthropic`, `huggingface`, `vllm`, `jetstream`.
 
 ### Ollama provider options
 
@@ -153,6 +154,15 @@ Detection / overrides:
 - Adds `tpu` when TPU runtime env markers are present.
 - Manual override: `AGENTIC_AVAILABLE_ARCHITECTURES=cpu,gpu,tpu`
 - Force flags: `AGENTIC_ASSUME_GPU=1`, `AGENTIC_ASSUME_TPU=1`
+
+### TPU endpoint providers (`vllm`, `jetstream`)
+
+Both frameworks are wired as OpenAI-compatible endpoints:
+
+- `type: vllm` reads endpoint from YAML `vllm_base_url` (or generic `base_url`) and then `VLLM_BASE_URL`.
+- `type: jetstream` reads endpoint from YAML `jetstream_base_url` (or generic `base_url`) and then `JETSTREAM_BASE_URL`.
+- Optional API keys: `VLLM_API_KEY` and `JETSTREAM_API_KEY` (falls back to `OPENAI_API_KEY` when set).
+- Health check uses `GET <base>/v1/models`.
 
 ### External agent-provider directories (`AGENTIC_EXTRA_AGENT_PROVIDERS_PATH`)
 

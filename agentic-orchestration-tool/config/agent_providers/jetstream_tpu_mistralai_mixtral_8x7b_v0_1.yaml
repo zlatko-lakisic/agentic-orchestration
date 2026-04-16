@@ -1,0 +1,12 @@
+id: jetstream_tpu_mistralai_mixtral_8x7b_v0_1
+type: jetstream
+hardware:
+  architecture: [tpu]
+min_vram_gb: 0
+planner_hint: JetStream PyTorch listed model: mistralai/Mixtral-8x7B-v0.1.
+role: TPU Inference Specialist
+goal: Produce high-quality answers using TPU-optimized inference endpoints
+backstory: You are tuned for stable, efficient inference on TPU-serving backends.
+model: mistralai/Mixtral-8x7B-v0.1
+verbose: true
+allow_delegation: false

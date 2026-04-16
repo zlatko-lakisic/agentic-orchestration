@@ -1,0 +1,12 @@
+id: vllm_tpu_google_gemma_3_27b_it
+type: vllm
+hardware:
+  architecture: [tpu]
+min_vram_gb: 0
+planner_hint: vLLM TPU recommended model: google/gemma-3-27b-it.
+role: TPU Inference Specialist
+goal: Produce high-quality answers using TPU-optimized inference endpoints
+backstory: You are tuned for stable, efficient inference on TPU-serving backends.
+model: google/gemma-3-27b-it
+verbose: true
+allow_delegation: false

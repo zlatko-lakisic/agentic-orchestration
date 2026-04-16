@@ -1,0 +1,12 @@
+id: jetstream_tpu_google_gemma_2b
+type: jetstream
+hardware:
+  architecture: [tpu]
+min_vram_gb: 0
+planner_hint: JetStream PyTorch listed model: google/gemma-2b.
+role: TPU Inference Specialist
+goal: Produce high-quality answers using TPU-optimized inference endpoints
+backstory: You are tuned for stable, efficient inference on TPU-serving backends.
+model: google/gemma-2b
+verbose: true
+allow_delegation: false

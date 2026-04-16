@@ -1,0 +1,12 @@
+id: vllm_tpu_qwen_qwen2_5_vl_7b_instruct
+type: vllm
+hardware:
+  architecture: [tpu]
+min_vram_gb: 0
+planner_hint: vLLM TPU recommended model: Qwen/Qwen2.5-VL-7B-Instruct.
+role: TPU Inference Specialist
+goal: Produce high-quality answers using TPU-optimized inference endpoints
+backstory: You are tuned for stable, efficient inference on TPU-serving backends.
+model: Qwen/Qwen2.5-VL-7B-Instruct
+verbose: true
+allow_delegation: false

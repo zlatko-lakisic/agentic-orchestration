@@ -140,7 +140,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 ## Key features (orchestration tool)
 
 - **CrewAI-native** — Agents, tasks, crews, sequential/hierarchical process.
-- **Model-agnostic catalogs** — `config/agent_providers/*.yaml` with `type: ollama | openai | anthropic | huggingface`.
+- **Model-agnostic catalogs** — `config/agent_providers/*.yaml` with `type: ollama | openai | anthropic | huggingface | vllm | jetstream`.
 - **Dynamic planning** — Natural-language goals → JSON plan → ephemeral workflow.
 - **Per-task MCP** — MCP sets per step; agent instances deduplicated by provider + MCP fingerprint.
 - **MCP catalog** — YAML entries with credential gating and goal-based suggestions/pruning.
