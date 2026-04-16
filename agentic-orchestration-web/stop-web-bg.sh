@@ -25,3 +25,4 @@ fi
 
 rm -f "$pidfile"
 
+echo "[web-bg] If something still answers on the web port, an old node may be running: pgrep -af 'server\\.mjs'"

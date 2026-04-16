@@ -128,28 +128,40 @@ function loadAgentProvidersForUi() {
   return out;
 }
 
-function requestPathname(req) {
-  /** Path only (no query); avoids URL() quirks when Host is missing or odd behind proxies. */
-  const raw = String(req.url || "/").split("?")[0].split("#")[0] || "/";
-  let p = raw.startsWith("/") ? raw : `/${raw}`;
-  p = p.replace(/\/{2,}/g, "/");
-  p = p.replace(/\/+$/, "") || "/";
-  return p;
+function getRequestPathname(req) {
+  /** Path only (no query). Supports absolute-form request-target (some proxies) via WHATWG URL. */
+  const pathOnly = String(req.url || "/").split("?")[0].split("#")[0].trim() || "/";
+  try {
+    const u =
+      pathOnly.startsWith("http://") || pathOnly.startsWith("https://")
+        ? new URL(pathOnly)
+        : new URL(pathOnly, "http://127.0.0.1");
+    let p = u.pathname || "/";
+    if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+    return p || "/";
+  } catch {
+    let p = pathOnly.startsWith("/") ? pathOnly : `/${pathOnly}`;
+    p = p.replace(/\/{2,}/g, "/");
+    if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+    return p || "/";
+  }
 }
 
 function serveStatic(req, res) {
-  const normalizedPath = requestPathname(req);
+  const normalizedPath = getRequestPathname(req);
   if (
     normalizedPath === "/api/agent-providers" ||
     normalizedPath.endsWith("/api/agent-providers")
   ) {
     const data = loadAgentProvidersForUi();
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Agentic-AgentProviders": "1",
+    });
     res.end(JSON.stringify({ providers: data }));
     return;
   }
-  const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
-  let p = url.pathname;
+  let p = normalizedPath;
   if (p === "/") p = "/index.html";
   const filePath = path.join(PUBLIC_DIR, path.normalize(p).replace(/^(\.\.(\/|\\|$))+/, ""));
   if (!filePath.startsWith(PUBLIC_DIR)) {

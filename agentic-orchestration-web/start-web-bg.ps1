@@ -11,6 +11,7 @@ function Require-Command($name) {
   }
 }
 
+Require-Command node
 Require-Command npm
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -72,8 +73,8 @@ $env:AGENTIC_WEB_HOST = "$Host"
 Write-Host "[web-bg] starting detached server..."
 Write-Host "[web-bg] log: $logFile"
 
-$proc = Start-Process -FilePath "npm" `
-  -ArgumentList @("start") `
+$proc = Start-Process -FilePath "node" `
+  -ArgumentList @("server.mjs") `
   -WorkingDirectory $here `
   -WindowStyle Hidden `
   -RedirectStandardOutput $logFile `

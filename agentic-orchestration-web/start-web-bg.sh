@@ -28,6 +28,10 @@ load_dotenv() {
   done <"$envfile"
 }
 
+if ! command -v node >/dev/null 2>&1; then
+  echo "[web-bg] error: node not found on PATH. Install Node.js." >&2
+  exit 1
+fi
 if ! command -v npm >/dev/null 2>&1; then
   echo "[web-bg] error: npm not found on PATH. Install Node.js (includes npm)." >&2
   exit 1
@@ -72,7 +76,8 @@ export AGENTIC_WEB_PORT="$PORT"
 echo "[web-bg] starting detached server..."
 echo "[web-bg] log: $logfile"
 
-nohup npm start >>"$logfile" 2>&1 </dev/null &
+# Run node directly so .web-server.pid is the real server PID (stopping npm can leave node bound to the port).
+nohup node server.mjs >>"$logfile" 2>&1 </dev/null &
 pid="$!"
 echo "$pid" >"$pidfile"
 
