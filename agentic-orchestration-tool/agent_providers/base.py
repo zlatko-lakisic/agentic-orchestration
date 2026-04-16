@@ -108,6 +108,19 @@ class AgentProvider(ABC):
     def resume(self) -> None:
         """Resume after suspend() (runner does not call this yet)."""
 
+    def crew_agent_role_label(self, role_suffix: str | None = None) -> str:
+        """
+        CrewAI ``Agent.role`` shown in verbose crew logs.
+
+        Appends the YAML provider ``type`` (e.g. ``openai``, ``ollama``) so logs
+        distinguish backends without changing the configured role semantics elsewhere.
+        """
+        role = str(self.config.role or "").strip()
+        if role_suffix:
+            role = f"{role} ({role_suffix})"
+        typ = str(self.config.provider_type or "").strip().lower() or "unknown"
+        return f"{role} [{typ}]"
+
     @abstractmethod
     def build_agent(
         self,

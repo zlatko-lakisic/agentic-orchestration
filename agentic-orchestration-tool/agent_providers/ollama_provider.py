@@ -315,11 +315,8 @@ class OllamaProvider(AgentProvider):
         model_without_prefix = raw_model.removeprefix("ollama/")
         model = f"ollama/{model_without_prefix}"
 
-        role = self.config.role
-        if role_suffix:
-            role = f"{self.config.role} ({role_suffix})"
         kwargs: dict[str, Any] = dict(
-            role=role,
+            role=self.crew_agent_role_label(role_suffix),
             goal=self.config.goal,
             backstory=augment_backstory_for_mcp_tools(self.config.backstory, mcps),
             llm=model,

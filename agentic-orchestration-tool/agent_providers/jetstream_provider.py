@@ -72,9 +72,8 @@ class JetstreamProvider(AgentProvider):
             llm_kwargs["api_key"] = api_key
         llm = LLM(**llm_kwargs)
 
-        role = self.config.role if not role_suffix else f"{self.config.role} ({role_suffix})"
         kwargs: dict[str, Any] = dict(
-            role=role,
+            role=self.crew_agent_role_label(role_suffix),
             goal=self.config.goal,
             backstory=augment_backstory_for_mcp_tools(self.config.backstory, mcps),
             llm=llm,
