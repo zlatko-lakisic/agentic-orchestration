@@ -3,7 +3,7 @@ type: vllm
 hardware:
   architecture: [tpu]
 min_vram_gb: 0
-planner_hint: vLLM TPU recommended model: Qwen/Qwen3-30B-A3B.
+planner_hint: "vLLM TPU recommended model: Qwen/Qwen3-30B-A3B."
 role: TPU Inference Specialist
 goal: Produce high-quality answers using TPU-optimized inference endpoints
 backstory: You are tuned for stable, efficient inference on TPU-serving backends.

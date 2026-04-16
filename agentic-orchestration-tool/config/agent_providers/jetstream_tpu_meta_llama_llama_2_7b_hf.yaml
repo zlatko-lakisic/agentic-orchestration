@@ -3,7 +3,7 @@ type: jetstream
 hardware:
   architecture: [tpu]
 min_vram_gb: 0
-planner_hint: JetStream PyTorch listed model: meta-llama/Llama-2-7b-hf.
+planner_hint: "JetStream PyTorch listed model: meta-llama/Llama-2-7b-hf."
 role: TPU Inference Specialist
 goal: Produce high-quality answers using TPU-optimized inference endpoints
 backstory: You are tuned for stable, efficient inference on TPU-serving backends.
