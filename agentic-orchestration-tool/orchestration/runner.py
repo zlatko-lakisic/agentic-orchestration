@@ -24,6 +24,9 @@ from orchestration.mcp_providers_catalog import (
     resolve_workflow_mcp_refs,
 )
 from orchestration.workflow_ollama import resolve_workflow_ollama_host
+from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
+
+apply_crewai_mcp_native_resolver_hotfix()
 
 _WORKFLOW_OLLAMA_HOST_TOKEN = "workflow"
 

@@ -1,6 +1,9 @@
 # Public npm MCP server: https://www.npmjs.com/package/healthcare-mcp
 # Aggregates tools backed by FDA OpenFDA, PubMed E-utilities, ClinicalTrials.gov, ICD-10 clinical tables, etc.
 # Opt-in so the planner only surfaces it when you intend to run Node `npx` from the same environment as `main.py`.
+# If Node exits with ERR_MODULE_NOT_FOUND for `dicom-parser`, the published package is missing that dependency in
+# some releases—clone the repo, `npm install` there, and point stdio.command to `node` with args to `server/index.js`,
+# or disable this MCP until upstream fixes npm metadata.
 id: hc_healthcare_mcp
 description: >-
   Healthcare-focused MCP exposing literature search (PubMed / medRxiv), FDA drug label and adverse events lookups,

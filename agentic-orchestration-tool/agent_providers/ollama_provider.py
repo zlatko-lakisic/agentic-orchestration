@@ -35,6 +35,29 @@ def _ollama_subprocess_stdio() -> tuple[Any, Any]:
     return (subprocess.DEVNULL, subprocess.DEVNULL)
 
 
+def _ollama_pull_progress_stderr_enabled() -> bool:
+    return os.getenv("AGENTIC_OLLAMA_PULL_PROGRESS_STDERR", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _emit_pull_progress_line(text: str) -> None:
+    """Emit one `(progress) ...` line on stderr for UIs that stream stderr (e.g. web pinned status)."""
+    if not _ollama_pull_progress_stderr_enabled():
+        return
+    msg = str(text or "").strip()
+    if not msg:
+        return
+    try:
+        sys.__stderr__.write(f"(progress) {msg}\n")
+        sys.__stderr__.flush()
+    except Exception:  # noqa: BLE001
+        return
+
+
 # Ollama pull uses TTY progress (CSI sequences, redraw). Strip and emit one updating line.
 _ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[-/]*[@-~])")
 _SPINNER_RUNES_RE = re.compile(r"[\u2800-\u28FF⣾⣽⣻⢿⡿⣟⣯⣷]+")
@@ -244,19 +267,55 @@ def pull_ollama_model(model: str, host: str) -> None:
     env["OLLAMA_HOST"] = host
 
     if not _ollama_cli_inherit_stdio():
-        out, err = _ollama_subprocess_stdio()
+        if not _ollama_pull_progress_stderr_enabled():
+            out, err = _ollama_subprocess_stdio()
+            try:
+                subprocess.run(
+                    ["ollama", "pull", model],
+                    env=env,
+                    check=True,
+                    stdout=out,
+                    stderr=err,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
+                ) from exc
+            _ollama_pull_done.add(cache_key)
+            return
+
+        _emit_pull_progress_line(f"ollama pull: starting {model}")
         try:
-            subprocess.run(
+            proc = subprocess.Popen(
                 ["ollama", "pull", model],
                 env=env,
-                check=True,
-                stdout=out,
-                stderr=err,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
             )
         except Exception as exc:  # noqa: BLE001
+            _emit_pull_progress_line(f"ollama pull: failed to start ({model})")
             raise RuntimeError(
                 f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
             ) from exc
+
+        assert proc.stdout is not None
+        try:
+            for raw in proc.stdout:
+                line = _normalize_ollama_pull_display_line(raw)
+                if line:
+                    _emit_pull_progress_line(f"ollama pull: {line}")
+        finally:
+            rc = proc.wait()
+        if rc != 0:
+            _emit_pull_progress_line(f"ollama pull: failed ({model})")
+            raise RuntimeError(
+                f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
+            )
+        _emit_pull_progress_line(f"ollama pull: complete {model}")
         _ollama_pull_done.add(cache_key)
         return
 

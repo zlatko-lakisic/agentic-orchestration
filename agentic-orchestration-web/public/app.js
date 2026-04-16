@@ -315,6 +315,7 @@
           applyProgressFromText(line);
         } else {
           stderrBuf += line;
+          applyProgressFromText(line);
         }
         if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
         return;
