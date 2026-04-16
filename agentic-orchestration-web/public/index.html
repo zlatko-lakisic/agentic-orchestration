@@ -14,8 +14,23 @@
       </p>
     </header>
 
-    <section class="toolbar">
-      <label class="field">
+    <section class="toolbar" id="toolbar">
+      <div class="toolbar-top">
+        <div class="toolbar-title">
+          <span class="toolbar-title-text">Run settings</span>
+          <span class="toolbar-title-sub">Mode, iterations, session, agents</span>
+        </div>
+        <div class="toolbar-top-right">
+          <span id="connStatus" class="status disconnected">Disconnected</span>
+          <button type="button" id="toolbarToggle" class="toolbar-toggle" aria-expanded="true">
+            <span class="chev" aria-hidden="true">▾</span>
+            <span class="sr-only">Collapse settings</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="toolbar-body" id="toolbarBody">
+        <label class="field">
         <span>Mode</span>
         <select id="runMode">
           <option value="dynamic">Dynamic</option>
@@ -62,17 +77,25 @@
         <input type="checkbox" id="verboseCrew" />
         <span>Show crew log (verbose)</span>
       </label>
-      <div class="field field-wide">
-        <span>Agents (optional explicit selection)</span>
-        <div class="agent-picker-row">
-          <select id="agentPickerSelect"></select>
-          <button type="button" id="agentPickerAddBtn" class="secondary">Add</button>
-          <button type="button" id="agentPickerClearBtn" class="secondary">Clear</button>
+      <details class="field field-wide collapsible" id="advancedPanel">
+        <summary class="collapsible-summary">
+          <span>Advanced</span>
+          <span class="collapsible-sub">Agent selection (optional)</span>
+        </summary>
+        <div class="collapsible-body">
+          <div class="field" style="margin-top: 0.5rem;">
+            <span>Agents (optional explicit selection)</span>
+            <div class="agent-picker-row">
+              <select id="agentPickerSelect"></select>
+              <button type="button" id="agentPickerAddBtn" class="secondary">Add</button>
+              <button type="button" id="agentPickerClearBtn" class="secondary">Clear</button>
+            </div>
+            <div id="agentPickerChips" class="chips" aria-live="polite"></div>
+            <small class="hint">If no agents are selected, planner chooses automatically.</small>
+          </div>
         </div>
-        <div id="agentPickerChips" class="chips" aria-live="polite"></div>
-        <small class="hint">If no agents are selected, planner chooses automatically.</small>
+      </details>
       </div>
-      <span id="connStatus" class="status disconnected">Disconnected</span>
     </section>
 
     <div
@@ -92,7 +115,13 @@
       </div>
     </div>
 
-    <main id="chat" class="chat" aria-live="polite"></main>
+    <main id="chat" class="chat" aria-live="polite">
+      <div id="chatPinned" class="chat-pinned" role="status" aria-live="polite" hidden>
+        <span class="chat-pinned-spinner" aria-hidden="true"></span>
+        <span id="chatPinnedText" class="chat-pinned-text">Working…</span>
+      </div>
+      <div id="chatScroll" class="chat-scroll"></div>
+    </main>
 
     <footer class="composer">
       <div class="composer-actions" style="gap: 8px; margin-bottom: 8px;">

@@ -26,7 +26,7 @@ from orchestration.orchestrator_session import (
 from orchestration.agent_providers_catalog import (
     catalog_for_planner_prompt,
     deepcopy_agent_provider,
-    load_agent_providers_catalog,
+    load_agent_providers_catalog_merged,
 )
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
@@ -40,6 +40,33 @@ from orchestration.mcp_providers_catalog import (
 def _dynamic_instance_key(user_prompt: str) -> str:
     digest = hashlib.sha256(user_prompt.encode("utf-8")).hexdigest()[:14]
     return f"dynamic-{digest}"
+
+
+def orchestrator_vertical_context_section() -> str:
+    """
+    Optional domain / industry instructions merged into planner, iterative controller,
+    learning evaluator, and faithfulness QA system prompts.
+
+    Set either:
+    - ``AGENTIC_ORCHESTRATOR_CONTEXT`` (inline text), or
+    - ``AGENTIC_ORCHESTRATOR_CONTEXT_FILE`` (path to UTF-8 text/markdown).
+    File wins when both are set and the file can be read.
+    """
+    file_path = (os.getenv("AGENTIC_ORCHESTRATOR_CONTEXT_FILE") or "").strip()
+    if file_path:
+        try:
+            text = Path(file_path).expanduser().read_text(encoding="utf-8").strip()
+            if text:
+                return (
+                    "\n\n## Operator-configured domain context\n"
+                    f"(from AGENTIC_ORCHESTRATOR_CONTEXT_FILE)\n\n{text}\n"
+                )
+        except OSError:
+            pass
+    inline = (os.getenv("AGENTIC_ORCHESTRATOR_CONTEXT") or "").strip()
+    if inline:
+        return "\n\n## Operator-configured domain context\n" + inline + "\n"
+    return ""
 
 
 def _normalize_openai_api_base() -> str:
@@ -384,6 +411,7 @@ If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `
         system += str(learning_summary)
     if kb_context and kb_context.strip():
         system += str(kb_context)
+    system += orchestrator_vertical_context_section()
     return system
 
 
@@ -779,7 +807,7 @@ def build_dynamic_workflow_config(
     tool_root: Path | None = None,
     quiet: bool = False,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
-    entries = load_agent_providers_catalog(catalog_path)
+    entries = load_agent_providers_catalog_merged(catalog_path)
     entries, _skipped_cred = filter_entries_by_api_credentials(
         entries,
         verbose=not quiet,
@@ -1034,6 +1062,7 @@ Respond with a single JSON object only:
   "estimate_confidence": "low|medium|high"
 }}
 """
+    system += orchestrator_vertical_context_section()
 
     user = (
         "## Original goal\n"
@@ -1114,6 +1143,7 @@ Rules:
 - If the output is empty or clearly unrelated, score <= 0.2.
 - Do not invent achievements; judge only from the provided output text.
 """
+    system += orchestrator_vertical_context_section()
     user = f"## User goal\n{goal}\n\n## Output\n{out}\n"
     raw = _planner_chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], model=m)
     data = _extract_json_object(raw)
@@ -1172,6 +1202,7 @@ Rules:
 - Do not invent tool results or URLs that are not in the answer text.
 - Prefer empty arrays over speculation; only list items you can point to in the answer.
 """
+    system += orchestrator_vertical_context_section()
 
     user = f"## User goal\n{goal}\n\n## Final answer to review\n{out}\n"
     raw = _planner_chat_completion(

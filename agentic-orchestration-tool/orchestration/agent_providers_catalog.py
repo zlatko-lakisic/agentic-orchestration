@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from orchestration.hardware_profile import provider_required_architectures
+
+_EXTRA_AGENT_CATALOG_DIRS_ENV = "AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS"
 
 
 def _load_single_catalog_file(path: Path) -> list[dict[str, Any]]:
@@ -66,6 +69,37 @@ def load_agent_providers_catalog(catalog_path: Path) -> list[dict[str, Any]]:
         raise ValueError("Duplicate agent provider 'id' across catalog files")
 
     return out
+
+
+def load_agent_providers_catalog_merged(primary: Path) -> list[dict[str, Any]]:
+    """
+    Load the primary agent-provider catalog plus optional extra directories from
+    ``AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS`` (``os.pathsep``-separated list of directories).
+
+    Each directory uses the same layout as ``config/agent_providers/`` (one YAML fragment per provider).
+    Duplicate ``id`` values across the merged list are rejected (use distinct ids in vertical overlays).
+    """
+    merged = load_agent_providers_catalog(primary)
+    raw = os.getenv(_EXTRA_AGENT_CATALOG_DIRS_ENV, "").strip()
+    if not raw:
+        return merged
+    for part in raw.split(os.pathsep):
+        chunk = part.strip()
+        if not chunk:
+            continue
+        p = Path(chunk).expanduser()
+        if not p.exists():
+            continue
+        merged.extend(load_agent_providers_catalog(p))
+    ids = [str(x.get("id", "")).strip() for x in merged]
+    if len(set(ids)) != len(ids):
+        from collections import Counter
+
+        dup = [k for k, v in Counter(ids).items() if v > 1 and k]
+        raise ValueError(
+            f"Duplicate agent provider 'id' after merging {_EXTRA_AGENT_CATALOG_DIRS_ENV!r}: {dup!r}"
+        )
+    return merged
 
 
 def _format_agent_provider_entry(p: dict[str, Any]) -> str:
@@ -182,4 +216,5 @@ def deepcopy_agent_provider(entry: dict[str, Any]) -> dict[str, Any]:
 
 # Backward-compatible names (deprecated).
 load_providers_catalog = load_agent_providers_catalog
+load_providers_catalog_merged = load_agent_providers_catalog_merged
 deepcopy_provider = deepcopy_agent_provider

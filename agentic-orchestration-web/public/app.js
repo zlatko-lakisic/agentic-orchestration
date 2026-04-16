@@ -1,5 +1,11 @@
 (() => {
   const chat = document.getElementById("chat");
+  const chatScroll = document.getElementById("chatScroll");
+  const chatPinned = document.getElementById("chatPinned");
+  const chatPinnedText = document.getElementById("chatPinnedText");
+  const toolbar = document.getElementById("toolbar");
+  const toolbarBody = document.getElementById("toolbarBody");
+  const toolbarToggle = document.getElementById("toolbarToggle");
   const input = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
   const clearBtn = document.getElementById("clearBtn");
@@ -81,6 +87,9 @@
         const formatted = formatProgressLine(msg);
         lastProgressText = formatted || msg;
         activityLabel.textContent = lastProgressText;
+        if (chatPinnedText && !chatPinned?.hidden) {
+          chatPinnedText.textContent = lastProgressText || "Working…";
+        }
         // In non-verbose mode, show progress inside the assistant bubble (not only above chat).
         if (!streamVerbose && assistantBubble && assistantBubble.classList.contains("processing")) {
           assistantBubble.textContent = lastProgressText || "0% - Working…";
@@ -96,6 +105,7 @@
       processingTimer = null;
     }
     hideActivityBar();
+    if (chatPinned) chatPinned.hidden = true;
   }
 
   function showActivityBar() {
@@ -116,6 +126,8 @@
     // Non-verbose: keep the UI quiet above the chat and show progress in-bubble.
     hideActivityBar();
     if (!el) return;
+    if (chatPinned) chatPinned.hidden = false;
+    if (chatPinnedText) chatPinnedText.textContent = "0% - Working…";
     el.classList.add("processing");
     let i = 0;
     lastProgressText = "";
@@ -126,6 +138,7 @@
       // If we have real progress, don't overwrite it with generic hints.
       if (lastProgressText) return;
       el.textContent = `0% - ${PROCESSING_HINTS[i]}`;
+      if (chatPinnedText) chatPinnedText.textContent = `0% - ${PROCESSING_HINTS[i]}`;
     }, 4500);
   }
 
@@ -135,6 +148,7 @@
     if (activityLabel) {
       activityLabel.textContent = "Run in progress—streaming crew output below…";
     }
+    if (chatPinned) chatPinned.hidden = true;
   }
 
   function proto() {
@@ -209,7 +223,7 @@
         } else {
           stderrBuf += line;
         }
-        chat.scrollTop = chat.scrollHeight;
+        if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
         return;
       }
       if (data.type === "error") {
@@ -254,6 +268,47 @@
         return;
       }
     };
+  }
+
+  function setToolbarCollapsed(collapsed) {
+    if (!toolbar) return;
+    const want = Boolean(collapsed);
+    toolbar.classList.toggle("collapsed", want);
+    if (toolbarToggle) {
+      toolbarToggle.setAttribute("aria-expanded", want ? "false" : "true");
+      const chev = toolbarToggle.querySelector(".chev");
+      if (chev) chev.textContent = want ? "▸" : "▾";
+      const sr = toolbarToggle.querySelector(".sr-only");
+      if (sr) sr.textContent = want ? "Expand settings" : "Collapse settings";
+    }
+    try {
+      localStorage.setItem("agentic.toolbar.collapsed", want ? "1" : "0");
+    } catch {
+      // ignore
+    }
+    // When expanding, keep layout stable by focusing the input again.
+    if (!want && input) {
+      try {
+        input.focus();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function initToolbarCollapse() {
+    if (!toolbar || !toolbarToggle) return;
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem("agentic.toolbar.collapsed") === "1";
+    } catch {
+      collapsed = false;
+    }
+    setToolbarCollapsed(collapsed);
+    toolbarToggle.addEventListener("click", () => {
+      const isCollapsed = toolbar.classList.contains("collapsed");
+      setToolbarCollapsed(!isCollapsed);
+    });
   }
 
   function chipLabelForProvider(p) {
@@ -353,8 +408,8 @@
     const el = document.createElement("div");
     el.className = `msg ${kind}`;
     el.textContent = text;
-    chat.appendChild(el);
-    chat.scrollTop = chat.scrollHeight;
+    (chatScroll || chat).appendChild(el);
+    if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
     return el;
   }
 
@@ -362,8 +417,8 @@
     const el = document.createElement("div");
     el.className = "msg meta";
     el.textContent = text;
-    chat.appendChild(el);
-    chat.scrollTop = chat.scrollHeight;
+    (chatScroll || chat).appendChild(el);
+    if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
   }
 
   function sendChat() {
@@ -461,7 +516,11 @@
     }
   });
   clearBtn.addEventListener("click", () => {
-    chat.innerHTML = "";
+    if (chatScroll) {
+      chatScroll.innerHTML = "";
+    } else {
+      chat.innerHTML = "";
+    }
   });
   agentPickerAddBtn?.addEventListener("click", () => {
     const pid = String(agentPickerSelectEl?.value || "").trim();
@@ -485,5 +544,6 @@
   rateDownBtn?.addEventListener("click", () => sendRating(-1));
 
   loadAgentProviderCatalog();
+  initToolbarCollapse();
   connect();
 })();

@@ -539,6 +539,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             f"Directory of one YAML file per agent provider, or a legacy bundle YAML with top-level "
             f"'agent_providers' (or 'providers') list (default {_DEFAULT_AGENT_PROVIDERS_CATALOG!r}). "
+            f"Merge extra directories via env AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS ({os.pathsep}-separated). "
             f"--providers-catalog is a deprecated alias."
         ),
     )
