@@ -325,7 +325,11 @@
   async function loadAgentProviderCatalog() {
     if (!agentPickerSelectEl) return;
     try {
-      const res = await fetch("/api/agent-providers", { cache: "no-store" });
+      // Try relative path first (works behind reverse-proxy subpaths), then absolute fallback.
+      let res = await fetch("api/agent-providers", { cache: "no-store" });
+      if (!res.ok && res.status === 404) {
+        res = await fetch("/api/agent-providers", { cache: "no-store" });
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = await res.json();
       const list = Array.isArray(payload?.providers) ? payload.providers : [];

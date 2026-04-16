@@ -130,7 +130,11 @@ function loadAgentProvidersForUi() {
 
 function serveStatic(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  if (url.pathname === "/api/agent-providers") {
+  const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
+  if (
+    normalizedPath === "/api/agent-providers" ||
+    normalizedPath.endsWith("/api/agent-providers")
+  ) {
     const data = loadAgentProvidersForUi();
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ providers: data }));
