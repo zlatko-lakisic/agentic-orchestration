@@ -98,12 +98,19 @@ function parseAgentProviderYaml(filePath) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/);
-    const out = { id: "", type: "", role: "", planner_hint: "" };
+    const out = { id: "", type: "", role: "", planner_hint: "", min_vram_gb: null };
     for (const line of lines) {
-      const m = line.match(/^(id|type|role|planner_hint)\s*:\s*(.*)$/);
+      const m = line.match(/^(id|type|role|planner_hint|min_vram_gb)\s*:\s*(.*)$/);
       if (!m) continue;
       const key = m[1];
       let val = (m[2] || "").trim();
+      if (key === "min_vram_gb") {
+        // Support inline comments: "min_vram_gb: 8  # comment"
+        const base = val.split("#")[0].trim();
+        const n = Number(base);
+        out.min_vram_gb = Number.isFinite(n) ? n : null;
+        continue;
+      }
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }

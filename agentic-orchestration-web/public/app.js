@@ -395,9 +395,16 @@
     const pid = String(p.id || "").trim();
     const typ = String(p.type || "").trim();
     const role = String(p.role || "").trim();
-    if (typ && role) return `${pid} (${typ} · ${role})`;
-    if (typ) return `${pid} (${typ})`;
-    if (role) return `${pid} (${role})`;
+    const minVram = Number(p.min_vram_gb);
+    let mem = "VRAM n/a";
+    if (Number.isFinite(minVram)) {
+      if (minVram <= 0) mem = "cloud/no local VRAM";
+      else mem = `VRAM >= ${minVram} GB`;
+    }
+    if (typ && role) return `${pid} (${typ} · ${role} · ${mem})`;
+    if (typ) return `${pid} (${typ} · ${mem})`;
+    if (role) return `${pid} (${role} · ${mem})`;
+    if (mem) return `${pid} (${mem})`;
     return pid;
   }
 
@@ -413,13 +420,36 @@
     placeholder.value = "";
     placeholder.textContent = "Select agent provider to add…";
     agentPickerSelectEl.appendChild(placeholder);
+    const grouped = new Map();
     for (const p of availableAgentProviders) {
       const pid = String(p.id || "").trim();
       if (!pid || selectedAgentProviderIds.has(pid)) continue;
-      const opt = document.createElement("option");
-      opt.value = pid;
-      opt.textContent = chipLabelForProvider(p);
-      agentPickerSelectEl.appendChild(opt);
+      const typ = String(p.type || "").trim().toLowerCase() || "other";
+      if (!grouped.has(typ)) grouped.set(typ, []);
+      grouped.get(typ).push(p);
+    }
+    const order = ["ollama", "openai", "anthropic", "huggingface", "vllm", "jetstream", "crewai", "other"];
+    const keys = Array.from(grouped.keys()).sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+    for (const key of keys) {
+      const grp = document.createElement("optgroup");
+      grp.label = key.toUpperCase();
+      const rows = grouped.get(key) || [];
+      rows.sort((a, b) => String(a.id || "").localeCompare(String(b.id || "")));
+      for (const p of rows) {
+        const pid = String(p.id || "").trim();
+        const opt = document.createElement("option");
+        opt.value = pid;
+        opt.textContent = chipLabelForProvider(p);
+        grp.appendChild(opt);
+      }
+      agentPickerSelectEl.appendChild(grp);
     }
     if (selectedNow && agentPickerSelectEl.querySelector(`option[value="${CSS.escape(selectedNow)}"]`)) {
       agentPickerSelectEl.value = selectedNow;
@@ -474,6 +504,7 @@
           type: String(p?.type || "").trim(),
           role: String(p?.role || "").trim(),
           planner_hint: String(p?.planner_hint || "").trim(),
+          min_vram_gb: Number.isFinite(Number(p?.min_vram_gb)) ? Number(p.min_vram_gb) : null,
         }))
         .filter((p) => p.id)
         .sort((a, b) => a.id.localeCompare(b.id));
