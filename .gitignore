@@ -23,6 +23,10 @@ __orchestrator_kb__/
 # Node (web UI)
 node_modules/
 
+# Example-local detached web (examples/verticals/*/start-web-bg.*)
+examples/**/.web-server.pid
+examples/**/.web-server.log
+
 # Local publish helpers (do not commit)
 publish-github.sh
 publish-github.ps1

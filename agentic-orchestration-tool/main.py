@@ -429,6 +429,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--example",
+        choices=("healthcare",),
+        default=None,
+        metavar="NAME",
+        help=(
+            "Load a built-in vertical under examples/verticals/<NAME>/ for this process: "
+            "orchestrator context file + extra agent-provider and MCP YAML dirs. "
+            "No copying paths into .env. Optional npm MCPs stay off unless you set their env gates."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         metavar="DIR",
@@ -594,6 +605,10 @@ def _cli_output_dir(raw: str | None) -> Path | None:
 def main() -> None:
     args = parse_args()
     tool_root = Path(__file__).resolve().parent
+    if getattr(args, "example", None):
+        from orchestration.example_overlays import apply_example_overlay_env
+
+        apply_example_overlay_env(tool_root, str(args.example))
     config_dir = (
         (tool_root / args.config_dir).resolve()
         if not Path(args.config_dir).is_absolute()
