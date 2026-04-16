@@ -14,11 +14,27 @@ You are not locked to one vendor or one model. The same orchestrator can mix **O
 |-----------|------------|
 | **Production-style orchestration** (YAML workflows, dynamic planning, MCP, sessions, learning, KB) | [`agentic-orchestration-tool/`](agentic-orchestration-tool/) |
 | **Browser chat** over local WebSockets (dynamic & iterative modes) | [`agentic-orchestration-web/`](agentic-orchestration-web/) |
+| **Industry / scenario overlays** (extra orchestrator context, agent YAML, MCP catalog fragments; spans tool + web) | [`examples/verticals/`](examples/verticals/) |
 
 **Deeper documentation (per package):**
 
 - **[`agentic-orchestration-tool/README.md`](agentic-orchestration-tool/README.md)** — workflows, router, dynamic mode, agent provider lifecycle, extra providers, VRAM, MCP catalog, learning loop, knowledge base.
 - **[`agentic-orchestration-web/README.md`](agentic-orchestration-web/README.md)** — Web UI setup, `AGENTIC_*` server env, security notes.
+- **[`examples/verticals/README.md`](examples/verticals/README.md)** — how vertical overlays relate to the tool and web packages.
+
+---
+
+## Example verticals (domain overlays)
+
+Verticals live under **[`examples/verticals/`](examples/verticals/)** at the **monorepo root** (sibling of `agentic-orchestration-tool/` and `agentic-orchestration-web/`). Each one bundles orchestrator context, optional extra agent-provider YAML, optional MCP YAML, and sometimes **web start/stop scripts** tuned for that scenario (separate default port so they can run next to the stock UI).
+
+| Vertical | `main.py` flag | Web shortcut | README |
+|----------|----------------|--------------|--------|
+| **Healthcare** (medtech / evidence / commercial brief pitch) | `--example healthcare` | `npm run start:healthcare` (from [`agentic-orchestration-web/`](agentic-orchestration-web/)) | [`examples/verticals/healthcare/README.md`](examples/verticals/healthcare/README.md) |
+
+**CLI (from `agentic-orchestration-tool/`):** `python main.py --example healthcare --dynamic "…"` — no manual path merging into `.env` for the overlay paths.
+
+**Maintainers — keep this table in sync:** when you add `examples/verticals/<id>/`, extend the table above with the stable `--example <id>` name, any `npm run start:<id>` or per-vertical script names, and a link to that folder’s `README.md`. Wire the example id in [`agentic-orchestration-tool/orchestration/example_overlays.py`](agentic-orchestration-tool/orchestration/example_overlays.py) and [`agentic-orchestration-tool/main.py`](agentic-orchestration-tool/main.py) (`--example` choices), and in the web server if you add a matching npm script or argv hook in [`agentic-orchestration-web/server.mjs`](agentic-orchestration-web/server.mjs) / [`agentic-orchestration-web/package.json`](agentic-orchestration-web/package.json).
 
 ---
 
@@ -54,6 +70,9 @@ agentic-orchestration/
 │   ├── public/
 │   ├── start-web.ps1 / .sh      # Foreground + auto-restart
 │   └── start-web-bg.ps1 / .sh   # Background (detached) starters
+├── examples/
+│   └── verticals/               # Domain overlays (tool + web); see README in that folder
+│       └── healthcare/        # e.g. orchestrator context + extra catalogs + optional web scripts
 └── (optional helper scripts at root)
 ```
 
@@ -171,6 +190,8 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 | [`agentic-orchestration-web/start-web-bg.sh`](agentic-orchestration-web/start-web-bg.sh) | Linux: detached (`nohup`) |
 | [`agentic-orchestration-web/stop-web-bg.sh`](agentic-orchestration-web/stop-web-bg.sh) | Linux: stop detached server |
 
+**Per-vertical web scripts** (alternate port, PID beside the example, not under `agentic-orchestration-web/`): see each folder under [`examples/verticals/`](examples/verticals/) — e.g. [`examples/verticals/healthcare/start-web.sh`](examples/verticals/healthcare/start-web.sh) and matching `start-web-bg.*` / `stop-web.*`.
+
 ---
 
 ## Contributing & license
@@ -186,4 +207,4 @@ Treat this repo as a **personal / team experimentation** codebase unless you add
 - **[CrewAI documentation](https://docs.crewai.com/)** — core concepts for crews, agents, and tasks.
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** — how MCP tools integrate with agents.
 
-For everything specific to YAML shape, CLI flags, and internal modules, start with **[`agentic-orchestration-tool/README.md`](agentic-orchestration-tool/README.md)**.
+For everything specific to YAML shape, CLI flags, and internal modules, start with **[`agentic-orchestration-tool/README.md`](agentic-orchestration-tool/README.md)**. For packaged **scenario overlays**, see **[`examples/verticals/README.md`](examples/verticals/README.md)** and the **Example verticals** section earlier in this file.
