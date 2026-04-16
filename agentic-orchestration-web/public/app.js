@@ -34,6 +34,7 @@
   let stderrBuf = "";
   let streamVerbose = false;
   let processingTimer = null;
+  let statusHintTimer = null;
   let lastProgressText = "";
   let lastProgressPct = null;
   let lastRunRatingPayload = null;
@@ -169,6 +170,10 @@
       clearInterval(processingTimer);
       processingTimer = null;
     }
+    if (statusHintTimer != null) {
+      clearInterval(statusHintTimer);
+      statusHintTimer = null;
+    }
     hideActivityBar();
     if (chatPinned) chatPinned.hidden = true;
   }
@@ -204,12 +209,14 @@
     processingTimer = setInterval(() => {
       dotIdx = (dotIdx + 1) % TYPING_DOTS.length;
       el.textContent = TYPING_DOTS[dotIdx];
-      // If we have real parsed progress, keep it; otherwise cycle friendly hints up top.
-      if (!lastProgressText && chatPinnedText) {
-        hintIdx = (hintIdx + 1) % PROCESSING_HINTS.length;
-        chatPinnedText.textContent = `Run in progress... ${PROCESSING_HINTS[hintIdx]}`;
-      }
     }, 550);
+
+    // Independent, slow top status hints (does not refresh with dot animation).
+    statusHintTimer = setInterval(() => {
+      if (lastProgressText || !chatPinnedText) return;
+      hintIdx = (hintIdx + 1) % PROCESSING_HINTS.length;
+      chatPinnedText.textContent = `Run in progress... ${PROCESSING_HINTS[hintIdx]}`;
+    }, 4200);
   }
 
   function startVerboseActivityBar() {

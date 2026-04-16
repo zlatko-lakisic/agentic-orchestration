@@ -86,6 +86,11 @@ def _progress(msg: str) -> None:
 
 
 _GENERIC_STEP_ID_RE = re.compile(r"^step_\d+$", re.IGNORECASE)
+_TOOLS_UNSUPPORTED_HINTS = (
+    "does not support tools",
+    "tool calling is not supported",
+    "tools are not supported",
+)
 
 
 def _task_human_label(task_id: str, task: Task) -> str:
@@ -104,6 +109,13 @@ def _task_human_label(task_id: str, task: Task) -> str:
     if first:
         return f"{task_id}: {first}"
     return str(task_id or "").strip() or "task"
+
+
+def _error_means_tools_unsupported(exc: BaseException) -> bool:
+    msg = str(exc or "").strip().lower()
+    if not msg:
+        return False
+    return any(h in msg for h in _TOOLS_UNSUPPORTED_HINTS)
 
 
 def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]:
@@ -279,6 +291,7 @@ def build_workflow(
         agent_providers[ap.config.id] = ap
 
     crew_agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
+    mcps_disabled_for_provider: set[str] = set()
     for tdef in config.tasks:
         apid = tdef.agent_provider_id
         fp = fingerprint_by_task[tdef.id]
@@ -287,13 +300,30 @@ def build_workflow(
             continue
         ap = agent_providers[apid]
         mcps_list = task_mcps_resolved[tdef.id]
+        effective_mcps = mcps_list if (mcps_list and apid not in mcps_disabled_for_provider) else []
         role_suffix: str | None = None
         if len(groups_by_apid[apid]) > 1:
             role_suffix = hashlib.sha256("|".join(fp).encode("utf-8")).hexdigest()[:8]
-        crew_agent_cache[key] = ap.build_agent(
-            mcps=mcps_list if mcps_list else None,
-            role_suffix=role_suffix,
-        )
+        try:
+            crew_agent_cache[key] = ap.build_agent(
+                mcps=effective_mcps if effective_mcps else None,
+                role_suffix=role_suffix,
+            )
+        except Exception as exc:
+            if effective_mcps and _error_means_tools_unsupported(exc):
+                mcps_disabled_for_provider.add(apid)
+                if not quiet:
+                    print(
+                        f"(mcp) provider {apid!r} model {ap.config.model!r} does not support tools; "
+                        "retrying without MCP tools for this provider.",
+                        file=sys.stderr,
+                    )
+                crew_agent_cache[key] = ap.build_agent(
+                    mcps=None,
+                    role_suffix=role_suffix,
+                )
+            else:
+                raise
 
     agents = list(crew_agent_cache.values())
 
