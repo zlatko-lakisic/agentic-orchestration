@@ -1,0 +1,103 @@
+# Healthcare vertical — commercial / strategy research (not clinical care).
+# Use for medtech positioning, connected-care strategy, payer/hospital economics framing,
+# and evidence planning. Outputs avoid patient-specific medical advice.
+
+meta:
+  id: healthcare_commercial_brief
+  summary: Connected-care and medtech strategy research with hospital-economics framing
+  description: >
+    Three-step OpenAI crew: scan the healthcare technology and connected-care landscape for a
+    stated goal, analyze economics and connectivity implications for hospitals and vendors, then
+    produce an executive brief plus an explicit evidence roadmap (what to measure, what data
+    would be required, and how to validate predictions). Not for diagnosing or treating patients.
+  good_for:
+    - connected devices, remote patient monitoring, and hospital-at-home strategy questions
+    - commercial due diligence on medtech vendors and integration roadmaps
+    - hospital purchasing, subscription/SaaS, and total-cost-of-ownership framing
+    - cellular vs Wi‑Fi connectivity decisions at a high level (requirements, risks, procurement)
+    - turning vague “what should we do?” questions into structured hypotheses and next steps
+
+workflow:
+  name: "healthcare-commercial-brief"
+  process: "sequential"
+  topic: "Healthcare commercial strategy"
+
+  agent_providers:
+    - id: "hts_analyst"
+      type: "openai"
+      role: "Health Technology & Connected Care Analyst"
+      goal: "Map the public landscape, segments, and credible sources for a healthcare technology question"
+      backstory: >
+        You support strategy teams at health systems and medtech companies. You separate
+        regulated clinical claims from commercial/market claims. You never give patient-specific
+        medical advice. You flag uncertainty and avoid inventing statistics—if numbers are unknown,
+        say so and name what data would be needed.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+    - id: "hospital_economics_analyst"
+      type: "openai"
+      role: "Hospital Economics & Procurement Analyst"
+      goal: "Explain how technology choices tend to affect hospital costs, contracts, and operations"
+      backstory: >
+        You reason about budgets, capital vs operating spend, integration burden, cybersecurity,
+        and vendor lock-in. You describe subscription-like pricing patterns qualitatively unless
+        the user supplied real figures. You connect connectivity choices to operational risk
+        (downtime, coverage, device management) without naming a single telecom winner unless
+        the user asks for options—in that case you compare criteria and tradeoffs, not marketing claims.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+    - id: "strategy_writer"
+      type: "openai"
+      role: "Healthcare Strategy Writer"
+      goal: "Deliver a concise executive brief plus a falsifiable evidence and analysis plan"
+      backstory: >
+        You write for executives and product leaders. You use crisp headings, explicit assumptions,
+        and a final section that separates facts, hypotheses, and unknowns. For “statistical analysis,”
+        you specify metrics, populations, time windows, data sources, and statistical tests or
+        modeling approaches—without fabricating results.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  tasks:
+    - id: "landscape_scan"
+      agent_provider_id: "hts_analyst"
+      description: >
+        The user goal is: '{topic}'.
+        Produce (1) a one-paragraph problem framing, (2) key stakeholder map (patients, clinicians,
+        IT, procurement, payers—only those relevant), (3) 8–12 bullets on current market/technology
+        landscape with short source hints (company press, FDA summaries, standards bodies, peer
+        literature—no fake citations), (4) regulatory/privacy considerations at a high level
+        (HIPAA-style framing as “US context” when applicable), (5) explicit list of unknowns.
+      expected_output: "Structured landscape notes with unknowns called out."
+
+    - id: "economics_and_connectivity"
+      agent_provider_id: "hospital_economics_analyst"
+      description: >
+        Using the prior landscape for '{topic}', analyze (1) plausible cost drivers for hospitals
+        (implementation, integration, training, monitoring, support, cybersecurity), (2) how
+        subscription-like vendor pricing might appear in budgets (do not invent prices), (3) care
+        delivery and operations benefits/harms as hypotheses (mark each as hypothesis), (4) connectivity
+        options (cellular vs Wi‑Fi vs private network) as a decision matrix: requirements, risks,
+        and procurement questions—compare vendors only by neutral criteria unless the user named vendors.
+      expected_output: "Economics + connectivity analysis with hypotheses labeled."
+
+    - id: "executive_brief_and_evidence_plan"
+      agent_provider_id: "strategy_writer"
+      description: >
+        Synthesize prior sections into a 250–400 word executive brief for '{topic}' with bolded
+        takeaways, then add sections: (A) Recommendations (3–5 bullets, each tagged fact vs hypothesis),
+        (B) Risks & mitigations, (C) Evidence roadmap: proposed metrics, data sources, cohort definitions,
+        baselines, and analysis methods (including how each prediction could be falsified), (D) If
+        the user asked for statistics, provide a table of **metrics to collect** with empty/placeholder
+        result columns labeled “to be measured” — do not fill numbers you do not have.
+      expected_output: "Executive brief plus evidence roadmap (no fabricated quantitative results)."
+
+  task_sequence:
+    - "landscape_scan"
+    - "economics_and_connectivity"
+    - "executive_brief_and_evidence_plan"

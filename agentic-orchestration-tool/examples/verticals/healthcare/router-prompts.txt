@@ -1,0 +1,20 @@
+Sample natural-language tasks to exercise router selection toward the healthcare workflow
+(meta.id: healthcare_commercial_brief). Run from agentic-orchestration-tool/ with Ollama up, e.g.:
+  python main.py "…prompt below…"
+
+1) Compare connected infusion pumps vs smart IV workflow platforms for a 400-bed hospital: integration burden, cybersecurity, and what we should pilot first.
+
+2) Our health system is evaluating remote patient monitoring for CHF: what vendor-agnostic architecture patterns reduce clinician alarm fatigue and what should be in the RFP?
+
+3) Draft a connected-care strategy outline for oncology supportive care at home: devices, data flows, and how we avoid duplicating the EHR.
+
+4) We are standardizing cellular-enabled devices across sites: what decision matrix should IT and procurement use when Wi‑Fi is unreliable in older buildings?
+
+5) Commercial brief request: how do hospitals typically budget for SaaS per bed vs per device for RPM, and what questions should finance ask a vendor (no dollar amounts—framework only)?
+
+6) Interoperability angle: for a new RPM rollout, what are the realistic US paths (FHIR APIs, vendor gateways, manual exports) and the main risks of each?
+
+Direct run (no router), same topic as workflow default topic override:
+  python main.py --config config/workflows/workflow_healthcare_commercial_brief.yaml --batch
+  python main.py --config config/workflows/workflow_healthcare_commercial_brief.yaml -i
+  # then type a task at the prompt
