@@ -122,6 +122,22 @@ def _workflow_ollama_register_serve(host: str, proc: subprocess.Popen) -> None:
     _workflow_ollama_serve_procs[_ollama_serve_key(host)] = proc
 
 
+def _workflow_ollama_stop_serve(host: str) -> None:
+    key = _ollama_serve_key(host)
+    proc = _workflow_ollama_serve_procs.pop(key, None)
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    except Exception:
+        return
+
+
 def normalize_ollama_host(raw_host: str) -> str:
     host = raw_host.strip() or "http://127.0.0.1:11434"
     if host.startswith("http://") or host.startswith("https://"):
@@ -283,6 +299,14 @@ def ensure_ollama_runtime(*, model: str, host: str) -> None:
     pull_ollama_model(model, host)
 
 
+def _looks_like_ollama_runner_crash(error: BaseException) -> bool:
+    text = str(error or "").lower()
+    return (
+        "llama runner process has terminated" in text
+        or ("openai api call failed" in text and "ollama" in text and "terminated" in text)
+    )
+
+
 class OllamaProvider(AgentProvider):
     """Provider implementation for local Ollama models via CrewAI."""
 
@@ -326,3 +350,18 @@ class OllamaProvider(AgentProvider):
         if mcps:
             kwargs["mcps"] = list(mcps)
         return Agent(**kwargs)
+
+    def recover_from_workflow_error(self, error: BaseException) -> bool:
+        if not _looks_like_ollama_runner_crash(error):
+            return False
+        host = normalize_ollama_host(
+            self.config.ollama_host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+        )
+        # If we spawned a workflow-local serve process, recycle it; otherwise just verify health.
+        _workflow_ollama_stop_serve(host)
+        model = self.config.model.removeprefix("ollama/")
+        try:
+            ensure_ollama_runtime(model=model, host=host)
+            return True
+        except Exception:
+            return False

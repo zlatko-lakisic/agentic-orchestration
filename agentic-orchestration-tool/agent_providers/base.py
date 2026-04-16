@@ -99,6 +99,15 @@ class AgentProvider(ABC):
     def cleanup(self) -> None:
         """Run after on_workflow_end; release resources from initialize()."""
 
+    def recover_from_workflow_error(self, error: BaseException) -> bool:
+        """
+        Best-effort provider-specific recovery after kickoff failure.
+
+        Return True when recovery action was performed and a single kickoff retry is worth trying.
+        Default: no recovery.
+        """
+        return False
+
     def reset(self) -> None:
         """Clear transient state if the same provider instance is reused (runner does not call this yet)."""
 

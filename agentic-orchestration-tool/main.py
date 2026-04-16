@@ -135,26 +135,61 @@ def run_built_workflow(
     workflow_result: object | None = None
     workflow_error: BaseException | None = None
     result_text: str | None = None
+
+    def _kickoff_once() -> object:
+        with crew_kickoff_context(built):
+            if quiet:
+                with open(os.devnull, "w", encoding="utf-8") as _quiet_sink:
+                    with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
+                        _quiet_sink
+                    ):
+                        return built.crew.kickoff(inputs=built.inputs)
+            return built.crew.kickoff(inputs=built.inputs)
+
+    def _try_provider_recovery(exc: BaseException) -> bool:
+        recovered = False
+        for ap in built.agent_providers.values():
+            try:
+                if ap.recover_from_workflow_error(exc):
+                    recovered = True
+            except Exception as rec_exc:  # noqa: BLE001
+                print(
+                    f"Warning: provider '{ap.config.id}' recovery failed: {rec_exc}",
+                    file=sys.stderr,
+                )
+        return recovered
+
     try:
         try:
-            with crew_kickoff_context(built):
-                if quiet:
-                    with open(os.devnull, "w", encoding="utf-8") as _quiet_sink:
-                        with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
-                            _quiet_sink
-                        ):
-                            workflow_result = built.crew.kickoff(inputs=built.inputs)
-                else:
-                    workflow_result = built.crew.kickoff(inputs=built.inputs)
+            workflow_result = _kickoff_once()
         except Exception as exc:
-            workflow_error = exc
-            print("\nWorkflow execution failed.", file=sys.stderr)
-            print(
-                "Check your YAML config and OPENAI settings in .env, then retry.",
-                file=sys.stderr,
-            )
-            print(f"Error: {exc}", file=sys.stderr)
-            exit_code = 1
+            retried = False
+            if _try_provider_recovery(exc):
+                retried = True
+                print(
+                    "\nWorkflow execution failed once; provider recovery succeeded. Retrying kickoff once...",
+                    file=sys.stderr,
+                )
+                try:
+                    workflow_result = _kickoff_once()
+                except Exception as retry_exc:
+                    workflow_error = retry_exc
+                    print("\nWorkflow execution failed.", file=sys.stderr)
+                    print(
+                        "Check your YAML config and OPENAI settings in .env, then retry.",
+                        file=sys.stderr,
+                    )
+                    print(f"Error: {retry_exc}", file=sys.stderr)
+                    exit_code = 1
+            if not retried:
+                workflow_error = exc
+                print("\nWorkflow execution failed.", file=sys.stderr)
+                print(
+                    "Check your YAML config and OPENAI settings in .env, then retry.",
+                    file=sys.stderr,
+                )
+                print(f"Error: {exc}", file=sys.stderr)
+                exit_code = 1
         else:
             if quiet:
                 if workflow_result is not None:
