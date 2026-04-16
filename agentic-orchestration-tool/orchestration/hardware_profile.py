@@ -1,4 +1,4 @@
-"""Detect host GPU memory and filter provider catalog entries by ``min_vram_gb``."""
+"""Detect host hardware capabilities and filter provider catalog entries."""
 
 from __future__ import annotations
 
@@ -7,6 +7,96 @@ import re
 import shutil
 import subprocess
 from typing import Any
+
+_ARCH_CPU = "cpu"
+_ARCH_GPU = "gpu"
+_ARCH_TPU = "tpu"
+_KNOWN_ARCHS = frozenset({_ARCH_CPU, _ARCH_GPU, _ARCH_TPU})
+
+
+def _env_flag(name: str) -> bool:
+    v = os.getenv(name, "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _parse_architectures(raw: Any) -> set[str]:
+    """
+    Normalize architecture declarations to {"cpu","gpu","tpu"}.
+
+    Accepted forms:
+    - scalar string: "gpu" or "cpu,gpu"
+    - list/tuple: ["gpu", "tpu"]
+    """
+    out: set[str] = set()
+    if raw is None:
+        return out
+    if isinstance(raw, str):
+        for part in re.split(r"[\s,;/|]+", raw.strip().lower()):
+            if part in _KNOWN_ARCHS:
+                out.add(part)
+        return out
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            out.update(_parse_architectures(item))
+        return out
+    return out
+
+
+def provider_required_architectures(entry: dict[str, Any]) -> set[str]:
+    """
+    Resolve a provider's required runtimes (`cpu`/`gpu`/`tpu`).
+
+    Priority:
+    1) ``hardware.architecture`` (preferred)
+    2) ``architectures`` (legacy/shortcut)
+    3) defaults by provider type
+    """
+    hardware = entry.get("hardware")
+    hardware_arch_raw: Any = None
+    if isinstance(hardware, dict):
+        hardware_arch_raw = hardware.get("architecture")
+    required = _parse_architectures(hardware_arch_raw)
+    if required:
+        return required
+
+    required = _parse_architectures(entry.get("architectures"))
+    if required:
+        return required
+
+    # By default, local Ollama models can run on CPU or GPU.
+    typ = str(entry.get("type", "")).strip().lower()
+    if typ == "ollama":
+        return {_ARCH_CPU, _ARCH_GPU}
+    # Cloud/backends without explicit local runtime constraints remain unrestricted.
+    return set()
+
+
+def detect_available_architectures() -> set[str]:
+    """
+    Detect available local runtimes.
+
+    - Always includes CPU.
+    - GPU when NVIDIA tooling is present (or user override).
+    - TPU based on common TPU runtime env markers (or user override).
+    """
+    override = _parse_architectures(os.getenv("AGENTIC_AVAILABLE_ARCHITECTURES", ""))
+    if override:
+        return override
+
+    out = {_ARCH_CPU}
+    if _env_flag("AGENTIC_ASSUME_GPU") or shutil.which("nvidia-smi") is not None:
+        out.add(_ARCH_GPU)
+    if (
+        _env_flag("AGENTIC_ASSUME_TPU")
+        or os.getenv("COLAB_TPU_ADDR", "").strip()
+        or os.getenv("TPU_NAME", "").strip()
+        or os.getenv("TPU_WORKER_ID", "").strip()
+        or os.getenv("XRT_TPU_CONFIG", "").strip()
+        or os.getenv("LIBTPU_INIT_ARGS", "").strip()
+        or os.getenv("PJRT_DEVICE", "").strip().lower() == "tpu"
+    ):
+        out.add(_ARCH_TPU)
+    return out
 
 
 def provider_min_vram_gb(entry: dict[str, Any]) -> float | None:
@@ -185,3 +275,45 @@ def filter_catalog_by_vram(
             excluded.append(pid)
 
     return kept, excluded, vram
+
+
+def filter_catalog_by_architecture(
+    entries: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str], set[str]]:
+    """
+    Drop catalog entries that require an unavailable architecture.
+
+    Entries with no declared architecture are treated as unrestricted.
+    """
+    if os.getenv("AGENTIC_DISABLE_HARDWARE_FILTER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return list(entries), [], set()
+
+    available = detect_available_architectures()
+    kept: list[dict[str, Any]] = []
+    excluded: list[str] = []
+    for e in entries:
+        req = provider_required_architectures(e)
+        pid = str(e.get("id", "")).strip()
+        if not req or req.intersection(available):
+            kept.append(e)
+        elif pid:
+            excluded.append(pid)
+    return kept, excluded, available
+
+
+def filter_catalog_by_hardware(
+    entries: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str], float | None, set[str]]:
+    """
+    Apply architecture and VRAM filtering.
+
+    Returns: (kept_entries, excluded_ids, detected_vram_gb_or_none, available_architectures)
+    """
+    arch_kept, arch_excluded, available_arch = filter_catalog_by_architecture(entries)
+    vram_kept, vram_excluded, vram = filter_catalog_by_vram(arch_kept)
+    return vram_kept, [*arch_excluded, *vram_excluded], vram, available_arch

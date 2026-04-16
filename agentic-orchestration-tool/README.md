@@ -126,6 +126,34 @@ For a provider with `type: ollama`:
   - `false` (default): use existing Ollama server as-is.
 - `ollama_host`: optional host (default `http://127.0.0.1:11434`).
 
+### Hardware compatibility metadata (`hardware.architecture`)
+
+Agent provider catalog entries can declare which runtime architectures they support:
+
+```yaml
+id: ollama_qwen3
+type: ollama
+hardware:
+  architecture: [cpu, gpu]   # any of: cpu, gpu, tpu
+min_vram_gb: 8
+```
+
+Rules:
+
+- Preferred key: `hardware.architecture` (list or comma-separated string).
+- Backward-compatible alias: top-level `architectures`.
+- `type: ollama` defaults to `[cpu, gpu]` when omitted.
+- Other providers are treated as unrestricted when omitted (typically cloud APIs).
+- Dynamic planner filters out providers whose architecture set has no overlap with detected hardware.
+
+Detection / overrides:
+
+- Always includes `cpu`.
+- Adds `gpu` when `nvidia-smi` is available.
+- Adds `tpu` when TPU runtime env markers are present.
+- Manual override: `AGENTIC_AVAILABLE_ARCHITECTURES=cpu,gpu,tpu`
+- Force flags: `AGENTIC_ASSUME_GPU=1`, `AGENTIC_ASSUME_TPU=1`
+
 ### External agent-provider directories (`AGENTIC_EXTRA_AGENT_PROVIDERS_PATH`)
 
 Set `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (preferred) or legacy `AGENTIC_EXTRA_PROVIDERS_PATH` to one or more directories, separated by your OS path separator (`;` on Windows, `:` on Linux/macOS). Each directory is scanned for top-level `*.py` files (not subfolders; files whose names start with `_` are skipped).

@@ -1,5 +1,7 @@
 id: claude_reason
 type: anthropic
+hardware:
+  architecture: [cpu, gpu, tpu]  # cloud API: usable regardless local accelerator
 min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint: Anthropic Claude—trade-offs, architecture choices, structured reasoning, and recommendations under constraints.
 role: Staff Engineer

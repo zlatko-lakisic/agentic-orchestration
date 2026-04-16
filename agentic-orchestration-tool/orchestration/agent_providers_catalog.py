@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from orchestration.hardware_profile import provider_required_architectures
+
 
 def _load_single_catalog_file(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
@@ -77,6 +79,7 @@ def _format_agent_provider_entry(p: dict[str, Any]) -> str:
         f"- id: {pid!r}",
         f"  type: {typ!r}",
         f"  model: {model!r}",
+        f"  architecture: {sorted(provider_required_architectures(p))!r}",
         f"  role: {role!r}",
         f"  goal: {goal!r}",
     ]

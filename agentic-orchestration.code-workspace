@@ -1,11 +1,11 @@
 {
-  "folders": [
-    {
-      "path": "."
-    },
-    {
-      "path": "../agentic-orchestration.wiki"
-    }
-  ],
-  "settings": {}
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../agentic-orchestration.wiki"
+		}
+	],
+	"settings": {}
 }

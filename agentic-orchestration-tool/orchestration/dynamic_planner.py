@@ -15,7 +15,7 @@ import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
-from orchestration.hardware_profile import filter_catalog_by_vram
+from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
     load_session,
@@ -789,11 +789,12 @@ def build_dynamic_workflow_config(
             "Set OPENAI_API_KEY / ANTHROPIC_API_KEY / HF_TOKEN (or OpenAI base URL) for cloud entries, "
             "or keep Ollama agent providers in the catalog for local-only runs."
         )
-    entries, excluded_hw, vram_g = filter_catalog_by_vram(entries)
+    entries, excluded_hw, vram_g, available_arch = filter_catalog_by_hardware(entries)
     if not entries:
         raise RuntimeError(
-            "No agent providers left after hardware (VRAM) filtering. "
-            "Use a smaller Ollama model in catalog YAML (lower min_vram_gb), set "
+            "No agent providers left after hardware filtering (architecture/VRAM). "
+            "Set provider `hardware.architecture` to match your machine (cpu/gpu/tpu), "
+            "use a smaller Ollama model in catalog YAML (lower min_vram_gb), set "
             "AGENTIC_ASSUME_VRAM_GB to your real GPU size, set AGENTIC_VRAM_HEURISTICS=0, "
             "or disable filtering with AGENTIC_DISABLE_HARDWARE_FILTER=1."
         )
@@ -807,9 +808,10 @@ def build_dynamic_workflow_config(
         show = excluded_hw[:cap]
         more = len(excluded_hw) - cap
         suffix = f" (+{more} more)" if more > 0 else ""
+        vram_txt = f"{vram_g:.1f} GiB" if isinstance(vram_g, (int, float)) else "unknown"
         print(
-            f"(dynamic) hardware: NVIDIA VRAM ~{vram_g:.1f} GiB; excluded "
-            f"{len(excluded_hw)} provider(s) (min_vram_gb / heuristic): "
+            f"(dynamic) hardware: available={sorted(available_arch)!r}; NVIDIA VRAM ~{vram_txt}; excluded "
+            f"{len(excluded_hw)} provider(s) (architecture/min_vram_gb/heuristic): "
             f"{', '.join(show)}{suffix}",
             file=sys.stderr,
         )
