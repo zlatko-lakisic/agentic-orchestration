@@ -11,6 +11,10 @@
   const sessionIdEl = document.getElementById("sessionId");
   const resetSessionEl = document.getElementById("resetSession");
   const verboseCrewEl = document.getElementById("verboseCrew");
+  const agentPickerSelectEl = document.getElementById("agentPickerSelect");
+  const agentPickerAddBtn = document.getElementById("agentPickerAddBtn");
+  const agentPickerClearBtn = document.getElementById("agentPickerClearBtn");
+  const agentPickerChipsEl = document.getElementById("agentPickerChips");
   const connStatus = document.getElementById("connStatus");
   const activityBar = document.getElementById("activityBar");
   const activityLabel = document.getElementById("activityLabel");
@@ -27,6 +31,8 @@
   let lastProgressText = "";
   let lastProgressPct = null;
   let lastRunRatingPayload = null;
+  let availableAgentProviders = [];
+  const selectedAgentProviderIds = new Set();
 
   const PROCESSING_HINTS = [
     "Agents are working in the background…",
@@ -250,6 +256,95 @@
     };
   }
 
+  function chipLabelForProvider(p) {
+    const pid = String(p.id || "").trim();
+    const typ = String(p.type || "").trim();
+    const role = String(p.role || "").trim();
+    if (typ && role) return `${pid} (${typ} · ${role})`;
+    if (typ) return `${pid} (${typ})`;
+    if (role) return `${pid} (${role})`;
+    return pid;
+  }
+
+  function providerById(pid) {
+    return availableAgentProviders.find((p) => String(p.id || "").trim() === String(pid || "").trim()) || null;
+  }
+
+  function renderAgentProviderOptions() {
+    if (!agentPickerSelectEl) return;
+    const selectedNow = agentPickerSelectEl.value;
+    agentPickerSelectEl.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select agent provider to add…";
+    agentPickerSelectEl.appendChild(placeholder);
+    for (const p of availableAgentProviders) {
+      const pid = String(p.id || "").trim();
+      if (!pid || selectedAgentProviderIds.has(pid)) continue;
+      const opt = document.createElement("option");
+      opt.value = pid;
+      opt.textContent = chipLabelForProvider(p);
+      agentPickerSelectEl.appendChild(opt);
+    }
+    if (selectedNow && agentPickerSelectEl.querySelector(`option[value="${CSS.escape(selectedNow)}"]`)) {
+      agentPickerSelectEl.value = selectedNow;
+    } else {
+      agentPickerSelectEl.value = "";
+    }
+  }
+
+  function renderAgentProviderChips() {
+    if (!agentPickerChipsEl) return;
+    agentPickerChipsEl.innerHTML = "";
+    for (const pid of Array.from(selectedAgentProviderIds).sort()) {
+      const p = providerById(pid) || { id: pid };
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.dataset.id = pid;
+
+      const label = document.createElement("span");
+      label.textContent = chipLabelForProvider(p);
+      chip.appendChild(label);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chip-remove";
+      btn.textContent = "×";
+      btn.title = `Remove ${pid}`;
+      btn.addEventListener("click", () => {
+        selectedAgentProviderIds.delete(pid);
+        renderAgentProviderChips();
+        renderAgentProviderOptions();
+      });
+      chip.appendChild(btn);
+
+      agentPickerChipsEl.appendChild(chip);
+    }
+  }
+
+  async function loadAgentProviderCatalog() {
+    if (!agentPickerSelectEl) return;
+    try {
+      const res = await fetch("/api/agent-providers", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const list = Array.isArray(payload?.providers) ? payload.providers : [];
+      availableAgentProviders = list
+        .map((p) => ({
+          id: String(p?.id || "").trim(),
+          type: String(p?.type || "").trim(),
+          role: String(p?.role || "").trim(),
+          planner_hint: String(p?.planner_hint || "").trim(),
+        }))
+        .filter((p) => p.id)
+        .sort((a, b) => a.id.localeCompare(b.id));
+      renderAgentProviderOptions();
+      renderAgentProviderChips();
+    } catch (err) {
+      appendMeta(`Agent picker unavailable: ${String(err?.message || err)}`);
+    }
+  }
+
   function appendBubble(kind, text) {
     const el = document.createElement("div");
     el.className = `msg ${kind}`;
@@ -314,6 +409,7 @@
       sessionId,
       noVerify: true,
       verboseCrew: Boolean(verboseCrewEl?.checked),
+      selectedAgentProviderIds: Array.from(selectedAgentProviderIds),
     };
     if (resetSessionEl.checked && sessionId) {
       payload.resetSession = true;
@@ -363,6 +459,18 @@
   clearBtn.addEventListener("click", () => {
     chat.innerHTML = "";
   });
+  agentPickerAddBtn?.addEventListener("click", () => {
+    const pid = String(agentPickerSelectEl?.value || "").trim();
+    if (!pid) return;
+    selectedAgentProviderIds.add(pid);
+    renderAgentProviderChips();
+    renderAgentProviderOptions();
+  });
+  agentPickerClearBtn?.addEventListener("click", () => {
+    selectedAgentProviderIds.clear();
+    renderAgentProviderChips();
+    renderAgentProviderOptions();
+  });
 
   runModeEl?.addEventListener("change", syncIterativeUi);
   autoIterEl?.addEventListener("change", syncIterativeUi);
@@ -372,5 +480,6 @@
   rateUpBtn?.addEventListener("click", () => sendRating(1));
   rateDownBtn?.addEventListener("click", () => sendRating(-1));
 
+  loadAgentProviderCatalog();
   connect();
 })();

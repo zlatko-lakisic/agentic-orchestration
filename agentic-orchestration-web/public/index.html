@@ -62,6 +62,16 @@
         <input type="checkbox" id="verboseCrew" />
         <span>Show crew log (verbose)</span>
       </label>
+      <div class="field field-wide">
+        <span>Agents (optional explicit selection)</span>
+        <div class="agent-picker-row">
+          <select id="agentPickerSelect"></select>
+          <button type="button" id="agentPickerAddBtn" class="secondary">Add</button>
+          <button type="button" id="agentPickerClearBtn" class="secondary">Clear</button>
+        </div>
+        <div id="agentPickerChips" class="chips" aria-live="polite"></div>
+        <small class="hint">If no agents are selected, planner chooses automatically.</small>
+      </div>
       <span id="connStatus" class="status disconnected">Disconnected</span>
     </section>
 

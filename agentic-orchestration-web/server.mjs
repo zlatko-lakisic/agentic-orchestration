@@ -65,6 +65,7 @@ function resolvePythonExecutable() {
 const PYTHON = resolvePythonExecutable();
 const HOST = process.env.AGENTIC_WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.AGENTIC_WEB_PORT || "3847");
+const AGENT_PROVIDERS_DIR = path.join(TOOL_ROOT, "config", "agent_providers");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -90,8 +91,51 @@ function appendPendingRating(event) {
   }
 }
 
+function parseAgentProviderYaml(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const lines = raw.split(/\r?\n/);
+    const out = { id: "", type: "", role: "", planner_hint: "" };
+    for (const line of lines) {
+      const m = line.match(/^(id|type|role|planner_hint)\s*:\s*(.*)$/);
+      if (!m) continue;
+      const key = m[1];
+      let val = (m[2] || "").trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      out[key] = val;
+    }
+    if (!out.id) return null;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function loadAgentProvidersForUi() {
+  if (!fs.existsSync(AGENT_PROVIDERS_DIR)) return [];
+  const names = fs
+    .readdirSync(AGENT_PROVIDERS_DIR)
+    .filter((n) => n.endsWith(".yaml") || n.endsWith(".yml"))
+    .filter((n) => !n.startsWith("_"))
+    .sort((a, b) => a.localeCompare(b));
+  const out = [];
+  for (const n of names) {
+    const item = parseAgentProviderYaml(path.join(AGENT_PROVIDERS_DIR, n));
+    if (item) out.push(item);
+  }
+  return out;
+}
+
 function serveStatic(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
+  if (url.pathname === "/api/agent-providers") {
+    const data = loadAgentProvidersForUi();
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ providers: data }));
+    return;
+  }
   let p = url.pathname;
   if (p === "/") p = "/index.html";
   const filePath = path.join(PUBLIC_DIR, path.normalize(p).replace(/^(\.\.(\/|\\|$))+/, ""));
@@ -122,6 +166,7 @@ function runDynamic(
     resetSession,
     noVerify,
     verboseCrew,
+    selectedAgentProviderIds,
   },
   ws,
 ) {
@@ -148,6 +193,12 @@ function runDynamic(
   if (sess) {
     args.push("--orchestrator-session", sess);
     if (resetSession) args.push("--orchestrator-session-reset");
+  }
+  const selectedIds = Array.isArray(selectedAgentProviderIds)
+    ? selectedAgentProviderIds.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  if (selectedIds.length > 0) {
+    args.push("--dynamic-agent-provider-ids", selectedIds.join(","));
   }
 
   sendJson(ws, { type: "run_start", args });
@@ -241,6 +292,7 @@ wss.on("connection", (ws) => {
         resetSession: Boolean(msg.resetSession),
         noVerify: msg.noVerify !== false,
         verboseCrew: Boolean(msg.verboseCrew),
+        selectedAgentProviderIds: msg.selectedAgentProviderIds,
       },
       ws,
     );

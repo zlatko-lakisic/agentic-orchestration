@@ -770,6 +770,7 @@ def build_dynamic_workflow_config(
     *,
     user_prompt: str,
     catalog_path: Path,
+    allowed_agent_provider_ids: list[str] | None = None,
     mcp_catalog_path: Path | None = None,
     instance_key: str | None = None,
     max_steps: int | None = None,
@@ -816,6 +817,20 @@ def build_dynamic_workflow_config(
             f"{', '.join(show)}{suffix}",
             file=sys.stderr,
         )
+    allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
+    if allowed_ids:
+        allowed_set = set(allowed_ids)
+        entries = [e for e in entries if str(e.get("id", "")).strip() in allowed_set]
+        if not entries:
+            raise RuntimeError(
+                "No agent providers left after applying explicit agent selection. "
+                "The selected IDs are either unknown or were removed by credential/hardware filtering."
+            )
+        if not quiet:
+            print(
+                f"(dynamic) agent selection: restricting planner catalog to {sorted(allowed_set)!r}",
+                file=sys.stderr,
+            )
 
     limit = max_steps
     if limit is None:

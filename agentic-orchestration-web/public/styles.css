@@ -68,6 +68,11 @@ body {
   color: var(--muted);
 }
 
+.field.field-wide {
+  min-width: min(860px, 100%);
+  flex: 1 1 520px;
+}
+
 .field select,
 .field input[type="number"] {
   min-width: 180px;
@@ -76,6 +81,54 @@ body {
   border-radius: 6px;
   background: var(--bg);
   color: var(--text);
+}
+
+.field small.hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.agent-picker-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+#agentPickerSelect {
+  min-width: 300px;
+  flex: 1;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.chip .chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.chip .chip-remove:hover {
+  color: #fff;
 }
 
 .field input:disabled,

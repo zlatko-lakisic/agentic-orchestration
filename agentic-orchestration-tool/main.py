@@ -65,6 +65,20 @@ def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
     return {**built.workflow_context, "inputs": dict(built.inputs)}
 
 
+def _parse_dynamic_agent_provider_ids(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in str(raw).split(","):
+        pid = part.strip()
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+    return out
+
+
 def _on_workflow_start(built: BuiltWorkflow) -> None:
     ctx = _workflow_context(built)
     for ap in built.agent_providers.values():
@@ -494,6 +508,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dynamic-agent-provider-ids",
+        default="",
+        metavar="ID1,ID2,...",
+        help=(
+            "With --dynamic or --dynamic-iterative: restrict planner choices to these "
+            "agent provider IDs from the catalog. Comma-separated. If empty, planner can "
+            "choose automatically from all available providers."
+        ),
+    )
+    parser.add_argument(
         "--mcp-providers-catalog",
         default=_DEFAULT_MCP_PROVIDERS_CATALOG,
         metavar="PATH",
@@ -558,6 +582,9 @@ def main() -> None:
         (tool_root / args.mcp_providers_catalog).resolve()
         if not Path(args.mcp_providers_catalog).is_absolute()
         else Path(args.mcp_providers_catalog)
+    )
+    selected_dynamic_provider_ids = _parse_dynamic_agent_provider_ids(
+        str(getattr(args, "dynamic_agent_provider_ids", "") or "")
     )
 
     if args.dynamic and args.dynamic_iterative:
@@ -642,6 +669,7 @@ def main() -> None:
                 dyn_cfg, plan = build_dynamic_workflow_config(
                     user_prompt=goal,
                     catalog_path=agent_providers_catalog_path,
+                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
@@ -840,6 +868,7 @@ def main() -> None:
                 synth_cfg, plan = build_dynamic_workflow_config(
                     user_prompt=synth_prompt,
                     catalog_path=agent_providers_catalog_path,
+                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
@@ -1018,6 +1047,7 @@ def main() -> None:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=goal,
                 catalog_path=agent_providers_catalog_path,
+                allowed_agent_provider_ids=selected_dynamic_provider_ids,
                 mcp_catalog_path=mcp_catalog_path,
                 session_path=orchestrator_session_path,
                 tool_root=tool_root,
