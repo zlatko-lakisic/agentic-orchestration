@@ -6,7 +6,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +66,12 @@ const PYTHON = resolvePythonExecutable();
 const HOST = process.env.AGENTIC_WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.AGENTIC_WEB_PORT || "3847");
 const AGENT_PROVIDERS_DIR = path.join(TOOL_ROOT, "config", "agent_providers");
+const TOOL_REQUIREMENTS = path.join(TOOL_ROOT, "requirements.txt");
 
 /** Identifies this process in /api/ping (proves curl hit this server after restart). */
 const WEB_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
+let _pythonDepsChecked = false;
+let _pythonDepsOk = true;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -80,6 +83,61 @@ const MIME = {
 
 function sendJson(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function _pythonCanImportDotenv() {
+  const chk = spawnSync(PYTHON, ["-c", "import dotenv"], {
+    cwd: TOOL_ROOT,
+    env: { ...process.env, PYTHONUTF8: "1" },
+    stdio: "pipe",
+    encoding: "utf8",
+    timeout: 20000,
+  });
+  return chk.status === 0;
+}
+
+function ensurePythonDepsForWebRuns() {
+  if (_pythonDepsChecked) return _pythonDepsOk;
+  _pythonDepsChecked = true;
+
+  if (_pythonCanImportDotenv()) {
+    _pythonDepsOk = true;
+    return true;
+  }
+
+  const autoInstall = String(process.env.AGENTIC_WEB_AUTO_INSTALL_REQUIREMENTS || "1")
+    .trim()
+    .toLowerCase();
+  if (["0", "false", "no", "off"].includes(autoInstall)) {
+    _pythonDepsOk = false;
+    return false;
+  }
+  if (!fs.existsSync(TOOL_REQUIREMENTS)) {
+    _pythonDepsOk = false;
+    return false;
+  }
+
+  console.error(
+    `[agentic-orchestration-web] Python deps missing for ${PYTHON}; auto-installing from ${TOOL_REQUIREMENTS}`,
+  );
+  const install = spawnSync(PYTHON, ["-m", "pip", "install", "-r", TOOL_REQUIREMENTS], {
+    cwd: TOOL_ROOT,
+    env: { ...process.env, PYTHONUTF8: "1" },
+    stdio: "pipe",
+    encoding: "utf8",
+    timeout: 240000,
+  });
+  if (install.status !== 0) {
+    _pythonDepsOk = false;
+    const err = String(install.stderr || install.stdout || "").trim();
+    console.error("[agentic-orchestration-web] Auto-install failed:\n" + err);
+    return false;
+  }
+  _pythonDepsOk = _pythonCanImportDotenv();
+  if (_pythonDepsOk) {
+    console.error("[agentic-orchestration-web] Python dependencies ready.");
+  }
+  return _pythonDepsOk;
 }
 
 function appendPendingRating(event) {
@@ -275,6 +333,16 @@ function runDynamic(
   },
   ws,
 ) {
+  if (!ensurePythonDepsForWebRuns()) {
+    sendJson(ws, {
+      type: "error",
+      message:
+        "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled. Activate/install the tool venv and restart web server.",
+    });
+    ws._busy = false;
+    return;
+  }
+
   const mode = String(runMode || "dynamic").trim();
   const args = ["main.py"];
   if (mode === "dynamic-iterative") {
