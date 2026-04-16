@@ -366,7 +366,8 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
       "agent_provider_id": "<id from catalog>",
       "mcp_provider_ids": ["optional; per-step MCP subset — omit key to use top-level default"],
       "description": "Instructions for the agent. Must mention {{topic}}.",
-      "expected_output": "What this step should produce"
+      "expected_output": "What this step should produce",
+      "rationale": "optional one-line: why this step now (helps users/logs when iterating)"
     }}
   ]
 }}
@@ -1007,6 +1008,7 @@ Rules:
 - Continue when key information is missing, tool failures prevented verification, or the output quality is clearly insufficient.
 - If you continue, you may refine the goal into a tighter next_goal that focuses on the biggest remaining gap.
 - Keep it pragmatic: we can run at most {max_rounds} rounds total.
+- In "reason", be concrete: name the gap (missing section, failed verification, contradiction, shallow answer, etc.); avoid vague phrases like "needs more work" alone.
 
 Respond with a single JSON object only:
 {{
@@ -1103,3 +1105,116 @@ Rules:
     if not isinstance(data, dict):
         return {"score": None, "verdict": "invalid", "strengths": [], "weaknesses": [], "missing": []}
     return data
+
+
+def faithfulness_qa_review(
+    *,
+    user_goal: str,
+    output_text: str,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """
+    Post-run QA pass: hallucinations, unverified claims, and what the user should double-check.
+
+    Separate from ``evaluate_run_quality`` (learning loop). Controlled by ``AGENTIC_FINAL_QA``.
+    """
+    if os.getenv("AGENTIC_FINAL_QA", "1").strip().lower() in ("0", "false", "no", "off"):
+        return {"skipped": True}
+
+    m = (model or "").strip() or os.getenv(
+        "AGENTIC_QA_MODEL",
+        os.getenv(
+            "AGENTIC_EVAL_MODEL",
+            os.getenv(
+                "AGENTIC_ITERATIVE_CONTROLLER_MODEL",
+                os.getenv("AGENTIC_PLANNER_MODEL", "gpt-4o-mini"),
+            ),
+        ),
+    ).strip()
+
+    cap_goal = int(os.getenv("AGENTIC_QA_GOAL_CHARS", "2000"))
+    cap_out = int(os.getenv("AGENTIC_QA_OUTPUT_CHARS", "16000"))
+    goal = (user_goal or "").strip()[: max(200, cap_goal)]
+    out = (output_text or "").strip()[: max(500, cap_out)]
+
+    system = """You are a quality assurance reviewer for a multi-agent system's final answer.
+
+Your job is to catch likely hallucinations, overconfident factual claims without support, and gaps
+relative to the user's goal. You do NOT re-run tools; judge only from the text provided.
+
+Return JSON only:
+{
+  "hallucination_risk": "low|medium|high",
+  "verdict": "one sentence summary for the user",
+  "likely_hallucinations_or_unverified": ["specific claim or sentence that may be invented or unverified"],
+  "unsupported_claims": ["factual statements that need a source or tool confirmation"],
+  "what_looks_solid": ["parts that are well grounded or clearly hedged"],
+  "user_should_verify": ["concrete checks the user can do (URLs, docs, measurements, etc.)"]
+}
+Rules:
+- hallucination_risk must be one of: low, medium, high.
+- If the answer is empty or mostly boilerplate, set hallucination_risk to high and explain in verdict.
+- Do not invent tool results or URLs that are not in the answer text.
+- Prefer empty arrays over speculation; only list items you can point to in the answer.
+"""
+
+    user = f"## User goal\n{goal}\n\n## Final answer to review\n{out}\n"
+    raw = _planner_chat_completion(
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=m,
+    )
+    data = _extract_json_object(raw)
+    if not isinstance(data, dict):
+        return {
+            "hallucination_risk": "unknown",
+            "verdict": "QA model returned invalid JSON",
+            "likely_hallucinations_or_unverified": [],
+            "unsupported_claims": [],
+            "what_looks_solid": [],
+            "user_should_verify": [],
+        }
+    return data
+
+
+def emit_faithfulness_qa_report(
+    *,
+    user_goal: str,
+    output_text: str | None,
+    model: str | None = None,
+) -> None:
+    """Run ``faithfulness_qa_review`` and print a human-readable block to stderr (Web UI surfaces this)."""
+    try:
+        data = faithfulness_qa_review(user_goal=user_goal, output_text=output_text or "", model=model)
+    except Exception as exc:  # noqa: BLE001
+        print(f"(qa) faithfulness review failed: {exc}", file=sys.stderr, flush=True)
+        return
+    if data.get("skipped"):
+        return
+
+    risk = str(data.get("hallucination_risk", "")).strip() or "unknown"
+    verdict = str(data.get("verdict", "")).strip() or "(no verdict)"
+
+    def _bullets(title: str, key: str) -> list[str]:
+        xs = data.get(key)
+        if not isinstance(xs, list) or not xs:
+            return []
+        lines_out: list[str] = [f"  {title}"]
+        for item in xs:
+            s = str(item).strip()
+            if s:
+                lines_out.append(f"    - {s}")
+        return lines_out if len(lines_out) > 1 else []
+
+    block_lines: list[str] = [
+        "",
+        "=== Quality assurance (hallucinations & unverified claims) ===",
+        f"Risk: {risk}",
+        f"Verdict: {verdict}",
+        *_bullets("Likely hallucinations or unverified:", "likely_hallucinations_or_unverified"),
+        *_bullets("Unsupported factual claims:", "unsupported_claims"),
+        *_bullets("What looks solid:", "what_looks_solid"),
+        *_bullets("User should verify:", "user_should_verify"),
+        "=== End QA ===",
+        "",
+    ]
+    print("\n".join(block_lines), file=sys.stderr, flush=True)

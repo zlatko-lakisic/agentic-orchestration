@@ -15,6 +15,7 @@ from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_
 from orchestration.config_loader import load_workflow_config
 from orchestration.dynamic_planner import (
     build_dynamic_workflow_config,
+    emit_faithfulness_qa_report,
     evaluate_run_quality,
     iterative_controller_decision,
 )
@@ -665,6 +666,24 @@ def main() -> None:
                     f"(dynamic-iter) step: {first_line or tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
                     file=sys.stderr,
                 )
+            steps_raw = plan.get("steps")
+            if isinstance(steps_raw, list) and steps_raw:
+                step0 = steps_raw[0]
+                if isinstance(step0, dict):
+                    sr = (
+                        str(
+                            step0.get("rationale")
+                            or step0.get("step_rationale")
+                            or step0.get("why")
+                            or "",
+                        ).strip()
+                    )
+                    if sr:
+                        print(
+                            f"(dynamic-iter) planner step rationale: {sr}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
 
             built = build_workflow(
                 dyn_cfg,
@@ -743,8 +762,32 @@ def main() -> None:
                     est_left_i = int(est_left) if est_left is not None else None
                 except Exception:  # noqa: BLE001
                     est_left_i = None
-                if not args.quiet and reason:
-                    print(f"(dynamic-iter) controller: done={done} reason={reason}", file=sys.stderr)
+                stderr_live = getattr(sys, "__stderr__", sys.stderr)
+                stderr_live.write(
+                    f"(dynamic-iter) controller (round {r}/{max_rounds}): done={done}\n",
+                )
+                stderr_live.write(f"(dynamic-iter) controller reason: {reason or '(none)'}\n")
+                if next_goal:
+                    stderr_live.write(
+                        f"(dynamic-iter) controller refined next_goal: {next_goal}\n",
+                    )
+                if not done:
+                    if r < max_rounds:
+                        stderr_live.write(
+                            "(dynamic-iter) controller decision: continue — "
+                            "another planning + crew round will run\n",
+                        )
+                    else:
+                        stderr_live.write(
+                            "(dynamic-iter) controller decision: would continue but "
+                            f"max rounds ({max_rounds}) reached — stopping iterative loop\n",
+                        )
+                else:
+                    stderr_live.write(
+                        "(dynamic-iter) controller decision: stop — "
+                        "proceeding to synthesis (if enabled)\n",
+                    )
+                stderr_live.flush()
                 if est_left_i is not None:
                     conf_part = f" ({conf})" if conf in ("low", "medium", "high") else ""
                     # Estimated percent complete: rounds done / (done + remaining).
@@ -768,8 +811,11 @@ def main() -> None:
                 if next_goal:
                     goal = next_goal
                 if done and r >= min_rounds:
-                    if not args.quiet:
-                        print(f"(dynamic-iter) stopping early at round {r}", file=sys.stderr)
+                    stderr_live = getattr(sys, "__stderr__", sys.stderr)
+                    stderr_live.write(
+                        f"(dynamic-iter) stopping early at round {r} (controller done=true)\n",
+                    )
+                    stderr_live.flush()
                     break
 
             if not args.dynamic_iterative_auto and r >= manual_rounds:
@@ -884,6 +930,12 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 pass
 
+            emit_faithfulness_qa_report(
+                user_goal=str(args.task).strip(),
+                output_text=result_text,
+                model=None,
+            )
+
             if result_text:
                 saved = offer_save_extracted_files(
                     tool_root=tool_root,
@@ -894,6 +946,14 @@ def main() -> None:
                     prompt_save=prompt_save,
                 )
                 _run_post_save_verify(saved, verify=verify_saved)
+        else:
+            sess = load_session(orchestrator_session_path)
+            last_ex = (sess.last_crew_output_excerpt or "").strip()
+            emit_faithfulness_qa_report(
+                user_goal=str(args.task).strip(),
+                output_text=last_ex or None,
+                model=None,
+            )
         return
 
     if args.dynamic:
@@ -992,6 +1052,11 @@ def main() -> None:
         update_session_after_crew(orchestrator_session_path, result_text)
         update_session_after_final(
             orchestrator_session_path, user_goal=str(args.task).strip(), result_text=result_text
+        )
+        emit_faithfulness_qa_report(
+            user_goal=str(args.task).strip(),
+            output_text=result_text,
+            model=None,
         )
         try:
             from orchestration.knowledge_base import add_document
