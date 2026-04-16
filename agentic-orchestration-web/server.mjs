@@ -128,9 +128,17 @@ function loadAgentProvidersForUi() {
   return out;
 }
 
+function requestPathname(req) {
+  /** Path only (no query); avoids URL() quirks when Host is missing or odd behind proxies. */
+  const raw = String(req.url || "/").split("?")[0].split("#")[0] || "/";
+  let p = raw.startsWith("/") ? raw : `/${raw}`;
+  p = p.replace(/\/{2,}/g, "/");
+  p = p.replace(/\/+$/, "") || "/";
+  return p;
+}
+
 function serveStatic(req, res) {
-  const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
+  const normalizedPath = requestPathname(req);
   if (
     normalizedPath === "/api/agent-providers" ||
     normalizedPath.endsWith("/api/agent-providers")
@@ -140,6 +148,7 @@ function serveStatic(req, res) {
     res.end(JSON.stringify({ providers: data }));
     return;
   }
+  const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
   let p = url.pathname;
   if (p === "/") p = "/index.html";
   const filePath = path.join(PUBLIC_DIR, path.normalize(p).replace(/^(\.\.(\/|\\|$))+/, ""));
