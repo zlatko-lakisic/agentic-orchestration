@@ -96,11 +96,14 @@ function _pythonCanImportDotenv() {
   return chk.status === 0;
 }
 
-function ensurePythonDepsForWebRuns() {
+function ensurePythonDepsForWebRuns(statusCb) {
+  const emit = typeof statusCb === "function" ? statusCb : () => {};
+  emit("Checking Python dependencies…");
   if (_pythonDepsChecked) return _pythonDepsOk;
   _pythonDepsChecked = true;
 
   if (_pythonCanImportDotenv()) {
+    emit("Python dependencies already satisfied.");
     _pythonDepsOk = true;
     return true;
   }
@@ -109,14 +112,17 @@ function ensurePythonDepsForWebRuns() {
     .trim()
     .toLowerCase();
   if (["0", "false", "no", "off"].includes(autoInstall)) {
+    emit("Dependencies missing and auto-install is disabled.");
     _pythonDepsOk = false;
     return false;
   }
   if (!fs.existsSync(TOOL_REQUIREMENTS)) {
+    emit("requirements.txt not found for dependency healing.");
     _pythonDepsOk = false;
     return false;
   }
 
+  emit("Dependencies missing. Installing requirements…");
   console.error(
     `[agentic-orchestration-web] Python deps missing for ${PYTHON}; auto-installing from ${TOOL_REQUIREMENTS}`,
   );
@@ -129,13 +135,17 @@ function ensurePythonDepsForWebRuns() {
   });
   if (install.status !== 0) {
     _pythonDepsOk = false;
+    emit("Auto-install failed.");
     const err = String(install.stderr || install.stdout || "").trim();
     console.error("[agentic-orchestration-web] Auto-install failed:\n" + err);
     return false;
   }
   _pythonDepsOk = _pythonCanImportDotenv();
   if (_pythonDepsOk) {
+    emit("Dependency healing complete.");
     console.error("[agentic-orchestration-web] Python dependencies ready.");
+  } else {
+    emit("Dependencies still missing after install.");
   }
   return _pythonDepsOk;
 }
@@ -333,7 +343,9 @@ function runDynamic(
   },
   ws,
 ) {
-  if (!ensurePythonDepsForWebRuns()) {
+  sendJson(ws, { type: "preflight", status: "start", message: "Checking Python dependencies…" });
+  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || "") }))) {
+    sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed." });
     sendJson(ws, {
       type: "error",
       message:
@@ -342,6 +354,7 @@ function runDynamic(
     ws._busy = false;
     return;
   }
+  sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready." });
 
   const mode = String(runMode || "dynamic").trim();
   const args = ["main.py"];

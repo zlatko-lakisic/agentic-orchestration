@@ -270,6 +270,19 @@
         appendMeta(`Tool: ${data.toolRoot} · ${data.python}`);
         return;
       }
+      if (data.type === "preflight") {
+        const msg = String(data.message || "").trim();
+        const st = String(data.status || "").trim().toLowerCase();
+        if (st === "start" || st === "progress") {
+          showActivityBar();
+          if (activityLabel) activityLabel.textContent = msg || "Preparing run…";
+        } else if (st === "done") {
+          if (activityLabel) activityLabel.textContent = msg || "Dependencies ready.";
+        } else if (st === "error") {
+          if (activityLabel) activityLabel.textContent = msg || "Dependency healing failed.";
+        }
+        return;
+      }
       if (data.type === "run_start") {
         streamVerbose = Boolean(verboseCrewEl?.checked);
         stdoutBuf = "";
