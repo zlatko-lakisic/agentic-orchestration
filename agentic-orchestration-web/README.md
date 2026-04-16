@@ -5,6 +5,11 @@ Chat-style front-end that talks to the Python tool over **WebSockets**. Each mes
 - `python main.py --dynamic "<your text>" --no-save --no-verify` (+ optional `--orchestrator-session`)
 - `python main.py --dynamic-iterative "<your text>" --dynamic-iterative-rounds N --no-save --no-verify` (+ optional `--orchestrator-session`)
 
+## Prerequisites
+
+- **Node.js 18+** (LTS). The server uses modern JavaScript; distro packages that ship Node 12 or 14 will fail with parse errors such as `Unexpected token '.'` until you upgrade (e.g. [nvm](https://github.com/nvm-sh/nvm), [NodeSource](https://github.com/nodesource/distributions), or your OS Node package).
+- On startup, `server.mjs` refuses to run if `process.version` is below Node 14; **18+ is still recommended** (`package.json` `engines`).
+
 ## Setup
 
 From this directory:

@@ -36,6 +36,14 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
+const _nodeMajor = parseInt(String(process.versions.node || "0").split(".")[0], 10);
+if (_nodeMajor < 14) {
+  console.error(
+    `[agentic-orchestration-web] Node.js 14+ is required (use 18+ LTS). Current: ${process.version}`,
+  );
+  process.exit(1);
+}
+
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const TOOL_ROOT = path.resolve(
@@ -43,8 +51,9 @@ const TOOL_ROOT = path.resolve(
 );
 
 function resolvePythonExecutable() {
-  if (process.env.AGENTIC_PYTHON?.trim()) {
-    return process.env.AGENTIC_PYTHON.trim();
+  const pyEnv = (process.env.AGENTIC_PYTHON || "").trim();
+  if (pyEnv) {
+    return pyEnv;
   }
   const winVenv = path.join(TOOL_ROOT, ".venv", "Scripts", "python.exe");
   const unixVenv = path.join(TOOL_ROOT, ".venv", "bin", "python");
@@ -152,18 +161,26 @@ function runDynamic(
     shell: false,
   });
 
-  proc.stdout?.on("data", (chunk) => {
-    sendJson(ws, { type: "chunk", stream: "stdout", text: chunk.toString("utf8") });
-  });
-  proc.stderr?.on("data", (chunk) => {
-    sendJson(ws, { type: "chunk", stream: "stderr", text: chunk.toString("utf8") });
-  });
+  if (proc.stdout) {
+    proc.stdout.on("data", (chunk) => {
+      sendJson(ws, { type: "chunk", stream: "stdout", text: chunk.toString("utf8") });
+    });
+  }
+  if (proc.stderr) {
+    proc.stderr.on("data", (chunk) => {
+      sendJson(ws, { type: "chunk", stream: "stderr", text: chunk.toString("utf8") });
+    });
+  }
   proc.on("error", (err) => {
     sendJson(ws, { type: "error", message: err.message });
     ws._busy = false;
   });
   proc.on("close", (code, signal) => {
-    sendJson(ws, { type: "run_end", code: code ?? 0, signal: signal || null });
+    sendJson(ws, {
+      type: "run_end",
+      code: typeof code === "number" ? code : 0,
+      signal: signal || null,
+    });
     ws._busy = false;
   });
 }
@@ -234,7 +251,7 @@ server.listen(PORT, HOST, () => {
   console.error(`agentic-orchestration-web http://${HOST}:${PORT}/`);
   console.error(`  AGENTIC_TOOL_ROOT=${TOOL_ROOT}`);
   console.error(`  Python executable=${PYTHON}`);
-  if (!process.env.AGENTIC_PYTHON?.trim()) {
+  if (!(process.env.AGENTIC_PYTHON || "").trim()) {
     console.error(
       "  (set AGENTIC_PYTHON if this is wrong; install deps: pip install -r requirements.txt in AGENTIC_TOOL_ROOT)",
     );
