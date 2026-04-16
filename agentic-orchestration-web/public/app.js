@@ -45,6 +45,7 @@
     "Planning and running tasks—this can take a minute…",
     "Still on it—almost ready with your answer…",
   ];
+  const TYPING_DOTS = [".", "..", "..."];
   const PROGRESS_PREFIX = "(progress)";
   const ITER_ROUND_RE = /\(dynamic-iter\)\s+round\s+(\d+\/\d+)/i;
   const ITER_CONTROLLER_HEADER_RE =
@@ -98,10 +99,6 @@
         activityLabel.textContent = lastProgressText;
         if (chatPinnedText && !chatPinned?.hidden) {
           chatPinnedText.textContent = lastProgressText || "Working…";
-        }
-        // In non-verbose mode, show progress inside the assistant bubble (not only above chat).
-        if (!streamVerbose && assistantBubble && assistantBubble.classList.contains("processing")) {
-          assistantBubble.textContent = lastProgressText || "0% - Working…";
         }
         return;
       }
@@ -191,25 +188,28 @@
 
   function startProcessingUi(el) {
     stopProcessingUi();
-    // Non-verbose: keep the UI quiet above the chat and show progress in-bubble.
+    // Non-verbose: keep detailed progress only in the pinned top status line.
     hideActivityBar();
     if (!el) return;
     if (chatPinned) chatPinned.hidden = false;
-    if (chatPinnedText) chatPinnedText.textContent = "0% - Working…";
-    el.classList.add("processing");
-    let i = 0;
+    if (chatPinnedText) chatPinnedText.textContent = "Run in progress...";
+    el.classList.add("processing", "typing");
+    let dotIdx = 0;
+    let hintIdx = 0;
     lastProgressText = "";
     lastProgressPct = 0;
     iterRoundLabel = "";
     iterControllerReason = "";
-    el.textContent = "0% - Working…";
+    el.textContent = TYPING_DOTS[0];
     processingTimer = setInterval(() => {
-      i = (i + 1) % PROCESSING_HINTS.length;
-      // If we have real progress, don't overwrite it with generic hints.
-      if (lastProgressText) return;
-      el.textContent = `0% - ${PROCESSING_HINTS[i]}`;
-      if (chatPinnedText) chatPinnedText.textContent = `0% - ${PROCESSING_HINTS[i]}`;
-    }, 4500);
+      dotIdx = (dotIdx + 1) % TYPING_DOTS.length;
+      el.textContent = TYPING_DOTS[dotIdx];
+      // If we have real parsed progress, keep it; otherwise cycle friendly hints up top.
+      if (!lastProgressText && chatPinnedText) {
+        hintIdx = (hintIdx + 1) % PROCESSING_HINTS.length;
+        chatPinnedText.textContent = `Run in progress... ${PROCESSING_HINTS[hintIdx]}`;
+      }
+    }, 550);
   }
 
   function startVerboseActivityBar() {
@@ -302,7 +302,7 @@
       if (data.type === "error") {
         stopProcessingUi();
         if (assistantBubble) {
-          assistantBubble.classList.remove("processing");
+          assistantBubble.classList.remove("processing", "typing");
         }
         appendBubble("error", data.message || "Error");
         runActive = false;
@@ -312,7 +312,7 @@
       if (data.type === "run_end") {
         stopProcessingUi();
         if (assistantBubble) {
-          assistantBubble.classList.remove("processing");
+          assistantBubble.classList.remove("processing", "typing");
         }
         if (!streamVerbose && assistantBubble) {
           const out = stdoutBuf.trim();
