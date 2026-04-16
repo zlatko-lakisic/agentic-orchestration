@@ -67,6 +67,9 @@ const HOST = process.env.AGENTIC_WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.AGENTIC_WEB_PORT || "3847");
 const AGENT_PROVIDERS_DIR = path.join(TOOL_ROOT, "config", "agent_providers");
 
+/** Identifies this process in /api/ping (proves curl hit this server after restart). */
+const WEB_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -147,20 +150,90 @@ function getRequestPathname(req) {
   }
 }
 
-function serveStatic(req, res) {
-  const normalizedPath = getRequestPathname(req);
-  if (
-    normalizedPath === "/api/agent-providers" ||
-    normalizedPath.endsWith("/api/agent-providers")
-  ) {
-    const data = loadAgentProvidersForUi();
-    res.writeHead(200, {
-      "Content-Type": "application/json; charset=utf-8",
-      "X-Agentic-AgentProviders": "1",
-    });
-    res.end(JSON.stringify({ providers: data }));
+function requestUrlHead(req) {
+  return String(req.url || "").split("?")[0].split("#")[0];
+}
+
+/**
+ * Match /api/agent-providers without relying on a single parsing strategy (proxies, absolute URI, casing).
+ */
+function isAgentProvidersApi(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  const slashNorm = (s) => s.replace(/\\/g, "/");
+  const candidates = [head, decoded, slashNorm(head), slashNorm(decoded)];
+  for (const c of candidates) {
+    if (/\/api\/agent-providers\/?$/i.test(c)) return true;
+  }
+  const path = getRequestPathname(req);
+  const pl = path.toLowerCase();
+  if (pl === "/api/agent-providers" || pl.endsWith("/api/agent-providers")) return true;
+  return false;
+}
+
+function isApiPing(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  for (const c of [head, decoded]) {
+    if (/\/api\/ping\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/api/ping" || pl.endsWith("/api/ping");
+}
+
+function sendAgentProvidersJson(res) {
+  let data;
+  try {
+    data = loadAgentProvidersForUi();
+  } catch (err) {
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: String(err && err.message ? err.message : err) }));
     return;
   }
+  res.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "X-Agentic-AgentProviders": "1",
+  });
+  res.end(JSON.stringify({ providers: data }));
+}
+
+function handleHttp(req, res) {
+  if (isApiPing(req)) {
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Agentic-Web": "1",
+    });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        service: "agentic-orchestration-web",
+        pid: process.pid,
+        instance: WEB_INSTANCE_ID,
+      }),
+    );
+    return;
+  }
+  if (isAgentProvidersApi(req)) {
+    sendAgentProvidersJson(res);
+    return;
+  }
+  serveStatic(req, res);
+}
+
+function serveStatic(req, res) {
+  const normalizedPath = getRequestPathname(req);
   let p = normalizedPath;
   if (p === "/") p = "/index.html";
   const filePath = path.join(PUBLIC_DIR, path.normalize(p).replace(/^(\.\.(\/|\\|$))+/, ""));
@@ -261,8 +334,25 @@ function runDynamic(
   });
 }
 
-const server = http.createServer(serveStatic);
+const server = http.createServer(handleHttp);
 const wss = new WebSocketServer({ server });
+
+let _listenErrorLogged = false;
+function logListenError(err) {
+  if (_listenErrorLogged) return;
+  _listenErrorLogged = true;
+  if (err && err.code === "EADDRINUSE") {
+    console.error(
+      `[agentic-orchestration-web] port ${PORT} is already in use on ${HOST}. Another process is bound to this port (often a leftover node server.mjs). Free it, then restart. Examples: ./stop-web-bg.sh  then  AGENTIC_WEB_KILL_PORT=1 ./stop-web-bg.sh  or  ss -tlnp | grep :${PORT}`,
+    );
+  } else {
+    console.error("[agentic-orchestration-web] server error:", err);
+  }
+  process.exit(1);
+}
+
+server.on("error", logListenError);
+wss.on("error", logListenError);
 
 wss.on("connection", (ws) => {
   ws._busy = false;
@@ -326,6 +416,7 @@ wss.on("connection", (ws) => {
 
 server.listen(PORT, HOST, () => {
   console.error(`agentic-orchestration-web http://${HOST}:${PORT}/`);
+  console.error(`  instance=${WEB_INSTANCE_ID}  (curl /api/ping to verify this process)`);
   console.error(`  AGENTIC_TOOL_ROOT=${TOOL_ROOT}`);
   console.error(`  Python executable=${PYTHON}`);
   if (!(process.env.AGENTIC_PYTHON || "").trim()) {
