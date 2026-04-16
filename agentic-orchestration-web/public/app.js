@@ -46,6 +46,15 @@
     "Still on it—almost ready with your answer…",
   ];
   const PROGRESS_PREFIX = "(progress)";
+  const ITER_ROUND_RE = /\(dynamic-iter\)\s+round\s+(\d+\/\d+)/i;
+  const ITER_CONTROLLER_HEADER_RE =
+    /\(dynamic-iter\)\s+controller\s+\(round\s+(\d+\/\d+)\):\s*done=(?:true|false)/i;
+  const ITER_CONTROLLER_REASON_RE = /\(dynamic-iter\)\s+controller reason:\s*(.*)$/i;
+  const ITER_CONTROLLER_CONTINUE_RE = /\(dynamic-iter\)\s+controller decision:\s*continue/i;
+  const ITER_CONTROLLER_STOP_RE = /\(dynamic-iter\)\s+controller decision:\s*stop/i;
+
+  let iterRoundLabel = "";
+  let iterControllerReason = "";
 
   function formatProgressLine(msg) {
     const raw = String(msg || "").trim();
@@ -99,6 +108,65 @@
     }
   }
 
+  function setRunStatusText(text) {
+    const msg = String(text || "").trim();
+    if (!msg) return;
+    if (activityLabel && !activityBar?.hidden) {
+      activityLabel.textContent = msg;
+    }
+    if (chatPinnedText && !chatPinned?.hidden) {
+      chatPinnedText.textContent = msg;
+    }
+  }
+
+  function applyIterativeStatusFromText(text) {
+    const parts = String(text || "").split(/\r?\n/);
+    for (const rawLine of parts) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      const roundM = line.match(ITER_ROUND_RE);
+      if (roundM) {
+        iterRoundLabel = String(roundM[1] || "").trim();
+        setRunStatusText(`Run in progress - round ${iterRoundLabel}`);
+        continue;
+      }
+
+      const headM = line.match(ITER_CONTROLLER_HEADER_RE);
+      if (headM) {
+        iterRoundLabel = String(headM[1] || iterRoundLabel).trim();
+        continue;
+      }
+
+      const reasonM = line.match(ITER_CONTROLLER_REASON_RE);
+      if (reasonM) {
+        iterControllerReason = String(reasonM[1] || "").trim();
+        continue;
+      }
+
+      if (ITER_CONTROLLER_CONTINUE_RE.test(line)) {
+        const reasonPart = iterControllerReason ? ` - reason: ${iterControllerReason}` : "";
+        const roundPart = iterRoundLabel ? ` - round ${iterRoundLabel}` : "";
+        setRunStatusText(`Run in progress${roundPart} - continuing to next iteration${reasonPart}`);
+        continue;
+      }
+
+      if (ITER_CONTROLLER_STOP_RE.test(line)) {
+        const reasonPart = iterControllerReason ? ` - reason: ${iterControllerReason}` : "";
+        const roundPart = iterRoundLabel ? ` - round ${iterRoundLabel}` : "";
+        setRunStatusText(`Run in progress${roundPart} - finalizing${reasonPart}`);
+        continue;
+      }
+
+      if (
+        line.toLowerCase().startsWith("(dynamic-iter) step:") &&
+        iterRoundLabel
+      ) {
+        setRunStatusText(`Run in progress - round ${iterRoundLabel} - running current step`);
+      }
+    }
+  }
+
   function stopProcessingUi() {
     if (processingTimer != null) {
       clearInterval(processingTimer);
@@ -132,6 +200,8 @@
     let i = 0;
     lastProgressText = "";
     lastProgressPct = 0;
+    iterRoundLabel = "";
+    iterControllerReason = "";
     el.textContent = "0% - Working…";
     processingTimer = setInterval(() => {
       i = (i + 1) % PROCESSING_HINTS.length;
@@ -148,6 +218,8 @@
     if (activityLabel) {
       activityLabel.textContent = "Run in progress—streaming crew output below…";
     }
+    iterRoundLabel = "";
+    iterControllerReason = "";
     if (chatPinned) chatPinned.hidden = true;
   }
 
@@ -211,6 +283,7 @@
       }
       if (data.type === "chunk") {
         const line = data.text || "";
+        applyIterativeStatusFromText(line);
         if (!assistantBubble) assistantBubble = appendBubble("assistant", "");
         if (streamVerbose) {
           assistantBubble.textContent += line;
