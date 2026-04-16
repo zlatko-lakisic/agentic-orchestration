@@ -7,6 +7,7 @@ YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-back
 - Abstract `AgentProvider` class for agent-provider definitions.
 - Workflow YAML under `config/workflows/` (default `config/workflows/workflow.yaml`).
 - Dynamic mode agent-provider templates: one YAML file per entry under `config/agent_providers/`.
+- Hardware-aware provider filtering by declared architecture (`cpu`/`gpu`/`tpu`) and optional VRAM.
 - Task execution order declared in `workflow.task_sequence`.
 - `main.py` loads YAML and starts CrewAI dynamically.
 - Rich agent-provider lifecycle hooks (see below).

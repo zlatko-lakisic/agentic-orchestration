@@ -2,7 +2,7 @@
 
 **A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**. It turns natural-language goals and YAML configuration into coordinated multi-agent workflows: planners choose steps and backends, agents execute with clear roles, and optional **Model Context Protocol (MCP)** servers extend each agent with tools (Home Assistant, docs, search, and custom servers you add to the catalog).
 
-You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, and **Hugging Face** models—picked per task from a catalog, filtered by credentials and (optionally) GPU memory, with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.
+You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, plus TPU endpoint providers (**vLLM** and **JetStream**)—picked per task from a catalog, filtered by credentials and hardware capability (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics), with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.
 
 **Why YAML and agnostic wiring?** So teams can **adopt this on top of what they already have**: fine-tuned or self-hosted models, **MCP** servers and in-house tools, and existing credentials—then **blend** those with generic, off-the-shelf agents from Ollama, OpenAI, Anthropic, and Hugging Face when that is faster or good enough. The aim is a **short path to a proof of concept** driven by catalogs and environment variables, without building planners, crews, or tool glue from scratch.
 
@@ -141,6 +141,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 
 - **CrewAI-native** — Agents, tasks, crews, sequential/hierarchical process.
 - **Model-agnostic catalogs** — `config/agent_providers/*.yaml` with `type: ollama | openai | anthropic | huggingface | vllm | jetstream`.
+- **Hardware-aware routing** — catalog entries can declare `hardware.architecture` (`cpu`/`gpu`/`tpu`) and incompatible providers are filtered out before planning.
 - **Dynamic planning** — Natural-language goals → JSON plan → ephemeral workflow.
 - **Per-task MCP** — MCP sets per step; agent instances deduplicated by provider + MCP fingerprint.
 - **MCP catalog** — YAML entries with credential gating and goal-based suggestions/pruning.
@@ -149,6 +150,13 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 - **Learning loop** — Structured eval + optional user ratings → stats fed back into planner context.
 - **Knowledge base** — SQLite FTS of past outputs for planner retrieval.
 - **Answer cache** — Repeat exact question in-session → instant replay + “reply no to re-run”.
+
+## TPU capabilities
+
+- **TPU architecture support** — providers can declare `hardware.architecture: [tpu]` (or mixed sets like `[cpu, gpu]`).
+- **Automatic detection** — runtime capability detection includes `cpu` by default, `gpu` via NVIDIA tooling, and `tpu` via TPU runtime markers.
+- **Manual overrides** — set `AGENTIC_AVAILABLE_ARCHITECTURES`, `AGENTIC_ASSUME_GPU`, and `AGENTIC_ASSUME_TPU` when auto-detection is not enough.
+- **TPU frameworks in catalog** — built-in provider types include `vllm` and `jetstream` for OpenAI-compatible TPU-serving endpoints.
 
 ---
 
