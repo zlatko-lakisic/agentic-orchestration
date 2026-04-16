@@ -3,8 +3,9 @@
 set -euo pipefail
 
 EXAMPLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOOL_ROOT="$(cd "$EXAMPLE_DIR/../../.." && pwd)"
-WEB_ROOT="$(cd "$TOOL_ROOT/../agentic-orchestration-web" && pwd)"
+REPO_ROOT="$(cd "$EXAMPLE_DIR/../../.." && pwd)"
+TOOL_ROOT="$(cd "$REPO_ROOT/agentic-orchestration-tool" && pwd)"
+WEB_ROOT="$(cd "$REPO_ROOT/agentic-orchestration-web" && pwd)"
 
 HOST="${HOST:-}"
 PORT="${PORT:-}"

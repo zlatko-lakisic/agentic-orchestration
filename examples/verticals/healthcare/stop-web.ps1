@@ -3,8 +3,8 @@ param()
 $ErrorActionPreference = "Stop"
 
 $ExampleDir = $PSScriptRoot
-$ToolRoot = (Resolve-Path (Join-Path $ExampleDir "..\..\..")).Path
-$WebRoot = (Resolve-Path (Join-Path $ToolRoot "..\agentic-orchestration-web")).Path
+$RepoRoot = (Resolve-Path (Join-Path $ExampleDir "..\..\..")).Path
+$WebRoot = (Resolve-Path (Join-Path $RepoRoot "agentic-orchestration-web")).Path
 $pidFile = Join-Path $ExampleDir ".web-server.pid"
 
 function Load-WebDotEnv {

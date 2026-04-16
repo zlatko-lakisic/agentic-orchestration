@@ -434,7 +434,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="NAME",
         help=(
-            "Load a built-in vertical under examples/verticals/<NAME>/ for this process: "
+            "Load a built-in vertical under <repo>/examples/verticals/<NAME>/ for this process: "
             "orchestrator context file + extra agent-provider and MCP YAML dirs. "
             "No copying paths into .env. Optional npm MCPs stay off unless you set their env gates."
         ),

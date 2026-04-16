@@ -24,7 +24,8 @@ def _prepend_path_list_env(key: str, path: Path) -> None:
 
 def apply_example_overlay_env(tool_root: Path, example: str) -> None:
     """
-    Point orchestrator context + extra catalogs at ``examples/verticals/<example>/``.
+    Point orchestrator context + extra catalogs at ``<repo>/examples/verticals/<example>/``
+    (sibling of ``agentic-orchestration-tool``).
 
     Does **not** enable optional third-party MCP servers (e.g. npm ``healthcare-mcp``); set their
     ``*_ENABLED`` env vars separately if you want those tools.
@@ -33,7 +34,7 @@ def apply_example_overlay_env(tool_root: Path, example: str) -> None:
     if ex != "healthcare":
         raise ValueError(f"Unknown --example {example!r} (supported: healthcare)")
 
-    root = (tool_root / "examples" / "verticals" / "healthcare").resolve()
+    root = (tool_root.parent / "examples" / "verticals" / "healthcare").resolve()
     ctx = root / "orchestrator-context.md"
     if not ctx.is_file():
         print(

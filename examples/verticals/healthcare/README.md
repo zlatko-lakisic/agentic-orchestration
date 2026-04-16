@@ -1,5 +1,7 @@
 # Healthcare vertical example
 
+This folder lives at the **monorepo root**: `examples/verticals/healthcare/` (sibling of `agentic-orchestration-tool/` and `agentic-orchestration-web/`), so one overlay can target both projects.
+
 ![Infographic: simplified agentic orchestration for healthcare—dynamic clinical orchestrator, specialized agents, MCP tool servers, QA gate, and re-plan loop](./banner.png)
 
 *Concept diagram.* The flow is: **unstructured clinical and operational input** (cases, symptoms, EHR-style questions, strategy prompts) → a **dynamic orchestrator** that plans and revises work → **specialized agents** (e.g. diagnostic or strategic framing, deep literature and regulatory research, execution-focused synthesis) → **tool-backed steps via MCP** (public evidence APIs, optional FHIR/search MCPs you add) → an **unbiased QA and verification** layer with **re-plan or pivot** when gaps appear, converging on an **evidence-aware, optimized result**. This example repo wires that pattern with env-driven overlays—not a fork of the core tool.
@@ -32,7 +34,7 @@ That is equivalent to `node server.mjs --example healthcare` and passes `--examp
 
 ### Web scripts (this folder)
 
-Scripts resolve `agentic-orchestration-web/` next to the tool repo, set **`AGENTIC_EXAMPLE=healthcare`**, and default **`AGENTIC_WEB_PORT` to `3850`** so you can run the stock web on `3847` and this example in parallel. Override with `AGENTIC_WEB_PORT` or `PORT` / `-Port` where noted. They load `agentic-orchestration-web/.env` when present (same rule as the main web: existing shell env wins).
+Scripts resolve the repo’s `agentic-orchestration-tool/` and `agentic-orchestration-web/` directories, set **`AGENTIC_EXAMPLE=healthcare`**, and default **`AGENTIC_WEB_PORT` to `3850`** so you can run the stock web on `3847` and this example in parallel. Override with `AGENTIC_WEB_PORT` or `PORT` / `-Port` where noted. They load `agentic-orchestration-web/.env` when present (same rule as the main web: existing shell env wins).
 
 | Script | Role |
 |--------|------|
@@ -89,7 +91,7 @@ What was generalized in the tool:
 ### Other MCPs you can add yourself
 
 - **Flexpa FHIR MCP** ([`flexpa/mcp-fhir`](https://github.com/flexpa/mcp-fhir)) — read/search FHIR when you have `FHIR_BASE_URL` and `FHIR_ACCESS_TOKEN` (SMART on FHIR). Add another YAML under `mcp_providers/` with `stdio` pointing at their built `index.js` once you follow their README.
-- **Hosted search MCPs** already in the base repo (`config/mcp_providers/search_tavily.yaml`, `search_brave.yaml`, …) pair well with literature-heavy tasks.
+- **Hosted search MCPs** already in the tool repo (`agentic-orchestration-tool/config/mcp_providers/search_tavily.yaml`, `search_brave.yaml`, …) pair well with literature-heavy tasks.
 
 ### Advanced: `.env` instead of `--example`
 

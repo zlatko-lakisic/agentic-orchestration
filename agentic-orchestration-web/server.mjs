@@ -63,7 +63,7 @@ const TOOL_ROOT = path.resolve(
 function applyExampleOverlayFromEnv() {
   const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
   if (ex !== "healthcare") return;
-  const h = path.join(TOOL_ROOT, "examples", "verticals", "healthcare");
+  const h = path.join(TOOL_ROOT, "..", "examples", "verticals", "healthcare");
   const ctx = path.join(h, "orchestrator-context.md");
   if (!fs.existsSync(ctx)) {
     console.warn(`[web] AGENTIC_EXAMPLE=healthcare but missing ${ctx}`);

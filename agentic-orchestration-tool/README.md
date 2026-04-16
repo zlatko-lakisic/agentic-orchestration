@@ -27,7 +27,7 @@ Router mode builds the catalog from `--config-dir` (default `config`): it scans 
 
 **Direct run** (no router): `python main.py` uses `--config` (default `config/workflows/workflow.yaml`). Those files do not need `meta` unless you also want them routable.
 
-Example routable workflows under `config/workflows/`: `workflow.yaml` (research brief), `workflow_brainstorm.yaml`, **`workflow_web_dev.yaml`** (Ollama-only analysts → architect → implementer for web tasks), and **`workflow_healthcare_commercial_brief.yaml`** (fixed multi-step healthcare brief). For a **config-only healthcare overlay** on dynamic mode + web (extra agents, MCP, orchestrator context), see **`examples/verticals/healthcare/README.md`**.
+Example routable workflows under `config/workflows/`: `workflow.yaml` (research brief), `workflow_brainstorm.yaml`, **`workflow_web_dev.yaml`** (Ollama-only analysts → architect → implementer for web tasks), and **`workflow_healthcare_commercial_brief.yaml`** (fixed multi-step healthcare brief). For a **config-only healthcare overlay** on dynamic mode + web (extra agents, MCP, orchestrator context), see **`../examples/verticals/healthcare/README.md`** (at the monorepo root).
 
 **Router run**: pass a task as the first argument. Ollama must be reachable (`OLLAMA_HOST`); set `ROUTER_OLLAMA_MODEL` to a pulled model (e.g. `llama3.2`).
 

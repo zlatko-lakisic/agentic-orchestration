@@ -5,8 +5,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ExampleDir = $PSScriptRoot
-$ToolRoot = (Resolve-Path (Join-Path $ExampleDir "..\..\..")).Path
-$WebRoot = (Resolve-Path (Join-Path $ToolRoot "..\agentic-orchestration-web")).Path
+$RepoRoot = (Resolve-Path (Join-Path $ExampleDir "..\..\..")).Path
+$ToolRoot = (Resolve-Path (Join-Path $RepoRoot "agentic-orchestration-tool")).Path
+$WebRoot = (Resolve-Path (Join-Path $RepoRoot "agentic-orchestration-web")).Path
 
 function Load-WebDotEnv {
   $envPath = Join-Path $WebRoot ".env"
