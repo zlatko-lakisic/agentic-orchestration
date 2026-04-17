@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from orchestration.attachments import build_attachment_block, compose_goal_with_attachments
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
 from orchestration.dynamic_planner import (
@@ -77,6 +78,21 @@ def _parse_dynamic_agent_provider_ids(raw: str | None) -> list[str]:
         seen.add(pid)
         out.append(pid)
     return out
+
+
+def _load_dynamic_attachment_block(args: argparse.Namespace, tool_root: Path) -> str:
+    raw = getattr(args, "dynamic_attachments", None)
+    if not raw or not str(raw).strip():
+        return ""
+    mp = resolve_manifest_path(str(raw).strip(), tool_root=tool_root)
+    if not mp.is_file():
+        print(f"error: --dynamic-attachments manifest not found: {mp}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        return build_attachment_block(tool_root=tool_root, manifest_path=mp)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: invalid attachment manifest ({mp}): {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _on_workflow_start(built: BuiltWorkflow) -> None:
@@ -565,6 +581,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--dynamic-attachments",
+        default=None,
+        metavar="MANIFEST.JSON",
+        help=(
+            "With --dynamic or --dynamic-iterative: JSON manifest of user files (path, name, mime, size). "
+            "The orchestrator infers file kinds and appends routing context for the planner. "
+            "Paths must be under <tool>/_web_uploads/ unless AGENTIC_ATTACHMENTS_ALLOW_ABSOLUTE=1."
+        ),
+    )
+    parser.add_argument(
         "--mcp-providers-catalog",
         default=_DEFAULT_MCP_PROVIDERS_CATALOG,
         metavar="PATH",
@@ -643,10 +669,15 @@ def main() -> None:
         sys.exit(2)
 
     if args.dynamic_iterative:
-        if not args.task or not str(args.task).strip():
+        has_manifest = bool(
+            getattr(args, "dynamic_attachments", None)
+            and str(args.dynamic_attachments).strip()
+        )
+        if (not args.task or not str(args.task).strip()) and not has_manifest:
             print(
                 "error: --dynamic-iterative requires TASK (your goal), e.g. "
-                'python main.py --dynamic-iterative "Explain mirrord and how to get started"',
+                'python main.py --dynamic-iterative "Explain mirrord and how to get started" '
+                "(or supply --dynamic-attachments with a manifest and an optional TASK).",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -665,7 +696,19 @@ def main() -> None:
                 "off",
             )
 
-        goal = str(args.task).strip()
+        attachment_block = _load_dynamic_attachment_block(args, tool_root)
+
+        def compose_goal(g: str) -> str:
+            return compose_goal_with_attachments(g, attachment_block)
+
+        raw_task = str(args.task or "").strip()
+        if not raw_task:
+            raw_task = (
+                "Use the attached files as the primary inputs. Summarize, extract insights, "
+                "and answer any implied questions."
+            )
+
+        logical_goal = raw_task
         explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
             "AGENTIC_ORCHESTRATOR_SESSION", ""
         ).strip()
@@ -688,23 +731,26 @@ def main() -> None:
         if _cache_enabled() and orchestrator_session_path.exists() and not args.orchestrator_session_reset:
             sess0 = load_session(orchestrator_session_path)
             # If user says "no" after a cached answer, rerun the pending goal.
-            if sess0.pending_reprocess_goal and _is_negative(goal):
-                goal = str(sess0.pending_reprocess_goal).strip()
+            if sess0.pending_reprocess_goal and _is_negative(str(args.task or "").strip()):
+                raw_task = str(sess0.pending_reprocess_goal).strip()
+                logical_goal = raw_task
                 sess0.pending_reprocess_goal = None
                 from orchestration.orchestrator_session import save_session
 
                 save_session(orchestrator_session_path, sess0)
-            else:
-                if sess0.last_user_goal and sess0.last_final_answer_excerpt:
-                    if _norm(sess0.last_user_goal) == _norm(goal):
-                        # Mark pending so a follow-up "no" can trigger a re-run of the same goal.
-                        sess0.pending_reprocess_goal = goal
-                        from orchestration.orchestrator_session import save_session
+            elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
+                cache_goal = compose_goal(raw_task)
+                if _norm(sess0.last_user_goal) == _norm(cache_goal):
+                    # Mark pending so a follow-up "no" can trigger a re-run of the same goal.
+                    sess0.pending_reprocess_goal = raw_task
+                    from orchestration.orchestrator_session import save_session
 
-                        save_session(orchestrator_session_path, sess0)
-                        print(sess0.last_final_answer_excerpt.strip())
-                        print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
-                        return
+                    save_session(orchestrator_session_path, sess0)
+                    print(sess0.last_final_answer_excerpt.strip())
+                    print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
+                    return
+
+        cache_goal = compose_goal(raw_task)
 
         manual_rounds = max(1, int(args.dynamic_iterative_rounds))
         max_rounds = manual_rounds
@@ -718,7 +764,7 @@ def main() -> None:
                 print(f"(dynamic-iter) round {label}", file=sys.stderr)
             try:
                 dyn_cfg, plan = build_dynamic_workflow_config(
-                    user_prompt=goal,
+                    user_prompt=compose_goal(logical_goal),
                     catalog_path=agent_providers_catalog_path,
                     allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
@@ -794,7 +840,7 @@ def main() -> None:
                     )
                     fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                     eval_data = evaluate_run_quality(
-                        user_goal=str(args.task).strip(),
+                        user_goal=compose_goal(logical_goal),
                         output_text=result_text or "",
                         model=None,
                     )
@@ -815,7 +861,7 @@ def main() -> None:
                         stats=st,
                         provider_id=provider_id,
                         mcp_fingerprint=fp,
-                        user_prompt=goal,
+                        user_prompt=compose_goal(logical_goal),
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )
                     save_stats(tool_root, st)
@@ -826,7 +872,7 @@ def main() -> None:
                 sess = load_session(orchestrator_session_path)
                 excerpt = (sess.last_crew_output_excerpt or "").strip()
                 decision = iterative_controller_decision(
-                    original_goal=str(args.task).strip(),
+                    original_goal=compose_goal(raw_task),
                     latest_excerpt=excerpt,
                     round_index=r,
                     max_rounds=max_rounds,
@@ -888,7 +934,7 @@ def main() -> None:
                     except Exception:  # noqa: BLE001
                         pass
                 if next_goal:
-                    goal = next_goal
+                    logical_goal = next_goal
                 if done and r >= min_rounds:
                     stderr_live = getattr(sys, "__stderr__", sys.stderr)
                     stderr_live.write(
@@ -905,7 +951,7 @@ def main() -> None:
             sess = load_session(orchestrator_session_path)
             excerpt = (sess.last_crew_output_excerpt or "").strip()
             synth_prompt = (
-                f"{goal}\n\n"
+                f"{compose_goal(logical_goal)}\n\n"
                 "Synthesize a final answer by combining the intermediate results below. "
                 "Resolve contradictions; if information is missing, explicitly list assumptions.\n\n"
                 "Math/finance formatting rules:\n"
@@ -941,7 +987,7 @@ def main() -> None:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
             update_session_after_final(
-                orchestrator_session_path, user_goal=str(args.task).strip(), result_text=result_text
+                orchestrator_session_path, user_goal=cache_goal, result_text=result_text
             )
             try:
                 from orchestration.knowledge_base import add_document
@@ -957,7 +1003,7 @@ def main() -> None:
                 add_document(
                     tool_root=tool_root,
                     session_slug=slug,
-                    user_goal=str(args.task).strip(),
+                    user_goal=cache_goal,
                     content=result_text or "",
                     provider_id=provider_id,
                     mcp_fingerprint=fp,
@@ -983,7 +1029,7 @@ def main() -> None:
                     )
                     fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                     eval_data = evaluate_run_quality(
-                        user_goal=str(args.task).strip(),
+                        user_goal=cache_goal,
                         output_text=result_text or "",
                         model=None,
                     )
@@ -1003,7 +1049,7 @@ def main() -> None:
                         stats=st,
                         provider_id=provider_id,
                         mcp_fingerprint=fp,
-                        user_prompt=goal,
+                        user_prompt=cache_goal,
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )
                     save_stats(tool_root, st)
@@ -1011,7 +1057,7 @@ def main() -> None:
                 pass
 
             emit_faithfulness_qa_report(
-                user_goal=str(args.task).strip(),
+                user_goal=cache_goal,
                 output_text=result_text,
                 model=None,
             )
@@ -1019,7 +1065,7 @@ def main() -> None:
             if result_text:
                 saved = offer_save_extracted_files(
                     tool_root=tool_root,
-                    user_task=goal,
+                    user_task=cache_goal,
                     result_text=result_text,
                     output_dir=save_output_dir,
                     no_save=no_save,
@@ -1030,20 +1076,26 @@ def main() -> None:
             sess = load_session(orchestrator_session_path)
             last_ex = (sess.last_crew_output_excerpt or "").strip()
             emit_faithfulness_qa_report(
-                user_goal=str(args.task).strip(),
+                user_goal=cache_goal,
                 output_text=last_ex or None,
                 model=None,
             )
         return
 
     if args.dynamic:
-        if not args.task or not str(args.task).strip():
+        has_manifest = bool(
+            getattr(args, "dynamic_attachments", None)
+            and str(args.dynamic_attachments).strip()
+        )
+        if (not args.task or not str(args.task).strip()) and not has_manifest:
             print(
                 "error: --dynamic requires TASK (your goal), e.g. "
-                'python main.py --dynamic "Compare REST vs gRPC for internal APIs"',
+                'python main.py --dynamic "Compare REST vs gRPC for internal APIs" '
+                "(or supply --dynamic-attachments with a manifest and an optional TASK).",
                 file=sys.stderr,
             )
             sys.exit(2)
+
         def _norm(s: str) -> str:
             return " ".join(str(s or "").strip().lower().split())
 
@@ -1058,7 +1110,18 @@ def main() -> None:
                 "off",
             )
 
-        goal = str(args.task).strip()
+        attachment_block = _load_dynamic_attachment_block(args, tool_root)
+
+        def compose_goal(g: str) -> str:
+            return compose_goal_with_attachments(g, attachment_block)
+
+        raw_task = str(args.task or "").strip()
+        if not raw_task:
+            raw_task = (
+                "Use the attached files as the primary inputs. Summarize, extract insights, "
+                "and answer any implied questions."
+            )
+
         explicit_session = (args.orchestrator_session or "").strip() or os.getenv(
             "AGENTIC_ORCHESTRATOR_SESSION", ""
         ).strip()
@@ -1078,25 +1141,26 @@ def main() -> None:
                 )
         if _cache_enabled() and orchestrator_session_path.exists() and not args.orchestrator_session_reset:
             sess0 = load_session(orchestrator_session_path)
-            if sess0.pending_reprocess_goal and _is_negative(goal):
-                goal = str(sess0.pending_reprocess_goal).strip()
+            if sess0.pending_reprocess_goal and _is_negative(str(args.task or "").strip()):
+                raw_task = str(sess0.pending_reprocess_goal).strip()
                 sess0.pending_reprocess_goal = None
                 from orchestration.orchestrator_session import save_session
 
                 save_session(orchestrator_session_path, sess0)
-            else:
-                if sess0.last_user_goal and sess0.last_final_answer_excerpt:
-                    if _norm(sess0.last_user_goal) == _norm(goal):
-                        sess0.pending_reprocess_goal = goal
-                        from orchestration.orchestrator_session import save_session
+            elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
+                cache_goal = compose_goal(raw_task)
+                if _norm(sess0.last_user_goal) == _norm(cache_goal):
+                    sess0.pending_reprocess_goal = raw_task
+                    from orchestration.orchestrator_session import save_session
 
-                        save_session(orchestrator_session_path, sess0)
-                        print(sess0.last_final_answer_excerpt.strip())
-                        print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
-                        return
+                    save_session(orchestrator_session_path, sess0)
+                    print(sess0.last_final_answer_excerpt.strip())
+                    print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
+                    return
+        cache_goal = compose_goal(raw_task)
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
-                user_prompt=goal,
+                user_prompt=cache_goal,
                 catalog_path=agent_providers_catalog_path,
                 allowed_agent_provider_ids=selected_dynamic_provider_ids,
                 mcp_catalog_path=mcp_catalog_path,
@@ -1132,10 +1196,10 @@ def main() -> None:
             sys.exit(exit_code)
         update_session_after_crew(orchestrator_session_path, result_text)
         update_session_after_final(
-            orchestrator_session_path, user_goal=str(args.task).strip(), result_text=result_text
+            orchestrator_session_path, user_goal=cache_goal, result_text=result_text
         )
         emit_faithfulness_qa_report(
-            user_goal=str(args.task).strip(),
+            user_goal=cache_goal,
             output_text=result_text,
             model=None,
         )
@@ -1149,7 +1213,7 @@ def main() -> None:
             add_document(
                 tool_root=tool_root,
                 session_slug=slug,
-                user_goal=str(args.task).strip(),
+                user_goal=cache_goal,
                 content=result_text or "",
                 provider_id=provider_id,
                 mcp_fingerprint=fp,
@@ -1173,7 +1237,7 @@ def main() -> None:
                     fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                     used.append((t.agent_provider_id, fp))
                 eval_data = evaluate_run_quality(
-                    user_goal=str(args.task).strip(),
+                    user_goal=cache_goal,
                     output_text=result_text or "",
                     model=None,
                 )
@@ -1188,7 +1252,7 @@ def main() -> None:
                         stats=st,
                         provider_id=pid,
                         mcp_fingerprint=fp,
-                        user_prompt=goal,
+                        user_prompt=cache_goal,
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )
                 save_stats(tool_root, st)
@@ -1197,7 +1261,7 @@ def main() -> None:
         if result_text:
             saved = offer_save_extracted_files(
                 tool_root=tool_root,
-                user_task=goal,
+                user_task=cache_goal,
                 result_text=result_text,
                 output_dir=save_output_dir,
                 no_save=no_save,

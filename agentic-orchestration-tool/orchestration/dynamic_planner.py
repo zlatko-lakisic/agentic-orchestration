@@ -374,6 +374,7 @@ Rules:
 - Read the user's goal and produce a clear step-by-step plan.
 - Common-sense check: when the user expects numeric calculations, ensure any equations are correctly labeled (LHS is the computed metric, not a raw expression), and avoid mismatched variable names.
 - **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`—no default bias toward local vs cloud. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference).
+- **Attached files:** If the user message includes `## Attached files`, use the listed categories (tabular, code, image, document, …), MIME types, and absolute paths to route work—e.g. data-heavy files to analysis/integration agents, code to engineering agents, images to multimodal agents when available.
 - **Mixing:** You may combine different `type` values in one plan when different steps call for different capabilities.
 - **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` agent providers.
 - Each step must assign exactly one `agent_provider_id` from the catalog (legacy key `provider_id` is also accepted if you output it by mistake).

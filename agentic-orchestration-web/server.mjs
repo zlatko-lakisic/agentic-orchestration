@@ -5,6 +5,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { WebSocketServer } from "ws";
@@ -383,6 +384,61 @@ function serveStatic(req, res) {
   });
 }
 
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_UPLOAD_TOTAL_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 8;
+
+function safeUploadBasename(name) {
+  const base = path.basename(String(name || "file").replace(/\\/g, "/"));
+  const cleaned = base.replace(/[^\w.\-()+&@#$%[\]{} ]+/g, "_").trim();
+  return cleaned.slice(0, 200) || "file.bin";
+}
+
+/**
+ * Writes uploaded files under `<toolRoot>/_web_uploads/<uuid>/` and returns the manifest path
+ * for `python main.py --dynamic-attachments`.
+ */
+function writeDynamicAttachmentManifest(toolRoot, files) {
+  if (!Array.isArray(files) || files.length === 0) return null;
+  const id = crypto.randomUUID();
+  const dir = path.join(toolRoot, "_web_uploads", id);
+  fs.mkdirSync(dir, { recursive: true });
+  const manifest = { files: [] };
+  let total = 0;
+  const n = Math.min(files.length, MAX_UPLOAD_FILES);
+  for (let i = 0; i < n; i++) {
+    const f = files[i];
+    const b64 = typeof f.data === "string" ? f.data : f.base64;
+    if (!b64 || typeof b64 !== "string") continue;
+    let buf;
+    try {
+      buf = Buffer.from(b64, "base64");
+    } catch {
+      continue;
+    }
+    if (buf.length > MAX_UPLOAD_BYTES) {
+      throw new Error(`File too large (max ${MAX_UPLOAD_BYTES} bytes each).`);
+    }
+    total += buf.length;
+    if (total > MAX_UPLOAD_TOTAL_BYTES) {
+      throw new Error(`Total upload too large (max ${MAX_UPLOAD_TOTAL_BYTES} bytes).`);
+    }
+    const name = safeUploadBasename(f.name);
+    const dest = path.join(dir, `${i}_${name}`);
+    fs.writeFileSync(dest, buf);
+    manifest.files.push({
+      path: dest,
+      name,
+      mime: typeof f.mime === "string" && f.mime.trim() ? f.mime.trim() : "application/octet-stream",
+      size: buf.length,
+    });
+  }
+  if (manifest.files.length === 0) return null;
+  const manifestPath = path.join(dir, "_manifest.json");
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  return manifestPath;
+}
+
 function runDynamic(
   {
     text,
@@ -396,6 +452,7 @@ function runDynamic(
     noVerify,
     verboseCrew,
     selectedAgentProviderIds,
+    attachmentManifestPath,
   },
   ws,
 ) {
@@ -445,6 +502,9 @@ function runDynamic(
     : [];
   if (selectedIds.length > 0) {
     args.push("--dynamic-agent-provider-ids", selectedIds.join(","));
+  }
+  if (attachmentManifestPath) {
+    args.push("--dynamic-attachments", attachmentManifestPath);
   }
 
   sendJson(ws, { type: "run_start", args });
@@ -537,7 +597,25 @@ wss.on("connection", (ws) => {
       sendJson(ws, { type: "error", message: "A run is already in progress for this connection." });
       return;
     }
-    const text = (msg.text || "").trim();
+    const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
+    let attachmentManifestPath = null;
+    if (hasFiles) {
+      try {
+        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, msg.files);
+      } catch (err) {
+        sendJson(ws, { type: "error", message: String(err && err.message ? err.message : err) });
+        return;
+      }
+      if (!attachmentManifestPath) {
+        sendJson(ws, { type: "error", message: "No valid file data in upload." });
+        return;
+      }
+    }
+    let text = (msg.text || "").trim();
+    if (!text && attachmentManifestPath) {
+      text =
+        "Analyze the attached files and follow any instructions in their names or contents.";
+    }
     if (!text) {
       sendJson(ws, { type: "error", message: "Empty message" });
       return;
@@ -556,6 +634,7 @@ wss.on("connection", (ws) => {
         noVerify: msg.noVerify !== false,
         verboseCrew: Boolean(msg.verboseCrew),
         selectedAgentProviderIds: msg.selectedAgentProviderIds,
+        attachmentManifestPath,
       },
       ws,
     );

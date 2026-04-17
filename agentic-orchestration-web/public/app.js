@@ -26,6 +26,7 @@
   const activityLabel = document.getElementById("activityLabel");
   const rateUpBtn = document.getElementById("rateUpBtn");
   const rateDownBtn = document.getElementById("rateDownBtn");
+  const fileInputEl = document.getElementById("fileInput");
 
   let ws = null;
   let assistantBubble = null;
@@ -546,9 +547,38 @@
     if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
   }
 
-  function sendChat() {
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const d = String(r.result || "");
+        const i = d.indexOf("base64,");
+        resolve(i >= 0 ? d.slice(i + 7) : "");
+      };
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function buildFilesPayload(fileList) {
+    const out = [];
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      const data = await fileToBase64(file);
+      if (!data) continue;
+      out.push({
+        name: file.name || "file",
+        mime: file.type || "application/octet-stream",
+        data,
+      });
+    }
+    return out;
+  }
+
+  async function sendChat() {
     const text = input.value.trim();
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN || runActive) return;
+    const hasFiles = Boolean(fileInputEl && fileInputEl.files && fileInputEl.files.length > 0);
+    if ((!text && !hasFiles) || !ws || ws.readyState !== WebSocket.OPEN || runActive) return;
 
     const modeRaw = (runModeEl?.value || "dynamic").trim();
     const runMode =
@@ -579,8 +609,22 @@
       return "general";
     }
 
-    appendBubble("user", text);
+    let filesPayload = [];
+    if (hasFiles) {
+      try {
+        filesPayload = await buildFilesPayload(fileInputEl.files);
+      } catch (err) {
+        appendMeta(`Could not read attachments: ${String(err?.message || err)}`);
+        return;
+      }
+    }
+
+    const userBubbleText = [text, filesPayload.length ? `[${filesPayload.length} attached file(s)]` : ""]
+      .filter(Boolean)
+      .join("\n");
+    appendBubble("user", userBubbleText || `[${filesPayload.length} attached file(s)]`);
     input.value = "";
+    if (fileInputEl) fileInputEl.value = "";
 
     const payload = {
       type: "chat",
@@ -594,6 +638,7 @@
       noVerify: true,
       verboseCrew: Boolean(verboseCrewEl?.checked),
       selectedAgentProviderIds: Array.from(selectedAgentProviderIds),
+      files: filesPayload,
     };
     if (resetSessionEl.checked && sessionId) {
       payload.resetSession = true;

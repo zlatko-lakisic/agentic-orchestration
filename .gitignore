@@ -16,6 +16,7 @@ env/
 
 # Agentic tool: LLM-extracted file dumps
 __output__/
+_web_uploads/
 __orchestrator_sessions__/
 __orchestrator_learning__/
 __orchestrator_kb__/
