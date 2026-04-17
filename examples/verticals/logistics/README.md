@@ -1,12 +1,26 @@
 # Logistics vertical example (warehousing)
 
-This folder lives at the **monorepo root**: `examples/verticals/logistics/` (sibling of `agentic-orchestration-tool/` and `agentic-orchestration-web/`). It targets **warehouse operations**: WMS execution, ERP supply-chain context, and **labor planning**—with three integration styles:
+![Infographic: simplified agentic orchestration for logistics—unstructured orders and fleet data, dynamic orchestrator, specialized agents, MCP-connected ERP/WMS systems, QA gate, re-plan loop](./banner.png)
+
+*Concept diagram.* The flow mirrors the healthcare vertical’s **same orchestration pattern**, applied to **operations**: **unstructured logistics input** (orders, sensor or telemetry cues, fleet / yard context) feeds a **dynamic orchestrator** that drives **recursive planning**—**interpret & plan** (strategic framing of constraints and hypotheses), **synthesize workflows** (research- or analysis-class steps), **execute with tools** (wrenches and gears: ERP/WMS/labor integrations via **MCP**), then an **unbiased QA & verification** gate with **re-plan / pivot** back into the loop until you reach an **optimized result** (slotting, waves, labor, or integration outcomes).
+
+The artwork still shows some **legacy healthcare labels** in the center and tool rail (e.g. “clinical,” medical icons, EHR-style pillars). **This vertical’s code and docs** intentionally map that story to **warehouse reality**: **ERP** (orders, purchasing, inventory policy), **WMS** (bins, waves, tasks, dock), and **labor** planning—not patient care. Tool servers are **MCP bridges to operational systems** (and our **simulated** fixtures MCP), not clinical systems.
+
+This folder lives at the **monorepo root**: `examples/verticals/logistics/` (sibling of `agentic-orchestration-tool/` and `agentic-orchestration-web/`). It targets **warehouse operations** with three integration styles:
 
 1. **Simulated MCP** — local Python tools backed by JSON **fixtures** (no ERP/WMS install).
 2. **Optional ERP MCP** — **streamable HTTP** to an MCP server **you** run that fronts SAP / Dynamics / NetSuite / ERPNext / etc.
 3. **Optional WMS MCP** — **streamable HTTP** to an MCP server **you** run that fronts your WMS (REST/OData bridges, vendor adapters, or community projects such as SAP EWM–oriented MCP experiments—verify licensing and security).
 
 Orchestrator rules live in `orchestrator-context.md` (simulation vs production, integration discipline, labor boundaries).
+
+| Asset | Purpose |
+|-------|---------|
+| `banner.png` | Pitch / deck diagram: agentic loop for logistics (align narrative above if you replace the artwork). |
+| `orchestrator-context.md` | Domain guardrails (simulation vs prod, ERP vs WMS truth, labor boundaries). |
+| `agent_providers/*.yaml` | WMS integration, ERP supply chain, labor planning personas. |
+| `mcp_providers/*.yaml` | Simulated stdio MCP + optional HTTP ERP/WMS MCP templates. |
+| `fixtures/*.json` | Simulated inventory, POs, labor, waves for the stub MCP. |
 
 ## Run it (no manual path merging)
 
