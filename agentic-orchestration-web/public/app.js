@@ -1,17 +1,39 @@
-import { marked } from "/vendor/marked.esm.js";
-import DOMPurify from "/vendor/purify.es.mjs";
+let markdownLibPromise = null;
 
-marked.setOptions({ breaks: true, gfm: true });
-
-function renderMarkdownSafe(md) {
-  const raw = marked.parse(String(md ?? ""), { async: false });
-  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+function loadMarkdownLibs() {
+  if (!markdownLibPromise) {
+    markdownLibPromise = Promise.all([
+      import("/vendor/marked.esm.js"),
+      import("/vendor/purify.es.mjs"),
+    ]).then(([markedMod, purifyMod]) => {
+      const { marked } = markedMod;
+      const DOMPurify = purifyMod.default;
+      marked.setOptions({ breaks: true, gfm: true });
+      return { marked, DOMPurify };
+    });
+  }
+  return markdownLibPromise;
 }
 
-function applyAssistantMarkdown(el, text) {
+async function renderMarkdownSafe(md) {
+  try {
+    const { marked, DOMPurify } = await loadMarkdownLibs();
+    const raw = marked.parse(String(md ?? ""), { async: false });
+    return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+  } catch {
+    return "";
+  }
+}
+
+async function applyAssistantMarkdown(el, text) {
   if (!el) return;
+  const html = await renderMarkdownSafe(text);
+  if (!html.trim()) {
+    applyAssistantPlain(el, text);
+    return;
+  }
   el.classList.add("msg-md");
-  el.innerHTML = renderMarkdownSafe(text);
+  el.innerHTML = html;
 }
 
 function applyAssistantPlain(el, text) {
@@ -280,7 +302,7 @@ function applyAssistantPlain(el, text) {
       appendMeta("WebSocket error");
     };
 
-    ws.onmessage = (ev) => {
+    ws.onmessage = async (ev) => {
       let data;
       try {
         data = JSON.parse(ev.data);
@@ -365,7 +387,11 @@ function applyAssistantPlain(el, text) {
             applyAssistantPlain(assistantBubble, err);
             assistantBubble.classList.add("stderr");
           } else if (out) {
-            applyAssistantMarkdown(assistantBubble, out);
+            try {
+              await applyAssistantMarkdown(assistantBubble, out);
+            } catch {
+              applyAssistantPlain(assistantBubble, out);
+            }
             assistantBubble.classList.remove("stderr");
           } else if (data.code !== 0) {
             applyAssistantPlain(
@@ -381,7 +407,11 @@ function applyAssistantPlain(el, text) {
         if (streamVerbose && assistantBubble) {
           const out = stdoutBuf.trim();
           if (out) {
-            applyAssistantMarkdown(assistantBubble, out);
+            try {
+              await applyAssistantMarkdown(assistantBubble, out);
+            } catch {
+              applyAssistantPlain(assistantBubble, out);
+            }
           }
         }
         appendMeta(`Exit code: ${data.code}${data.signal ? ` (${data.signal})` : ""}`);

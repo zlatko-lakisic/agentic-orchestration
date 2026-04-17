@@ -56,37 +56,6 @@ if (_nodeMajor < 14) {
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-/** ESM browser bundles for chat markdown (served from node_modules). */
-const VENDOR_ASSETS = new Map([
-  [
-    "/vendor/marked.esm.js",
-    path.join(__dirname, "node_modules", "marked", "lib", "marked.esm.js"),
-  ],
-  [
-    "/vendor/purify.es.mjs",
-    path.join(__dirname, "node_modules", "dompurify", "dist", "purify.es.mjs"),
-  ],
-]);
-
-function tryServeVendorAsset(req, res) {
-  const pathname = getRequestPathname(req);
-  const filePath = VENDOR_ASSETS.get(pathname);
-  if (!filePath) return false;
-  try {
-    if (!filePath.startsWith(path.join(__dirname, "node_modules"))) return false;
-    const data = fs.readFileSync(filePath);
-    res.writeHead(200, {
-      "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    });
-    res.end(data);
-    return true;
-  } catch {
-    res.writeHead(404).end("Not found");
-    return true;
-  }
-}
-
 const TOOL_ROOT = path.resolve(
   process.env.AGENTIC_TOOL_ROOT || path.join(__dirname, "..", "agentic-orchestration-tool"),
 );
@@ -310,6 +279,42 @@ function getRequestPathname(req) {
     p = p.replace(/\/{2,}/g, "/");
     if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
     return p || "/";
+  }
+}
+
+/** ESM browser bundles for chat markdown (served from node_modules). */
+const VENDOR_ASSETS = new Map([
+  [
+    "/vendor/marked.esm.js",
+    path.join(__dirname, "node_modules", "marked", "lib", "marked.esm.js"),
+  ],
+  [
+    "/vendor/purify.es.mjs",
+    path.join(__dirname, "node_modules", "dompurify", "dist", "purify.es.mjs"),
+  ],
+]);
+
+const _NODE_MODULES_ROOT = path.resolve(__dirname, "node_modules");
+
+function tryServeVendorAsset(req, res) {
+  const pathname = getRequestPathname(req);
+  const filePath = VENDOR_ASSETS.get(pathname);
+  if (!filePath) return false;
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(_NODE_MODULES_ROOT + path.sep)) {
+    return false;
+  }
+  try {
+    const data = fs.readFileSync(resolved);
+    res.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    });
+    res.end(data);
+    return true;
+  } catch {
+    res.writeHead(404).end("Not found");
+    return true;
   }
 }
 
