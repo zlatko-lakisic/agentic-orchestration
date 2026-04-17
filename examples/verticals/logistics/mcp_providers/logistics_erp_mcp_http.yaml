@@ -1,0 +1,27 @@
+# Optional: connect to an ERP-facing MCP server you host (Streamable HTTP), e.g. a bridge to SAP, Dynamics,
+# NetSuite, or an OSS stack (community servers vary—validate transport and auth with your vendor).
+# Example OSS direction: ERPNext MCP bridges (search “erpnext mcp server”); SAP EWM MCP for warehouse OData.
+id: logistics_erp_mcp_http
+description: >-
+  ERP-side tools exposed via MCP (orders, receipts, item master, purchasing) when you run a compatible
+  streamable-HTTP MCP gateway. Use non-prod / simulated tenants when experimenting.
+capabilities: >-
+  Depends entirely on the remote MCP—treat tool schemas as authoritative once connected.
+good_for: >-
+  Reconciling PO lines to receipts, checking open PO status, pulling item attributes that drive slotting rules.
+planner_hint: >-
+  Attach when LOGISTICS_ERP_MCP_URL is set to a working MCP endpoint and the user’s goal needs ERP-of-record facts.
+user_goal_keywords:
+  - erp
+  - purchase order
+  - asn
+  - receiving
+  - item master
+
+required_env:
+  - AGENTIC_MCP_LOGISTICS_ERP_HTTP_ENABLED
+  - LOGISTICS_ERP_MCP_URL
+
+streamable_http:
+  url: "${LOGISTICS_ERP_MCP_URL}"
+  headers: {}

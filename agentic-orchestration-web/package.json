@@ -6,7 +6,8 @@
   "description": "Chat UI (WebSocket) for agentic-orchestration-tool dynamic runs",
   "scripts": {
     "start": "node server.mjs",
-    "start:healthcare": "node server.mjs --example healthcare"
+    "start:healthcare": "node server.mjs --example healthcare",
+    "start:logistics": "node server.mjs --example logistics"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,29 @@
+# Local simulated ERP/WMS/labor tools backed by JSON fixtures (no external systems).
+# Requires the official Python MCP SDK in the same venv as main.py: pip install mcp
+# (see examples/verticals/logistics/requirements-mcp-stub.txt).
+id: logistics_sim_wms_erp
+description: >-
+  Demo-only tools: purchase orders (ERP view), WMS inventory snapshot, labor zone coverage, wave summary.
+  Data is static JSON under examples/verticals/logistics/fixtures/—not production.
+capabilities: >-
+  sim_erp_open_purchase_orders; sim_wms_inventory_snapshot; sim_labor_shift_coverage; sim_wms_wave_status
+good_for: >-
+  Dry-runs, training prompts, integration design, and UI demos when no real ERP/WMS MCP is connected yet.
+planner_hint: >-
+  Attach when the user wants tool-backed warehouse numbers without standing up SAP/ERPNext; label outputs as simulated.
+user_goal_keywords:
+  - warehouse
+  - wms
+  - inventory
+  - purchase order
+  - labor
+  - wave
+
+required_env:
+  - AGENTIC_MCP_LOGISTICS_SIM_ENABLED
+  - AGENTIC_LOGISTICS_SIM_MCP_PY
+
+stdio:
+  command: python
+  args:
+    - "${AGENTIC_LOGISTICS_SIM_MCP_PY}"

@@ -1,0 +1,24 @@
+{
+  "warehouses": {
+    "WH-East-01": {
+      "warehouse_id": "WH-East-01",
+      "snapshot_as_of": "2026-04-16T14:00:00Z",
+      "bins": [
+        {
+          "bin": "A-12-03",
+          "sku": "SKU-90012",
+          "qty_each": 240,
+          "lot": "L20260401",
+          "status": "available"
+        },
+        {
+          "bin": "B-04-01",
+          "sku": "SKU-44102",
+          "qty_each": 18,
+          "lot": "L20260322",
+          "status": "hold_qc"
+        }
+      ]
+    }
+  }
+}

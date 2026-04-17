@@ -6,6 +6,10 @@ import os
 import sys
 from pathlib import Path
 
+_EXAMPLE_IDS: tuple[str, ...] = ("healthcare", "logistics")
+
+_LOGISTICS_SIM_ENV = "AGENTIC_LOGISTICS_SIM_MCP_PY"
+
 
 def _prepend_path_list_env(key: str, path: Path) -> None:
     """Prepend *path* to a ``;``/``:``-separated search-path env var (merge with existing)."""
@@ -27,18 +31,20 @@ def apply_example_overlay_env(tool_root: Path, example: str) -> None:
     Point orchestrator context + extra catalogs at ``<repo>/examples/verticals/<example>/``
     (sibling of ``agentic-orchestration-tool``).
 
-    Does **not** enable optional third-party MCP servers (e.g. npm ``healthcare-mcp``); set their
-    ``*_ENABLED`` env vars separately if you want those tools.
+    Does **not** enable optional third-party MCP servers; set their ``*_ENABLED`` env vars separately.
     """
     ex = str(example or "").strip().lower()
-    if ex != "healthcare":
-        raise ValueError(f"Unknown --example {example!r} (supported: healthcare)")
+    if ex not in _EXAMPLE_IDS:
+        raise ValueError(f"Unknown --example {example!r} (supported: {', '.join(_EXAMPLE_IDS)})")
 
-    root = (tool_root.parent / "examples" / "verticals" / "healthcare").resolve()
+    if ex != "logistics":
+        os.environ.pop(_LOGISTICS_SIM_ENV, None)
+
+    root = (tool_root.parent / "examples" / "verticals" / ex).resolve()
     ctx = root / "orchestrator-context.md"
     if not ctx.is_file():
         print(
-            f"warning: healthcare example files missing under {root} (expected orchestrator-context.md)",
+            f"warning: example {ex!r} files missing under {root} (expected orchestrator-context.md)",
             file=sys.stderr,
         )
         return
@@ -50,3 +56,8 @@ def apply_example_overlay_env(tool_root: Path, example: str) -> None:
         _prepend_path_list_env("AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS", agents)
     if mcps.is_dir():
         _prepend_path_list_env("AGENTIC_EXTRA_MCP_PROVIDERS_PATH", mcps)
+
+    if ex == "logistics":
+        sim = root / "mcp_stubs" / "wms_erp_sim_mcp.py"
+        if sim.is_file():
+            os.environ[_LOGISTICS_SIM_ENV] = str(sim.resolve())

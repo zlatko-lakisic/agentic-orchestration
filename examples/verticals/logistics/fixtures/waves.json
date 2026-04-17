@@ -1,0 +1,9 @@
+{
+  "wave_id": "WAVE-2044",
+  "status": "released",
+  "priority": "same_day_carrier",
+  "lines": 184,
+  "units": 962,
+  "dock_doors": ["D7", "D8"],
+  "cutoff_local": "2026-04-16T16:30:00"
+}

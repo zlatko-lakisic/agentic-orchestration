@@ -1,0 +1,3 @@
+# Optional: only for the simulated logistics MCP (mcp_stubs/wms_erp_sim_mcp.py).
+# From your tool venv: pip install -r ../../examples/verticals/logistics/requirements-mcp-stub.txt
+mcp>=1.2.0

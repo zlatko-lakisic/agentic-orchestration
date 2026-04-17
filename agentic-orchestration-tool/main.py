@@ -430,13 +430,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--example",
-        choices=("healthcare",),
+        choices=("healthcare", "logistics"),
         default=None,
         metavar="NAME",
         help=(
             "Load a built-in vertical under <repo>/examples/verticals/<NAME>/ for this process: "
             "orchestrator context file + extra agent-provider and MCP YAML dirs. "
-            "No copying paths into .env. Optional npm MCPs stay off unless you set their env gates."
+            "No copying paths into .env. Optional MCPs stay off unless you set their env gates."
         ),
     )
     parser.add_argument(

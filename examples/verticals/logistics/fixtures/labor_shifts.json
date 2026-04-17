@@ -1,0 +1,12 @@
+{
+  "zones": {
+    "PICK-01": {
+      "zone_id": "PICK-01",
+      "shift_date": "2026-04-16",
+      "planned_headcount": 22,
+      "clocked_in": 20,
+      "indirect_pct_estimate": 0.11,
+      "notes": "Simulated: two call-offs; replenishment backlog on aisle 4."
+    }
+  }
+}

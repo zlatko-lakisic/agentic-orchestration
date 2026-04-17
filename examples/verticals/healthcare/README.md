@@ -32,6 +32,78 @@ npm run start:healthcare
 
 That is equivalent to `node server.mjs --example healthcare` and passes `--example healthcare` into each `main.py` run so the overlay matches the server process.
 
+## Example prompts and expected outputs
+
+Exact wording of answers will vary by model, planner, and whether **PubMed/FDA-style MCP tools** are enabled (`AGENTIC_MCP_HEALTHCARE_TOOLS_ENABLED=1`). The **expected outputs** below describe shape, guardrails, and evidence behavior—not a fixed transcript.
+
+### 1. Commercial / market (RPM, evidence-aware)
+
+**Prompt (copy-paste):**
+
+```text
+You are briefing a hospital innovation council on remote patient monitoring (RPM) for heart failure:
+compare two plausible vendor positioning stories (hardware + analytics + service), list what must be true
+clinically and operationally for adoption, and where public FDA or trial registry evidence would strengthen or weaken
+each story. No patient-specific advice; flag what legal/regulatory counsel should verify.
+```
+
+**Expected output:**
+
+- **Structure:** Short exec summary, then side-by-side or table-style comparison of the two “stories,” then a **evidence checklist** (what to verify with FDA labels, MAUDE-style narratives, trials, payer policies).
+- **Tone:** Strategy and operations, not bedside care; **no invented** recall numbers, approval statuses, or trial outcomes.
+- **Evidence:** If MCP/search tools are available, **citations or “per tool output” paraphrases** where claims are factual; otherwise explicit **“to verify via …”** placeholders.
+- **Close:** Clear **non-legal** disclaimer and **open questions** (connectivity, SLA, security, economic model).
+
+### 2. Regulatory / evidence framing (FDA surveillance narrative)
+
+**Prompt:**
+
+```text
+Draft an outline only for a medtech product manager explaining how FDA’s public device and adverse event data
+sources are typically used in post-market surveillance narratives (not legal advice). Include 5–7 bullet
+“claims we would only make with citations” and suggest PubMed / ClinicalTrials.gov angles to search next.
+```
+
+**Expected output:**
+
+- **Structure:** Numbered outline (not a full white paper); dedicated bullets for **claims requiring citations** vs **interpretive framing**.
+- **Tone:** Educational; repeatedly labels **regulatory fact vs interpretation vs hypothesis**.
+- **Evidence:** Named **data families** (e.g. device registration / classification patterns, FAERS-style themes as *categories*, trial registries) without fabricating statistics.
+- **Close:** **“Not legal advice”** and what counsel or RA should review before external use.
+
+### 3. Health economics / payer (connected care, neutral criteria)
+
+**Prompt:**
+
+```text
+For a US payer strategy memo (outline + assumptions): describe how hospitals might evaluate connected-care
+platforms (devices, connectivity, integration) using neutral criteria (coverage, SLA, security certifications,
+device onboarding, cost structure). Cite public sources where possible; say explicitly when you are inferring.
+```
+
+**Expected output:**
+
+- **Structure:** Memo skeleton (**context → evaluation criteria → comparison framework → risks/gaps → next steps**); explicit **assumptions** block.
+- **Tone:** **Neutral vendor language**; no endorsements; connectivity/telecom discussion stays criteria-based (per orchestrator context).
+- **Evidence:** Public where tools exist; **“inferred”** or **“illustrative”** labels on weakly sourced bullets.
+- **Close:** **Assumptions to validate** with hospital finance / IT / compliance.
+
+### 4. Short smoke test (RPM evidence needs)
+
+**Prompt:**
+
+```text
+Give a one-page structured outline on evidence needs for a hospital RPM program in CHF: what to prove with
+trials / FDA / payer literature, and what stays organizational judgment. No bedside recommendations.
+```
+
+**Expected output:**
+
+- **Structure:** Tight **one-page** outline (headings + bullets), **evidence vs judgment** clearly separated.
+- **Tone:** Planning-oriented; **refuses individualized treatment** instructions; may redirect true patient questions to licensed care.
+- **Evidence:** Lists **categories of evidence** (efficacy, safety monitoring, economic outcomes, operational feasibility) and **where** to look—not fake citation lists.
+- **Close:** **Next research steps** and stakeholders (clinical ops, finance, legal).
+
 ### Web scripts (this folder)
 
 Scripts resolve the repo’s `agentic-orchestration-tool/` and `agentic-orchestration-web/` directories, set **`AGENTIC_EXAMPLE=healthcare`**, and default **`AGENTIC_WEB_PORT` to `3850`** so you can run the stock web on `3847` and this example in parallel. Override with `AGENTIC_WEB_PORT` or `PORT` / `-Port` where noted. They load `agentic-orchestration-web/.env` when present (same rule as the main web: existing shell env wins).

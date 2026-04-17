@@ -1,0 +1,20 @@
+{
+  "orders": [
+    {
+      "po_id": "PO-77821",
+      "vendor": "ACME Packaging LLC",
+      "status": "open",
+      "lines": [
+        { "sku": "SKU-90012", "qty": 5000, "uom": "EA", "due_date": "2026-05-02" }
+      ]
+    },
+    {
+      "po_id": "PO-77805",
+      "vendor": "Northwind Labels",
+      "status": "partially_received",
+      "lines": [
+        { "sku": "SKU-22001", "qty": 1200, "uom": "RL", "due_date": "2026-04-28" }
+      ]
+    }
+  ]
+}

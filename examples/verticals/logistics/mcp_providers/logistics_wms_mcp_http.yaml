@@ -1,0 +1,27 @@
+# Optional: connect to a WMS-facing MCP server you host (Streamable HTTP), e.g. a thin facade over REST/OData
+# or a vendor-specific MCP adapter. For SAP-heavy warehouse stacks, community “SAP EWM MCP” projects exist—
+# validate licensing and security before use.
+id: logistics_wms_mcp_http
+description: >-
+  WMS-side tools (inventory, tasks, waves, dock doors) when a streamable-HTTP MCP endpoint is available.
+  Prefer sandboxes or read-only scopes for exploration.
+capabilities: >-
+  Depends on the remote MCP implementation.
+good_for: >-
+  Slotting and replenishment questions tied to real bin data, wave release checks, dock scheduling—when connected.
+planner_hint: >-
+  Attach when LOGISTICS_WMS_MCP_URL is set and the user needs WMS-of-record movements or tasks—not ERP PO data alone.
+user_goal_keywords:
+  - wms
+  - wave
+  - pick
+  - putaway
+  - dock
+
+required_env:
+  - AGENTIC_MCP_LOGISTICS_WMS_HTTP_ENABLED
+  - LOGISTICS_WMS_MCP_URL
+
+streamable_http:
+  url: "${LOGISTICS_WMS_MCP_URL}"
+  headers: {}

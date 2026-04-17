@@ -31,8 +31,9 @@ Verticals live under **[`examples/verticals/`](examples/verticals/)** at the **m
 | Vertical | `main.py` flag | Web shortcut | README |
 |----------|----------------|--------------|--------|
 | **Healthcare** (medtech / evidence / commercial brief pitch) | `--example healthcare` | `npm run start:healthcare` (from [`agentic-orchestration-web/`](agentic-orchestration-web/)) | [`examples/verticals/healthcare/README.md`](examples/verticals/healthcare/README.md) |
+| **Logistics** (warehousing: WMS / ERP MCP hooks + simulated fixtures + labor framing) | `--example logistics` | `npm run start:logistics` | [`examples/verticals/logistics/README.md`](examples/verticals/logistics/README.md) |
 
-**CLI (from `agentic-orchestration-tool/`):** `python main.py --example healthcare --dynamic "…"` — no manual path merging into `.env` for the overlay paths.
+**CLI (from `agentic-orchestration-tool/`):** e.g. `python main.py --example healthcare --dynamic "…"` or `python main.py --example logistics --dynamic "…"` — no manual path merging into `.env` for the overlay paths.
 
 **Maintainers — keep both indexes in sync:** when you add `examples/verticals/<id>/`, extend the table **above** and the **discovery table** in [`examples/verticals/README.md`](examples/verticals/README.md) with the stable `--example <id>` name, default example web port (if any), any `npm run start:<id>` or per-vertical script names, and a link to that folder’s `README.md`. Wire the example id in [`agentic-orchestration-tool/orchestration/example_overlays.py`](agentic-orchestration-tool/orchestration/example_overlays.py) and [`agentic-orchestration-tool/main.py`](agentic-orchestration-tool/main.py) (`--example` choices), and in the web server if you add a matching npm script or argv hook in [`agentic-orchestration-web/server.mjs`](agentic-orchestration-web/server.mjs) / [`agentic-orchestration-web/package.json`](agentic-orchestration-web/package.json).
 
@@ -72,7 +73,8 @@ agentic-orchestration/
 │   └── start-web-bg.ps1 / .sh   # Background (detached) starters
 ├── examples/
 │   └── verticals/               # Domain overlays (tool + web); see README in that folder
-│       └── healthcare/        # e.g. orchestrator context + extra catalogs + optional web scripts
+│       ├── healthcare/        # orchestrator context + extra catalogs + optional web scripts
+│       └── logistics/         # warehousing: ERP/WMS MCP templates + simulated MCP + web scripts
 └── (optional helper scripts at root)
 ```
 
@@ -190,7 +192,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 | [`agentic-orchestration-web/start-web-bg.sh`](agentic-orchestration-web/start-web-bg.sh) | Linux: detached (`nohup`) |
 | [`agentic-orchestration-web/stop-web-bg.sh`](agentic-orchestration-web/stop-web-bg.sh) | Linux: stop detached server |
 
-**Per-vertical web scripts** (alternate port, PID beside the example, not under `agentic-orchestration-web/`): see each folder under [`examples/verticals/`](examples/verticals/) — e.g. [`examples/verticals/healthcare/start-web.sh`](examples/verticals/healthcare/start-web.sh) and matching `start-web-bg.*` / `stop-web.*`.
+**Per-vertical web scripts** (alternate port, PID beside the example, not under `agentic-orchestration-web/`): see each folder under [`examples/verticals/`](examples/verticals/) — e.g. [`healthcare/start-web.sh`](examples/verticals/healthcare/start-web.sh) or [`logistics/start-web.sh`](examples/verticals/logistics/start-web.sh) and matching `start-web-bg.*` / `stop-web.*`.
 
 ---
 

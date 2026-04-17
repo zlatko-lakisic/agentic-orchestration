@@ -36,7 +36,7 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
-/** `node server.mjs --example healthcare` or env `AGENTIC_EXAMPLE=healthcare` (npm: `npm run start:healthcare`). */
+/** `node server.mjs --example <id>` or env `AGENTIC_EXAMPLE=<id>` (npm: `npm run start:healthcare`, `start:logistics`, …). */
 function detectExampleFromArgv() {
   const i = process.argv.indexOf("--example");
   if (i < 0) return;
@@ -59,20 +59,26 @@ const TOOL_ROOT = path.resolve(
   process.env.AGENTIC_TOOL_ROOT || path.join(__dirname, "..", "agentic-orchestration-tool"),
 );
 
-/** Match `orchestration/example_overlays.py` for the healthcare vertical (no manual .env paths). */
+/** Match `orchestration/example_overlays.py` (no manual .env paths for vertical roots). */
+const EXAMPLE_VERTICAL_SUBDIR = {
+  healthcare: "healthcare",
+  logistics: "logistics",
+};
+
 function applyExampleOverlayFromEnv() {
   const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
-  if (ex !== "healthcare") return;
-  const h = path.join(TOOL_ROOT, "..", "examples", "verticals", "healthcare");
-  const ctx = path.join(h, "orchestrator-context.md");
+  const sub = EXAMPLE_VERTICAL_SUBDIR[ex];
+  if (!sub) return;
+  const root = path.join(TOOL_ROOT, "..", "examples", "verticals", sub);
+  const ctx = path.join(root, "orchestrator-context.md");
   if (!fs.existsSync(ctx)) {
-    console.warn(`[web] AGENTIC_EXAMPLE=healthcare but missing ${ctx}`);
+    console.warn(`[web] AGENTIC_EXAMPLE=${ex} but missing ${ctx}`);
     return;
   }
   process.env.AGENTIC_ORCHESTRATOR_CONTEXT_FILE = ctx;
   const sep = process.platform === "win32" ? ";" : ":";
-  const agents = path.join(h, "agent_providers");
-  const mcps = path.join(h, "mcp_providers");
+  const agents = path.join(root, "agent_providers");
+  const mcps = path.join(root, "mcp_providers");
   if (fs.existsSync(agents)) {
     const cur = String(process.env.AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS || "").trim();
     process.env.AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS = cur.includes(agents)
@@ -88,6 +94,14 @@ function applyExampleOverlayFromEnv() {
       : cur
         ? `${mcps}${sep}${cur}`
         : mcps;
+  }
+  if (ex === "logistics") {
+    const sim = path.join(root, "mcp_stubs", "wms_erp_sim_mcp.py");
+    if (fs.existsSync(sim)) {
+      process.env.AGENTIC_LOGISTICS_SIM_MCP_PY = path.resolve(sim);
+    }
+  } else {
+    delete process.env.AGENTIC_LOGISTICS_SIM_MCP_PY;
   }
 }
 applyExampleOverlayFromEnv();
@@ -401,8 +415,8 @@ function runDynamic(
   const mode = String(runMode || "dynamic").trim();
   const args = ["main.py"];
   const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
-  if (ex === "healthcare") {
-    args.push("--example", "healthcare");
+  if (ex && Object.prototype.hasOwnProperty.call(EXAMPLE_VERTICAL_SUBDIR, ex)) {
+    args.push("--example", ex);
   }
   if (mode === "dynamic-iterative") {
     args.push("--dynamic-iterative", text);

@@ -6,9 +6,10 @@ These folders live at the **monorepo root** next to `agentic-orchestration-tool/
 
 | ID | Folder | CLI (`main.py`, from `agentic-orchestration-tool/`) | Web (`agentic-orchestration-web`) | Default example web port¹ | README |
 |----|--------|------------------------------------------------------|-----------------------------------|----------------------------|--------|
-| `healthcare` | [`healthcare/`](healthcare/) | `--example healthcare` | `npm run start:healthcare` → [`package.json`](../agentic-orchestration-web/package.json) script `start:healthcare` | `3850` | [`healthcare/README.md`](healthcare/README.md) |
+| `healthcare` | [`healthcare/`](healthcare/) | `--example healthcare` | `npm run start:healthcare` → [`package.json`](../agentic-orchestration-web/package.json) | `3850` | [`healthcare/README.md`](healthcare/README.md) |
+| `logistics` | [`logistics/`](logistics/) | `--example logistics` | `npm run start:logistics` → [`package.json`](../agentic-orchestration-web/package.json) | `3851` | [`logistics/README.md`](logistics/README.md) |
 
-¹Per-vertical scripts under `healthcare/` default **`AGENTIC_WEB_PORT`** to **3850** so the stock UI can stay on **3847**. Override with env when starting those scripts.
+¹Per-vertical scripts default **`AGENTIC_WEB_PORT`** to **3850** (healthcare) or **3851** (logistics) so the stock UI can stay on **3847**. Override with env when starting those scripts.
 
 ## How it works
 
@@ -24,6 +25,6 @@ When a vertical ships **web scripts** in its own folder, they may include `start
 ## Adding or renaming a vertical
 
 1. Add `examples/verticals/<id>/` with a **`README.md`** describing the scenario, env gates, and scripts.
-2. Wire **`--example <id>`** in `example_overlays.py` + `main.py` argparse `choices`.
-3. Wire **web**: `server.mjs` (`applyExampleOverlayFromEnv` / spawn argv) and **`package.json`** `start:<id>` if you want a one-liner from the web package.
+2. Wire **`--example <id>`** in `example_overlays.py` (`_EXAMPLE_IDS`) + `main.py` argparse `choices`.
+3. Wire **web**: `server.mjs` (`EXAMPLE_VERTICAL_SUBDIR`, `applyExampleOverlayFromEnv`, spawn argv) and **`package.json`** `start:<id>` if you want a one-liner from the web package.
 4. Update **this file’s table** and the **Example verticals** table + maintainer bullets in the root [`README.md`](../README.md).
