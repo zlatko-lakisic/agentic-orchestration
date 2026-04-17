@@ -1,4 +1,26 @@
-(() => {
+import { marked } from "/vendor/marked.esm.js";
+import DOMPurify from "/vendor/purify.es.mjs";
+
+marked.setOptions({ breaks: true, gfm: true });
+
+function renderMarkdownSafe(md) {
+  const raw = marked.parse(String(md ?? ""), { async: false });
+  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+}
+
+function applyAssistantMarkdown(el, text) {
+  if (!el) return;
+  el.classList.add("msg-md");
+  el.innerHTML = renderMarkdownSafe(text);
+}
+
+function applyAssistantPlain(el, text) {
+  if (!el) return;
+  el.classList.remove("msg-md");
+  el.textContent = text;
+}
+
+{
   const chat = document.getElementById("chat");
   const chatScroll = document.getElementById("chatScroll");
   const chatPinned = document.getElementById("chatPinned");
@@ -340,18 +362,26 @@
           const out = stdoutBuf.trim();
           const err = stderrBuf.trim();
           if (data.code !== 0 && err) {
-            assistantBubble.textContent = err;
+            applyAssistantPlain(assistantBubble, err);
             assistantBubble.classList.add("stderr");
           } else if (out) {
-            assistantBubble.textContent = out;
+            applyAssistantMarkdown(assistantBubble, out);
             assistantBubble.classList.remove("stderr");
           } else if (data.code !== 0) {
-            assistantBubble.textContent =
-              "Something went wrong (no details on stdout). Check the terminal running the web server.";
+            applyAssistantPlain(
+              assistantBubble,
+              "Something went wrong (no details on stdout). Check the terminal running the web server.",
+            );
             assistantBubble.classList.add("stderr");
           } else {
-            assistantBubble.textContent = "(No output)";
+            applyAssistantPlain(assistantBubble, "(No output)");
             assistantBubble.classList.remove("stderr");
+          }
+        }
+        if (streamVerbose && assistantBubble) {
+          const out = stdoutBuf.trim();
+          if (out) {
+            applyAssistantMarkdown(assistantBubble, out);
           }
         }
         appendMeta(`Exit code: ${data.code}${data.signal ? ` (${data.signal})` : ""}`);
@@ -716,4 +746,4 @@
   loadAgentProviderCatalog();
   initToolbarCollapse();
   connect();
-})();
+}

@@ -44,6 +44,7 @@ class _SequentialKickoffState:
     last_completed: int = field(default=-1)
     last_output_text: str = field(default="")
     progress_enabled: bool = field(default=False)
+    emit_progress_lines: bool = True
 
 
 @dataclass
@@ -76,7 +77,7 @@ def _progress(msg: str) -> None:
     Written to the original stdout so it still appears when caller redirects stdout.
     """
     state = _KICKOFF_CB_STATE.get()
-    if state is None or not state.progress_enabled:
+    if state is None or not state.progress_enabled or not state.emit_progress_lines:
         return
     text = str(msg).strip()
     if not text:
@@ -214,6 +215,7 @@ def build_workflow(
     crew_verbose: bool = True,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    emit_progress_lines: bool = True,
 ) -> BuiltWorkflow:
     """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
 
@@ -370,6 +372,7 @@ def build_workflow(
     kickoff_state.progress_enabled = (
         os.getenv("AGENTIC_PROGRESS", "1").strip().lower() not in ("0", "false", "no", "off")
     )
+    kickoff_state.emit_progress_lines = bool(emit_progress_lines)
 
     crew = Crew(
         agents=agents,

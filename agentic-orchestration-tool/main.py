@@ -143,8 +143,14 @@ def run_built_workflow(
     built: BuiltWorkflow,
     *,
     quiet: bool = False,
+    emit_stdout_summary: bool = True,
 ) -> tuple[int, str | None]:
-    """Execute a pre-built crew; return (exit code, final output text if any)."""
+    """Execute a pre-built crew; return (exit code, final output text if any).
+
+    When ``emit_stdout_summary`` is False, the crew still runs and ``result_text`` is
+    captured, but nothing is printed to stdout for this kickoff (used for dynamic
+    iterative intermediate rounds so UIs can show a single final answer).
+    """
     _on_workflow_start(built)
 
     exit_code = 0
@@ -207,14 +213,15 @@ def run_built_workflow(
                 print(f"Error: {exc}", file=sys.stderr)
                 exit_code = 1
         else:
-            if quiet:
-                if workflow_result is not None:
-                    _disp = workflow_result_display_text(workflow_result)
-                    if _disp:
-                        print(_disp, flush=True)
-            else:
-                print("\n=== Workflow Output ===\n")
-                print(workflow_result)
+            if emit_stdout_summary:
+                if quiet:
+                    if workflow_result is not None:
+                        _disp = workflow_result_display_text(workflow_result)
+                        if _disp:
+                            print(_disp, flush=True)
+                else:
+                    print("\n=== Workflow Output ===\n")
+                    print(workflow_result)
             if workflow_result is not None:
                 result_text = workflow_result_to_extractable_text(workflow_result)
     finally:
@@ -758,6 +765,14 @@ def main() -> None:
             max_rounds = max(1, int(args.dynamic_iterative_max_rounds))
         min_rounds = max(1, int(args.dynamic_iterative_min_rounds))
 
+        stream_iter_steps = os.getenv("AGENTIC_DYNAMIC_ITER_STREAM_STEPS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        last_iter_crew_text: str | None = None
+
         for r in range(1, max_rounds + 1):
             if not args.quiet:
                 label = f"{r}/{max_rounds}" if args.dynamic_iterative_auto else f"{r}/{manual_rounds}"
@@ -815,10 +830,16 @@ def main() -> None:
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 mcp_catalog_path=mcp_catalog_path,
+                emit_progress_lines=stream_iter_steps,
             )
-            exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
+            exit_code, result_text = run_built_workflow(
+                built,
+                quiet=args.quiet,
+                emit_stdout_summary=stream_iter_steps,
+            )
             if exit_code:
                 sys.exit(exit_code)
+            last_iter_crew_text = result_text or last_iter_crew_text
             update_session_after_crew(orchestrator_session_path, result_text)
             # Learning: evaluate + update local stats (best-effort).
             try:
@@ -925,12 +946,12 @@ def main() -> None:
                             f"(~{pct}% complete)",
                             file=sys.stderr,
                         )
-                    # Emit progress line even in quiet mode so non-verbose UIs can surface it.
+                    # Keep stdout clean for non-verbose UIs that only surface the final summary there.
                     try:
-                        sys.__stdout__.write(
+                        sys.__stderr__.write(
                             f"(progress) ~{pct}% complete; estimated rounds remaining: ~{est_left_i}{conf_part}\n"
                         )
-                        sys.__stdout__.flush()
+                        sys.__stderr__.flush()
                     except Exception:  # noqa: BLE001
                         pass
                 if next_goal:
@@ -945,6 +966,11 @@ def main() -> None:
 
             if not args.dynamic_iterative_auto and r >= manual_rounds:
                 break
+
+        if args.dynamic_iterative_no_synthesize and not stream_iter_steps and last_iter_crew_text:
+            body = str(last_iter_crew_text).strip()
+            if body:
+                print(body, flush=True)
 
         if not args.dynamic_iterative_no_synthesize:
             # Final synthesis: use the last crew excerpt as context.
@@ -981,8 +1007,13 @@ def main() -> None:
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 mcp_catalog_path=mcp_catalog_path,
+                emit_progress_lines=stream_iter_steps,
             )
-            exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
+            exit_code, result_text = run_built_workflow(
+                built,
+                quiet=args.quiet,
+                emit_stdout_summary=True,
+            )
             if exit_code:
                 sys.exit(exit_code)
             update_session_after_crew(orchestrator_session_path, result_text)
