@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
-from typing import Any, TextIO
+from typing import Any, Iterator, TextIO
 
 import platform
 import shutil
@@ -258,9 +259,107 @@ def start_ollama_server(host: str) -> None:
     )
 
 
+def _iter_ollama_pull_ndjson(resp: Any) -> Iterator[dict[str, Any]]:
+    while True:
+        raw_b = resp.readline()
+        if not raw_b:
+            break
+        line = raw_b.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+
+def _format_api_pull_progress_display_line(obj: dict[str, Any], *, model: str) -> str | None:
+    err = obj.get("error")
+    if err:
+        raise RuntimeError(f"Failed to pull Ollama model '{model}': {err}")
+    status = str(obj.get("status") or "").strip()
+    if not status or status.casefold() == "success":
+        return None
+    s = status.casefold()
+    if "pulling" not in s:
+        return None
+    total = obj.get("total")
+    completed = obj.get("completed")
+    if isinstance(total, int) and isinstance(completed, int) and total > 0 and "%" not in status:
+        pct = min(100, int(100 * completed / total))
+        status = f"{status}  {pct}%"
+    if "%" in status or any(x in status for x in ("MB", "GB", "KB")):
+        return status
+    if "manifest" in s:
+        return f"{status}  0%"
+    return None
+
+
+def _pull_ollama_model_via_http_api(model: str, host: str) -> None:
+    """Pull via POST /api/pull so the daemon at `host` downloads into its own model dir.
+
+    That matches inference (same `OLLAMA_HOST`), whereas a local `ollama pull` subprocess
+    can still interact with a different Ollama home (e.g. root `~/.ollama`) if another
+    `ollama serve` is bound to the address or the CLI resolves storage differently.
+    """
+    url = f"{host.rstrip('/')}/api/pull"
+    body = json.dumps({"model": model, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=None) as resp:
+            if not _ollama_cli_inherit_stdio():
+                if not _ollama_pull_progress_stderr_enabled():
+                    for obj in _iter_ollama_pull_ndjson(resp):
+                        _format_api_pull_progress_display_line(obj, model=model)
+                    return
+
+                _emit_pull_progress_line(f"ollama pull: starting {model}")
+                for obj in _iter_ollama_pull_ndjson(resp):
+                    pl = _format_api_pull_progress_display_line(obj, model=model)
+                    if pl:
+                        norm = _normalize_ollama_pull_display_line(pl + "\n")
+                        if norm:
+                            _emit_pull_progress_line(f"ollama pull: {norm}")
+                _emit_pull_progress_line(f"ollama pull: complete {model}")
+                return
+
+            def progress_lines() -> Iterator[str]:
+                for obj in _iter_ollama_pull_ndjson(resp):
+                    pl = _format_api_pull_progress_display_line(obj, model=model)
+                    if pl:
+                        yield pl + "\n"
+
+            _rewrite_ollama_pull_to_single_line(progress_lines())  # type: ignore[arg-type]
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:  # noqa: BLE001
+            detail = ""
+        msg = f"Failed to pull Ollama model '{model}' (HTTP {exc.code})."
+        if detail:
+            msg = f"{msg} {detail}"
+        raise RuntimeError(msg) from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        raise RuntimeError(
+            f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
+        ) from exc
+
+
 def pull_ollama_model(model: str, host: str) -> None:
     cache_key = f"{host.rstrip('/')}\0{model}"
     if cache_key in _ollama_pull_done:
+        return
+
+    base = host.rstrip("/")
+    if base.lower().startswith("http://") or base.lower().startswith("https://"):
+        _pull_ollama_model_via_http_api(model, base)
+        _ollama_pull_done.add(cache_key)
         return
 
     env = os.environ.copy()
