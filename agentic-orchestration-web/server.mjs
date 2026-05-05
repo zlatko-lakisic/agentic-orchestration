@@ -8,6 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -361,6 +362,897 @@ function isApiPing(req) {
   return pl === "/api/ping" || pl.endsWith("/api/ping");
 }
 
+/** OpenAI-compatible chat completions (proxy). Matches `/v1/chat/completions` with resilient path parsing. */
+function isOpenAiChatCompletionsPath(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  const slashNorm = (s) => s.replace(/\\/g, "/");
+  for (const c of [head, decoded, slashNorm(head), slashNorm(decoded)]) {
+    if (/\/v1\/chat\/completions\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/v1/chat/completions" || pl.endsWith("/v1/chat/completions");
+}
+
+/** OpenAI-compatible responses API (proxy). Matches `/v1/responses`. */
+function isOpenAiResponsesPath(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  const slashNorm = (s) => s.replace(/\\/g, "/");
+  for (const c of [head, decoded, slashNorm(head), slashNorm(decoded)]) {
+    if (/\/v1\/responses\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/v1/responses" || pl.endsWith("/v1/responses");
+}
+
+/** Align with `agent_providers/openai_provider.py`: ensure base ends with `/v1`. */
+function normalizeOpenAiBaseUrl(raw) {
+  let u = String(raw || "").trim().replace(/\/+$/, "");
+  if (!u) u = "https://api.openai.com";
+  if (!u.startsWith("http://") && !u.startsWith("https://")) {
+    u = `http://${u}`;
+  }
+  if (!/\/v1$/i.test(u)) {
+    u = `${u}/v1`;
+  }
+  return u;
+}
+
+const MAX_CHAT_COMPLETIONS_BODY_BYTES = 25 * 1024 * 1024;
+
+const _HOP_BY_HOP_RESPONSE_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailers",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function chatCompletionsCorsHeaders() {
+  const origin = String(process.env.AGENTIC_CHAT_COMPLETIONS_CORS_ORIGIN || "*").trim() || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Authorization, Content-Type, OpenAI-Organization, OpenAI-Project, OpenAI-Beta",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function collectForwardResponseHeaders(upstream) {
+  const out = { ...chatCompletionsCorsHeaders() };
+  upstream.headers.forEach((value, key) => {
+    const lk = key.toLowerCase();
+    if (_HOP_BY_HOP_RESPONSE_HEADERS.has(lk)) return;
+    if (lk === "content-length") return;
+    out[key] = value;
+  });
+  return out;
+}
+
+function readRequestBodyBuf(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error(`Request body too large (max ${maxBytes} bytes).`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+/** Same optional fields as the WebSocket `chat` message (`public/app.js`), nested under JSON `agentic`. */
+function normalizeAgenticExtension(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw;
+}
+
+function wantsAgenticOrchestration(agentic) {
+  if (agentic.orchestrate === false) return false;
+  if (agentic.orchestrate === true) return true;
+  const mode = String(agentic.runMode || "").trim();
+  return mode === "dynamic" || mode === "dynamic-iterative";
+}
+
+function messageContentToString(content) {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts = [];
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const t = part.type;
+      if ((t === "text" || t === "input_text") && typeof part.text === "string") {
+        parts.push(part.text);
+      }
+    }
+    return parts.join("\n");
+  }
+  return String(content);
+}
+
+/** Turn chat `messages` into one prompt string for `main.py --dynamic`. */
+function messagesToDynamicText(messages) {
+  const lines = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const role = String(m.role || "user");
+    const body = messageContentToString(m.content).trim();
+    if (body) lines.push(`[${role}]\n${body}`);
+  }
+  return lines.join("\n\n---\n\n");
+}
+
+/** Drop `agentic` so upstream OpenAI-compatible servers do not reject unknown fields. */
+function openAiPayloadForUpstream(payload) {
+  if (!payload || typeof payload !== "object") return {};
+  const { agentic: _omit, ...rest } = payload;
+  return rest;
+}
+
+function responsesInputToMessages(input) {
+  if (typeof input === "string") {
+    return [{ role: "user", content: input }];
+  }
+  if (Array.isArray(input)) {
+    const messages = [];
+    for (const item of input) {
+      if (!item || typeof item !== "object") continue;
+      const type = String(item.type || "").trim().toLowerCase();
+      const role = String(item.role || (type === "message" ? "user" : "user")).trim() || "user";
+      if (type === "message") {
+        messages.push({ role, content: item.content });
+        continue;
+      }
+      if (typeof item.text === "string") {
+        messages.push({ role: "user", content: item.text });
+      }
+    }
+    return messages;
+  }
+  if (input && typeof input === "object") {
+    const type = String(input.type || "").trim().toLowerCase();
+    if (type === "message") {
+      return [{ role: String(input.role || "user"), content: input.content }];
+    }
+    if (typeof input.text === "string") {
+      return [{ role: "user", content: input.text }];
+    }
+  }
+  return [];
+}
+
+function buildResponsesSuccessPayload(model, content) {
+  const created = Math.floor(Date.now() / 1000);
+  return {
+    id: `resp-agentic-${crypto.randomUUID()}`,
+    object: "response",
+    created_at: created,
+    status: "completed",
+    model,
+    output: [
+      {
+        id: `msg-agentic-${crypto.randomUUID()}`,
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: content }],
+      },
+    ],
+    output_text: content,
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+    },
+  };
+}
+
+async function handleOpenAiChatCompletions(req, res) {
+  const cors = chatCompletionsCorsHeaders();
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, cors).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "Method not allowed",
+          type: "invalid_request_error",
+          param: null,
+          code: "method_not_allowed",
+        },
+      }),
+    );
+    return;
+  }
+
+  const gate = String(process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "").trim();
+  if (gate) {
+    const auth = String(req.headers.authorization || "").trim();
+    const matches = auth === `Bearer ${gate}` || auth === gate;
+    if (!matches) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Incorrect API key provided.",
+            type: "invalid_request_error",
+            param: null,
+            code: "invalid_api_key",
+          },
+        }),
+      );
+      return;
+    }
+  }
+
+  let bodyBuf;
+  try {
+    bodyBuf = await readRequestBodyBuf(req, MAX_CHAT_COMPLETIONS_BODY_BYTES);
+  } catch (err) {
+    res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: String(err && err.message ? err.message : err),
+          type: "invalid_request_error",
+          param: null,
+          code: "request_too_large",
+        },
+      }),
+    );
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(bodyBuf.length ? bodyBuf.toString("utf8") : "{}");
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "Invalid JSON body",
+          type: "invalid_request_error",
+          param: null,
+          code: "invalid_json",
+        },
+      }),
+    );
+    return;
+  }
+
+  if (
+    payload == null ||
+    typeof payload !== "object" ||
+    typeof payload.model !== "string" ||
+    !payload.model.trim() ||
+    !Array.isArray(payload.messages)
+  ) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "'model' (string) and 'messages' (array) are required.",
+          type: "invalid_request_error",
+          param: null,
+          code: "missing_required_parameter",
+        },
+      }),
+    );
+    return;
+  }
+
+  const agentic = normalizeAgenticExtension(payload.agentic);
+  const upstreamPayloadJson = JSON.stringify(openAiPayloadForUpstream(payload));
+  const upstreamBodyBuf = Buffer.from(upstreamPayloadJson, "utf8");
+
+  if (wantsAgenticOrchestration(agentic)) {
+    if (Boolean(payload.stream)) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              "Streaming is not supported when agentic orchestration is requested. Omit \"stream\" or set agentic.runMode to omit dynamic routing.",
+            type: "invalid_request_error",
+            param: "stream",
+            code: "unsupported_parameter",
+          },
+        }),
+      );
+      return;
+    }
+
+    let dynamicText = messagesToDynamicText(payload.messages);
+    let attachmentManifestPath = null;
+    const files = Array.isArray(agentic.files) ? agentic.files : [];
+    if (files.length > 0) {
+      try {
+        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, files);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: String(err && err.message ? err.message : err),
+              type: "invalid_request_error",
+              param: "agentic.files",
+              code: "invalid_attachment",
+            },
+          }),
+        );
+        return;
+      }
+      if (!attachmentManifestPath) {
+        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: "No valid file data in agentic.files (expect base64 in data or base64).",
+              type: "invalid_request_error",
+              param: "agentic.files",
+              code: "invalid_attachment",
+            },
+          }),
+        );
+        return;
+      }
+    }
+    if (!dynamicText.trim() && attachmentManifestPath) {
+      dynamicText =
+        "Analyze the attached files and follow any instructions in their names or contents.";
+    }
+    if (!dynamicText.trim()) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "messages must yield non-empty text for orchestration (or attach files under agentic.files).",
+            type: "invalid_request_error",
+            param: "messages",
+            code: "empty_prompt",
+          },
+        }),
+      );
+      return;
+    }
+
+    let runResult;
+    try {
+      runResult = await runDynamicAwait({
+        text: dynamicText,
+        runMode: agentic.runMode,
+        iterativeRounds: agentic.iterativeRounds,
+        autoIter: Boolean(agentic.autoIter),
+        iterativeMaxRounds: agentic.iterativeMaxRounds,
+        noSynthesize: Boolean(agentic.noSynthesize),
+        sessionId: agentic.sessionId,
+        resetSession: Boolean(agentic.resetSession),
+        noVerify: agentic.noVerify !== false,
+        verboseCrew: Boolean(agentic.verboseCrew),
+        selectedAgentProviderIds: agentic.selectedAgentProviderIds,
+        attachmentManifestPath,
+      });
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : err);
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: msg,
+            type: "agentic_run_error",
+            param: null,
+            code: "orchestration_failed",
+          },
+        }),
+      );
+      return;
+    }
+
+    if (runResult.code !== 0) {
+      const hint = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim();
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`,
+            type: "agentic_run_error",
+            param: null,
+            code: "orchestration_exit_nonzero",
+          },
+        }),
+      );
+      return;
+    }
+
+    const content = [runResult.stdout, runResult.stderr ? `\n--- stderr ---\n${runResult.stderr}` : ""]
+      .join("")
+      .trim();
+    const created = Math.floor(Date.now() / 1000);
+    const id = `chatcmpl-agentic-${crypto.randomUUID()}`;
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        id,
+        object: "chat.completion",
+        created,
+        model: payload.model.trim(),
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+      }),
+    );
+    return;
+  }
+
+  const rawBase =
+    String(process.env.OPENAI_BASE_URL || "").trim() ||
+    String(process.env.OPENAI_API_BASE || "").trim() ||
+    "https://api.openai.com";
+  const base = normalizeOpenAiBaseUrl(rawBase);
+  const url = `${base.replace(/\/+$/, "")}/chat/completions`;
+
+  /** When a proxy gate key is configured, the client Bearer is only for that gate; upstream uses env. */
+  let apiKey = "";
+  if (gate) {
+    apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  } else {
+    const authHdr = String(req.headers.authorization || "").trim();
+    if (/^bearer\s+/i.test(authHdr)) {
+      apiKey = authHdr.replace(/^bearer\s+/i, "").trim();
+    }
+    if (!apiKey) {
+      apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+    }
+  }
+
+  const upstreamHeaders = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    upstreamHeaders.Authorization = `Bearer ${apiKey}`;
+  }
+  const org = req.headers["openai-organization"];
+  if (org && String(org).trim()) {
+    upstreamHeaders["OpenAI-Organization"] = String(org).trim();
+  }
+  const project = req.headers["openai-project"];
+  if (project && String(project).trim()) {
+    upstreamHeaders["OpenAI-Project"] = String(project).trim();
+  }
+  const beta = req.headers["openai-beta"];
+  if (beta && String(beta).trim()) {
+    upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(url, {
+      method: "POST",
+      headers: upstreamHeaders,
+      body: upstreamBodyBuf,
+    });
+  } catch (err) {
+    res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: `Upstream request failed: ${String(err && err.message ? err.message : err)}`,
+          type: "api_error",
+          param: null,
+          code: "upstream_unreachable",
+        },
+      }),
+    );
+    return;
+  }
+
+  const wantsStream = Boolean(payload.stream);
+  if (wantsStream && upstream.ok && upstream.body) {
+    try {
+      const nodeReadable = Readable.fromWeb(upstream.body);
+      const fwd = collectForwardResponseHeaders(upstream);
+      res.writeHead(upstream.status, fwd);
+      nodeReadable.on("error", () => {
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+      });
+      res.on("close", () => {
+        try {
+          nodeReadable.destroy();
+        } catch {
+          /* ignore */
+        }
+      });
+      nodeReadable.pipe(res);
+    } catch {
+      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Streaming proxy failed in this Node runtime.",
+            type: "api_error",
+            param: null,
+            code: "streaming_unavailable",
+          },
+        }),
+      );
+    }
+    return;
+  }
+
+  const outBuf = Buffer.from(await upstream.arrayBuffer());
+  const fwd = collectForwardResponseHeaders(upstream);
+  res.writeHead(upstream.status, fwd);
+  res.end(outBuf);
+}
+
+async function handleOpenAiResponses(req, res) {
+  const cors = chatCompletionsCorsHeaders();
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, cors).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "Method not allowed",
+          type: "invalid_request_error",
+          param: null,
+          code: "method_not_allowed",
+        },
+      }),
+    );
+    return;
+  }
+
+  const gate = String(process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "").trim();
+  if (gate) {
+    const auth = String(req.headers.authorization || "").trim();
+    const matches = auth === `Bearer ${gate}` || auth === gate;
+    if (!matches) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Incorrect API key provided.",
+            type: "invalid_request_error",
+            param: null,
+            code: "invalid_api_key",
+          },
+        }),
+      );
+      return;
+    }
+  }
+
+  let bodyBuf;
+  try {
+    bodyBuf = await readRequestBodyBuf(req, MAX_CHAT_COMPLETIONS_BODY_BYTES);
+  } catch (err) {
+    res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: String(err && err.message ? err.message : err),
+          type: "invalid_request_error",
+          param: null,
+          code: "request_too_large",
+        },
+      }),
+    );
+    return;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(bodyBuf.length ? bodyBuf.toString("utf8") : "{}");
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "Invalid JSON body",
+          type: "invalid_request_error",
+          param: null,
+          code: "invalid_json",
+        },
+      }),
+    );
+    return;
+  }
+
+  if (payload == null || typeof payload !== "object" || typeof payload.model !== "string" || !payload.model.trim()) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "'model' (string) is required.",
+          type: "invalid_request_error",
+          param: null,
+          code: "missing_required_parameter",
+        },
+      }),
+    );
+    return;
+  }
+
+  const agentic = normalizeAgenticExtension(payload.agentic);
+  if (wantsAgenticOrchestration(agentic)) {
+    if (Boolean(payload.stream)) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              "Streaming is not supported when agentic orchestration is requested. Omit \"stream\" or set agentic.runMode to omit dynamic routing.",
+            type: "invalid_request_error",
+            param: "stream",
+            code: "unsupported_parameter",
+          },
+        }),
+      );
+      return;
+    }
+
+    let dynamicText = messagesToDynamicText(responsesInputToMessages(payload.input));
+    let attachmentManifestPath = null;
+    const files = Array.isArray(agentic.files) ? agentic.files : [];
+    if (files.length > 0) {
+      try {
+        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, files);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: String(err && err.message ? err.message : err),
+              type: "invalid_request_error",
+              param: "agentic.files",
+              code: "invalid_attachment",
+            },
+          }),
+        );
+        return;
+      }
+      if (!attachmentManifestPath) {
+        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: "No valid file data in agentic.files (expect base64 in data or base64).",
+              type: "invalid_request_error",
+              param: "agentic.files",
+              code: "invalid_attachment",
+            },
+          }),
+        );
+        return;
+      }
+    }
+
+    if (!dynamicText.trim() && attachmentManifestPath) {
+      dynamicText =
+        "Analyze the attached files and follow any instructions in their names or contents.";
+    }
+    if (!dynamicText.trim()) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "input must yield non-empty text for orchestration (or attach files under agentic.files).",
+            type: "invalid_request_error",
+            param: "input",
+            code: "empty_prompt",
+          },
+        }),
+      );
+      return;
+    }
+
+    let runResult;
+    try {
+      runResult = await runDynamicAwait({
+        text: dynamicText,
+        runMode: agentic.runMode,
+        iterativeRounds: agentic.iterativeRounds,
+        autoIter: Boolean(agentic.autoIter),
+        iterativeMaxRounds: agentic.iterativeMaxRounds,
+        noSynthesize: Boolean(agentic.noSynthesize),
+        sessionId: agentic.sessionId,
+        resetSession: Boolean(agentic.resetSession),
+        noVerify: agentic.noVerify !== false,
+        verboseCrew: Boolean(agentic.verboseCrew),
+        selectedAgentProviderIds: agentic.selectedAgentProviderIds,
+        attachmentManifestPath,
+      });
+    } catch (err) {
+      const msg = String(err && err.message ? err.message : err);
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: msg,
+            type: "agentic_run_error",
+            param: null,
+            code: "orchestration_failed",
+          },
+        }),
+      );
+      return;
+    }
+
+    if (runResult.code !== 0) {
+      const hint = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim();
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`,
+            type: "agentic_run_error",
+            param: null,
+            code: "orchestration_exit_nonzero",
+          },
+        }),
+      );
+      return;
+    }
+
+    const content = [runResult.stdout, runResult.stderr ? `\n--- stderr ---\n${runResult.stderr}` : ""]
+      .join("")
+      .trim();
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify(buildResponsesSuccessPayload(payload.model.trim(), content)));
+    return;
+  }
+
+  const rawBase =
+    String(process.env.OPENAI_BASE_URL || "").trim() ||
+    String(process.env.OPENAI_API_BASE || "").trim() ||
+    "https://api.openai.com";
+  const base = normalizeOpenAiBaseUrl(rawBase);
+  const url = `${base.replace(/\/+$/, "")}/responses`;
+
+  let apiKey = "";
+  if (gate) {
+    apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  } else {
+    const authHdr = String(req.headers.authorization || "").trim();
+    if (/^bearer\s+/i.test(authHdr)) {
+      apiKey = authHdr.replace(/^bearer\s+/i, "").trim();
+    }
+    if (!apiKey) {
+      apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+    }
+  }
+
+  const upstreamHeaders = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    upstreamHeaders.Authorization = `Bearer ${apiKey}`;
+  }
+  const org = req.headers["openai-organization"];
+  if (org && String(org).trim()) {
+    upstreamHeaders["OpenAI-Organization"] = String(org).trim();
+  }
+  const project = req.headers["openai-project"];
+  if (project && String(project).trim()) {
+    upstreamHeaders["OpenAI-Project"] = String(project).trim();
+  }
+  const beta = req.headers["openai-beta"];
+  if (beta && String(beta).trim()) {
+    upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(url, {
+      method: "POST",
+      headers: upstreamHeaders,
+      body: Buffer.from(JSON.stringify(openAiPayloadForUpstream(payload)), "utf8"),
+    });
+  } catch (err) {
+    res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: `Upstream request failed: ${String(err && err.message ? err.message : err)}`,
+          type: "api_error",
+          param: null,
+          code: "upstream_unreachable",
+        },
+      }),
+    );
+    return;
+  }
+
+  const wantsStream = Boolean(payload.stream);
+  if (wantsStream && upstream.ok && upstream.body) {
+    try {
+      const nodeReadable = Readable.fromWeb(upstream.body);
+      const fwd = collectForwardResponseHeaders(upstream);
+      res.writeHead(upstream.status, fwd);
+      nodeReadable.on("error", () => {
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+      });
+      res.on("close", () => {
+        try {
+          nodeReadable.destroy();
+        } catch {
+          /* ignore */
+        }
+      });
+      nodeReadable.pipe(res);
+    } catch {
+      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Streaming proxy failed in this Node runtime.",
+            type: "api_error",
+            param: null,
+            code: "streaming_unavailable",
+          },
+        }),
+      );
+    }
+    return;
+  }
+
+  const outBuf = Buffer.from(await upstream.arrayBuffer());
+  const fwd = collectForwardResponseHeaders(upstream);
+  res.writeHead(upstream.status, fwd);
+  res.end(outBuf);
+}
+
 function sendAgentProvidersJson(res) {
   let data;
   try {
@@ -379,6 +1271,58 @@ function sendAgentProvidersJson(res) {
 
 function handleHttp(req, res) {
   if (tryServeVendorAsset(req, res)) {
+    return;
+  }
+  if (isOpenAiChatCompletionsPath(req)) {
+    handleOpenAiChatCompletions(req, res).catch((err) => {
+      console.error("[agentic-orchestration-web] /v1/chat/completions:", err);
+      if (!res.headersSent) {
+        const cors = chatCompletionsCorsHeaders();
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: String(err && err.message ? err.message : err),
+              type: "api_error",
+              param: null,
+              code: "internal_error",
+            },
+          }),
+        );
+      } else {
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    return;
+  }
+  if (isOpenAiResponsesPath(req)) {
+    handleOpenAiResponses(req, res).catch((err) => {
+      console.error("[agentic-orchestration-web] /v1/responses:", err);
+      if (!res.headersSent) {
+        const cors = chatCompletionsCorsHeaders();
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: String(err && err.message ? err.message : err),
+              type: "api_error",
+              param: null,
+              code: "internal_error",
+            },
+          }),
+        );
+      } else {
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
     return;
   }
   if (isApiPing(req)) {
@@ -478,9 +1422,8 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
   return manifestPath;
 }
 
-function runDynamic(
-  {
-    text,
+function buildDynamicSpawnArgs(text, opts) {
+  const {
     runMode,
     iterativeRounds,
     autoIter,
@@ -492,22 +1435,7 @@ function runDynamic(
     verboseCrew,
     selectedAgentProviderIds,
     attachmentManifestPath,
-  },
-  ws,
-) {
-  sendJson(ws, { type: "preflight", status: "start", message: "Checking Python dependencies…" });
-  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || "") }))) {
-    sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed." });
-    sendJson(ws, {
-      type: "error",
-      message:
-        "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled. Activate/install the tool venv and restart web server.",
-    });
-    ws._busy = false;
-    return;
-  }
-  sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready." });
-
+  } = opts;
   const mode = String(runMode || "dynamic").trim();
   const args = ["main.py"];
   const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
@@ -545,6 +1473,117 @@ function runDynamic(
   if (attachmentManifestPath) {
     args.push("--dynamic-attachments", attachmentManifestPath);
   }
+  return args;
+}
+
+async function runDynamicAwait({
+  text,
+  runMode,
+  iterativeRounds,
+  autoIter,
+  iterativeMaxRounds,
+  noSynthesize,
+  sessionId,
+  resetSession,
+  noVerify,
+  verboseCrew,
+  selectedAgentProviderIds,
+  attachmentManifestPath,
+}) {
+  const noop = () => {};
+  if (!ensurePythonDepsForWebRuns(noop)) {
+    throw new Error(
+      "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled.",
+    );
+  }
+  const args = buildDynamicSpawnArgs(text, {
+    runMode,
+    iterativeRounds,
+    autoIter,
+    iterativeMaxRounds,
+    noSynthesize,
+    sessionId,
+    resetSession,
+    noVerify,
+    verboseCrew,
+    selectedAgentProviderIds,
+    attachmentManifestPath,
+  });
+  const env = { ...process.env };
+  env.PYTHONUTF8 = "1";
+  return new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON, args, {
+      cwd: TOOL_ROOT,
+      env,
+      shell: false,
+    });
+    let stdout = "";
+    let stderr = "";
+    if (proc.stdout) {
+      proc.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf8");
+      });
+    }
+    if (proc.stderr) {
+      proc.stderr.on("data", (chunk) => {
+        stderr += chunk.toString("utf8");
+      });
+    }
+    proc.on("error", reject);
+    proc.on("close", (code, signal) => {
+      resolve({
+        code: typeof code === "number" ? code : 0,
+        signal: signal || null,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+function runDynamic(
+  {
+    text,
+    runMode,
+    iterativeRounds,
+    autoIter,
+    iterativeMaxRounds,
+    noSynthesize,
+    sessionId,
+    resetSession,
+    noVerify,
+    verboseCrew,
+    selectedAgentProviderIds,
+    attachmentManifestPath,
+  },
+  ws,
+) {
+  sendJson(ws, { type: "preflight", status: "start", message: "Checking Python dependencies…" });
+  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || "") }))) {
+    sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed." });
+    sendJson(ws, {
+      type: "error",
+      message:
+        "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled. Activate/install the tool venv and restart web server.",
+    });
+    ws._busy = false;
+    return;
+  }
+  sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready." });
+
+  const args = buildDynamicSpawnArgs(text, {
+    runMode,
+    iterativeRounds,
+    autoIter,
+    iterativeMaxRounds,
+    noSynthesize,
+    sessionId,
+    resetSession,
+    noVerify,
+    verboseCrew,
+    selectedAgentProviderIds,
+    attachmentManifestPath,
+  });
 
   sendJson(ws, { type: "run_start", args });
 
@@ -682,6 +1721,8 @@ wss.on("connection", (ws) => {
 
 server.listen(PORT, HOST, () => {
   console.error(`agentic-orchestration-web http://${HOST}:${PORT}/`);
+  console.error(`  OpenAI-compatible POST ${`http://${HOST}:${PORT}/v1/chat/completions`}`);
+  console.error(`  OpenAI-compatible POST ${`http://${HOST}:${PORT}/v1/responses`}`);
   console.error(`  instance=${WEB_INSTANCE_ID}  (curl /api/ping to verify this process)`);
   console.error(`  AGENTIC_TOOL_ROOT=${TOOL_ROOT}`);
   console.error(`  Python executable=${PYTHON}`);
