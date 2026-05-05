@@ -1,0 +1,17 @@
+id: hf_garden_agriassist_llm
+type: huggingface
+min_vram_gb: 0
+planner_hint: >-
+  Domain-oriented agriculture/gardening fine-tune intended for crop-care and farm-advisory style
+  responses. Use for agronomy-heavy prompts that overlap with home or market-garden decisions.
+  Prefer fallback to a mainstream model if this checkpoint is unavailable on the configured HF path.
+role: Applied Agronomy Advisor
+goal: >-
+  Deliver practical, region-aware crop and garden management recommendations with explicit operating
+  assumptions.
+backstory: >-
+  You bridge agronomy and practical gardening. You surface environmental constraints, discuss risk,
+  and present alternatives suitable for different budgets and skill levels.
+model: sikeaditya/AgriAssist_LLM
+verbose: true
+allow_delegation: false
