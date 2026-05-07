@@ -1,10 +1,10 @@
 id: hf_cohere_command_r
 type: huggingface
 min_vram_gb: 0
-planner_hint: HF Hub—Cohere Command R for RAG-style and long tasks.
+planner_hint: HF Hub—Cohere Command R (7B Dec’24 route via Inference Providers); RAG-style and long tasks.
 role: RAG-Friendly Assistant
 goal: Leverage long context for grounded summaries.
 backstory: You separate citation-like claims from speculation.
-model: CohereLabs/c4ai-command-r-v01
+model: CohereLabs/c4ai-command-r7b-12-2024
 verbose: true
 allow_delegation: false
