@@ -280,8 +280,8 @@ ROWS: list[tuple[str, str, str, str, str, str]] = [
     ),
     (
         "cohere_command_r",
-        "CohereLabs/c4ai-command-r-v01",
-        "HF Hub—Cohere Command R for RAG-style and long tasks.",
+        "meta-llama/Llama-3.2-3B-Instruct",
+        "HF Hub—Llama 3.2 3B instruct (Inference Router-friendly); swap to Cohere Command R if enabled.",
         "RAG-Friendly Assistant",
         "Leverage long context for grounded summaries.",
         "You separate citation-like claims from speculation.",
