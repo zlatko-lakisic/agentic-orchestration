@@ -15,10 +15,8 @@ import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
-from orchestration.goal_format_hints import (
-    goal_requires_machine_readable_only,
-    goal_suggests_irrigation_bundle,
-)
+from orchestration.goal_format_hints import goal_requires_machine_readable_only
+from orchestration.provider_goal_match import suppress_general_providers_when_domains_align
 from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
@@ -378,8 +376,7 @@ Rules:
 - Read the user's goal and produce a clear step-by-step plan.
 - Common-sense check: when the user expects numeric calculations, ensure any equations are correctly labeled (LHS is the computed metric, not a raw expression), and avoid mismatched variable names.
 - **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference). No default bias toward local vs cloud.
-- **Domain cues from the user's text:** Read the goal (and attachments) for **topic signals**—e.g. irrigation, watering, lawn/turf, soil moisture, precipitation or forecast JSON, sprinkler/valve/zone automation, gardening, horticulture, crops, plant disease or leaf symptoms, pests, fertilizers, agronomy, greenhouse, etc. When such cues are **clear**, **prefer** catalog entries whose `planner_hint` / `role` / `goal` **explicitly** match that domain over generic assistants, **even if** the deliverable is structured (JSON, minutes, schedules). Only fall back to a broad general-purpose provider when no listed entry meaningfully fits the domain **or** the goal is plainly cross-domain / generic with no topical anchor. When there are **no** domain cues, choose freely among the best fit as usual.
-- **Do not bury irrigation under generic “research”:** If those topic signals clearly include turf/irrigation/watering/soil moisture/precipitation-in-prompt/Open-Meteo/Home Assistant valve or zone payloads, treat the task as **applied horticulture/soil-water**, **not** open-ended web research. **Do not pick** ids like **`gpt_research`** whose role is general research summaries when **`hf_garden_*`** or another catalog entry mentions soil, irrigation, turf, lawn, horticulture, or agronomy in its `planner_hint`/`role`. Use the specialist ids for those inputs even when outputs are terse JSON ("minutes"), classification, or small integers.
+- **Domain specialists:** When the goal clearly concerns a topic covered by a narrower catalog entry (rich `planner_hint` / domain role), prefer that specialist over entries marked **general-purpose** / broad research assistants. The runtime may omit general-purpose providers from this list when lexical alignment with specialists is strong—so your plan should not assume they remain available in borderline cases.
 - **Structured-only / API-style goals:** When the user demands **only** machine-readable output (e.g. exactly one JSON object, no markdown, no prose), treat all supplied tables/forecast JSON/soil valves as **self-contained**. Do **not** attach web-search or general research MCPs unless the user explicitly asks to fetch new external facts. Pick agent providers suited to deterministic reasoning over the pasted data while honoring the strict output schema.
 - **Attached files:** If the user message includes `## Attached files`, use the listed categories (tabular, code, image, document, …), MIME types, and absolute paths to route work—e.g. data-heavy files to analysis/integration agents, code to engineering agents, images to multimodal agents when available.
 - **Grounding / anti-fabrication:** Instruct agents never to present **illustrative or hypothetical** vendors, trials, or devices as if they were verified real-world facts. If the user asks for **archetypes**, **plausible positioning stories**, or a **council briefing** without naming real products, use neutral labels (e.g. Story A / Story B) and mark hypotheticals explicitly. **Do not invent** FDA submission identifiers, 510(k) numbers, PMA orders, NCT IDs, journal citations, effect sizes, or sample sizes unless they appear in the user prompt, attached files, or outputs from **actual** retrieval tools/MCPs the step will use. When the user asks *where* evidence would strengthen or weaken a story, answer with **types** of public sources (e.g. FDA databases, trial registries) and what to look for—plus what legal/regulatory counsel should verify—not fabricated specifics.
@@ -859,38 +856,12 @@ def build_dynamic_workflow_config(
             f"{', '.join(show)}{suffix}",
             file=sys.stderr,
         )
+    entries = suppress_general_providers_when_domains_align(
+        entries,
+        user_prompt,
+        quiet=quiet,
+    )
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
-    if not allowed_ids and os.getenv(
-        "AGENTIC_DYNAMIC_IRRIGATION_AUTO_ROUTE", ""
-    ).strip().lower() in ("1", "true", "yes", "on"):
-        if goal_suggests_irrigation_bundle(user_prompt):
-            raw = os.getenv("AGENTIC_DYNAMIC_IRRIGATION_PROVIDER_IDS", "").strip()
-            if raw:
-                irr_ids = [x.strip() for x in raw.split(",") if x.strip()]
-            else:
-                irr_ids = [
-                    "hf_garden_soil_water_command_r",
-                    "hf_garden_irrigation_phi3_mini",
-                    "hf_garden_generalist_qwen25_14b",
-                ]
-            present = {str(e.get("id", "")).strip() for e in entries}
-            picked = [pid for pid in irr_ids if pid in present]
-            if picked:
-                allowed_ids = picked
-                if not quiet:
-                    print(
-                        "(dynamic) irrigation auto-route: restricting planner catalog to "
-                        f"{picked!r}",
-                        file=sys.stderr,
-                    )
-            elif not quiet:
-                print(
-                    "(dynamic) irrigation auto-route: skip — no configured irrigation provider ids "
-                    "remain after credential/hardware filtering "
-                    f"(wanted {irr_ids!r})",
-                    file=sys.stderr,
-                )
-
     if allowed_ids:
         allowed_set = set(allowed_ids)
         entries = [e for e in entries if str(e.get("id", "")).strip() in allowed_set]

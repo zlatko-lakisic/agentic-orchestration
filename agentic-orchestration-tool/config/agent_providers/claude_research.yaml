@@ -1,4 +1,5 @@
 id: claude_research
+general_purpose: true
 type: anthropic
 min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint: Anthropic Claude—research, comparisons, grounded summaries, and structured factual explanations.
