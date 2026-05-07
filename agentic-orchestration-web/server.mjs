@@ -589,6 +589,13 @@ function normalizeOrchestratedApiContent(stdout) {
   return text || raw.trim();
 }
 
+function openAiApiDisablesAnswerCache() {
+  const v = String(process.env.AGENTIC_OPENAI_API_DISABLE_CACHE || "1")
+    .trim()
+    .toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
+}
+
 async function handleOpenAiChatCompletions(req, res) {
   const cors = chatCompletionsCorsHeaders();
 
@@ -781,7 +788,7 @@ async function handleOpenAiChatCompletions(req, res) {
         verboseCrew: Boolean(agentic.verboseCrew),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
-        disableAnswerCache: true,
+        disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
@@ -1131,7 +1138,7 @@ async function handleOpenAiResponses(req, res) {
         verboseCrew: Boolean(agentic.verboseCrew),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
-        disableAnswerCache: true,
+        disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
