@@ -63,6 +63,92 @@ def lexical_domain_score(user_prompt: str, entry: dict[str, Any]) -> int:
     return hits
 
 
+def _remap_fixup_general_ids(extra_from_env: frozenset[str]) -> frozenset[str]:
+    """
+    Planner ids commonly chosen even after general-purpose rows are stripped from catalog_doc.
+    """
+    out = frozenset({"gpt_research", "claude_research"}) | extra_from_env
+    return out
+
+
+def best_lexical_provider_id(
+    user_prompt: str,
+    catalog_entries: list[dict[str, Any]],
+) -> tuple[str | None, int]:
+    """Pick catalog id with highest lexical_domain_score (stable tie-break)."""
+    if not catalog_entries:
+        return None, 0
+    best_id: str | None = None
+    best_score = -1
+    for e in catalog_entries:
+        eid = str(e.get("id", "")).strip()
+        if not eid:
+            continue
+        s = lexical_domain_score(user_prompt, e)
+        if s > best_score or (s == best_score and (best_id is None or eid < best_id)):
+            best_score = s
+            best_id = eid
+    if best_id is None:
+        return None, 0
+    return best_id, max(0, best_score)
+
+
+def maybe_remap_planner_provider_missing_from_catalog(
+    pid: str,
+    *,
+    user_prompt: str,
+    catalog_entries: list[dict[str, Any]],
+    quiet: bool,
+) -> str | None:
+    """
+    Planner returned ``agent_provider_id`` not currently in catalog (typically
+    ``gpt_research`` / ``claude_research`` after domain suppression stripped them).
+
+    Remap only when permitted: default is ids in ``gpt_research`` / ``claude_research``
+    plus ``AGENTIC_GENERAL_PURPOSE_AGENT_IDS``. Set ``AGENTIC_PLANNER_REMAP_ANY_UNKNOWN_ID``
+    to remap any unknown id. Disable all remapping with ``AGENTIC_PLANNER_STRICT_PROVIDER_IDS``.
+
+    Returns replacement id when remapped; otherwise ``None`` (caller keeps original ``pid``).
+    """
+    ids = {str(e.get("id", "")).strip() for e in catalog_entries}
+    ids.discard("")
+    if pid in ids:
+        return None
+
+    if os.getenv("AGENTIC_PLANNER_STRICT_PROVIDER_IDS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return None
+
+    raw_extra = os.getenv("AGENTIC_GENERAL_PURPOSE_AGENT_IDS", "").strip()
+    env_extra = frozenset(x.strip() for x in raw_extra.split(",") if x.strip())
+    remap_set = _remap_fixup_general_ids(env_extra)
+    remap_any = os.getenv("AGENTIC_PLANNER_REMAP_ANY_UNKNOWN_ID", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if pid not in remap_set and not remap_any:
+        return None
+
+    best_id, best_score = best_lexical_provider_id(user_prompt, catalog_entries)
+    if not best_id or best_score <= 0:
+        return None
+
+    if not quiet:
+        origin = "stripped general-purpose default" if pid in remap_set else "unknown planner id"
+        print(
+            f"(dynamic) planner provider remap ({origin}): {pid!r} -> {best_id!r} "
+            f"(lexical_goal_match score={best_score})",
+            file=sys.stderr,
+        )
+    return best_id
+
+
 def _general_purpose_entry(entry: dict[str, Any], extra_ids: frozenset[str]) -> bool:
     eid = str(entry.get("id", "")).strip()
     if eid in extra_ids:

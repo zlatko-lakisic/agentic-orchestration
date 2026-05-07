@@ -16,7 +16,10 @@ import httpx
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
 from orchestration.goal_format_hints import goal_requires_machine_readable_only
-from orchestration.provider_goal_match import suppress_general_providers_when_domains_align
+from orchestration.provider_goal_match import (
+    maybe_remap_planner_provider_missing_from_catalog,
+    suppress_general_providers_when_domains_align,
+)
 from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
@@ -594,7 +597,17 @@ def workflow_config_from_plan(
         pid = str(step.get("agent_provider_id") or step.get("provider_id", "")).strip()
         desc = str(step.get("description", "")).strip()
         expected = str(step.get("expected_output", "")).strip()
-        if not pid or pid not in catalog_by_id:
+        if not pid:
+            raise ValueError(f"Step {i} is missing agent_provider_id")
+        mapped = maybe_remap_planner_provider_missing_from_catalog(
+            pid,
+            user_prompt=user_prompt,
+            catalog_entries=list(catalog_by_id.values()),
+            quiet=quiet,
+        )
+        if mapped:
+            pid = mapped
+        if pid not in catalog_by_id:
             known = ", ".join(sorted(catalog_by_id))
             raise ValueError(
                 f"Unknown agent_provider_id {pid!r} in step {i}. Known: {known}",
