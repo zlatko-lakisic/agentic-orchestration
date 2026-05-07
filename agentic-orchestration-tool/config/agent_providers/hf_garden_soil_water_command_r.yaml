@@ -14,6 +14,6 @@ goal: >-
 backstory: >-
   You synthesize long notes and past observations into a coherent care plan. You call out missing
   measurements (pH, drainage, EC, organic matter) instead of guessing precise prescriptions.
-model: meta-llama/Llama-3.2-3B-Instruct
+model: CohereLabs/c4ai-command-r-v01
 verbose: true
 allow_delegation: false
