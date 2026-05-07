@@ -15,7 +15,10 @@ import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
-from orchestration.goal_format_hints import goal_requires_machine_readable_only
+from orchestration.goal_format_hints import (
+    goal_requires_machine_readable_only,
+    goal_suggests_irrigation_bundle,
+)
 from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
@@ -857,6 +860,37 @@ def build_dynamic_workflow_config(
             file=sys.stderr,
         )
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
+    if not allowed_ids and os.getenv(
+        "AGENTIC_DYNAMIC_IRRIGATION_AUTO_ROUTE", ""
+    ).strip().lower() in ("1", "true", "yes", "on"):
+        if goal_suggests_irrigation_bundle(user_prompt):
+            raw = os.getenv("AGENTIC_DYNAMIC_IRRIGATION_PROVIDER_IDS", "").strip()
+            if raw:
+                irr_ids = [x.strip() for x in raw.split(",") if x.strip()]
+            else:
+                irr_ids = [
+                    "hf_garden_soil_water_command_r",
+                    "hf_garden_irrigation_phi3_mini",
+                    "hf_garden_generalist_qwen25_14b",
+                ]
+            present = {str(e.get("id", "")).strip() for e in entries}
+            picked = [pid for pid in irr_ids if pid in present]
+            if picked:
+                allowed_ids = picked
+                if not quiet:
+                    print(
+                        "(dynamic) irrigation auto-route: restricting planner catalog to "
+                        f"{picked!r}",
+                        file=sys.stderr,
+                    )
+            elif not quiet:
+                print(
+                    "(dynamic) irrigation auto-route: skip — no configured irrigation provider ids "
+                    "remain after credential/hardware filtering "
+                    f"(wanted {irr_ids!r})",
+                    file=sys.stderr,
+                )
+
     if allowed_ids:
         allowed_set = set(allowed_ids)
         entries = [e for e in entries if str(e.get("id", "")).strip() in allowed_set]
