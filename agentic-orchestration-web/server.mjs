@@ -673,7 +673,9 @@ async function handleOpenAiChatCompletions(req, res) {
   const upstreamPayloadJson = JSON.stringify(openAiPayloadForUpstream(payload));
   const upstreamBodyBuf = Buffer.from(upstreamPayloadJson, "utf8");
 
-  if (wantsAgenticOrchestration(agentic)) {
+  // This endpoint is configured to always run through local orchestration (main.py),
+  // never as a direct upstream OpenAI proxy.
+  if (true) {
     if (Boolean(payload.stream)) {
       res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
@@ -1021,7 +1023,9 @@ async function handleOpenAiResponses(req, res) {
   }
 
   const agentic = normalizeAgenticExtension(payload.agentic);
-  if (wantsAgenticOrchestration(agentic)) {
+  // This endpoint is configured to always run through local orchestration (main.py),
+  // never as a direct upstream OpenAI proxy.
+  if (true) {
     if (Boolean(payload.stream)) {
       res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
