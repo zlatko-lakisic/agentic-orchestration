@@ -582,6 +582,7 @@ function normalizeOrchestratedApiContent(stdout) {
     if (!t) return false;
     if (t === "[user]") return false;
     if (t.startsWith("(progress)")) return false;
+    if (t.includes("Is this the answer you wanted? Reply `no` to re-run.")) return false;
     return true;
   });
   const text = cleaned.join("\n").trim();
@@ -780,6 +781,7 @@ async function handleOpenAiChatCompletions(req, res) {
         verboseCrew: Boolean(agentic.verboseCrew),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
+        disableAnswerCache: true,
       });
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
@@ -1129,6 +1131,7 @@ async function handleOpenAiResponses(req, res) {
         verboseCrew: Boolean(agentic.verboseCrew),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
+        disableAnswerCache: true,
       });
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
@@ -1508,6 +1511,7 @@ async function runDynamicAwait({
   verboseCrew,
   selectedAgentProviderIds,
   attachmentManifestPath,
+  disableAnswerCache = false,
 }) {
   const noop = () => {};
   if (!ensurePythonDepsForWebRuns(noop)) {
@@ -1530,6 +1534,9 @@ async function runDynamicAwait({
   });
   const env = { ...process.env };
   env.PYTHONUTF8 = "1";
+  if (disableAnswerCache) {
+    env.AGENTIC_ANSWER_CACHE = "0";
+  }
   return new Promise((resolve, reject) => {
     const proc = spawn(PYTHON, args, {
       cwd: TOOL_ROOT,
