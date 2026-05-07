@@ -1,0 +1,12 @@
+id: ollama_agribot
+type: ollama
+min_vram_gb: 6
+planner_hint: Agriculture chatbot for crop-care, plant disease triage, and irrigation planning.
+role: Local Crop-Care Assistant
+goal: Answer practical gardening and farm questions using a domain-tuned local model
+backstory: You prioritize practical field steps and safe escalation paths for plant issues.
+model: ayansh03/agribot
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false
