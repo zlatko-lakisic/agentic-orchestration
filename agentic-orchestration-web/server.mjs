@@ -569,6 +569,25 @@ function buildResponsesSuccessPayload(model, content) {
   };
 }
 
+/**
+ * For OpenAI-compatible endpoints, keep output clean:
+ * - drop progress markers and synthetic "[user]" transcript delimiters
+ * - exclude stderr diagnostics by default
+ */
+function normalizeOrchestratedApiContent(stdout) {
+  const raw = String(stdout || "");
+  const lines = raw.split(/\r?\n/);
+  const cleaned = lines.filter((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    if (t === "[user]") return false;
+    if (t.startsWith("(progress)")) return false;
+    return true;
+  });
+  const text = cleaned.join("\n").trim();
+  return text || raw.trim();
+}
+
 async function handleOpenAiChatCompletions(req, res) {
   const cors = chatCompletionsCorsHeaders();
 
@@ -794,9 +813,7 @@ async function handleOpenAiChatCompletions(req, res) {
       return;
     }
 
-    const content = [runResult.stdout, runResult.stderr ? `\n--- stderr ---\n${runResult.stderr}` : ""]
-      .join("")
-      .trim();
+    const content = normalizeOrchestratedApiContent(runResult.stdout);
     const created = Math.floor(Date.now() / 1000);
     const id = `chatcmpl-agentic-${crypto.randomUUID()}`;
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
@@ -1145,9 +1162,7 @@ async function handleOpenAiResponses(req, res) {
       return;
     }
 
-    const content = [runResult.stdout, runResult.stderr ? `\n--- stderr ---\n${runResult.stderr}` : ""]
-      .join("")
-      .trim();
+    const content = normalizeOrchestratedApiContent(runResult.stdout);
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(JSON.stringify(buildResponsesSuccessPayload(payload.model.trim(), content)));
     return;
