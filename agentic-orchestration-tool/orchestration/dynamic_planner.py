@@ -856,11 +856,6 @@ def build_dynamic_workflow_config(
             f"{', '.join(show)}{suffix}",
             file=sys.stderr,
         )
-    entries = suppress_general_providers_when_domains_align(
-        entries,
-        user_prompt,
-        quiet=quiet,
-    )
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
     if allowed_ids:
         allowed_set = set(allowed_ids)
@@ -875,6 +870,12 @@ def build_dynamic_workflow_config(
                 f"(dynamic) agent selection: restricting planner catalog to {sorted(allowed_set)!r}",
                 file=sys.stderr,
             )
+    else:
+        entries = suppress_general_providers_when_domains_align(
+            entries,
+            user_prompt,
+            quiet=quiet,
+        )
 
     limit = max_steps
     if limit is None:

@@ -185,6 +185,7 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "anthropic_base_url",
         "huggingface_base_url",
         "planner_hint",
+        "general_purpose",
         "verbose",
         "allow_delegation",
         "min_vram_gb",
