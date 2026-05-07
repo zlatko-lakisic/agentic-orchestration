@@ -55,12 +55,15 @@ if (-not (Test-Path -Path "node_modules")) {
 
 $pidFile = Join-Path $here ".web-server.pid"
 $logFile = Join-Path $here ".web-server.log"
+$supervisorPidFile = Join-Path $here ".web-supervisor.pid"
+$supervisorLogFile = Join-Path $here ".web-supervisor.log"
+$stopFlagFile = Join-Path $here ".web-supervisor.stop"
 
-if (Test-Path $pidFile) {
+if (Test-Path $supervisorPidFile) {
   try {
-    $oldPid = [int](Get-Content $pidFile -Raw)
+    $oldPid = [int](Get-Content $supervisorPidFile -Raw)
     $p = Get-Process -Id $oldPid -ErrorAction Stop
-    Write-Host "[web-bg] already running (pid=$oldPid). Stop it with: .\stop-web-bg.ps1"
+    Write-Host "[web-bg] supervisor already running (pid=$oldPid). Stop it with: .\stop-web-bg.ps1"
     exit 0
   } catch {
     # stale pid file; continue
@@ -70,17 +73,30 @@ if (Test-Path $pidFile) {
 $env:AGENTIC_WEB_PORT = "$Port"
 $env:AGENTIC_WEB_HOST = "$Host"
 
-Write-Host "[web-bg] starting detached server..."
-Write-Host "[web-bg] log: $logFile"
+Remove-Item -Force $stopFlagFile -ErrorAction SilentlyContinue
 
-$proc = Start-Process -FilePath "node" `
-  -ArgumentList @("server.mjs") `
+Write-Host "[web-bg] starting detached supervisor..."
+Write-Host "[web-bg] supervisor log: $supervisorLogFile"
+Write-Host "[web-bg] server log: $logFile"
+
+$proc = Start-Process -FilePath "powershell" `
+  -ArgumentList @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    (Join-Path $here "run-web-supervisor.ps1"),
+    "-Port",
+    "$Port",
+    "-Host",
+    "$Host"
+  ) `
   -WorkingDirectory $here `
   -WindowStyle Hidden `
-  -RedirectStandardOutput $logFile `
-  -RedirectStandardError $logFile `
+  -RedirectStandardOutput $supervisorLogFile `
+  -RedirectStandardError $supervisorLogFile `
   -PassThru
 
-$proc.Id | Out-File -FilePath $pidFile -Encoding ascii -Force
-Write-Host "[web-bg] started pid=$($proc.Id) (http://$Host`:$Port/)"
+$proc.Id | Out-File -FilePath $supervisorPidFile -Encoding ascii -Force
+Write-Host "[web-bg] supervisor started pid=$($proc.Id) (http://$Host`:$Port/)"
 
