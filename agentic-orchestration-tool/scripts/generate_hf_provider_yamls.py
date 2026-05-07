@@ -280,7 +280,7 @@ ROWS: list[tuple[str, str, str, str, str, str]] = [
     ),
     (
         "cohere_command_r",
-        "CohereForAI/c4ai-command-r-v01",
+        "CohereLabs/c4ai-command-r-v01",
         "HF Hub—Cohere Command R for RAG-style and long tasks.",
         "RAG-Friendly Assistant",
         "Leverage long context for grounded summaries.",
