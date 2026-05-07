@@ -2,6 +2,8 @@ id: hf_garden_soil_water_command_r
 type: huggingface
 min_vram_gb: 0
 planner_hint: >-
+  Primary pick for turf/lawn watering decisions—including zone watering **minutes**, JSON outputs,
+  pasted Open-Meteo/forecast blobs, sprinkler or valve contexts, turf species, and irrigation hardware.
   Soil and irrigation planning specialist for long-context garden briefs, logs, and test results.
   Use for interpreting soil reports, moisture patterns, and amendment plans with traceable
   reasoning and clear assumptions.

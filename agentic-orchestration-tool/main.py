@@ -14,6 +14,7 @@ load_dotenv()
 from orchestration.attachments import build_attachment_block, compose_goal_with_attachments
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
+from orchestration.goal_format_hints import goal_requires_machine_readable_only
 from orchestration.dynamic_planner import (
     build_dynamic_workflow_config,
     emit_faithfulness_qa_report,
@@ -967,12 +968,19 @@ def main() -> None:
             if not args.dynamic_iterative_auto and r >= manual_rounds:
                 break
 
-        if args.dynamic_iterative_no_synthesize and not stream_iter_steps and last_iter_crew_text:
-            body = str(last_iter_crew_text).strip()
-            if body:
-                print(body, flush=True)
+        strict_mr_goal = goal_requires_machine_readable_only(cache_goal)
+        omit_final_synthesis = bool(args.dynamic_iterative_no_synthesize) or strict_mr_goal
+        iterative_final_text = ""
 
-        if not args.dynamic_iterative_no_synthesize:
+        if omit_final_synthesis and not stream_iter_steps:
+            iterative_final_text = str(last_iter_crew_text or "").strip()
+            if not iterative_final_text:
+                sess_quick = load_session(orchestrator_session_path)
+                iterative_final_text = (sess_quick.last_crew_output_excerpt or "").strip()
+            if iterative_final_text:
+                print(iterative_final_text, flush=True)
+
+        if not omit_final_synthesis:
             # Final synthesis: use the last crew excerpt as context.
             sess = load_session(orchestrator_session_path)
             excerpt = (sess.last_crew_output_excerpt or "").strip()
@@ -1106,11 +1114,28 @@ def main() -> None:
         else:
             sess = load_session(orchestrator_session_path)
             last_ex = (sess.last_crew_output_excerpt or "").strip()
+            qa_out = iterative_final_text.strip() or last_ex
+            if strict_mr_goal and qa_out:
+                update_session_after_final(
+                    orchestrator_session_path,
+                    user_goal=cache_goal,
+                    result_text=qa_out,
+                )
             emit_faithfulness_qa_report(
                 user_goal=cache_goal,
-                output_text=last_ex or None,
+                output_text=qa_out or None,
                 model=None,
             )
+            if strict_mr_goal and qa_out:
+                saved = offer_save_extracted_files(
+                    tool_root=tool_root,
+                    user_task=cache_goal,
+                    result_text=qa_out,
+                    output_dir=save_output_dir,
+                    no_save=no_save,
+                    prompt_save=prompt_save,
+                )
+                _run_post_save_verify(saved, verify=verify_saved)
         return
 
     if args.dynamic:

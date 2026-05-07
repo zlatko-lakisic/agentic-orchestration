@@ -437,9 +437,12 @@ def _terms_from_mcp_catalog_entry(entry: dict[str, Any]) -> set[str]:
                 if s:
                     out.add(s)
     hint = str(entry.get("planner_hint", "")).lower()
-    for w in re.findall(r"[a-z][a-z0-9-]{5,}", hint):
-        if w not in _MCP_GOAL_MATCH_BLOCKLIST:
-            out.add(w)
+    # Web-search MCP planner_hints often contain broad words ("weather", "research", …) that falsely
+    # match irrigation/forecast JSON pasted into goals. Keywords + id tokens are enough for those ids.
+    if not eid.startswith("search"):
+        for w in re.findall(r"[a-z][a-z0-9-]{5,}", hint):
+            if w not in _MCP_GOAL_MATCH_BLOCKLIST:
+                out.add(w)
     return out
 
 

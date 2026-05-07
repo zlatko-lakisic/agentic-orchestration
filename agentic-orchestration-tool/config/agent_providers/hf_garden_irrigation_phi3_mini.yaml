@@ -2,8 +2,10 @@ id: hf_garden_irrigation_phi3_mini
 type: huggingface
 min_vram_gb: 0
 planner_hint: >-
-  Irrigation-focused agriculture Q&A model. Use for watering schedules, soil moisture decisions,
-  drought response planning, and water-efficiency tradeoffs.
+  Irrigation-focused agriculture Q&A. Use for turf/zone watering **minutes** from supplied
+  precipitation and forecast JSON, watering schedules, soil moisture decisions,
+  drought response planning, and water-efficiency tradeoffs—especially when deciding short numeric
+  runtimes rather than prose.
 role: Irrigation Optimization Advisor
 goal: >-
   Convert weather, soil, and crop-stage context into actionable irrigation plans that reduce water

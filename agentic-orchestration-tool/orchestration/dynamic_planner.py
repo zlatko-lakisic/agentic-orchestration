@@ -15,6 +15,7 @@ import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
+from orchestration.goal_format_hints import goal_requires_machine_readable_only
 from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
@@ -375,6 +376,8 @@ Rules:
 - Common-sense check: when the user expects numeric calculations, ensure any equations are correctly labeled (LHS is the computed metric, not a raw expression), and avoid mismatched variable names.
 - **Agent provider choice:** For each step, pick the **single best** `agent_provider_id`. Judge from the user's task and each entry's `planner_hint`, `role`, `goal`, `model`, and `type` (`ollama` = local host, `openai` = OpenAI-compatible cloud API, `anthropic` = Anthropic Claude API, `huggingface` = Hugging Face Hub inference). No default bias toward local vs cloud.
 - **Domain cues from the user's text:** Read the goal (and attachments) for **topic signals**—e.g. irrigation, watering, lawn/turf, soil moisture, precipitation or forecast JSON, sprinkler/valve/zone automation, gardening, horticulture, crops, plant disease or leaf symptoms, pests, fertilizers, agronomy, greenhouse, etc. When such cues are **clear**, **prefer** catalog entries whose `planner_hint` / `role` / `goal` **explicitly** match that domain over generic assistants, **even if** the deliverable is structured (JSON, minutes, schedules). Only fall back to a broad general-purpose provider when no listed entry meaningfully fits the domain **or** the goal is plainly cross-domain / generic with no topical anchor. When there are **no** domain cues, choose freely among the best fit as usual.
+- **Do not bury irrigation under generic “research”:** If those topic signals clearly include turf/irrigation/watering/soil moisture/precipitation-in-prompt/Open-Meteo/Home Assistant valve or zone payloads, treat the task as **applied horticulture/soil-water**, **not** open-ended web research. **Do not pick** ids like **`gpt_research`** whose role is general research summaries when **`hf_garden_*`** or another catalog entry mentions soil, irrigation, turf, lawn, horticulture, or agronomy in its `planner_hint`/`role`. Use the specialist ids for those inputs even when outputs are terse JSON ("minutes"), classification, or small integers.
+- **Structured-only / API-style goals:** When the user demands **only** machine-readable output (e.g. exactly one JSON object, no markdown, no prose), treat all supplied tables/forecast JSON/soil valves as **self-contained**. Do **not** attach web-search or general research MCPs unless the user explicitly asks to fetch new external facts. Pick agent providers suited to deterministic reasoning over the pasted data while honoring the strict output schema.
 - **Attached files:** If the user message includes `## Attached files`, use the listed categories (tabular, code, image, document, …), MIME types, and absolute paths to route work—e.g. data-heavy files to analysis/integration agents, code to engineering agents, images to multimodal agents when available.
 - **Grounding / anti-fabrication:** Instruct agents never to present **illustrative or hypothetical** vendors, trials, or devices as if they were verified real-world facts. If the user asks for **archetypes**, **plausible positioning stories**, or a **council briefing** without naming real products, use neutral labels (e.g. Story A / Story B) and mark hypotheticals explicitly. **Do not invent** FDA submission identifiers, 510(k) numbers, PMA orders, NCT IDs, journal citations, effect sizes, or sample sizes unless they appear in the user prompt, attached files, or outputs from **actual** retrieval tools/MCPs the step will use. When the user asks *where* evidence would strengthen or weaken a story, answer with **types** of public sources (e.g. FDA databases, trial registries) and what to look for—plus what legal/regulatory counsel should verify—not fabricated specifics.
 - **Council / executive briefings:** When the user is an **innovation council, C-suite, or procurement** audience, lead with **strategic intent**—why an organization would choose path A vs B, trade-offs (e.g. clinical-signal depth vs scale/cost/operational load), and **where risk actually sits**—not a SKU-style hardware list as the main narrative. Prefer compact **archetypes** (e.g. high-fidelity / physiologic-signal programs vs scalable engagement-first programs) unless the user or tools supply named vendors.
@@ -717,6 +720,8 @@ def _maybe_augment_mcp_from_user_goal(
     quiet: bool,
 ) -> WorkflowConfig:
     if not mcp_catalog:
+        return cfg
+    if goal_requires_machine_readable_only(user_prompt):
         return cfg
     if os.getenv("AGENTIC_DISABLE_MCP_GOAL_MATCH", "").strip().lower() in (
         "1",
