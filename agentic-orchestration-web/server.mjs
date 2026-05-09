@@ -676,7 +676,8 @@ function effectiveOpenAiProxyOrchestratorReset(agentic) {
   const a = agentic && typeof agentic === "object" ? agentic : {};
   if (a.resetSession === true) return true;
   if (a.resetSession === false) return false;
-  const v = String(process.env.AGENTIC_OPENAI_PROXY_ORCHESTRATOR_SESSION_RESET ?? "1")
+  const resetEnv = process.env.AGENTIC_OPENAI_PROXY_ORCHESTRATOR_SESSION_RESET;
+  const v = String(resetEnv != null ? resetEnv : "1")
     .trim()
     .toLowerCase();
   return !["0", "false", "no", "off"].includes(v);
@@ -1600,7 +1601,8 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
 
 /** When unset or truthy, HTTP(S) image_url targets are fetched (opt out with 0/false/off). */
 function remoteOpenAiImageFetchEnabled() {
-  const v = String(process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS ?? "1").trim().toLowerCase();
+  const fetchEnv = process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS;
+  const v = String(fetchEnv != null ? fetchEnv : "1").trim().toLowerCase();
   return !["0", "false", "no", "off"].includes(v);
 }
 
