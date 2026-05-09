@@ -6,6 +6,11 @@ set -euo pipefail
 #   sudo ./install-web-systemd.sh [PORT] [HOST]
 # Example:
 #   sudo ./install-web-systemd.sh 80 0.0.0.0
+#
+# Optional: also install Ollama as its own unit and start it before the web service:
+#   sudo INSTALL_AGENTIC_OLLAMA=1 ./install-web-systemd.sh 80 0.0.0.0
+# Or install only Ollama:
+#   sudo ./install-ollama-systemd.sh
 
 PORT="${1:-3847}"
 HOST="${2:-0.0.0.0}"
@@ -43,11 +48,24 @@ else
   printf 'AGENTIC_WEB_HOST=%s\n' "$HOST" >>"$env_file"
 fi
 
+if [[ "${INSTALL_AGENTIC_OLLAMA:-0}" == "1" ]]; then
+  if [[ ! -f "$here/install-ollama-systemd.sh" ]]; then
+    echo "[systemd] INSTALL_AGENTIC_OLLAMA=1 but missing install-ollama-systemd.sh in $here" >&2
+    exit 1
+  fi
+  bash "$here/install-ollama-systemd.sh"
+  unit_after="After=network-online.target agentic-ollama.service"
+  unit_wants="Wants=network-online.target agentic-ollama.service"
+else
+  unit_after="After=network-online.target"
+  unit_wants="Wants=network-online.target"
+fi
+
 cat >/etc/systemd/system/$unit_name <<EOF
 [Unit]
 Description=Agentic Orchestration Web
-After=network-online.target
-Wants=network-online.target
+$unit_after
+$unit_wants
 
 [Service]
 Type=simple

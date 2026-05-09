@@ -682,6 +682,22 @@ function effectiveOpenAiProxyOrchestratorReset(agentic) {
   return !["0", "false", "no", "off"].includes(v);
 }
 
+/**
+ * Planner catalog restriction for OpenAI-proxy runs.
+ * JSON body `agentic.selectedAgentProviderIds` wins when non-empty; otherwise use
+ * AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS (comma-separated catalog ids), e.g. `gpt_write`
+ * to avoid Ollama/HF picks when those backends are unavailable.
+ */
+function effectiveOpenAiProxyAgentProviderIds(agenticSelected) {
+  const fromBody = Array.isArray(agenticSelected)
+    ? agenticSelected.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  if (fromBody.length > 0) return fromBody;
+  const raw = String(process.env.AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS || "").trim();
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 async function handleOpenAiChatCompletions(req, res) {
   const cors = chatCompletionsCorsHeaders();
 
@@ -894,7 +910,7 @@ async function handleOpenAiChatCompletions(req, res) {
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
-        selectedAgentProviderIds: agentic.selectedAgentProviderIds,
+        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
@@ -1267,7 +1283,7 @@ async function handleOpenAiResponses(req, res) {
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
-        selectedAgentProviderIds: agentic.selectedAgentProviderIds,
+        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
