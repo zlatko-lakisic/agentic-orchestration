@@ -538,50 +538,6 @@ function parseOpenAiDataUrlImage(urlRaw) {
 }
 
 /**
- * Collect embedded images from Chat Completions-style messages (content parts with type image_url).
- * Returns entries compatible with writeDynamicAttachmentManifest: { data, name, mime }.
- */
-function extractOpenAiImageFilesFromMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  const out = [];
-  let seq = 0;
-  for (const msg of messages) {
-    if (!msg || typeof msg !== "object") continue;
-    const content = msg.content;
-    if (!Array.isArray(content)) continue;
-    for (const part of content) {
-      if (!part || typeof part !== "object") continue;
-      const t = String(part.type || "").toLowerCase();
-      if (t !== "image_url") continue;
-      const iu = part.image_url;
-      const url =
-        typeof iu === "string"
-          ? iu
-          : iu && typeof iu === "object" && typeof iu.url === "string"
-            ? iu.url
-            : "";
-      const parsed = parseOpenAiDataUrlImage(url);
-      if (!parsed) continue;
-      let buf;
-      try {
-        buf = Buffer.from(parsed.base64, "base64");
-      } catch {
-        continue;
-      }
-      if (!buf.length || buf.length > MAX_UPLOAD_BYTES) continue;
-      const ext = extensionForImageMime(parsed.mime);
-      out.push({
-        data: parsed.base64,
-        name: `openai_image_${seq}.${ext}`,
-        mime: parsed.mime,
-      });
-      seq += 1;
-    }
-  }
-  return out;
-}
-
-/**
  * Merge explicit agentic.files with vision image_url parts; write manifest or return error context.
  */
 function mergeAttachmentFilesAndWriteManifest(toolRoot, agenticFiles, messageDerivedFiles) {
@@ -834,7 +790,7 @@ async function handleOpenAiChatCompletions(req, res) {
 
     let dynamicText = messagesToDynamicText(payload.messages);
     let attachmentManifestPath = null;
-    const messageImages = extractOpenAiImageFilesFromMessages(payload.messages);
+    const messageImages = await extractOpenAiImageFilesFromMessages(payload.messages);
     let attachmentCombinedCount = 0;
     try {
       const merged = mergeAttachmentFilesAndWriteManifest(
@@ -864,7 +820,7 @@ async function handleOpenAiChatCompletions(req, res) {
         JSON.stringify({
           error: {
             message:
-              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... in message image_url.url, or base64 in agentic.files[].data / .base64.",
+              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... or reachable http(s) image URLs in message image_url.url (fetch toggled via AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
             type: "invalid_request_error",
             param: "messages.image_url",
             code: "invalid_attachment",
@@ -1206,7 +1162,7 @@ async function handleOpenAiResponses(req, res) {
     const responseMessages = responsesInputToMessages(payload.input);
     let dynamicText = messagesToDynamicText(responseMessages);
     let attachmentManifestPath = null;
-    const messageImages = extractOpenAiImageFilesFromMessages(responseMessages);
+    const messageImages = await extractOpenAiImageFilesFromMessages(responseMessages);
     let attachmentCombinedCount = 0;
     try {
       const merged = mergeAttachmentFilesAndWriteManifest(
@@ -1236,7 +1192,7 @@ async function handleOpenAiResponses(req, res) {
         JSON.stringify({
           error: {
             message:
-              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... in message image_url.url, or base64 in agentic.files[].data / .base64.",
+              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... or reachable http(s) image URLs in message image_url.url (fetch toggled via AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
             type: "invalid_request_error",
             param: "input.image_url",
             code: "invalid_attachment",
@@ -1607,6 +1563,232 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
   const manifestPath = path.join(dir, "_manifest.json");
   fs.writeFileSync(manifestPath, JSON.stringify(manifest));
   return manifestPath;
+}
+
+/** When unset or truthy, HTTP(S) image_url targets are fetched (opt out with 0/false/off). */
+function remoteOpenAiImageFetchEnabled() {
+  const v = String(process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS ?? "1").trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
+}
+
+function openAiImageFetchTimeoutMs() {
+  const raw = String(process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_TIMEOUT_MS || "").trim();
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 20000;
+  return Math.min(120000, Math.max(1000, Math.floor(n)));
+}
+
+/** Optional SSRF hardening: blocks obvious loopback / RFC1918-style literals (hostname resolution not checked). */
+function openAiFetchDenyPrivateNetworksEnabled() {
+  const v = String(process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_DENY_PRIVATE_NETWORKS || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+}
+
+function openAiFetchHostnameBlocked(parsedUrl) {
+  if (!openAiFetchDenyPrivateNetworksEnabled()) return false;
+  const rawHost = String(parsedUrl.hostname || "").replace(/^\[|\]$/g, "").toLowerCase();
+  if (rawHost === "localhost" || rawHost.endsWith(".localhost")) return true;
+  if (rawHost === "::1") return true;
+
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const m = ipv4.exec(rawHost);
+  if (m) {
+    const quad = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+    if (quad.some((x) => x > 255)) return true;
+    const [a, b] = quad;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+
+  if (rawHost.includes(":")) {
+    if (rawHost.startsWith("fe80:")) return true;
+    const head = rawHost.split(":")[0];
+    if (/^f[c-d][0-9a-f]{2}$/i.test(head)) return true;
+  }
+  return false;
+}
+
+function sniffImageMimeFromBuffer(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    buf.length >= 6 &&
+    buf[0] === 0x47 &&
+    buf[1] === 0x49 &&
+    buf[2] === 0x46 &&
+    buf[3] === 0x38 &&
+    (buf[4] === 0x37 || buf[4] === 0x39) &&
+    buf[5] === 0x61
+  ) {
+    return "image/gif";
+  }
+  if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  return null;
+}
+
+async function readFetchBodyWithMaxBytes(response, maxBytes) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    try {
+      const ab = await response.arrayBuffer();
+      const buf = Buffer.from(ab);
+      if (buf.length > maxBytes) return null;
+      return buf;
+    } catch {
+      return null;
+    }
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || !value.length) continue;
+      total += value.length;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(Buffer.from(value));
+    }
+    return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
+  } catch {
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+}
+
+async function fetchHttpImageUrlAsManifestEntry(urlRaw, seq) {
+  const raw = String(urlRaw || "").trim();
+  if (!raw || /^data:/i.test(raw)) return null;
+  let u;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (openAiFetchHostnameBlocked(u)) return null;
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), openAiImageFetchTimeoutMs());
+  try {
+    const res = await fetch(raw, {
+      method: "GET",
+      redirect: "follow",
+      signal: ctrl.signal,
+      headers: {
+        Accept: "image/*,application/octet-stream;q=0.8,*/*;q=0.5",
+        "User-Agent": "agentic-orchestration-web/openai-proxy",
+      },
+    });
+    if (!res.ok) return null;
+
+    const cl = res.headers.get("content-length");
+    if (cl && /^\d+$/.test(cl.trim()) && Number(cl) > MAX_UPLOAD_BYTES) return null;
+
+    const buf = await readFetchBodyWithMaxBytes(res, MAX_UPLOAD_BYTES);
+    if (!buf || buf.length === 0) return null;
+
+    const ct = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    let mime =
+      ct && ct.startsWith("image/")
+        ? ct
+        : sniffImageMimeFromBuffer(buf);
+    if (!mime || !mime.startsWith("image/")) return null;
+
+    const ext = extensionForImageMime(mime);
+    return {
+      data: buf.toString("base64"),
+      name: `openai_image_${seq}.${ext}`,
+      mime,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+/**
+ * Collect embedded images from Chat Completions-style messages (content parts with type image_url).
+ * Supports data:image/*;base64,... and HTTP(S) URLs when fetching is enabled.
+ * Returns entries compatible with writeDynamicAttachmentManifest: { data, name, mime }.
+ */
+async function extractOpenAiImageFilesFromMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  const out = [];
+  let seq = 0;
+  const fetchRemote = remoteOpenAiImageFetchEnabled();
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    const content = msg.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const t = String(part.type || "").toLowerCase();
+      if (t !== "image_url") continue;
+      const iu = part.image_url;
+      const url =
+        typeof iu === "string"
+          ? iu
+          : iu && typeof iu === "object" && typeof iu.url === "string"
+            ? iu.url
+            : "";
+      const parsed = parseOpenAiDataUrlImage(url);
+      if (parsed) {
+        let buf;
+        try {
+          buf = Buffer.from(parsed.base64, "base64");
+        } catch {
+          continue;
+        }
+        if (!buf.length || buf.length > MAX_UPLOAD_BYTES) continue;
+        const ext = extensionForImageMime(parsed.mime);
+        out.push({
+          data: parsed.base64,
+          name: `openai_image_${seq}.${ext}`,
+          mime: parsed.mime,
+        });
+        seq += 1;
+        continue;
+      }
+      if (fetchRemote) {
+        const entry = await fetchHttpImageUrlAsManifestEntry(url, seq);
+        if (entry) {
+          out.push(entry);
+          seq += 1;
+        }
+      }
+    }
+  }
+  return out;
 }
 
 function buildDynamicSpawnArgs(text, opts) {
