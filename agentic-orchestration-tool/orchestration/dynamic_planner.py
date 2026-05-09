@@ -97,6 +97,38 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(t)
 
 
+def _planner_debug_enabled() -> bool:
+    return os.getenv("AGENTIC_PLANNER_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _planner_debug_dump(
+    phase: str,
+    *,
+    model: str,
+    raw_content: str,
+    plan: dict[str, Any] | None,
+    exc: BaseException,
+) -> None:
+    """Emit planner LLM output when validation fails (set AGENTIC_PLANNER_DEBUG=1)."""
+    if not _planner_debug_enabled():
+        return
+    try:
+        lim = int(os.getenv("AGENTIC_PLANNER_DEBUG_CHARS", "6000"))
+    except ValueError:
+        lim = 6000
+    lim = max(400, min(50000, lim))
+    print(f"{phase} planner validation failed: {exc}", file=sys.stderr)
+    print(f"{phase} planner LLM model string: {model!r}", file=sys.stderr)
+    rc = raw_content if isinstance(raw_content, str) else ""
+    print(f"{phase} planner raw content (trunc {lim} chars):\n{rc[:lim]!s}", file=sys.stderr)
+    if isinstance(plan, dict):
+        try:
+            pj = json.dumps(plan, ensure_ascii=False, indent=2)
+        except Exception:  # noqa: BLE001
+            pj = repr(plan)
+        print(f"{phase} planner parsed JSON (trunc {lim} chars):\n{pj[:lim]}", file=sys.stderr)
+
+
 def _planner_chat_completion(
     *,
     messages: list[dict[str, str]],
@@ -982,15 +1014,25 @@ def build_dynamic_workflow_config(
         )
         raw2 = _planner_chat_completion(messages=repair_msgs, model=model)
         plan2 = _extract_json_object(raw2)
-        cfg2 = workflow_config_from_plan(
-            user_prompt=user_prompt,
-            plan=plan2,
-            catalog_entries=entries,
-            instance_key=key,
-            max_steps=limit,
-            mcp_catalog_entries=mcp_entries,
-            quiet=quiet,
-        )
+        try:
+            cfg2 = workflow_config_from_plan(
+                user_prompt=user_prompt,
+                plan=plan2,
+                catalog_entries=entries,
+                instance_key=key,
+                max_steps=limit,
+                mcp_catalog_entries=mcp_entries,
+                quiet=quiet,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _planner_debug_dump(
+                "(dynamic repair)",
+                model=model,
+                raw_content=raw2,
+                plan=plan2,
+                exc=exc,
+            )
+            raise
         return raw2, plan2, cfg2
 
     raw_content = _planner_chat_completion(messages=messages, model=model)
@@ -1007,6 +1049,13 @@ def build_dynamic_workflow_config(
             quiet=quiet,
         )
     except Exception as exc:  # noqa: BLE001
+        _planner_debug_dump(
+            "(dynamic)",
+            model=model,
+            raw_content=raw_content,
+            plan=plan,
+            exc=exc,
+        )
         if os.getenv("AGENTIC_PLANNER_REPAIR_RETRY", "1").strip().lower() not in (
             "0",
             "false",
