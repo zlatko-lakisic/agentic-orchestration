@@ -150,6 +150,7 @@ def run_built_workflow(
     quiet: bool = False,
     emit_stdout_summary: bool = True,
     execution_error_sink: list[str] | None = None,
+    log_terminal_execution_failure: bool = True,
 ) -> tuple[int, str | None]:
     """Execute a pre-built crew; return (exit code, final output text if any).
 
@@ -159,6 +160,9 @@ def run_built_workflow(
 
     When ``execution_error_sink`` is a list, append the final kickoff exception message
     if execution fails (used for HF→local fallback).
+
+    When ``log_terminal_execution_failure`` is False, omit the usual stderr banner for a
+    terminal kickoff failure (used for the first attempt before HF execution fallback may retry).
     """
     _on_workflow_start(built)
 
@@ -167,6 +171,8 @@ def run_built_workflow(
     workflow_error: BaseException | None = None
     result_text: str | None = None
 
+    suppress_stderr_probe = execution_error_sink is not None and not log_terminal_execution_failure
+
     def _kickoff_once() -> object:
         with crew_kickoff_context(built):
             if quiet:
@@ -174,6 +180,10 @@ def run_built_workflow(
                     with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
                         _quiet_sink
                     ):
+                        return built.crew.kickoff(inputs=built.inputs)
+            if suppress_stderr_probe:
+                with open(os.devnull, "w", encoding="utf-8") as _dn:
+                    with contextlib.redirect_stderr(_dn):
                         return built.crew.kickoff(inputs=built.inputs)
             return built.crew.kickoff(inputs=built.inputs)
 
@@ -205,21 +215,23 @@ def run_built_workflow(
                     workflow_result = _kickoff_once()
                 except Exception as retry_exc:
                     workflow_error = retry_exc
+                    if log_terminal_execution_failure:
+                        print("\nWorkflow execution failed.", file=sys.stderr)
+                        print(
+                            "Check your YAML config and OPENAI settings in .env, then retry.",
+                            file=sys.stderr,
+                        )
+                        print(f"Error: {retry_exc}", file=sys.stderr)
+                    exit_code = 1
+            if not retried:
+                workflow_error = exc
+                if log_terminal_execution_failure:
                     print("\nWorkflow execution failed.", file=sys.stderr)
                     print(
                         "Check your YAML config and OPENAI settings in .env, then retry.",
                         file=sys.stderr,
                     )
-                    print(f"Error: {retry_exc}", file=sys.stderr)
-                    exit_code = 1
-            if not retried:
-                workflow_error = exc
-                print("\nWorkflow execution failed.", file=sys.stderr)
-                print(
-                    "Check your YAML config and OPENAI settings in .env, then retry.",
-                    file=sys.stderr,
-                )
-                print(f"Error: {exc}", file=sys.stderr)
+                    print(f"Error: {exc}", file=sys.stderr)
                 exit_code = 1
         else:
             if emit_stdout_summary:
@@ -274,6 +286,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         quiet=quiet,
         emit_stdout_summary=emit_stdout_summary,
         execution_error_sink=sink,
+        log_terminal_execution_failure=False,
     )
     if code == 0 or not sink:
         return code, text, executed
