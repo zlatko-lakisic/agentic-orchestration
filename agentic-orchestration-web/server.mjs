@@ -1643,6 +1643,31 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
   return manifestPath;
 }
 
+/** When truthy, keep `_web_uploads/<uuid>/` after orchestration; default is delete for privacy/disk. */
+function webUploadsPersistenceEnabled() {
+  const v = String(process.env.AGENTIC_WEB_PERSIST_UPLOADS || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+}
+
+/**
+ * Remove a dynamic-attachment session directory created by `writeDynamicAttachmentManifest`
+ * (`<toolRoot>/_web_uploads/<uuid>/`). No-op if persistence is enabled or path is unexpected.
+ */
+function maybeRemoveWebUploadSession(toolRoot, manifestPath) {
+  if (!manifestPath || webUploadsPersistenceEnabled()) return;
+  try {
+    const root = path.resolve(toolRoot);
+    const man = path.resolve(String(manifestPath));
+    if (path.basename(man) !== "_manifest.json") return;
+    const uploadsRoot = path.resolve(path.join(root, "_web_uploads"));
+    const sessionDir = path.resolve(path.dirname(man));
+    if (path.dirname(sessionDir) !== uploadsRoot) return;
+    fs.rmSync(sessionDir, { recursive: true, force: true });
+  } catch (err) {
+    console.error("[agentic-orchestration-web] failed to remove upload session:", err);
+  }
+}
+
 /** When unset or truthy, HTTP(S) image_url targets are fetched (opt out with 0/false/off). */
 function remoteOpenAiImageFetchEnabled() {
   const fetchEnv = process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS;
@@ -2046,8 +2071,12 @@ async function runDynamicAwait({
         }
       });
     }
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      reject(err);
+    });
     proc.on("close", (code, signal) => {
+      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
       resolve({
         code: typeof code === "number" ? code : 0,
         signal: signal || null,
@@ -2077,6 +2106,7 @@ function runDynamic(
 ) {
   sendJson(ws, { type: "preflight", status: "start", message: "Checking Python dependencies…" });
   if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || "") }))) {
+    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
     sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed." });
     sendJson(ws, {
       type: "error",
@@ -2124,10 +2154,12 @@ function runDynamic(
     });
   }
   proc.on("error", (err) => {
+    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
     sendJson(ws, { type: "error", message: err.message });
     ws._busy = false;
   });
   proc.on("close", (code, signal) => {
+    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
     sendJson(ws, {
       type: "run_end",
       code: typeof code === "number" ? code : 0,
