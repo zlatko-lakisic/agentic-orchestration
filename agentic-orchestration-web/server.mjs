@@ -665,6 +665,23 @@ function orchestrationRequestLogEnabled() {
   return false;
 }
 
+/**
+ * Pass --orchestrator-session-reset for OpenAI-proxy dynamic runs unless opted out.
+ * Default on: stateless callers (e.g. LLM Vision) must not inherit planner_history /
+ * last_crew_output_excerpt from unrelated jobs sharing __orchestrator_sessions__/default.json.
+ * AGENTIC_OPENAI_PROXY_ORCHESTRATOR_SESSION_RESET=0 keeps continuity when using agentic.sessionId.
+ * agentic.resetSession: false opts out; true forces reset.
+ */
+function effectiveOpenAiProxyOrchestratorReset(agentic) {
+  const a = agentic && typeof agentic === "object" ? agentic : {};
+  if (a.resetSession === true) return true;
+  if (a.resetSession === false) return false;
+  const v = String(process.env.AGENTIC_OPENAI_PROXY_ORCHESTRATOR_SESSION_RESET ?? "1")
+    .trim()
+    .toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
+}
+
 async function handleOpenAiChatCompletions(req, res) {
   const cors = chatCompletionsCorsHeaders();
 
@@ -874,7 +891,7 @@ async function handleOpenAiChatCompletions(req, res) {
         iterativeMaxRounds: agentic.iterativeMaxRounds,
         noSynthesize: Boolean(agentic.noSynthesize),
         sessionId: agentic.sessionId,
-        resetSession: Boolean(agentic.resetSession),
+        resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
@@ -1247,7 +1264,7 @@ async function handleOpenAiResponses(req, res) {
         iterativeMaxRounds: agentic.iterativeMaxRounds,
         noSynthesize: Boolean(agentic.noSynthesize),
         sessionId: agentic.sessionId,
-        resetSession: Boolean(agentic.resetSession),
+        resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
