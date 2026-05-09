@@ -428,6 +428,8 @@ Rules:
 - In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)** each step uses (or state explicitly when none apply).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
+**Planner vs crew output:** Your reply is the **plan**, not the user's deliverable. If the user goal asks for a tiny JSON object (e.g. `{{"minutes": ...}}`) or strict machine-readable fields, that output must be produced **by agents in `steps`**, not by you here. Never reply with only those keys—always emit `plan_summary` and a non-empty `steps` array using catalog `agent_provider_id` values.
+
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
   "plan_summary": "short rationale for steps, agent providers, and MCP choices",
@@ -459,6 +461,22 @@ If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `
     return system
 
 
+def _planner_user_turn(user_prompt: str) -> str:
+    """Separate user-facing answer schemas from the planner's required plan JSON."""
+    u = user_prompt.strip()
+    return (
+        "Below is the **USER GOAL**. Your job is to output an **orchestration plan JSON** "
+        "(plan_summary + non-empty steps), not to answer the goal in the user's requested wire format.\n"
+        "- If the goal demands a small JSON object (e.g. `{\"minutes\": ...}`), ignore that shape for "
+        "**your** reply; agents in `steps` will satisfy it.\n"
+        "- Your reply must include `steps` with `agent_provider_id`, `description` (mention {{topic}}), "
+        "and `expected_output` for each step.\n\n"
+        "--- USER GOAL START ---\n"
+        f"{u}\n"
+        "--- USER GOAL END ---"
+    )
+
+
 def _compose_planner_messages(
     *,
     system_text: str,
@@ -471,8 +489,34 @@ def _compose_planner_messages(
         content = str(turn.get("content", ""))
         if role in ("user", "assistant") and content:
             msgs.append({"role": role, "content": content})
-    msgs.append({"role": "user", "content": user_prompt.strip()})
+    msgs.append({"role": "user", "content": _planner_user_turn(user_prompt)})
     return msgs
+
+
+def _missing_steps_hint(plan: Any) -> str:
+    if not isinstance(plan, dict):
+        return ""
+    keys = frozenset(plan.keys())
+    suspicious = keys & {
+        "minutes",
+        "seconds",
+        "duration",
+        "irrigation",
+        "water",
+        "zones",
+        "schedule",
+        "valve",
+        "runtime",
+    }
+    if suspicious and "steps" not in keys:
+        return (
+            " The model returned keys "
+            f"{sorted(keys)!r} instead of a plan with `steps`—it likely answered the user task directly. "
+            "If OPENAI_BASE_URL points at Ollama/your chat backend, set AGENTIC_PLANNER_MODEL to the "
+            "same family you run locally (e.g. `ollama/qwen2.5:14b-instruct`) or use a dedicated planner endpoint "
+            "so the planner follows system instructions."
+        )
+    return ""
 
 
 def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
@@ -602,7 +646,9 @@ def workflow_config_from_plan(
     catalog_by_id = {str(p["id"]).strip(): p for p in catalog_entries}
     steps_raw = plan.get("steps")
     if not isinstance(steps_raw, list) or not steps_raw:
-        raise ValueError("Planner JSON must contain a non-empty 'steps' array.")
+        raise ValueError(
+            "Planner JSON must contain a non-empty 'steps' array." + _missing_steps_hint(plan)
+        )
     cap = max(1, min(32, max_steps))
     if len(steps_raw) > cap:
         steps_raw = steps_raw[:cap]
@@ -1007,8 +1053,10 @@ def build_dynamic_workflow_config(
                 "content": (
                     "Your previous response was invalid for this orchestrator.\n"
                     f"Problem: {reason}\n\n"
-                    "Return a corrected JSON object that strictly matches the schema. "
-                    "You MUST include a non-empty steps array (1..max_steps)."
+                    "Return a corrected JSON object that strictly matches the schema: "
+                    "`plan_summary`, non-empty `steps` with `agent_provider_id` / `description` / `expected_output`, "
+                    "optional `mcp_provider_ids`. "
+                    "Do NOT reply with only user-wire keys like `minutes`—that is not the planner schema."
                 ),
             }
         )
