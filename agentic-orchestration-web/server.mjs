@@ -505,6 +505,94 @@ function messagesToDynamicText(messages) {
   return lines.join("\n\n---\n\n");
 }
 
+const _IMAGE_MIME_TO_EXT = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+function extensionForImageMime(mime) {
+  const m = String(mime || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  return _IMAGE_MIME_TO_EXT[m] || "bin";
+}
+
+/**
+ * Parse OpenAI-style data URLs used by vision clients (e.g. LLM Vision): data:image/jpeg;base64,...
+ */
+function parseOpenAiDataUrlImage(urlRaw) {
+  const url = String(urlRaw || "").trim();
+  const m = /^data:([\w/+.\-]+);base64,([\s\S]+)$/i.exec(url);
+  if (!m) return null;
+  const mime = String(m[1] || "application/octet-stream")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  const base64 = String(m[2] || "").replace(/\s+/g, "");
+  if (!base64 || !mime.startsWith("image/")) return null;
+  return { mime, base64 };
+}
+
+/**
+ * Collect embedded images from Chat Completions-style messages (content parts with type image_url).
+ * Returns entries compatible with writeDynamicAttachmentManifest: { data, name, mime }.
+ */
+function extractOpenAiImageFilesFromMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  const out = [];
+  let seq = 0;
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    const content = msg.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const t = String(part.type || "").toLowerCase();
+      if (t !== "image_url") continue;
+      const iu = part.image_url;
+      const url =
+        typeof iu === "string"
+          ? iu
+          : iu && typeof iu === "object" && typeof iu.url === "string"
+            ? iu.url
+            : "";
+      const parsed = parseOpenAiDataUrlImage(url);
+      if (!parsed) continue;
+      let buf;
+      try {
+        buf = Buffer.from(parsed.base64, "base64");
+      } catch {
+        continue;
+      }
+      if (!buf.length || buf.length > MAX_UPLOAD_BYTES) continue;
+      const ext = extensionForImageMime(parsed.mime);
+      out.push({
+        data: parsed.base64,
+        name: `openai_image_${seq}.${ext}`,
+        mime: parsed.mime,
+      });
+      seq += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Merge explicit agentic.files with vision image_url parts; write manifest or return error context.
+ */
+function mergeAttachmentFilesAndWriteManifest(toolRoot, agenticFiles, messageDerivedFiles) {
+  const a = Array.isArray(agenticFiles) ? agenticFiles : [];
+  const b = Array.isArray(messageDerivedFiles) ? messageDerivedFiles : [];
+  const combined = [...a, ...b];
+  if (combined.length === 0) return { manifestPath: null, combinedCount: 0 };
+  const manifestPath = writeDynamicAttachmentManifest(toolRoot, combined);
+  return { manifestPath, combinedCount: combined.length };
+}
+
 /** Drop `agentic` so upstream OpenAI-compatible servers do not reject unknown fields. */
 function openAiPayloadForUpstream(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -594,6 +682,31 @@ function openAiApiDisablesAnswerCache() {
     .trim()
     .toLowerCase();
   return !["0", "false", "no", "off"].includes(v);
+}
+
+/** Mirror spawned Python stdout/stderr to this process stderr (see runDynamicAwait). */
+function subprocessLogToConsoleEnabled() {
+  const v = String(process.env.AGENTIC_SUBPROCESS_LOG_TO_CONSOLE || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+}
+
+/** For OpenAI-compatible HTTP handlers: force Crew verbose even when the JSON body omits agentic.verboseCrew. */
+function chatCompletionsVerboseCrewFromEnv() {
+  const v = String(process.env.AGENTIC_CHAT_COMPLETIONS_VERBOSE_CREW || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+}
+
+/** Log a one-line summary for each POST that runs local orchestration (chat completions / responses). */
+function orchestrationRequestLogEnabled() {
+  for (const k of ["AGENTIC_ORCHESTRATION_REQUEST_LOG", "AGENTIC_CHAT_COMPLETIONS_REQUEST_LOG"]) {
+    const v = String(process.env[k] || "").trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(v)) return true;
+  }
+  return false;
 }
 
 async function handleOpenAiChatCompletions(req, res) {
@@ -721,38 +834,44 @@ async function handleOpenAiChatCompletions(req, res) {
 
     let dynamicText = messagesToDynamicText(payload.messages);
     let attachmentManifestPath = null;
-    const files = Array.isArray(agentic.files) ? agentic.files : [];
-    if (files.length > 0) {
-      try {
-        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, files);
-      } catch (err) {
-        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
-        res.end(
-          JSON.stringify({
-            error: {
-              message: String(err && err.message ? err.message : err),
-              type: "invalid_request_error",
-              param: "agentic.files",
-              code: "invalid_attachment",
-            },
-          }),
-        );
-        return;
-      }
-      if (!attachmentManifestPath) {
-        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
-        res.end(
-          JSON.stringify({
-            error: {
-              message: "No valid file data in agentic.files (expect base64 in data or base64).",
-              type: "invalid_request_error",
-              param: "agentic.files",
-              code: "invalid_attachment",
-            },
-          }),
-        );
-        return;
-      }
+    const messageImages = extractOpenAiImageFilesFromMessages(payload.messages);
+    let attachmentCombinedCount = 0;
+    try {
+      const merged = mergeAttachmentFilesAndWriteManifest(
+        TOOL_ROOT,
+        agentic.files,
+        messageImages,
+      );
+      attachmentManifestPath = merged.manifestPath;
+      attachmentCombinedCount = merged.combinedCount;
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: String(err && err.message ? err.message : err),
+            type: "invalid_request_error",
+            param: "attachments",
+            code: "invalid_attachment",
+          },
+        }),
+      );
+      return;
+    }
+    if (attachmentCombinedCount > 0 && !attachmentManifestPath) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... in message image_url.url, or base64 in agentic.files[].data / .base64.",
+            type: "invalid_request_error",
+            param: "messages.image_url",
+            code: "invalid_attachment",
+          },
+        }),
+      );
+      return;
     }
     if (!dynamicText.trim() && attachmentManifestPath) {
       dynamicText =
@@ -763,7 +882,8 @@ async function handleOpenAiChatCompletions(req, res) {
       res.end(
         JSON.stringify({
           error: {
-            message: "messages must yield non-empty text for orchestration (or attach files under agentic.files).",
+            message:
+              "messages must yield non-empty text for orchestration (or attach files under agentic.files / embedded image_url parts).",
             type: "invalid_request_error",
             param: "messages",
             code: "empty_prompt",
@@ -771,6 +891,21 @@ async function handleOpenAiChatCompletions(req, res) {
         }),
       );
       return;
+    }
+
+    if (orchestrationRequestLogEnabled()) {
+      console.error(
+        "[agentic-orchestration-web] /v1/chat/completions orchestrate",
+        JSON.stringify({
+          model: payload.model.trim(),
+          remote: req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "",
+          promptChars: dynamicText.length,
+          attachmentManifest: Boolean(attachmentManifestPath),
+          attachmentSlots: attachmentCombinedCount,
+          embeddedImagesDecoded: messageImages.length,
+          runMode: String(agentic.runMode || "dynamic").trim(),
+        }),
+      );
     }
 
     let runResult;
@@ -785,7 +920,7 @@ async function handleOpenAiChatCompletions(req, res) {
         sessionId: agentic.sessionId,
         resetSession: Boolean(agentic.resetSession),
         noVerify: agentic.noVerify !== false,
-        verboseCrew: Boolean(agentic.verboseCrew),
+        verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
@@ -1068,40 +1203,47 @@ async function handleOpenAiResponses(req, res) {
       return;
     }
 
-    let dynamicText = messagesToDynamicText(responsesInputToMessages(payload.input));
+    const responseMessages = responsesInputToMessages(payload.input);
+    let dynamicText = messagesToDynamicText(responseMessages);
     let attachmentManifestPath = null;
-    const files = Array.isArray(agentic.files) ? agentic.files : [];
-    if (files.length > 0) {
-      try {
-        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, files);
-      } catch (err) {
-        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
-        res.end(
-          JSON.stringify({
-            error: {
-              message: String(err && err.message ? err.message : err),
-              type: "invalid_request_error",
-              param: "agentic.files",
-              code: "invalid_attachment",
-            },
-          }),
-        );
-        return;
-      }
-      if (!attachmentManifestPath) {
-        res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
-        res.end(
-          JSON.stringify({
-            error: {
-              message: "No valid file data in agentic.files (expect base64 in data or base64).",
-              type: "invalid_request_error",
-              param: "agentic.files",
-              code: "invalid_attachment",
-            },
-          }),
-        );
-        return;
-      }
+    const messageImages = extractOpenAiImageFilesFromMessages(responseMessages);
+    let attachmentCombinedCount = 0;
+    try {
+      const merged = mergeAttachmentFilesAndWriteManifest(
+        TOOL_ROOT,
+        agentic.files,
+        messageImages,
+      );
+      attachmentManifestPath = merged.manifestPath;
+      attachmentCombinedCount = merged.combinedCount;
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: String(err && err.message ? err.message : err),
+            type: "invalid_request_error",
+            param: "attachments",
+            code: "invalid_attachment",
+          },
+        }),
+      );
+      return;
+    }
+    if (attachmentCombinedCount > 0 && !attachmentManifestPath) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message:
+              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... in message image_url.url, or base64 in agentic.files[].data / .base64.",
+            type: "invalid_request_error",
+            param: "input.image_url",
+            code: "invalid_attachment",
+          },
+        }),
+      );
+      return;
     }
 
     if (!dynamicText.trim() && attachmentManifestPath) {
@@ -1113,7 +1255,8 @@ async function handleOpenAiResponses(req, res) {
       res.end(
         JSON.stringify({
           error: {
-            message: "input must yield non-empty text for orchestration (or attach files under agentic.files).",
+            message:
+              "input must yield non-empty text for orchestration (or attach files under agentic.files / embedded image_url parts).",
             type: "invalid_request_error",
             param: "input",
             code: "empty_prompt",
@@ -1121,6 +1264,21 @@ async function handleOpenAiResponses(req, res) {
         }),
       );
       return;
+    }
+
+    if (orchestrationRequestLogEnabled()) {
+      console.error(
+        "[agentic-orchestration-web] /v1/responses orchestrate",
+        JSON.stringify({
+          model: typeof payload.model === "string" ? payload.model.trim() : "",
+          remote: req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "",
+          promptChars: dynamicText.length,
+          attachmentManifest: Boolean(attachmentManifestPath),
+          attachmentSlots: attachmentCombinedCount,
+          embeddedImagesDecoded: messageImages.length,
+          runMode: String(agentic.runMode || "dynamic").trim(),
+        }),
+      );
     }
 
     let runResult;
@@ -1135,7 +1293,7 @@ async function handleOpenAiResponses(req, res) {
         sessionId: agentic.sessionId,
         resetSession: Boolean(agentic.resetSession),
         noVerify: agentic.noVerify !== false,
-        verboseCrew: Boolean(agentic.verboseCrew),
+        verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
         selectedAgentProviderIds: agentic.selectedAgentProviderIds,
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
@@ -1552,14 +1710,23 @@ async function runDynamicAwait({
     });
     let stdout = "";
     let stderr = "";
+    const mirror = subprocessLogToConsoleEnabled();
     if (proc.stdout) {
       proc.stdout.on("data", (chunk) => {
-        stdout += chunk.toString("utf8");
+        const s = chunk.toString("utf8");
+        stdout += s;
+        if (mirror) {
+          process.stderr.write(`[agentic spawn stdout] ${s}`);
+        }
       });
     }
     if (proc.stderr) {
       proc.stderr.on("data", (chunk) => {
-        stderr += chunk.toString("utf8");
+        const s = chunk.toString("utf8");
+        stderr += s;
+        if (mirror) {
+          process.stderr.write(`[agentic spawn stderr] ${s}`);
+        }
       });
     }
     proc.on("error", reject);
