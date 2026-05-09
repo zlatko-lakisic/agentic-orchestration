@@ -11,7 +11,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from orchestration.attachments import build_attachment_block, compose_goal_with_attachments
+from orchestration.attachments import (
+    build_attachment_block,
+    compose_goal_with_attachments,
+    resolve_manifest_path,
+)
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import load_workflow_config
 from orchestration.goal_format_hints import goal_requires_machine_readable_only
