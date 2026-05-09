@@ -513,18 +513,25 @@ const _IMAGE_MIME_TO_EXT = {
   "image/webp": "webp",
 };
 
-function extensionForImageMime(mime) {
+const _VIDEO_MIME_TO_EXT = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+};
+
+function extensionForMediaMime(mime) {
   const m = String(mime || "")
     .split(";")[0]
     .trim()
     .toLowerCase();
+  if (m.startsWith("video/")) return _VIDEO_MIME_TO_EXT[m] || "mp4";
   return _IMAGE_MIME_TO_EXT[m] || "bin";
 }
 
 /**
- * Parse OpenAI-style data URLs used by vision clients (e.g. LLM Vision): data:image/jpeg;base64,...
+ * Parse OpenAI-style data URLs: data:image/*;base64,... or data:video/*;base64,... (e.g. MP4).
  */
-function parseOpenAiDataUrlImage(urlRaw) {
+function parseOpenAiDataUrlMedia(urlRaw) {
   const url = String(urlRaw || "").trim();
   const m = /^data:([\w/+.\-]+);base64,([\s\S]+)$/i.exec(url);
   if (!m) return null;
@@ -533,12 +540,12 @@ function parseOpenAiDataUrlImage(urlRaw) {
     .trim()
     .toLowerCase();
   const base64 = String(m[2] || "").replace(/\s+/g, "");
-  if (!base64 || !mime.startsWith("image/")) return null;
+  if (!base64 || !(mime.startsWith("image/") || mime.startsWith("video/"))) return null;
   return { mime, base64 };
 }
 
 /**
- * Merge explicit agentic.files with vision image_url parts; write manifest or return error context.
+ * Merge explicit agentic.files with vision media parts (image_url / video_url); write manifest or return error context.
  */
 function mergeAttachmentFilesAndWriteManifest(toolRoot, agenticFiles, messageDerivedFiles) {
   const a = Array.isArray(agenticFiles) ? agenticFiles : [];
@@ -824,13 +831,13 @@ async function handleOpenAiChatCompletions(req, res) {
 
     let dynamicText = messagesToDynamicText(payload.messages);
     let attachmentManifestPath = null;
-    const messageImages = await extractOpenAiImageFilesFromMessages(payload.messages);
+    const messageMediaFiles = await extractOpenAiMediaFilesFromMessages(payload.messages);
     let attachmentCombinedCount = 0;
     try {
       const merged = mergeAttachmentFilesAndWriteManifest(
         TOOL_ROOT,
         agentic.files,
-        messageImages,
+        messageMediaFiles,
       );
       attachmentManifestPath = merged.manifestPath;
       attachmentCombinedCount = merged.combinedCount;
@@ -854,9 +861,9 @@ async function handleOpenAiChatCompletions(req, res) {
         JSON.stringify({
           error: {
             message:
-              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... or reachable http(s) image URLs in message image_url.url (fetch toggled via AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
+              "Embedded attachments or agentic.files could not be decoded. Use data:image/* or data:video/* base64 URLs, or reachable http(s) URLs in image_url / video_url (or input_image / input_video) parts (fetch: AGENTIC_OPENAI_PROXY_FETCH_MEDIA_URLS or AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
             type: "invalid_request_error",
-            param: "messages.image_url",
+            param: "messages.media_parts",
             code: "invalid_attachment",
           },
         }),
@@ -873,7 +880,7 @@ async function handleOpenAiChatCompletions(req, res) {
         JSON.stringify({
           error: {
             message:
-              "messages must yield non-empty text for orchestration (or attach files under agentic.files / embedded image_url parts).",
+              "messages must yield non-empty text for orchestration (or attach files under agentic.files / embedded image, video, or input_image / input_video parts).",
             type: "invalid_request_error",
             param: "messages",
             code: "empty_prompt",
@@ -892,7 +899,7 @@ async function handleOpenAiChatCompletions(req, res) {
           promptChars: dynamicText.length,
           attachmentManifest: Boolean(attachmentManifestPath),
           attachmentSlots: attachmentCombinedCount,
-          embeddedImagesDecoded: messageImages.length,
+          attachmentMediaPartsDecoded: messageMediaFiles.length,
           runMode: String(agentic.runMode || "dynamic").trim(),
         }),
       );
@@ -1196,13 +1203,13 @@ async function handleOpenAiResponses(req, res) {
     const responseMessages = responsesInputToMessages(payload.input);
     let dynamicText = messagesToDynamicText(responseMessages);
     let attachmentManifestPath = null;
-    const messageImages = await extractOpenAiImageFilesFromMessages(responseMessages);
+    const messageMediaFiles = await extractOpenAiMediaFilesFromMessages(responseMessages);
     let attachmentCombinedCount = 0;
     try {
       const merged = mergeAttachmentFilesAndWriteManifest(
         TOOL_ROOT,
         agentic.files,
-        messageImages,
+        messageMediaFiles,
       );
       attachmentManifestPath = merged.manifestPath;
       attachmentCombinedCount = merged.combinedCount;
@@ -1226,9 +1233,9 @@ async function handleOpenAiResponses(req, res) {
         JSON.stringify({
           error: {
             message:
-              "Embedded images or agentic.files could not be decoded. Use data:image/*;base64,... or reachable http(s) image URLs in message image_url.url (fetch toggled via AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
+              "Embedded attachments or agentic.files could not be decoded. Use data:image/* or data:video/* base64 URLs, or reachable http(s) URLs in image_url / video_url (or input_image / input_video) parts (fetch: AGENTIC_OPENAI_PROXY_FETCH_MEDIA_URLS or AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS), or base64 in agentic.files[].data / .base64.",
             type: "invalid_request_error",
-            param: "input.image_url",
+            param: "input.media_parts",
             code: "invalid_attachment",
           },
         }),
@@ -1246,7 +1253,7 @@ async function handleOpenAiResponses(req, res) {
         JSON.stringify({
           error: {
             message:
-              "input must yield non-empty text for orchestration (or attach files under agentic.files / embedded image_url parts).",
+              "input must yield non-empty text for orchestration (or attach files under agentic.files / embedded image, video, or input_image / input_video parts).",
             type: "invalid_request_error",
             param: "input",
             code: "empty_prompt",
@@ -1265,7 +1272,7 @@ async function handleOpenAiResponses(req, res) {
           promptChars: dynamicText.length,
           attachmentManifest: Boolean(attachmentManifestPath),
           attachmentSlots: attachmentCombinedCount,
-          embeddedImagesDecoded: messageImages.length,
+          attachmentMediaPartsDecoded: messageMediaFiles.length,
           runMode: String(agentic.runMode || "dynamic").trim(),
         }),
       );
@@ -1544,9 +1551,43 @@ function serveStatic(req, res) {
   });
 }
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-const MAX_UPLOAD_TOTAL_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 8;
+
+function envAttachmentByteCap(name, fallback, hardMax) {
+  const raw = String(process.env[name] || "").trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1024) return fallback;
+  return Math.min(hardMax, Math.floor(n));
+}
+
+/** Single image / non-video attachment cap (base64 decode size). */
+const MAX_ATTACH_IMAGE_BYTES = envAttachmentByteCap(
+  "AGENTIC_OPENAI_PROXY_MAX_IMAGE_BYTES",
+  5 * 1024 * 1024,
+  80 * 1024 * 1024,
+);
+/** Single video attachment cap (MP4/WebM fetch or data URL). */
+const MAX_ATTACH_VIDEO_BYTES = envAttachmentByteCap(
+  "AGENTIC_OPENAI_PROXY_MAX_VIDEO_BYTES",
+  80 * 1024 * 1024,
+  512 * 1024 * 1024,
+);
+/** Sum of all files in one manifest (images + videos + agentic.files). */
+const MAX_ATTACH_TOTAL_BYTES = envAttachmentByteCap(
+  "AGENTIC_OPENAI_PROXY_MAX_ATTACHMENT_TOTAL_BYTES",
+  200 * 1024 * 1024,
+  1024 * 1024 * 1024,
+);
+
+function attachmentMaxBytesForMime(mime) {
+  const m = String(mime || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (m.startsWith("video/")) return MAX_ATTACH_VIDEO_BYTES;
+  return MAX_ATTACH_IMAGE_BYTES;
+}
 
 function safeUploadBasename(name) {
   const base = path.basename(String(name || "file").replace(/\\/g, "/"));
@@ -1576,12 +1617,15 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
     } catch {
       continue;
     }
-    if (buf.length > MAX_UPLOAD_BYTES) {
-      throw new Error(`File too large (max ${MAX_UPLOAD_BYTES} bytes each).`);
+    const declaredMime =
+      typeof f.mime === "string" && f.mime.trim() ? f.mime.trim() : "application/octet-stream";
+    const maxForFile = attachmentMaxBytesForMime(declaredMime);
+    if (buf.length > maxForFile) {
+      throw new Error(`File too large (max ${maxForFile} bytes each for this MIME type).`);
     }
     total += buf.length;
-    if (total > MAX_UPLOAD_TOTAL_BYTES) {
-      throw new Error(`Total upload too large (max ${MAX_UPLOAD_TOTAL_BYTES} bytes).`);
+    if (total > MAX_ATTACH_TOTAL_BYTES) {
+      throw new Error(`Total upload too large (max ${MAX_ATTACH_TOTAL_BYTES} bytes).`);
     }
     const name = safeUploadBasename(f.name);
     const dest = path.join(dir, `${i}_${name}`);
@@ -1589,7 +1633,7 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
     manifest.files.push({
       path: dest,
       name,
-      mime: typeof f.mime === "string" && f.mime.trim() ? f.mime.trim() : "application/octet-stream",
+      mime: declaredMime,
       size: buf.length,
     });
   }
@@ -1604,6 +1648,16 @@ function remoteOpenAiImageFetchEnabled() {
   const fetchEnv = process.env.AGENTIC_OPENAI_PROXY_FETCH_IMAGE_URLS;
   const v = String(fetchEnv != null ? fetchEnv : "1").trim().toLowerCase();
   return !["0", "false", "no", "off"].includes(v);
+}
+
+/** Prefer `AGENTIC_OPENAI_PROXY_FETCH_MEDIA_URLS` when set; otherwise same semantics as image fetch flag. */
+function remoteOpenAiAttachmentUrlFetchEnabled() {
+  const rawMedia = process.env.AGENTIC_OPENAI_PROXY_FETCH_MEDIA_URLS;
+  if (rawMedia != null && String(rawMedia).trim() !== "") {
+    const v = String(rawMedia).trim().toLowerCase();
+    return !["0", "false", "no", "off"].includes(v);
+  }
+  return remoteOpenAiImageFetchEnabled();
 }
 
 function openAiImageFetchTimeoutMs() {
@@ -1682,6 +1736,29 @@ function sniffImageMimeFromBuffer(buf) {
   return null;
 }
 
+function sniffVideoMimeFromBuffer(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf.length >= 12 && buf.toString("ascii", 4, 8) === "ftyp") {
+    const brand = buf.toString("ascii", 8, 12);
+    if (brand === "qt  " || brand === "mov ") return "video/quicktime";
+    return "video/mp4";
+  }
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return "video/webm";
+  }
+  return null;
+}
+
+function maxRemoteFetchBytesForContentTypeProbe(ctRaw) {
+  const ct = String(ctRaw || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (ct.startsWith("video/")) return MAX_ATTACH_VIDEO_BYTES;
+  if (ct.startsWith("image/")) return MAX_ATTACH_IMAGE_BYTES;
+  return MAX_ATTACH_VIDEO_BYTES;
+}
+
 async function readFetchBodyWithMaxBytes(response, maxBytes) {
   if (!response.body || typeof response.body.getReader !== "function") {
     try {
@@ -1719,7 +1796,7 @@ async function readFetchBodyWithMaxBytes(response, maxBytes) {
   }
 }
 
-async function fetchHttpImageUrlAsManifestEntry(urlRaw, seq) {
+async function fetchHttpMediaUrlAsManifestEntry(urlRaw, seq, partKind) {
   const raw = String(urlRaw || "").trim();
   if (!raw || /^data:/i.test(raw)) return null;
   let u;
@@ -1739,29 +1816,39 @@ async function fetchHttpImageUrlAsManifestEntry(urlRaw, seq) {
       redirect: "follow",
       signal: ctrl.signal,
       headers: {
-        Accept: "image/*,application/octet-stream;q=0.8,*/*;q=0.5",
+        Accept: "image/*,video/*,application/octet-stream;q=0.8,*/*;q=0.5",
         "User-Agent": "agentic-orchestration-web/openai-proxy",
       },
     });
     if (!res.ok) return null;
 
+    const ctHdr = res.headers.get("content-type");
+    const readCap = maxRemoteFetchBytesForContentTypeProbe(ctHdr);
     const cl = res.headers.get("content-length");
-    if (cl && /^\d+$/.test(cl.trim()) && Number(cl) > MAX_UPLOAD_BYTES) return null;
+    if (cl && /^\d+$/.test(cl.trim()) && Number(cl) > readCap) return null;
 
-    const buf = await readFetchBodyWithMaxBytes(res, MAX_UPLOAD_BYTES);
+    const buf = await readFetchBodyWithMaxBytes(res, readCap);
     if (!buf || buf.length === 0) return null;
 
-    const ct = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-    let mime =
-      ct && ct.startsWith("image/")
-        ? ct
-        : sniffImageMimeFromBuffer(buf);
-    if (!mime || !mime.startsWith("image/")) return null;
+    const ct = String(ctHdr || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    let mime = ct.startsWith("image/") || ct.startsWith("video/") ? ct : null;
+    if (!mime) mime = sniffImageMimeFromBuffer(buf) || sniffVideoMimeFromBuffer(buf);
+    if (!mime || !(mime.startsWith("image/") || mime.startsWith("video/"))) return null;
 
-    const ext = extensionForImageMime(mime);
+    if (partKind === "image" && !mime.startsWith("image/")) return null;
+    if (partKind === "video" && !mime.startsWith("video/")) return null;
+
+    const cap = attachmentMaxBytesForMime(mime);
+    if (buf.length > cap) return null;
+
+    const ext = extensionForMediaMime(mime);
+    const prefix = mime.startsWith("video/") ? "openai_video" : "openai_image";
     return {
       data: buf.toString("base64"),
-      name: `openai_image_${seq}.${ext}`,
+      name: `${prefix}_${seq}.${ext}`,
       mime,
     };
   } catch {
@@ -1772,15 +1859,17 @@ async function fetchHttpImageUrlAsManifestEntry(urlRaw, seq) {
 }
 
 /**
- * Collect embedded images from Chat Completions-style messages (content parts with type image_url).
- * Supports data:image/*;base64,... and HTTP(S) URLs when fetching is enabled.
+ * Collect embedded images and videos from chat-style messages:
+ * parts with type `image_url` / `video_url`, or Responses-style `input_image` / `input_video`
+ * (each `{ url }` or string URL on the matching field).
+ * Supports data:image/* and data:video/* base64 URLs and HTTP(S) when fetch is enabled.
  * Returns entries compatible with writeDynamicAttachmentManifest: { data, name, mime }.
  */
-async function extractOpenAiImageFilesFromMessages(messages) {
+async function extractOpenAiMediaFilesFromMessages(messages) {
   if (!Array.isArray(messages)) return [];
   const out = [];
   let seq = 0;
-  const fetchRemote = remoteOpenAiImageFetchEnabled();
+  const fetchRemote = remoteOpenAiAttachmentUrlFetchEnabled();
   for (const msg of messages) {
     if (!msg || typeof msg !== "object") continue;
     const content = msg.content;
@@ -1788,15 +1877,18 @@ async function extractOpenAiImageFilesFromMessages(messages) {
     for (const part of content) {
       if (!part || typeof part !== "object") continue;
       const t = String(part.type || "").toLowerCase();
-      if (t !== "image_url") continue;
-      const iu = part.image_url;
+      const isImagePart = t === "image_url" || t === "input_image";
+      const isVideoPart = t === "video_url" || t === "input_video";
+      if (!isImagePart && !isVideoPart) continue;
+
+      const holder = isImagePart ? part.image_url : part.video_url;
       const url =
-        typeof iu === "string"
-          ? iu
-          : iu && typeof iu === "object" && typeof iu.url === "string"
-            ? iu.url
+        typeof holder === "string"
+          ? holder
+          : holder && typeof holder === "object" && typeof holder.url === "string"
+            ? holder.url
             : "";
-      const parsed = parseOpenAiDataUrlImage(url);
+      const parsed = parseOpenAiDataUrlMedia(url);
       if (parsed) {
         let buf;
         try {
@@ -1804,18 +1896,26 @@ async function extractOpenAiImageFilesFromMessages(messages) {
         } catch {
           continue;
         }
-        if (!buf.length || buf.length > MAX_UPLOAD_BYTES) continue;
-        const ext = extensionForImageMime(parsed.mime);
+        const cap = attachmentMaxBytesForMime(parsed.mime);
+        if (!buf.length || buf.length > cap) continue;
+        if (isImagePart && !parsed.mime.startsWith("image/")) continue;
+        if (isVideoPart && !parsed.mime.startsWith("video/")) continue;
+        const ext = extensionForMediaMime(parsed.mime);
+        const prefix = parsed.mime.startsWith("video/") ? "openai_video" : "openai_image";
         out.push({
           data: parsed.base64,
-          name: `openai_image_${seq}.${ext}`,
+          name: `${prefix}_${seq}.${ext}`,
           mime: parsed.mime,
         });
         seq += 1;
         continue;
       }
       if (fetchRemote) {
-        const entry = await fetchHttpImageUrlAsManifestEntry(url, seq);
+        const entry = await fetchHttpMediaUrlAsManifestEntry(
+          url,
+          seq,
+          isVideoPart ? "video" : "image",
+        );
         if (entry) {
           out.push(entry);
           seq += 1;

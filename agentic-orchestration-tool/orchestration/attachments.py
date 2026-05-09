@@ -11,8 +11,12 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+from orchestration.video_frames import extract_video_frames
+from orchestration.video_vision_synopsis import summarize_video_frames_litellm
 
 
 def _env_int(name: str, default: int) -> int:
@@ -111,7 +115,16 @@ _EXT_CATEGORY: dict[str, tuple[str, str]] = {
     ".zip": ("archive", "Zip archive; prefer agents that can reason about packaging or request extraction via tools."),
     ".xlsx": ("spreadsheet", "Excel spreadsheet (binary); prefer data/finance agents; text may need specialized tools."),
     ".xls": ("spreadsheet", "Legacy Excel (binary); prefer data/finance agents."),
+    ".mp4": ("media", "Video (MP4); JPEG frames are extracted for vision—see following frame attachments."),
+    ".webm": ("media", "Video (WebM); JPEG frames are extracted for vision—see following frame attachments."),
+    ".mov": ("media", "Video (QuickTime); JPEG frames are extracted for vision—see following frame attachments."),
+    ".mkv": ("media", "Video (Matroska); JPEG frames are extracted for vision—see following frame attachments."),
+    ".m4v": ("media", "Video (M4V); JPEG frames are extracted for vision—see following frame attachments."),
+    ".avi": ("media", "Video (AVI); JPEG frames are extracted for vision—see following frame attachments."),
 }
+
+
+_VIDEO_SUFFIXES = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"})
 
 
 _TEXT_EXCERPT_CATEGORIES = frozenset(
@@ -133,8 +146,13 @@ def _category_for(path: Path, mime: str) -> tuple[str, str]:
     mt = mime.lower()
     if mt.startswith("image/"):
         return "image", "Image binary; prefer multimodal/vision agents when available."
-    if mt.startswith("audio/") or mt.startswith("video/"):
-        return "media", "Audio/video; prefer agents that handle media or transcription when available."
+    if mt.startswith("video/"):
+        return (
+            "media",
+            "Video; ffmpeg extracts evenly spaced JPEG frames—listed below as image attachments with an optional automated synopsis.",
+        )
+    if mt.startswith("audio/"):
+        return "media", "Audio; prefer transcription or media-oriented agents when speech matters."
     if "pdf" in mt:
         return "document", "PDF-style document; prefer document-oriented agents."
     if "json" in mt or "yaml" in mt or "xml" in mt:
@@ -162,9 +180,32 @@ def _read_text_excerpt(path: Path, max_chars: int) -> str:
     return text
 
 
-def build_attachment_block(*, tool_root: Path, manifest_path: Path) -> str:
+def _is_video_attachment(path: Path, mime: str) -> bool:
+    if mime.lower().startswith("video/"):
+        return True
+    return path.suffix.lower() in _VIDEO_SUFFIXES
+
+
+def _video_frame_extract_enabled() -> bool:
+    return os.getenv("AGENTIC_VIDEO_EXTRACT_FRAMES", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def build_attachment_block(
+    *,
+    tool_root: Path,
+    manifest_path: Path,
+    user_goal_hint: str = "",
+) -> str:
     """
     Build markdown to append to the user goal for planner + crew ({topic}).
+
+    Video attachments: when ffmpeg is available, evenly spaced JPEG frames are written next to the
+    video file and listed as separate image attachments; optional LiteLLM vision synopsis is inlined.
     """
     max_files = max(1, min(32, _env_int("AGENTIC_ATTACHMENTS_MAX_FILES", 12)))
     per_excerpt = max(400, min(12000, _env_int("AGENTIC_ATTACHMENT_EXCERPT_CHARS", 4000)))
@@ -179,12 +220,31 @@ def build_attachment_block(*, tool_root: Path, manifest_path: Path) -> str:
         "",
         "The planner MUST use these paths, MIME/types, and routing hints to pick `agent_provider_id` "
         "values whose `planner_hint`, `role`, and `goal` fit the file kinds (e.g. data vs code vs documents vs images). "
+        "For videos, JPEG frames extracted via ffmpeg are listed below—route vision/multimodal agents to those paths; "
+        "plain-language synopsis text may also be present.",
         "Sequential steps may first extract/interpret files, then act on the results.",
         "",
     ]
 
     used = 0
-    for i, spec in enumerate(entries, start=1):
+    display_idx = 0
+    trunc_tail = (
+        f"\n_(Further attachments omitted to respect AGENTIC_ATTACHMENT_MAX_PLANNER_CHARS={max_block}.)_"
+    )
+
+    def append_chunk(chunk_lines: list[str]) -> bool:
+        nonlocal used
+        chunk = "\n".join(chunk_lines) + "\n"
+        if used + len(chunk) > max_block:
+            lines.append(trunc_tail)
+            return False
+        lines.append(chunk)
+        used += len(chunk)
+        return True
+
+    goal_hint = (user_goal_hint or "").strip()[:12000]
+
+    for spec in entries:
         raw_path = Path(str(spec.get("path") or "").strip())
         validated = _validate_attachment_path(raw_path, tool_root=tool_root)
         name = str(spec.get("name") or validated.name).strip() or validated.name
@@ -195,30 +255,79 @@ def build_attachment_block(*, tool_root: Path, manifest_path: Path) -> str:
             size = -1
         cat, route = _category_for(validated, mime)
 
+        display_idx += 1
         chunk_lines = [
-            f"{i}. **{name}**",
+            f"{display_idx}. **{name}**",
             f"   - **Path:** `{validated}`",
             f"   - **MIME:** `{mime}`  ·  **category:** **{cat}**  ·  **size_bytes:** {size}",
             f"   - **Routing:** {route}",
         ]
         if cat in _TEXT_EXCERPT_CATEGORIES or mime.startswith("text/"):
             ex = _read_text_excerpt(validated, per_excerpt)
-            chunk_lines.append(f"   - **Excerpt (UTF-8, truncated):**")
+            chunk_lines.append("   - **Excerpt (UTF-8, truncated):**")
             chunk_lines.append("")
             chunk_lines.append("```")
             chunk_lines.append(ex)
             chunk_lines.append("```")
         else:
-            chunk_lines.append("   - **Excerpt:** (not inlined — binary or non-text; agents should use tools or reasoning as appropriate.)")
-
-        chunk = "\n".join(chunk_lines) + "\n"
-        if used + len(chunk) > max_block:
-            lines.append(
-                f"\n_(Further attachments omitted to respect AGENTIC_ATTACHMENT_MAX_PLANNER_CHARS={max_block}.)_"
+            chunk_lines.append(
+                "   - **Excerpt:** (not inlined — binary or non-text; agents should use tools or reasoning as appropriate.)"
             )
+
+        video_frames: list[Path] = []
+        if _is_video_attachment(validated, mime) and _video_frame_extract_enabled():
+            chunk_lines.append(
+                "   - **Video frames:** evenly spaced JPEGs via ffmpeg (see numbered attachments below)."
+            )
+            video_frames = extract_video_frames(validated)
+            if not video_frames:
+                chunk_lines.append(
+                    "   - **Frame extraction:** failed or ffmpeg/ffprobe unavailable—install ffmpeg or set "
+                    "AGENTIC_VIDEO_EXTRACT_FRAMES=0 to silence this path."
+                )
+                print(
+                    f"(attachments) video frame extraction produced no frames for {validated.name!s}",
+                    file=sys.stderr,
+                )
+            else:
+                synopsis = summarize_video_frames_litellm(
+                    video_frames,
+                    user_goal_hint=goal_hint,
+                    source_video_name=name,
+                )
+                if synopsis:
+                    chunk_lines.append("   - **Automated vision synopsis (sampled frames):**")
+                    chunk_lines.append("")
+                    for ln in synopsis.split("\n"):
+                        chunk_lines.append(f"     {ln}".rstrip())
+
+        if not append_chunk(chunk_lines):
             break
-        lines.append(chunk)
-        used += len(chunk)
+
+        truncated = False
+        for fi, fp in enumerate(video_frames, start=1):
+            display_idx += 1
+            try:
+                fsize = fp.stat().st_size
+            except OSError:
+                fsize = -1
+            frame_cat = "image"
+            frame_route = (
+                f"JPEG frame {fi}/{len(video_frames)} sampled from video `{name}`; "
+                "prefer multimodal/vision agents using this file path."
+            )
+            fchunk = [
+                f"{display_idx}. **{fp.name}** (frame {fi}/{len(video_frames)} from **{name}**)",
+                f"   - **Path:** `{fp.resolve()}`",
+                f"   - **MIME:** `image/jpeg`  ·  **category:** **{frame_cat}**  ·  **size_bytes:** {fsize}",
+                f"   - **Routing:** {frame_route}",
+                "   - **Excerpt:** (not inlined — binary image; use vision-capable agents or the synopsis above.)",
+            ]
+            if not append_chunk(fchunk):
+                truncated = True
+                break
+        if truncated:
+            break
 
     return "\n".join(lines).strip()
 

@@ -94,7 +94,11 @@ def _load_dynamic_attachment_block(args: argparse.Namespace, tool_root: Path) ->
         print(f"error: --dynamic-attachments manifest not found: {mp}", file=sys.stderr)
         sys.exit(2)
     try:
-        return build_attachment_block(tool_root=tool_root, manifest_path=mp)
+        return build_attachment_block(
+            tool_root=tool_root,
+            manifest_path=mp,
+            user_goal_hint=str(getattr(args, "task", None) or "")[:12000],
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"error: invalid attachment manifest ({mp}): {exc}", file=sys.stderr)
         sys.exit(2)
