@@ -17,7 +17,7 @@ from orchestration.attachments import (
     resolve_manifest_path,
 )
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
-from orchestration.config_loader import load_workflow_config
+from orchestration.config_loader import WorkflowConfig, load_workflow_config
 from orchestration.goal_format_hints import goal_requires_machine_readable_only
 from orchestration.dynamic_planner import (
     build_dynamic_workflow_config,
@@ -149,12 +149,16 @@ def run_built_workflow(
     *,
     quiet: bool = False,
     emit_stdout_summary: bool = True,
+    execution_error_sink: list[str] | None = None,
 ) -> tuple[int, str | None]:
     """Execute a pre-built crew; return (exit code, final output text if any).
 
     When ``emit_stdout_summary`` is False, the crew still runs and ``result_text`` is
     captured, but nothing is printed to stdout for this kickoff (used for dynamic
     iterative intermediate rounds so UIs can show a single final answer).
+
+    When ``execution_error_sink`` is a list, append the final kickoff exception message
+    if execution fails (used for HF→local fallback).
     """
     _on_workflow_start(built)
 
@@ -233,7 +237,70 @@ def run_built_workflow(
         _on_workflow_end(built, workflow_result, workflow_error)
         _cleanup_agent_providers(built)
 
+    if execution_error_sink is not None and workflow_error is not None:
+        execution_error_sink.append(str(workflow_error))
+
     return exit_code, result_text
+
+
+def _run_dynamic_workflow_with_hf_fallback(
+    cfg: WorkflowConfig,
+    *,
+    agent_providers_catalog_path: Path,
+    mcp_catalog_path: Path | None,
+    crew_verbose: bool,
+    quiet: bool,
+    emit_stdout_summary: bool = True,
+    emit_progress_lines: bool = True,
+) -> tuple[int, str | None, WorkflowConfig]:
+    """Run ``cfg`` once; on LiteLLM Hugging Face inference failure optionally rebuild and retry.
+
+    Returns ``(exit_code, result_text, executed_cfg)`` where ``executed_cfg`` is the workflow
+    actually run after any substitution (see ``AGENTIC_EXEC_FALLBACK_PROVIDER_ID``).
+    """
+    from orchestration.execution_fallback import workflow_config_after_hf_litellm_fallback
+
+    executed = cfg
+    sink: list[str] = []
+    built = build_workflow(
+        executed,
+        crew_verbose=crew_verbose,
+        quiet=quiet,
+        mcp_catalog_path=mcp_catalog_path,
+        emit_progress_lines=emit_progress_lines,
+    )
+    code, text = run_built_workflow(
+        built,
+        quiet=quiet,
+        emit_stdout_summary=emit_stdout_summary,
+        execution_error_sink=sink,
+    )
+    if code == 0 or not sink:
+        return code, text, executed
+    fb = workflow_config_after_hf_litellm_fallback(
+        executed,
+        sink[-1],
+        catalog_path=agent_providers_catalog_path,
+        quiet=quiet,
+    )
+    if fb is None:
+        return code, text, executed
+    if not quiet:
+        print(
+            "(dynamic) exec fallback: HF inference failed; retrying once with substituted "
+            "provider(s) (YAML exec_fallback_provider → AGENTIC_EXEC_FALLBACK_PROVIDER_ID → "
+            "default ollama_llava) …",
+            file=sys.stderr,
+        )
+    built2 = build_workflow(
+        fb,
+        crew_verbose=crew_verbose,
+        quiet=quiet,
+        mcp_catalog_path=mcp_catalog_path,
+        emit_progress_lines=emit_progress_lines,
+    )
+    code2, text2 = run_built_workflow(built2, quiet=quiet, emit_stdout_summary=emit_stdout_summary)
+    return code2, text2, fb
 
 
 def run_workflow(
@@ -830,17 +897,14 @@ def main() -> None:
                             flush=True,
                         )
 
-            built = build_workflow(
+            exit_code, result_text, dyn_cfg = _run_dynamic_workflow_with_hf_fallback(
                 dyn_cfg,
+                agent_providers_catalog_path=agent_providers_catalog_path,
+                mcp_catalog_path=mcp_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
-                mcp_catalog_path=mcp_catalog_path,
-                emit_progress_lines=stream_iter_steps,
-            )
-            exit_code, result_text = run_built_workflow(
-                built,
-                quiet=args.quiet,
                 emit_stdout_summary=stream_iter_steps,
+                emit_progress_lines=stream_iter_steps,
             )
             if exit_code:
                 sys.exit(exit_code)
@@ -1014,17 +1078,14 @@ def main() -> None:
                 print(f"(dynamic-iter) synthesis planning failed: {exc}", file=sys.stderr)
                 sys.exit(1)
 
-            built = build_workflow(
+            exit_code, result_text, synth_cfg = _run_dynamic_workflow_with_hf_fallback(
                 synth_cfg,
+                agent_providers_catalog_path=agent_providers_catalog_path,
+                mcp_catalog_path=mcp_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
-                mcp_catalog_path=mcp_catalog_path,
-                emit_progress_lines=stream_iter_steps,
-            )
-            exit_code, result_text = run_built_workflow(
-                built,
-                quiet=args.quiet,
                 emit_stdout_summary=True,
+                emit_progress_lines=stream_iter_steps,
             )
             if exit_code:
                 sys.exit(exit_code)
@@ -1245,13 +1306,15 @@ def main() -> None:
                     f"agent_provider {tdef.agent_provider_id!r}{mcp_part}",
                     file=sys.stderr,
                 )
-        built = build_workflow(
+        exit_code, result_text, dyn_cfg = _run_dynamic_workflow_with_hf_fallback(
             dyn_cfg,
+            agent_providers_catalog_path=agent_providers_catalog_path,
+            mcp_catalog_path=mcp_catalog_path,
             crew_verbose=not args.quiet,
             quiet=args.quiet,
-            mcp_catalog_path=mcp_catalog_path,
+            emit_stdout_summary=True,
+            emit_progress_lines=True,
         )
-        exit_code, result_text = run_built_workflow(built, quiet=args.quiet)
         if exit_code:
             sys.exit(exit_code)
         update_session_after_crew(orchestrator_session_path, result_text)

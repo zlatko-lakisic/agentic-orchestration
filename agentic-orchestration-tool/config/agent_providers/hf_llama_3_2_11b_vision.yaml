@@ -1,5 +1,8 @@
 id: hf_llama_3_2_11b_vision
 type: huggingface
+# When LiteLLM/HF rejects this model at crew runtime, substitute this catalog id (overrides
+# AGENTIC_EXEC_FALLBACK_PROVIDER_ID and the global default ollama_llava).
+exec_fallback_provider: ollama_llava
 min_vram_gb: 0
 planner_hint: HF Hub—vision+language; describe images and charts when the crew passes multimodal input.
 role: Vision-Language Assistant
