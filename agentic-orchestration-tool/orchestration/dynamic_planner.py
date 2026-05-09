@@ -512,9 +512,10 @@ def _missing_steps_hint(plan: Any) -> str:
         return (
             " The model returned keys "
             f"{sorted(keys)!r} instead of a plan with `steps`—it likely answered the user task directly. "
-            "If OPENAI_BASE_URL points at Ollama/your chat backend, set AGENTIC_PLANNER_MODEL to the "
-            "same family you run locally (e.g. `ollama/qwen2.5:14b-instruct`) or use a dedicated planner endpoint "
-            "so the planner follows system instructions."
+            "If OPENAI_BASE_URL points at Ollama/your chat backend, set AGENTIC_PLANNER_MODEL to a model "
+            "you actually pulled (`ollama list`), sized for your device — e.g. `ollama/qwen2.5:7b-instruct`, "
+            "`ollama/qwen2.5:3b-instruct`, or `ollama/llama3.2:3b`. "
+            "Or use a dedicated planner endpoint so the planner follows system instructions."
         )
     return ""
 
