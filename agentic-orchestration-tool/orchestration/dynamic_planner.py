@@ -33,6 +33,23 @@ from orchestration.agent_providers_catalog import (
     deepcopy_agent_provider,
     load_agent_providers_catalog_merged,
 )
+
+
+def _planner_llm_progress_log(*, resolved_model: str, messages: list[dict[str, str]]) -> None:
+    """One stderr line before blocking on the planner LLM (Ollama can take tens of seconds to load)."""
+    if os.getenv("AGENTIC_PLANNER_PROGRESS_LOG", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return
+    n = len(messages)
+    chars = sum(len(str(m.get("content", ""))) for m in messages)
+    print(
+        f"(dynamic) planner LLM: model={resolved_model} messages={n} prompt~chars={chars}",
+        file=sys.stderr,
+    )
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
@@ -198,12 +215,21 @@ def _planner_chat_completion(
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
+        _timeout_raw = os.getenv("AGENTIC_PLANNER_TIMEOUT_SEC", "").strip()
+        if _timeout_raw:
+            try:
+                kwargs["timeout"] = max(5.0, float(_timeout_raw))
+            except ValueError:
+                pass
+
         max_retries = 0
         try:
             max_retries = int(os.getenv("AGENTIC_PLANNER_429_RETRIES", "2"))
         except ValueError:
             max_retries = 2
         max_retries = max(0, min(8, max_retries))
+
+        _planner_llm_progress_log(resolved_model=clean_model, messages=messages)
 
         attempt = 0
         while True:
@@ -276,6 +302,8 @@ def _planner_chat_completion(
     ):
         body["response_format"] = {"type": "json_object"}
 
+    _planner_llm_progress_log(resolved_model=str(body["model"]), messages=messages)
+
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(
@@ -294,12 +322,20 @@ def _planner_chat_completion(
         max_retries = 2
     max_retries = max(0, min(8, max_retries))
 
+    _planner_http_timeout = 120.0
+    _to_raw = os.getenv("AGENTIC_PLANNER_TIMEOUT_SEC", "").strip()
+    if _to_raw:
+        try:
+            _planner_http_timeout = max(5.0, float(_to_raw))
+        except ValueError:
+            pass
+
     attempt = 0
     last_exc: Exception | None = None
     while True:
         attempt += 1
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=_planner_http_timeout) as client:
                 response = client.post(url, headers=headers, json=body)
                 try:
                     response.raise_for_status()
