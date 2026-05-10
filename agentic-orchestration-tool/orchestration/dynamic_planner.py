@@ -50,6 +50,22 @@ def _planner_llm_progress_log(*, resolved_model: str, messages: list[dict[str, s
         f"(dynamic) planner LLM: model={resolved_model} messages={n} prompt~chars={chars}",
         file=sys.stderr,
     )
+
+
+def _planner_llm_done_log(*, resolved_model: str, elapsed_s: float, out_chars: int) -> None:
+    """One stderr line after the planner returns (large prompts on Jetson can take many minutes)."""
+    if os.getenv("AGENTIC_PLANNER_PROGRESS_LOG", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return
+    print(
+        f"(dynamic) planner LLM done: model={resolved_model} elapsed_s={elapsed_s:.2f} "
+        f"response~chars={out_chars}",
+        file=sys.stderr,
+    )
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
@@ -230,6 +246,7 @@ def _planner_chat_completion(
         max_retries = max(0, min(8, max_retries))
 
         _planner_llm_progress_log(resolved_model=clean_model, messages=messages)
+        _planner_t0 = time.perf_counter()
 
         attempt = 0
         while True:
@@ -271,6 +288,11 @@ def _planner_chat_completion(
                         f"choice_keys={sorted(list(first.keys())) if isinstance(first, dict) else 'n/a'}, "
                         f"message_keys={have}"
                     )
+                _planner_llm_done_log(
+                    resolved_model=clean_model,
+                    elapsed_s=time.perf_counter() - _planner_t0,
+                    out_chars=len(content),
+                )
                 return content
             except Exception as exc:  # noqa: BLE001
                 detail = str(exc)
@@ -303,6 +325,7 @@ def _planner_chat_completion(
         body["response_format"] = {"type": "json_object"}
 
     _planner_llm_progress_log(resolved_model=str(body["model"]), messages=messages)
+    _planner_t0 = time.perf_counter()
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -397,7 +420,13 @@ def _planner_chat_completion(
             content = message.get("content")
             if not isinstance(content, str) or not content.strip():
                 raise RuntimeError("Planner LLM returned empty content.")
-            return content.strip()
+            out = content.strip()
+            _planner_llm_done_log(
+                resolved_model=str(body["model"]),
+                elapsed_s=time.perf_counter() - _planner_t0,
+                out_chars=len(out),
+            )
+            return out
 
     if last_exc is not None:
         raise last_exc
