@@ -42,8 +42,14 @@ from orchestration.output_artifacts import (
 from orchestration.workflow_router import select_workflow_with_ollama
 
 _DEFAULT_CONFIG_PATH = "config/workflows/workflow.yaml"
-_DEFAULT_AGENT_PROVIDERS_CATALOG = "config/agent_providers"
+_DEFAULT_AGENT_PROVIDERS_CATALOG_REL = "config/agent_providers"
 _DEFAULT_MCP_PROVIDERS_CATALOG = "config/mcp_providers"
+
+
+def _default_agent_providers_catalog_arg() -> str:
+    """CLI default: env ``AGENTIC_AGENT_PROVIDERS_CATALOG`` overrides bundled full catalog."""
+    v = os.getenv("AGENTIC_AGENT_PROVIDERS_CATALOG", "").strip()
+    return v if v else _DEFAULT_AGENT_PROVIDERS_CATALOG_REL
 
 
 def _verification_wanted(*, cli_no_verify: bool) -> bool:
@@ -656,14 +662,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--agent-providers-catalog",
         "--providers-catalog",
-        default=_DEFAULT_AGENT_PROVIDERS_CATALOG,
+        default=_default_agent_providers_catalog_arg(),
         metavar="PATH",
         dest="agent_providers_catalog",
         help=(
-            f"Directory of one YAML file per agent provider, or a legacy bundle YAML with top-level "
-            f"'agent_providers' (or 'providers') list (default {_DEFAULT_AGENT_PROVIDERS_CATALOG!r}). "
+            "Directory of one YAML file per agent provider, or a legacy bundle YAML with top-level "
+            "'agent_providers' (or 'providers') list. Default: env AGENTIC_AGENT_PROVIDERS_CATALOG if set, "
+            f"else {_DEFAULT_AGENT_PROVIDERS_CATALOG_REL!r}. "
             f"Merge extra directories via env AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS ({os.pathsep}-separated). "
-            f"--providers-catalog is a deprecated alias."
+            "--providers-catalog is a deprecated alias."
         ),
     )
     parser.add_argument(

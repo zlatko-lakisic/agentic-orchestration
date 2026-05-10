@@ -1,0 +1,13 @@
+id: anthropic_claude_haiku
+general_purpose: true
+type: anthropic
+min_vram_gb: 0
+planner_hint: >-
+  Anthropic Claude 3.5 Haiku—fast Claude tier for reasoning, rewriting, and structured outputs
+  when OpenAI is not the best fit.
+role: General Assistant
+goal: Follow instructions precisely and produce clear, well-structured results
+backstory: You favor accuracy and format discipline; you state uncertainty when data is ambiguous.
+model: claude-3-5-haiku-20241022
+verbose: true
+allow_delegation: false
