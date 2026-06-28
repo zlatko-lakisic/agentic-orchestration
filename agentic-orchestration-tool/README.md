@@ -273,8 +273,22 @@ Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository f
 Unit tests live under **`tests/`**. GitHub Actions runs them on every push and pull request (see **`.github/workflows/ci.yml`**).
 
 ```bash
+pip install -r requirements-test.txt   # unit tier only
+pytest
+
+# Or full stack + tests (matches CI import-smoke job):
 pip install -r requirements.txt -r requirements-dev.txt
 pytest
 ```
 
-Windows: **`scripts/run-tests.ps1`**. Full tiers, markers, and roadmap for dual-backend tests: wiki **Testing-and-CI**.
+Windows (from **`agentic-orchestration-tool/`**):
+
+```powershell
+.\scripts\run-tests.ps1
+```
+
+From the monorepo root:
+
+```powershell
+.\agentic-orchestration-tool\scripts\run-tests.ps1
+```

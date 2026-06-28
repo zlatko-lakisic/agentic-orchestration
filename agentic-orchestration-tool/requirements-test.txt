@@ -1,0 +1,5 @@
+# Minimal deps for the unit test tier (no crewai / LLM stack required).
+pytest>=8.0,<9
+pyyaml
+python-dotenv
+httpx
