@@ -6,6 +6,17 @@ from orchestration.config_loader import WorkflowConfig
 from orchestration.runner import BuiltWorkflow
 
 
+def subprocess_workers_enabled() -> bool:
+    import os
+
+    return os.getenv("AGENTIC_SUBPROCESS_WORKERS", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 class SubprocessExecutionBackend:
     """Distributed step execution via local worker subprocess (F4 — partial stub)."""
 
@@ -26,7 +37,7 @@ class SubprocessExecutionBackend:
         *,
         options: RunOptions,
     ) -> WorkflowExecutionResult:
-        if _subprocess_workers_enabled():
+        if subprocess_workers_enabled():
             from orchestration.backends.subprocess_runner import run_config_via_subprocess
 
             return run_config_via_subprocess(config, options=options)
@@ -42,11 +53,5 @@ class SubprocessExecutionBackend:
 
 
 def _subprocess_workers_enabled() -> bool:
-    import os
-
-    return os.getenv("AGENTIC_SUBPROCESS_WORKERS", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    """Deprecated alias for ``subprocess_workers_enabled``."""
+    return subprocess_workers_enabled()

@@ -35,6 +35,7 @@ from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_con
 from orchestration.backends.crewai import run_options_from_legacy
 from orchestration.backends.base import WorkflowExecutionResult
 from orchestration.backends.factory import execution_backend_from_env, execution_backend_name_from_env
+from orchestration.execution_dispatch import execute_workflow_config_resolved
 from orchestration.artifact_verify import verify_saved_npm_projects
 from orchestration.output_artifacts import (
     extractable_text_from_execution,
@@ -222,30 +223,29 @@ def _run_dynamic_workflow_with_hf_fallback(
 
     executed = cfg
     sink: list[str] = []
-    built = build_workflow(
+    result = execute_workflow_from_config(
         executed,
         crew_verbose=crew_verbose,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
-        emit_progress_lines=emit_progress_lines,
-    )
-    code, text = run_built_workflow(
-        built,
-        quiet=quiet,
         emit_stdout_summary=emit_stdout_summary,
+        emit_progress_lines=emit_progress_lines,
         execution_error_sink=sink,
         log_terminal_execution_failure=False,
     )
-    if code == 0 or not sink:
-        return code, text, executed
+    if result.exit_code == 0:
+        return 0, result.result_text, executed
+    err_text = sink[-1] if sink else str(result.error or "")
+    if not err_text:
+        return result.exit_code, result.result_text, executed
     fb = workflow_config_after_hf_litellm_fallback(
         executed,
-        sink[-1],
+        err_text,
         catalog_path=agent_providers_catalog_path,
         quiet=quiet,
     )
     if fb is None:
-        return code, text, executed
+        return result.exit_code, result.result_text, executed
     if not quiet:
         print(
             "(dynamic) exec fallback: HF inference failed; retrying once with substituted "
@@ -253,15 +253,39 @@ def _run_dynamic_workflow_with_hf_fallback(
             "default ollama_llava) …",
             file=sys.stderr,
         )
-    built2 = build_workflow(
+    result2 = execute_workflow_from_config(
         fb,
         crew_verbose=crew_verbose,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
+        emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
     )
-    code2, text2 = run_built_workflow(built2, quiet=quiet, emit_stdout_summary=emit_stdout_summary)
-    return code2, text2, fb
+    return result2.exit_code, result2.result_text, fb
+
+
+def execute_workflow_from_config(
+    config: WorkflowConfig,
+    *,
+    crew_verbose: bool = True,
+    quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
+    emit_stdout_summary: bool = True,
+    emit_progress_lines: bool = True,
+    execution_error_sink: list[str] | None = None,
+    log_terminal_execution_failure: bool = True,
+) -> WorkflowExecutionResult:
+    """Execute a ``WorkflowConfig`` through the configured backend (F3/F4 entry)."""
+    options = run_options_from_legacy(
+        quiet=quiet,
+        emit_stdout_summary=emit_stdout_summary,
+        execution_error_sink=execution_error_sink,
+        log_terminal_execution_failure=log_terminal_execution_failure,
+        crew_verbose=crew_verbose,
+        mcp_catalog_path=mcp_catalog_path,
+        emit_progress_lines=emit_progress_lines,
+    )
+    return execute_workflow_config_resolved(config, options=options)
 
 
 def run_workflow(
@@ -290,13 +314,12 @@ def run_workflow_execution(
 ) -> WorkflowExecutionResult:
     """Load workflow YAML and return the backend execution result (F3 post-run adapter entry)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
-    built = build_workflow(
+    return execute_workflow_from_config(
         config,
         crew_verbose=not quiet,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
     )
-    return execute_built_workflow(built, quiet=quiet)
 
 
 def run_interactive_router(

@@ -86,25 +86,24 @@ def test_run_workflow_static_path(
     default_workflow_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Static YAML workflow: load config -> build -> ``run_built_workflow``."""
+    """Static YAML workflow: load config -> ``execute_workflow_from_config`` (F4 dispatch)."""
     import main as main_mod
 
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "inprocess")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-unit-tests")
 
     run_calls: list[object] = []
 
-    monkeypatch.setattr(main_mod, "build_workflow", lambda config, **kwargs: _fake_built())
-    monkeypatch.setattr(
-        main_mod,
-        "run_built_workflow",
-        lambda built, **kwargs: run_calls.append(built) or (0, "static workflow ok"),
-    )
+    def _fake_execute(config, **kwargs):
+        run_calls.append(config)
+        return WorkflowExecutionResult(exit_code=0, result_text="static workflow ok")
+
+    monkeypatch.setattr(main_mod, "execute_workflow_from_config", _fake_execute)
 
     code, text = main_mod.run_workflow(default_workflow_path, quiet=True)
     assert code == 0
     assert text == "static workflow ok"
     assert len(run_calls) == 1
+    assert run_calls[0].name == "yaml-driven-demo"
 
 
 @pytest.mark.unit
@@ -113,7 +112,7 @@ def test_dynamic_workflow_path(
     monkeypatch: pytest.MonkeyPatch,
     tool_root: Path,
 ) -> None:
-    """Dynamic execution helper calls ``run_built_workflow`` after build."""
+    """Dynamic execution helper calls ``execute_workflow_from_config``."""
     import main as main_mod
 
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "inprocess")
@@ -121,16 +120,12 @@ def test_dynamic_workflow_path(
     cfg = _minimal_workflow_config()
     run_calls: list[tuple] = []
 
-    def _fake_build_workflow(config, **kwargs):
+    def _fake_execute(config, **kwargs):
         assert config.name == cfg.name
-        return _fake_built()
+        run_calls.append((config, kwargs.get("quiet")))
+        return WorkflowExecutionResult(exit_code=0, result_text="dynamic workflow ok")
 
-    def _fake_run_built(built, **kwargs):
-        run_calls.append((built, kwargs.get("quiet")))
-        return 0, "dynamic workflow ok"
-
-    monkeypatch.setattr(main_mod, "build_workflow", _fake_build_workflow)
-    monkeypatch.setattr(main_mod, "run_built_workflow", _fake_run_built)
+    monkeypatch.setattr(main_mod, "execute_workflow_from_config", _fake_execute)
 
     code, text, executed = main_mod._run_dynamic_workflow_with_hf_fallback(
         cfg,

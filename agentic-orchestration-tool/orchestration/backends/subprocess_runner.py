@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from orchestration.backends.base import RunOptions, StepResult, WorkflowExecutionResult
+from orchestration.backends.base import RunOptions, StepResult, StepSpec, WorkflowExecutionResult
 from orchestration.config_loader import WorkflowConfig
 from orchestration.run_store import FileSystemRunStore, new_run_id
 from orchestration.step_coordinator import StepCoordinator
