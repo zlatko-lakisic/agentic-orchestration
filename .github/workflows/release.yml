@@ -27,14 +27,8 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Build release notes from CHANGELOG
-        id: notes
         run: |
-          BODY=$(python scripts/changelog_for_release.py "${{ steps.ver.outputs.version }}")
-          {
-            echo "body<<EOF"
-            echo "$BODY"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          python scripts/changelog_for_release.py "${{ steps.ver.outputs.version }}" > release-notes.md
 
       - name: Create GitHub Release
         env:
@@ -42,4 +36,4 @@ jobs:
         run: |
           gh release create "${{ steps.ver.outputs.tag }}" \
             --title "${{ steps.ver.outputs.tag }}" \
-            --notes "${{ steps.notes.outputs.body }}"
+            --notes-file release-notes.md
