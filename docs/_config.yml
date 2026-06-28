@@ -1,0 +1,20 @@
+title: Agentic Orchestration
+description: YAML-driven CrewAI orchestration with MCP tools, dynamic planning, and web UI
+url: https://zlatko-lakisic.github.io
+baseurl: /agentic-orchestration
+
+remote_theme: pages-themes/slate@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+show_downloads: false
+markdown: kramdown
+permalink: pretty
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - scripts
+  - README.md
+  - _Footer.md
+  - vendor
