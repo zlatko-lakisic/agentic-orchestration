@@ -118,3 +118,22 @@ def build_step_specs(
             )
         )
     return specs
+
+
+def step_specs_resolution_fingerprint(
+    specs: list[StepSpec],
+) -> tuple[tuple[str, str, int, tuple[str, ...]], ...]:
+    """Stable per-step catalog resolution fingerprint (G4 parity; ignores ``run_id`` / prior inject)."""
+    rows: list[tuple[str, str, int, tuple[str, ...]]] = []
+    for spec in specs:
+        mcp_ids = tuple(str(m.get("id", "")) for m in spec.mcp_providers)
+        rows.append(
+            (
+                spec.step_id,
+                str(spec.agent_provider.get("id", "")),
+                len(spec.mcp_providers),
+                mcp_ids,
+            )
+        )
+    return tuple(rows)
+
