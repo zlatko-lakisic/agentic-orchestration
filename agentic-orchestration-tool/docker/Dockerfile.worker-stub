@@ -1,0 +1,4 @@
+# Stub worker for kind CI e2e — implements the --execute-step contract without LLM calls.
+FROM python:3.12-slim
+COPY scripts/k8s-stub-worker.py /app/k8s-stub-worker.py
+ENTRYPOINT ["python", "/app/k8s-stub-worker.py"]

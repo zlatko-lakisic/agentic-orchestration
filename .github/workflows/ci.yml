@@ -67,3 +67,23 @@ jobs:
 
       - name: Build worker image and run smoke test
         run: bash scripts/docker-worker-smoke.sh
+
+  kind-kubernetes-e2e:
+    name: kind Kubernetes e2e
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            agentic-orchestration-tool/requirements.txt
+            agentic-orchestration-tool/requirements-dev.txt
+
+      - name: kind cluster + stub worker e2e
+        run: bash scripts/k8s-kind-e2e.sh

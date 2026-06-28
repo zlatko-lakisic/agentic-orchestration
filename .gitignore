@@ -21,8 +21,8 @@ __orchestrator_sessions__/
 __orchestrator_learning__/
 __orchestrator_kb__/
 
-# Node (web UI)
-node_modules/
+# Local dev tools (not committed)
+agentic-orchestration-tool/.tools/
 
 # Example-local detached web (examples/verticals/*/start-web-bg.*)
 examples/**/.web-server.pid

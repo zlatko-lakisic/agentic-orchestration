@@ -6,48 +6,63 @@ Worker Jobs mount a **ReadWriteMany** volume at `AGENTIC_K8S_RUN_STORE_MOUNT` (d
 
 | Backend | Use when | Path |
 |--------|----------|------|
-| **nfs** | kind, minikube, local dev | `deploy/k8s/run-store/nfs/` |
+| **hostpath** | kind + bind mount from laptop (recommended local) | `deploy/k8s/run-store/hostpath/` |
+| **nfs** | kind / minikube without host bind | `deploy/k8s/run-store/nfs/` |
 | **filestore** | GKE with Filestore CSI | `deploy/k8s/run-store/filestore/` |
 
 ### Apply
 
 ```powershell
-# kind / local (default)
+# kind + D:\run bind mount (recommended Windows local)
+$env:AGENTIC_K8S_RUN_STORE_VOLUME = "hostpath"
+.\scripts\k8s-kind-up.ps1
 .\scripts\k8s-apply-run-store.ps1
+
+# kind / local NFS (no host bind)
+.\scripts\k8s-apply-run-store.ps1   # AGENTIC_K8S_RUN_STORE_VOLUME=nfs (default)
 
 # GKE Filestore
 $env:AGENTIC_K8S_RUN_STORE_VOLUME = "filestore"
-$env:AGENTIC_K8S_FILESTORE_NETWORK = "default"   # your VPC network name
+$env:AGENTIC_K8S_FILESTORE_NETWORK = "default"
 .\scripts\k8s-apply-run-store.ps1
 ```
 
-```bash
-AGENTIC_K8S_RUN_STORE_VOLUME=filestore AGENTIC_K8S_FILESTORE_NETWORK=default \
-  ./scripts/k8s-apply-run-store.sh
-```
+Values can also live in `.env` (`AGENTIC_K8S_RUN_STORE_VOLUME`, `AGENTIC_K8S_FILESTORE_*`, `AGENTIC_K8S_RUN_STORE_HOST_PATH`).
 
-Values can also live in `.env` (`AGENTIC_K8S_RUN_STORE_VOLUME`, `AGENTIC_K8S_FILESTORE_NETWORK`, `AGENTIC_K8S_FILESTORE_TIER`).
+### hostpath (kind local — recommended)
+
+1. Create kind cluster with host bind mount:
+   - Windows: `.\scripts\k8s-kind-up.ps1` (defaults `D:/run` → `/run/store`)
+   - Linux / CI: `bash scripts/k8s-kind-up.sh` with `AGENTIC_RUN_STORE_PATH=/tmp/agentic-run-store`
+2. Apply: `AGENTIC_K8S_RUN_STORE_VOLUME=hostpath` + `k8s-apply-run-store.*`
+3. Set `AGENTIC_RUN_STORE_PATH` to the **same host directory** on the coordinator.
 
 ### NFS (local)
 
-Deploys an in-cluster NFS server, a static PV, and PVC `agentic-run-store` (10 GiB RWX). Suitable for kind and single-node test clusters.
+Deploys an in-cluster NFS server, a static PV, and PVC `agentic-run-store` (10 GiB RWX). Suitable when the coordinator cannot bind-mount the node filesystem.
 
 ### Filestore (GKE)
 
-Creates StorageClass `agentic-filestore-rwx` (Filestore CSI) and PVC `agentic-run-store` (1 TiB RWX — Filestore Standard minimum). Set `AGENTIC_K8S_FILESTORE_NETWORK` to the VPC network your GKE nodes use.
+Creates StorageClass `agentic-filestore-rwx` (Filestore CSI) and PVC `agentic-run-store` (1 TiB RWX — Filestore Standard minimum). Requires the [Filestore CSI driver](https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/filestore-csi-driver) on the cluster.
 
-Requires the [Filestore CSI driver](https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/filestore-csi-driver) on the cluster.
+### CI (kind e2e)
 
-### Migrating from the old manifest
+GitHub Actions job **kind-kubernetes-e2e** runs `scripts/k8s-kind-e2e.sh`:
 
-If you previously applied `deploy/k8s/run-store-pvc.yaml` (RWX on `standard-rwo`), delete the stuck claim before re-applying:
+- kind cluster (`deploy/k8s/kind/cluster.ci.yaml`)
+- hostPath PVC + probe pod
+- stub worker image (`docker/Dockerfile.worker-stub`) — no LLM
+- `tests/test_kind_kubernetes_e2e.py`
+
+Local reproduction (Linux / Git Bash with Docker + kind):
 
 ```bash
-kubectl delete pvc agentic-run-store -n agentic-orchestration
+cd agentic-orchestration-tool
+bash scripts/k8s-kind-e2e.sh
 ```
-
-Then run the script with the correct `AGENTIC_K8S_RUN_STORE_VOLUME`.
 
 ## Other manifests
 
-- `worker-job.example.yaml` — reference Job shape (normally created by `KubernetesJobRunner`).
+- `deploy/k8s/kind/cluster.yaml` — templated kind config (`__RUN_STORE_HOST_PATH__`)
+- `deploy/k8s/run-store/probe-pod.yaml` — PVC mount smoke test
+- `worker-job.example.yaml` — reference Job shape (normally created by `KubernetesJobRunner`)
