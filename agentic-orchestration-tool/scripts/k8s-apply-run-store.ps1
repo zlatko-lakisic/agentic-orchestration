@@ -1,5 +1,5 @@
-# Apply namespace + shared run-store PVC (filestore or nfs).
-# Set AGENTIC_K8S_RUN_STORE_VOLUME=filestore|nfs (default: nfs).
+# Apply namespace + shared run-store PVC (hostpath, nfs, or filestore).
+# Set AGENTIC_K8S_RUN_STORE_VOLUME=hostpath|nfs|filestore (default: nfs).
 $ErrorActionPreference = "Stop"
 $ToolRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $DeployRoot = Join-Path $ToolRoot "deploy\k8s"
@@ -30,12 +30,18 @@ Import-DotEnv (Join-Path $ToolRoot ".env")
 $Volume = $env:AGENTIC_K8S_RUN_STORE_VOLUME
 if ([string]::IsNullOrWhiteSpace($Volume)) { $Volume = "nfs" }
 $Volume = $Volume.Trim().ToLowerInvariant()
-if ($Volume -notin @("filestore", "nfs")) {
-    Write-Error "AGENTIC_K8S_RUN_STORE_VOLUME must be 'filestore' or 'nfs', got '$Volume'"
+if ($Volume -notin @("filestore", "nfs", "hostpath")) {
+    Write-Error "AGENTIC_K8S_RUN_STORE_VOLUME must be 'hostpath', 'filestore', or 'nfs', got '$Volume'"
 }
 
 Write-Host "Applying namespace ..."
 kubectl apply -k (Join-Path $DeployRoot "base")
+
+if ($Volume -eq "hostpath") {
+    Write-Host "Applying hostPath run store (kind local bind mount) ..."
+    kubectl apply -k (Join-Path $DeployRoot "run-store\hostpath")
+    exit $LASTEXITCODE
+}
 
 if ($Volume -eq "nfs") {
     Write-Host "Applying NFS run store (kind/local) ..."

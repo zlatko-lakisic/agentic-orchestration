@@ -15,7 +15,7 @@ This page describes how **Agentic Orchestration** is deployed in production-styl
 | Mode | Notes |
 |------|--------|
 | **Bare metal / VM** | Install Python 3.12+ and Node 18+; run the web UI with `npm start` and point `AGENTIC_TOOL_ROOT` at the folder that contains `main.py`. |
-| **Docker Compose** | Multi-container stack at the monorepo root (see below). **Keep this wiki section in sync** when you add, rename, or remove services in `docker-compose.yml`. |
+| **Docker Compose** | Multi-container stack at the monorepo root (see below). **Keep this section in sync** when you add, rename, or remove services in `docker-compose.yml`. |
 
 ## Docker Compose stack
 

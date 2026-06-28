@@ -1,14 +1,12 @@
 ---
 layout: default
-title: Home
+title: Documentation
 permalink: /
 ---
 
-> **Published site:** [https://zlatko-lakisic.github.io/agentic-orchestration/](https://zlatko-lakisic.github.io/agentic-orchestration/) — built from `docs/` in the main repository.
+# Agentic Orchestration
 
-# Agentic Orchestration — Wiki home
-
-This wiki mirrors the **agentic-orchestration** monorepo: a YAML-driven, model-agnostic **CrewAI** orchestration layer with optional **MCP** tools, dynamic planning, browser UI, sessions, learning, and a local knowledge base.
+Documentation for the **agentic-orchestration** monorepo: a YAML-driven, model-agnostic **CrewAI** orchestration layer with optional **MCP** tools, dynamic planning, browser UI, sessions, learning, and a local knowledge base.
 
 ![Agentic orchestration overview](assets/1.png)
 
@@ -17,7 +15,7 @@ This wiki mirrors the **agentic-orchestration** monorepo: a YAML-driven, model-a
 - Teams who want to **wire existing models, MCP servers, and APIs** into multi-step agent workflows **without** writing a new orchestration framework.
 - Developers evaluating **proof-of-concept** setups using **catalogs** (`config/agent_providers/`, `config/mcp_providers/`) and **environment variables**.
 
-## Wiki map
+## Documentation map
 
 | Topic | Page |
 |--------|------|
@@ -36,7 +34,7 @@ This wiki mirrors the **agentic-orchestration** monorepo: a YAML-driven, model-a
 | WebSocket UI, `AGENTIC_*` web env, scripts | [Web UI](Web-UI/) |
 | CLI flags and modes | [CLI reference](CLI-reference/) |
 | Dependencies, upstream projects, licenses | [Third party projects](Third-party-projects/) |
-| How to publish these files on **GitHub Pages** | [GitHub Pages publish](GitHub-Pages-publish/) |
+| How to publish the docs site on **GitHub Pages** | [GitHub Pages publish](GitHub-Pages-publish/) |
 
 ## Recent project updates reflected here
 
@@ -64,7 +62,7 @@ The canonical codebase paths are:
 - **Web:** `agentic-orchestration-web/`
 - **Root:** `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`
 
-When the wiki and repo diverge, prefer the **repository** for filenames, line-accurate behavior, and the latest YAML.
+When the documentation and repository diverge, prefer the **repository** for filenames, line-accurate behavior, and the latest YAML.
 
 ## Quick links (in the main repository)
 

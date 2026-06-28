@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 PAGE_TITLES: dict[str, str] = {
-    "index": "Home",
+    "index": "Documentation",
     "Architecture": "Architecture",
     "Infrastructure": "Infrastructure",
     "Dual-execution-framework": "Dual execution framework",

@@ -1,0 +1,17 @@
+# HostPath PV for kind / single-node local clusters (bind-mount via kind extraMounts).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: agentic-run-store-hostpath
+  labels:
+    app.kubernetes.io/name: agentic-run-store
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: agentic-run-store-hostpath
+  hostPath:
+    path: /run/store
+    type: DirectoryOrCreate

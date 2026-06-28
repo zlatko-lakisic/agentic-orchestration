@@ -45,6 +45,7 @@ def run_config_via_kubernetes(
 
     with run_store_session(run_id) as (store, workspace):
         store_mount = str(store._root)
+        worker_run_store = settings.run_store_mount
         coordinator = StepCoordinator(store=store)
         prior_outputs: dict[str, str] = {}
 
@@ -55,7 +56,7 @@ def run_config_via_kubernetes(
                 mcp_catalog_path=options.mcp_catalog_path,
                 quiet=options.quiet,
                 prior_outputs=prior_outputs,
-                run_store_path=store_mount,
+                run_store_path=worker_run_store,
                 artifacts_dir=str(workspace / "artifacts"),
             )
             spec = specs[spec_index]
@@ -95,7 +96,7 @@ def run_config_via_kubernetes(
             run_id=run_id,
             mcp_catalog_path=options.mcp_catalog_path,
             quiet=options.quiet,
-            run_store_path=store_mount,
+            run_store_path=worker_run_store,
             artifacts_dir=str(workspace / "artifacts"),
         )
 

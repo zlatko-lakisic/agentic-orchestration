@@ -1,0 +1,10 @@
+# kind cluster with host run store bind-mounted from the coordinator machine.
+# Create: kind create cluster --name agentic --config deploy/k8s/kind/cluster.yaml
+# Set AGENTIC_K8S_RUN_STORE_HOST_PATH in .env (default D:/run on Windows).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: __RUN_STORE_HOST_PATH__
+        containerPath: /run/store

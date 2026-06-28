@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-store-probe
+  namespace: agentic-orchestration
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - echo ok > /run/store/probe.txt && cat /run/store/probe.txt
+      volumeMounts:
+        - name: run-store
+          mountPath: /run/store
+  volumes:
+    - name: run-store
+      persistentVolumeClaim:
+        claimName: agentic-run-store

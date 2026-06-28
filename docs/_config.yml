@@ -17,4 +17,5 @@ exclude:
   - scripts
   - README.md
   - _Footer.md
+  - GitLab-Wiki-publish.md
   - vendor

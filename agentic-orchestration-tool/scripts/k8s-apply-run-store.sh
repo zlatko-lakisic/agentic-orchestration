@@ -15,13 +15,19 @@ fi
 
 VOLUME="${AGENTIC_K8S_RUN_STORE_VOLUME:-nfs}"
 VOLUME="${VOLUME,,}"
-if [[ "${VOLUME}" != "filestore" && "${VOLUME}" != "nfs" ]]; then
-  echo "AGENTIC_K8S_RUN_STORE_VOLUME must be 'filestore' or 'nfs', got '${VOLUME}'" >&2
+if [[ "${VOLUME}" != "filestore" && "${VOLUME}" != "nfs" && "${VOLUME}" != "hostpath" ]]; then
+  echo "AGENTIC_K8S_RUN_STORE_VOLUME must be 'hostpath', 'filestore', or 'nfs', got '${VOLUME}'" >&2
   exit 1
 fi
 
 echo "Applying namespace ..."
 kubectl apply -k "${DEPLOY_ROOT}/base"
+
+if [[ "${VOLUME}" == "hostpath" ]]; then
+  echo "Applying hostPath run store (kind local bind mount) ..."
+  kubectl apply -k "${DEPLOY_ROOT}/run-store/hostpath"
+  exit 0
+fi
 
 if [[ "${VOLUME}" == "nfs" ]]; then
   echo "Applying NFS run store (kind/local) ..."

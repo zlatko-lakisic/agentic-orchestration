@@ -91,6 +91,8 @@ class KubernetesJobRunner:
             "volumeMounts": [{"name": "run-store", "mountPath": settings.run_store_mount}],
         }
         env_vars = worker_env_from_process()
+        env_vars = [e for e in env_vars if e.get("name") != "AGENTIC_RUN_STORE_PATH"]
+        env_vars.append({"name": "AGENTIC_RUN_STORE_PATH", "value": settings.run_store_mount})
         if env_vars:
             container["env"] = env_vars
         if settings.env_secret_name:
