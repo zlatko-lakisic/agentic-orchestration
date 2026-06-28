@@ -69,6 +69,54 @@ def test_step_coordinator_runs_sequential_success(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_step_coordinator_retries_once_when_recovery_succeeds(tmp_path: Path) -> None:
+    store = FileSystemRunStore(tmp_path)
+    coordinator = StepCoordinator(store=store)
+    spec = StepSpec(
+        schema_version="0.1",
+        run_id="run1",
+        step_id="a",
+        step_index=0,
+        workflow_name="wf",
+        topic="t",
+        task_description="d",
+        task_expected_output="o",
+        agent_provider={"id": "p1"},
+        mcp_providers=[],
+        prior_output="",
+        inputs={"topic": "t"},
+    )
+    calls = {"n": 0}
+
+    def execute_step(_spec: StepSpec) -> StepResult:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return StepResult(
+                run_id="run1",
+                step_id="a",
+                exit_code=1,
+                error="temporary",
+                recoverable=True,
+                recovery_hint="provider_recovery",
+            )
+        return StepResult(run_id="run1", step_id="a", exit_code=0, result_text="ok")
+
+    def try_recover(_spec: StepSpec, _result: StepResult) -> bool:
+        return True
+
+    result = coordinator.run_sequential(
+        [spec],
+        execute_step=execute_step,
+        try_recover=try_recover,
+        options=RunOptions(quiet=True, emit_stdout_summary=False),
+    )
+
+    assert result.exit_code == 0
+    assert result.result_text == "ok"
+    assert calls["n"] == 2
+
+
+@pytest.mark.unit
 def test_step_coordinator_stops_on_failure(tmp_path: Path) -> None:
     store = FileSystemRunStore(tmp_path)
     coordinator = StepCoordinator(store=store)

@@ -95,11 +95,16 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print(text)
             return 0
         except Exception as exc:  # noqa: BLE001
+            from orchestration.step_recovery import recovery_hint_for_exception
+
+            recoverable, recovery_hint = recovery_hint_for_exception(exc, agent_provider)
             step_result = StepResult(
                 run_id=run_id,
                 step_id=step_id,
                 exit_code=1,
                 error=str(exc),
+                recoverable=recoverable,
+                recovery_hint=recovery_hint,
             )
             if result_path is not None:
                 _write_step_result(result_path, step_result)

@@ -15,7 +15,7 @@ from orchestration.backends.kubernetes_jobs import (
     sanitize_k8s_name,
     spec_path_in_container,
 )
-from orchestration.config_loader import load_workflow_config
+from orchestration.config_loader import TaskDefinition, WorkflowConfig, load_workflow_config
 from orchestration.execution_dispatch import (
     execute_workflow_config_resolved,
     use_distributed_execute_config,
@@ -181,3 +181,135 @@ def test_two_step_kubernetes_workflow_mocked_jobs(
     assert len(result.step_results) == 2
     assert len(result.k8s_jobs) == 2
     assert fake.jobs == ["research_topic", "write_brief"]
+
+
+@pytest.mark.integration
+@pytest.mark.backend_kubernetes
+def test_kubernetes_hf_recovery_retries_failed_step(
+    tool_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """K3.4: recoverable HF failure triggers one Job retry with rebuilt config."""
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.setenv("AGENTIC_RUN_STORE_PATH", str(tmp_path / "store"))
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_IMAGE", "agentic-orchestrator-worker:ci")
+    monkeypatch.setenv("AGENTIC_K8S_RUN_STORE_PVC", "agentic-run-store")
+    monkeypatch.setenv("AGENTIC_K8S_RUN_STORE_MOUNT", "/run/store")
+
+    cfg = WorkflowConfig(
+        name="hf-step",
+        process="sequential",
+        topic="t",
+        instance_key="k",
+        agent_providers=[
+            {
+                "id": "hf_agent",
+                "type": "huggingface",
+                "model": "org/model-a",
+                "role": "r",
+                "goal": "g",
+                "backstory": "b",
+                "exec_fallback_provider": "ollama_llava",
+            },
+            {
+                "id": "ollama_llava",
+                "type": "ollama",
+                "model": "ollama/llava",
+                "role": "r",
+                "goal": "g",
+                "backstory": "b",
+            },
+        ],
+        mcp_providers=[],
+        tasks=[
+            TaskDefinition(
+                id="only_step",
+                agent_provider_id="hf_agent",
+                description="d",
+                expected_output="o",
+            )
+        ],
+        task_sequence=["only_step"],
+    )
+
+    attempts: dict[str, int] = {}
+
+    class FakeJobRunner:
+        def __init__(self) -> None:
+            self._settings = K8sSettings.from_env()
+            self.jobs: list[str] = []
+
+        def run_step_job(self, *, run_id, step_id, spec_container_path, agent_provider_id):
+            attempts[step_id] = attempts.get(step_id, 0) + 1
+            spec_host_path = Path(spec_container_path.replace("/run/store", str(tmp_path / "store")))
+            run_store = Path(str(json.loads(spec_host_path.read_text(encoding="utf-8-sig"))["paths"]["run_store"]))
+            result_path = run_store / run_id / step_id / "result.json"
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if attempts[step_id] == 1:
+                result_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "0.1",
+                            "run_id": run_id,
+                            "step_id": step_id,
+                            "exit_code": 1,
+                            "result_text": None,
+                            "result_format": "plain",
+                            "error": "HuggingFaceException: org/model-a not supported",
+                            "recoverable": True,
+                            "recovery_hint": "hf_litellm_fallback",
+                            "artifacts": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            else:
+                assert agent_provider_id == "ollama_llava"
+                result_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "0.1",
+                            "run_id": run_id,
+                            "step_id": step_id,
+                            "exit_code": 0,
+                            "result_text": "recovered output",
+                            "result_format": "plain",
+                            "error": None,
+                            "recoverable": False,
+                            "recovery_hint": None,
+                            "artifacts": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            self.jobs.append(step_id)
+            record = K8sJobRecord(
+                job_name=job_name_for_step(run_id=run_id, step_id=step_id),
+                namespace="agentic-orchestration",
+                pod_name=f"pod-{step_id}-{attempts[step_id]}",
+            )
+            wait = K8sJobWaitResult(
+                succeeded=attempts[step_id] > 1,
+                failed=attempts[step_id] == 1,
+                pod_name=record.pod_name,
+                message=None if attempts[step_id] > 1 else "job failed",
+            )
+            return record, wait
+
+    monkeypatch.setattr(
+        "orchestration.backends.kubernetes_runner.KubernetesJobRunner.from_env",
+        lambda: FakeJobRunner(),
+    )
+
+    result = execute_workflow_config_resolved(
+        cfg,
+        options=RunOptions(quiet=True, mcp_catalog_path=tool_root / "config" / "agent_providers"),
+    )
+
+    assert result.exit_code == 0
+    assert result.result_text == "recovered output"
+    assert attempts["only_step"] == 2
+    assert len(result.k8s_jobs) == 2

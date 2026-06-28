@@ -13,6 +13,7 @@ from orchestration.backends.kubernetes_jobs import (
 from orchestration.config_loader import WorkflowConfig
 from orchestration.run_store import new_run_id, run_store_base_from_env, run_store_session, write_step_spec
 from orchestration.step_coordinator import StepCoordinator
+from orchestration.step_recovery import make_step_recovery_callback
 from orchestration.workflow_materializer import build_step_specs
 
 
@@ -42,6 +43,7 @@ def run_config_via_kubernetes(
     run_id = options.run_id.strip() or new_run_id()
     runner = job_runner or KubernetesJobRunner.from_env()
     k8s_jobs: list[dict[str, Any]] = []
+    config_box = [config]
 
     with run_store_session(run_id) as (store, workspace):
         store_mount = str(store._root)
@@ -49,9 +51,9 @@ def run_config_via_kubernetes(
         coordinator = StepCoordinator(store=store)
         prior_outputs: dict[str, str] = {}
 
-        def _run_one(spec_index: int) -> StepResult:
+        def _run_one(active_config: WorkflowConfig, spec_index: int) -> StepResult:
             specs = build_step_specs(
-                config,
+                active_config,
                 run_id=run_id,
                 mcp_catalog_path=options.mcp_catalog_path,
                 quiet=options.quiet,
@@ -92,7 +94,7 @@ def run_config_via_kubernetes(
             )
 
         all_specs = build_step_specs(
-            config,
+            config_box[0],
             run_id=run_id,
             mcp_catalog_path=options.mcp_catalog_path,
             quiet=options.quiet,
@@ -102,9 +104,18 @@ def run_config_via_kubernetes(
 
         def execute_step(spec: StepSpec) -> StepResult:
             index = next(i for i, s in enumerate(all_specs) if s.step_id == spec.step_id)
-            return _run_one(index)
+            return _run_one(config_box[0], index)
 
-        result = coordinator.run_sequential(all_specs, execute_step=execute_step, options=options)
+        result = coordinator.run_sequential(
+            all_specs,
+            execute_step=execute_step,
+            try_recover=make_step_recovery_callback(
+                config_box,
+                catalog_path=options.mcp_catalog_path,
+                quiet=options.quiet,
+            ),
+            options=options,
+        )
         if k8s_jobs:
             result = WorkflowExecutionResult(
                 exit_code=result.exit_code,

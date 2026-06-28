@@ -18,7 +18,9 @@ class StepCoordinator:
         specs: list[StepSpec],
         *,
         execute_step: Callable[[StepSpec], StepResult],
+        try_recover: Callable[[StepSpec, StepResult], bool] | None = None,
         options: RunOptions,
+        max_attempts_per_step: int = 2,
     ) -> WorkflowExecutionResult:
         if not specs:
             return WorkflowExecutionResult(
@@ -33,7 +35,19 @@ class StepCoordinator:
             if not options.quiet:
                 _progress(f"starting {spec.step_id}")
 
-            result = execute_step(spec)
+            result: StepResult | None = None
+            attempts = max(1, max_attempts_per_step)
+            for attempt in range(attempts):
+                result = execute_step(spec)
+                if result.exit_code == 0:
+                    break
+                if attempt + 1 < attempts and try_recover is not None and try_recover(spec, result):
+                    if not options.quiet:
+                        _progress(f"retrying {spec.step_id}")
+                    continue
+                break
+
+            assert result is not None
             self._store.write_step_result(spec.run_id, spec.step_id, result)
             step_results.append(result)
 
