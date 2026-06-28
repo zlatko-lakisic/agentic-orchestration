@@ -1,0 +1,47 @@
+# In-cluster NFS for kind / local clusters (ReadWriteMany without cloud Filestore).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-run-store-nfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: nfs-server
+  template:
+    metadata:
+      labels:
+        role: nfs-server
+        app.kubernetes.io/name: agentic-run-store-nfs
+    spec:
+      containers:
+        - name: nfs-server
+          image: registry.k8s.io/volume-nfs:0.8
+          ports:
+            - name: nfs
+              containerPort: 2049
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: export-volume
+              mountPath: /exports
+      volumes:
+        - name: export-volume
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-run-store-nfs
+spec:
+  ports:
+    - name: nfs
+      port: 2049
+  selector:
+    role: nfs-server

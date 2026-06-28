@@ -1,0 +1,14 @@
+# GKE Filestore CSI — ReadWriteMany shared run store.
+# Requires the Filestore CSI driver on the cluster (enabled on most GKE versions).
+# Replace __FILESTORE_NETWORK__ / __FILESTORE_TIER__ via scripts/k8s-apply-run-store.* or edit manually.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: agentic-filestore-rwx
+provisioner: filestore.csi.storage.gke.io
+parameters:
+  tier: __FILESTORE_TIER__
+  network: __FILESTORE_NETWORK__
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: agentic-run-store-nfs
+  labels:
+    app.kubernetes.io/name: agentic-run-store
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: nfs-server.agentic-orchestration.svc.cluster.local
+    path: /

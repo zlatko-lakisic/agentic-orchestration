@@ -1,3 +1,4 @@
+# Filestore Standard tier minimum capacity is 1 TiB on GKE.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -6,11 +7,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
+  storageClassName: agentic-filestore-rwx
   resources:
     requests:
-      storage: 10Gi
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: agentic-orchestration
+      storage: 1Ti
