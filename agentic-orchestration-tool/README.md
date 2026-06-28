@@ -267,3 +267,14 @@ Each file documents **what the integration does**, **capabilities**, and **when 
 Shipped ids include **`home_assistant`**, **`search_brave`**, **`search_tavily`**, **`search_exa`**, **`fetch_url`**, **`memory_knowledge_graph`**, **`filesystem_local`** — see comments in each YAML for required env vars and awesome-mcp-servers cross-links.
 
 Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository for this project (often checked out beside the main repo). Broader discovery: **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)**.
+
+## Tests
+
+Unit tests live under **`tests/`**. GitHub Actions runs them on every push and pull request (see **`.github/workflows/ci.yml`**).
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+Windows: **`scripts/run-tests.ps1`**. Full tiers, markers, and roadmap for dual-backend tests: wiki **Testing-and-CI**.

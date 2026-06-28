@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-unit:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            agentic-orchestration-tool/requirements.txt
+            agentic-orchestration-tool/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest (unit tier)
+        run: pytest
+
+  python-smoke-import:
+    name: Import smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime deps only
+        run: pip install -r requirements.txt
+
+      - name: Verify orchestration modules import
+        run: |
+          python -c "from orchestration import config_loader, runner, dynamic_planner"
+          python -c "import main"
