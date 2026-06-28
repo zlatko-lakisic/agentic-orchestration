@@ -270,7 +270,7 @@ Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository f
 
 ## Tests
 
-Unit tests live under **`tests/`**. GitHub Actions runs them on every push and pull request (see **`.github/workflows/ci.yml`**).
+Unit tests live under **`tests/`**. CI runs on **GitHub Actions** (`.github/workflows/ci.yml`) and **GitLab CI** (`.gitlab-ci.yml` at repo root).
 
 ```bash
 pip install -r requirements-test.txt   # unit tier only

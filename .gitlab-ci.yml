@@ -1,0 +1,51 @@
+# GitLab CI — same default tier as .github/workflows/ci.yml and scripts/run-tests.*
+# Docs: wiki Testing-and-CI.md
+
+default:
+  interruptible: true
+
+stages:
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  TOOL_DIR: "agentic-orchestration-tool"
+
+.python-job:
+  image: python:3.12-slim
+  cache:
+    key:
+      files:
+        - agentic-orchestration-tool/requirements-test.txt
+        - agentic-orchestration-tool/requirements.txt
+    paths:
+      - .cache/pip
+  before_script:
+    - cd "$TOOL_DIR"
+    - python -m pip install --upgrade pip
+
+.ci-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "master"
+
+unit-tests:
+  extends:
+    - .python-job
+    - .ci-rules
+  stage: test
+  script:
+    - pip install -r requirements-test.txt
+    - python -m pytest
+
+import-smoke:
+  extends:
+    - .python-job
+    - .ci-rules
+  stage: test
+  script:
+    - pip install -r requirements.txt
+    - python -c "from orchestration import config_loader, runner, dynamic_planner"
+    - python -c "import main"
