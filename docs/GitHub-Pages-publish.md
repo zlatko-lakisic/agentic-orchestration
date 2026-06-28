@@ -20,7 +20,7 @@ Documentation is built and published from the **main repository** (`agentic-orch
 
 1. Open the **main** repo: [agentic-orchestration](https://github.com/zlatko-lakisic/agentic-orchestration).
 2. Go to **Settings → Pages**.
-3. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+3. Under **Build and deployment**, set **Source** to **GitHub Actions** (required before the first workflow run; otherwise `configure-pages` fails with "Get Pages site failed").
 4. Push to `main` (or run **Deploy docs to GitHub Pages** manually).
 
 Disable Pages on this `.wiki` repo if it still publishes the old `/agentic-orchestration.wiki/` URL.
