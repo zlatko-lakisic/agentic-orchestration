@@ -33,10 +33,13 @@ from orchestration.orchestrator_session import (
 )
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.backends.crewai import run_options_from_legacy
-from orchestration.backends.factory import execution_backend_from_env
+from orchestration.backends.base import WorkflowExecutionResult
+from orchestration.backends.factory import execution_backend_from_env, execution_backend_name_from_env
 from orchestration.artifact_verify import verify_saved_npm_projects
 from orchestration.output_artifacts import (
+    extractable_text_from_execution,
     offer_save_extracted_files,
+    offer_save_extracted_files_from_execution,
     workflow_result_display_text,
     workflow_result_to_extractable_text,
 )
@@ -112,7 +115,7 @@ def _is_quit_command(text: str) -> bool:
     return t in frozenset({"quit", "exit", "q", ":q"})
 
 
-def run_built_workflow(
+def execute_built_workflow(
     built: BuiltWorkflow,
     *,
     quiet: bool = False,
@@ -120,7 +123,7 @@ def run_built_workflow(
     execution_error_sink: list[str] | None = None,
     log_terminal_execution_failure: bool = True,
     emit_progress_lines: bool = True,
-) -> tuple[int, str | None]:
+) -> WorkflowExecutionResult:
     """Execute a pre-built crew via the configured execution backend."""
     backend = execution_backend_from_env()
     options = run_options_from_legacy(
@@ -131,8 +134,73 @@ def run_built_workflow(
         emit_progress_lines=emit_progress_lines,
         crew_verbose=bool(getattr(built.crew, "verbose", True)),
     )
-    result = backend.execute_built(built, options=options)
+    return backend.execute_built(built, options=options)
+
+
+def run_built_workflow(
+    built: BuiltWorkflow,
+    *,
+    quiet: bool = False,
+    emit_stdout_summary: bool = True,
+    execution_error_sink: list[str] | None = None,
+    log_terminal_execution_failure: bool = True,
+    emit_progress_lines: bool = True,
+) -> tuple[int, str | None]:
+    """Execute a pre-built crew; return ``(exit_code, result_text)``."""
+    result = execute_built_workflow(
+        built,
+        quiet=quiet,
+        emit_stdout_summary=emit_stdout_summary,
+        execution_error_sink=execution_error_sink,
+        log_terminal_execution_failure=log_terminal_execution_failure,
+        emit_progress_lines=emit_progress_lines,
+    )
     return result.exit_code, result.result_text
+
+
+def _session_execution_backend() -> str:
+    return execution_backend_name_from_env()
+
+
+def _update_session_after_crew(path: Path, result_text: str | None) -> None:
+    update_session_after_crew(
+        path,
+        result_text,
+        execution_backend=_session_execution_backend(),
+    )
+
+
+def _update_session_after_final(
+    path: Path,
+    *,
+    user_goal: str,
+    result_text: str | None,
+) -> None:
+    update_session_after_final(
+        path,
+        user_goal=user_goal,
+        result_text=result_text,
+        execution_backend=_session_execution_backend(),
+    )
+
+
+def _offer_save_from_execution(
+    *,
+    tool_root: Path,
+    user_task: str | None,
+    execution: WorkflowExecutionResult,
+    output_dir: Path | None,
+    no_save: bool,
+    prompt_save: bool = False,
+) -> Path | None:
+    return offer_save_extracted_files_from_execution(
+        tool_root=tool_root,
+        user_task=user_task,
+        execution=execution,
+        output_dir=output_dir,
+        no_save=no_save,
+        prompt_save=prompt_save,
+    )
 
 
 def _run_dynamic_workflow_with_hf_fallback(
@@ -204,6 +272,23 @@ def run_workflow(
     mcp_catalog_path: Path | None = None,
 ) -> tuple[int, str | None]:
     """Load workflow YAML, run crew; return (exit code, final output text if any)."""
+    result = run_workflow_execution(
+        config_path,
+        topic_override=topic_override,
+        quiet=quiet,
+        mcp_catalog_path=mcp_catalog_path,
+    )
+    return result.exit_code, result.result_text
+
+
+def run_workflow_execution(
+    config_path: Path,
+    *,
+    topic_override: str | None = None,
+    quiet: bool = False,
+    mcp_catalog_path: Path | None = None,
+) -> WorkflowExecutionResult:
+    """Load workflow YAML and return the backend execution result (F3 post-run adapter entry)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
     built = build_workflow(
         config,
@@ -211,7 +296,7 @@ def run_workflow(
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
     )
-    return run_built_workflow(built, quiet=quiet)
+    return execute_built_workflow(built, quiet=quiet)
 
 
 def run_interactive_router(
@@ -819,7 +904,7 @@ def main() -> None:
             if exit_code:
                 sys.exit(exit_code)
             last_iter_crew_text = result_text or last_iter_crew_text
-            update_session_after_crew(orchestrator_session_path, result_text)
+            _update_session_after_crew(orchestrator_session_path, result_text)
             # Learning: evaluate + update local stats (best-effort).
             try:
                 from orchestration.learning_store import (
@@ -999,8 +1084,8 @@ def main() -> None:
             )
             if exit_code:
                 sys.exit(exit_code)
-            update_session_after_crew(orchestrator_session_path, result_text)
-            update_session_after_final(
+            _update_session_after_crew(orchestrator_session_path, result_text)
+            _update_session_after_final(
                 orchestrator_session_path, user_goal=cache_goal, result_text=result_text
             )
             try:
@@ -1091,7 +1176,7 @@ def main() -> None:
             last_ex = (sess.last_crew_output_excerpt or "").strip()
             qa_out = iterative_final_text.strip() or last_ex
             if strict_mr_goal and qa_out:
-                update_session_after_final(
+                _update_session_after_final(
                     orchestrator_session_path,
                     user_goal=cache_goal,
                     result_text=qa_out,
@@ -1227,8 +1312,8 @@ def main() -> None:
         )
         if exit_code:
             sys.exit(exit_code)
-        update_session_after_crew(orchestrator_session_path, result_text)
-        update_session_after_final(
+        _update_session_after_crew(orchestrator_session_path, result_text)
+        _update_session_after_final(
             orchestrator_session_path, user_goal=cache_goal, result_text=result_text
         )
         emit_faithfulness_qa_report(
@@ -1345,16 +1430,16 @@ def main() -> None:
     config_explicit = _config_option_explicit(argv_cli)
 
     if args.batch:
-        exit_code, result_text = run_workflow(
+        execution = run_workflow_execution(
             config_path, topic_override=None, quiet=args.quiet
         )
-        if exit_code:
-            sys.exit(exit_code)
-        if result_text:
-            saved = offer_save_extracted_files(
+        if execution.exit_code:
+            sys.exit(execution.exit_code)
+        if extractable_text_from_execution(execution):
+            saved = _offer_save_from_execution(
                 tool_root=tool_root,
                 user_task=None,
-                result_text=result_text,
+                execution=execution,
                 output_dir=save_output_dir,
                 no_save=no_save,
                 prompt_save=prompt_save,
@@ -1363,19 +1448,19 @@ def main() -> None:
         return
 
     if config_explicit and not args.interactive:
-        exit_code, result_text = run_workflow(
+        execution = run_workflow_execution(
             config_path,
             topic_override=None,
             quiet=args.quiet,
             mcp_catalog_path=mcp_catalog_path,
         )
-        if exit_code:
-            sys.exit(exit_code)
-        if result_text:
-            saved = offer_save_extracted_files(
+        if execution.exit_code:
+            sys.exit(execution.exit_code)
+        if extractable_text_from_execution(execution):
+            saved = _offer_save_from_execution(
                 tool_root=tool_root,
                 user_task=None,
-                result_text=result_text,
+                execution=execution,
                 output_dir=save_output_dir,
                 no_save=no_save,
                 prompt_save=prompt_save,

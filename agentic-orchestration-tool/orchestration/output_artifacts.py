@@ -5,7 +5,10 @@ import sys
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from orchestration.backends.base import StepResult, WorkflowExecutionResult
 
 HEADER_PATH = re.compile(
     r"^#{2,6}\s+(?:(?:Path|File|Filename)\s*:\s*)?(?:`([^`]+)`|([^\s`][^\s`]*\.[a-zA-Z0-9]{1,20}))\s*$",
@@ -119,6 +122,40 @@ def workflow_result_display_text(result: Any) -> str:
         return str(top).strip()
 
     return workflow_result_to_extractable_text(result).strip()
+
+
+def extractable_text_from_execution(result: WorkflowExecutionResult) -> str:
+    """Backend-agnostic text for artifacts/sessions (F3 post-run adapter)."""
+    if result.workflow_result is not None:
+        text = workflow_result_to_extractable_text(result.workflow_result)
+        if text.strip():
+            return text
+    return (result.result_text or "").strip()
+
+
+def extractable_text_from_step(step: StepResult) -> str:
+    """Text from a single distributed step result."""
+    return (step.result_text or "").strip()
+
+
+def offer_save_extracted_files_from_execution(
+    *,
+    tool_root: Path,
+    user_task: str | None,
+    execution: WorkflowExecutionResult,
+    output_dir: Path | None,
+    no_save: bool,
+    prompt_save: bool = False,
+) -> Path | None:
+    """Save artifacts using ``WorkflowExecutionResult`` (prefers crew output when present)."""
+    return offer_save_extracted_files(
+        tool_root=tool_root,
+        user_task=user_task,
+        result_text=extractable_text_from_execution(execution),
+        output_dir=output_dir,
+        no_save=no_save,
+        prompt_save=prompt_save,
+    )
 
 
 def slugify_topic(topic: str, max_len: int = 48) -> str:

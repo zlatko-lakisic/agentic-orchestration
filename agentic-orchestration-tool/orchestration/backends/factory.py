@@ -15,6 +15,14 @@ _ALIASES = {
 }
 
 
+def execution_backend_name_from_env() -> str:
+    """Resolved backend id from env (no backend instantiation)."""
+    raw = os.getenv("AGENTIC_EXECUTION_BACKEND", "inprocess").strip().lower()
+    if not raw:
+        return "inprocess"
+    return _ALIASES.get(raw, raw)
+
+
 def execution_backend_from_env() -> ExecutionBackend:
     raw = os.getenv("AGENTIC_EXECUTION_BACKEND", "inprocess").strip().lower()
     name = _ALIASES.get(raw, raw)

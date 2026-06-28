@@ -31,6 +31,8 @@ class OrchestratorSessionFile:
     last_final_answer_excerpt: str | None = None
     # When we serve a cached answer, we store the goal here so a subsequent "no" can trigger re-run.
     pending_reprocess_goal: str | None = None
+    # Last workflow run backend id (``inprocess``, ``subprocess``, ``kubernetes``).
+    last_execution_backend: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -58,6 +60,7 @@ class OrchestratorSessionFile:
             last_user_goal=data.get("last_user_goal"),
             last_final_answer_excerpt=data.get("last_final_answer_excerpt"),
             pending_reprocess_goal=data.get("pending_reprocess_goal"),
+            last_execution_backend=data.get("last_execution_backend"),
         )
 
 
@@ -146,24 +149,41 @@ def excerpt_max_chars() -> int:
     return int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
 
 
-def update_session_after_crew(path: Path, result_text: str | None) -> None:
+def update_session_after_crew(
+    path: Path,
+    result_text: str | None,
+    *,
+    execution_backend: str | None = None,
+) -> None:
     """Store a truncated crew output so the next planner turn can use it as context."""
     text = (result_text or "").strip()
-    if not text:
+    if not text and not execution_backend:
         return
     data = load_session(path)
-    data.last_crew_output_excerpt = text[: excerpt_max_chars()]
+    if text:
+        data.last_crew_output_excerpt = text[: excerpt_max_chars()]
+    if execution_backend:
+        data.last_execution_backend = execution_backend.strip()
     save_session(path, data)
 
 
-def update_session_after_final(path: Path, *, user_goal: str, result_text: str | None) -> None:
+def update_session_after_final(
+    path: Path,
+    *,
+    user_goal: str,
+    result_text: str | None,
+    execution_backend: str | None = None,
+) -> None:
     """Store the finalized answer for answer caching."""
     text = (result_text or "").strip()
-    if not text:
+    if not text and not execution_backend:
         return
     data = load_session(path)
-    data.last_user_goal = str(user_goal or "").strip()
-    data.last_final_answer_excerpt = text[: excerpt_max_chars()]
-    # Clear any pending "reprocess" marker once we have a new finalized answer.
-    data.pending_reprocess_goal = None
+    if text:
+        data.last_user_goal = str(user_goal or "").strip()
+        data.last_final_answer_excerpt = text[: excerpt_max_chars()]
+        # Clear any pending "reprocess" marker once we have a new finalized answer.
+        data.pending_reprocess_goal = None
+    if execution_backend:
+        data.last_execution_backend = execution_backend.strip()
     save_session(path, data)
