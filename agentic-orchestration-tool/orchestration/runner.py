@@ -15,6 +15,7 @@ from crewai import Crew, Process, Task
 
 from agent_providers.base import AgentProvider
 from agent_providers.factory import agent_provider_from_dict
+from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
 from orchestration.mcp_providers_catalog import (
@@ -23,12 +24,10 @@ from orchestration.mcp_providers_catalog import (
     mcps_list_fingerprint,
     resolve_workflow_mcp_refs,
 )
-from orchestration.workflow_ollama import resolve_workflow_ollama_host
 from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
+from orchestration.step_context import prepare_step_description
 
 apply_crewai_mcp_native_resolver_hotfix()
-
-_WORKFLOW_OLLAMA_HOST_TOKEN = "workflow"
 
 _KICKOFF_CB_STATE: ContextVar[_SequentialKickoffState | None] = ContextVar(
     "_KICKOFF_CB_STATE", default=None
@@ -138,30 +137,14 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
     return merged
 
 
-_STEP_CONTEXT_MARKER = "\n\n---\n## Previous step output (for continuity)\n"
-
-
 def _inject_previous_output_into_next_task(next_task: Task, prev_output: str) -> None:
     if not prev_output:
         return
-    if os.getenv("AGENTIC_STEP_CONTEXT_INJECT", "1").strip().lower() in ("0", "false", "no", "off"):
-        return
-
-    # Try not to blow up token count.
-    try:
-        cap = int(os.getenv("AGENTIC_STEP_CONTEXT_CHARS", "4000"))
-    except ValueError:
-        cap = 4000
-    cap = max(500, min(20000, cap))
-    snippet = prev_output.strip()
-    if len(snippet) > cap:
-        snippet = snippet[: cap - 1] + "…"
-
     desc = str(getattr(next_task, "description", "") or "")
-    if _STEP_CONTEXT_MARKER in desc:
-        return
-    setattr(next_task, "description", desc + _STEP_CONTEXT_MARKER + snippet + "\n")
-    _progress("using previous step output to inform next step")
+    new_desc = prepare_step_description(desc, prev_output)
+    if new_desc != desc:
+        setattr(next_task, "description", new_desc)
+        _progress("using previous step output to inform next step")
 
 
 def _serial_crew_task_callback(output: Any) -> None:
@@ -196,17 +179,7 @@ def _to_process(value: str) -> Process:
 
 
 def _resolve_agent_provider_entries(config: WorkflowConfig) -> list[dict[str, Any]]:
-    workflow_host = resolve_workflow_ollama_host(config.instance_key)
-    resolved: list[dict[str, Any]] = []
-    for entry in config.agent_providers:
-        data = dict(entry)
-        ptype = str(data.get("type", "")).strip().lower()
-        if ptype == "ollama":
-            host = str(data.get("ollama_host", "")).strip().lower()
-            if host == _WORKFLOW_OLLAMA_HOST_TOKEN:
-                data["ollama_host"] = workflow_host
-        resolved.append(data)
-    return resolved
+    return resolve_agent_provider_entries(config)
 
 
 def build_workflow(
@@ -216,6 +189,7 @@ def build_workflow(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
+    task_mcp_overrides: dict[str, list[Any]] | None = None,
 ) -> BuiltWorkflow:
     """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
 
@@ -262,6 +236,9 @@ def build_workflow(
 
     task_mcps_resolved: dict[str, list[Any]] = {}
     for tdef in config.tasks:
+        if task_mcp_overrides is not None and tdef.id in task_mcp_overrides:
+            task_mcps_resolved[tdef.id] = list(task_mcp_overrides[tdef.id])
+            continue
         raw = raw_mcp_spec_for_task(tdef, config)
         task_mcps_resolved[tdef.id] = (
             resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []

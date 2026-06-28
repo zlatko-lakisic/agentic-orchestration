@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import os
 import sys
 from pathlib import Path
@@ -33,6 +32,8 @@ from orchestration.orchestrator_session import (
     update_session_after_final,
 )
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
+from orchestration.backends.crewai import run_options_from_legacy
+from orchestration.backends.factory import execution_backend_from_env
 from orchestration.artifact_verify import verify_saved_npm_projects
 from orchestration.output_artifacts import (
     offer_save_extracted_files,
@@ -73,10 +74,6 @@ def _config_option_explicit(argv: list[str]) -> bool:
     return False
 
 
-def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
-    return {**built.workflow_context, "inputs": dict(built.inputs)}
-
-
 def _parse_dynamic_agent_provider_ids(raw: str | None) -> list[str]:
     if not raw:
         return []
@@ -110,45 +107,6 @@ def _load_dynamic_attachment_block(args: argparse.Namespace, tool_root: Path) ->
         sys.exit(2)
 
 
-def _on_workflow_start(built: BuiltWorkflow) -> None:
-    ctx = _workflow_context(built)
-    for ap in built.agent_providers.values():
-        try:
-            ap.on_workflow_start(ctx)
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"Warning: agent provider '{ap.config.id}' on_workflow_start failed: {exc}",
-                file=sys.stderr,
-            )
-
-
-def _on_workflow_end(
-    built: BuiltWorkflow,
-    result: object | None,
-    error: BaseException | None,
-) -> None:
-    ctx = _workflow_context(built)
-    for ap in built.agent_providers.values():
-        try:
-            ap.on_workflow_end(ctx, result, error)
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"Warning: agent provider '{ap.config.id}' on_workflow_end failed: {exc}",
-                file=sys.stderr,
-            )
-
-
-def _cleanup_agent_providers(built: BuiltWorkflow) -> None:
-    for ap in built.agent_providers.values():
-        try:
-            ap.cleanup()
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"Warning: agent provider '{ap.config.id}' cleanup failed: {exc}",
-                file=sys.stderr,
-            )
-
-
 def _is_quit_command(text: str) -> bool:
     t = text.strip().lower()
     return t in frozenset({"quit", "exit", "q", ":q"})
@@ -161,108 +119,20 @@ def run_built_workflow(
     emit_stdout_summary: bool = True,
     execution_error_sink: list[str] | None = None,
     log_terminal_execution_failure: bool = True,
+    emit_progress_lines: bool = True,
 ) -> tuple[int, str | None]:
-    """Execute a pre-built crew; return (exit code, final output text if any).
-
-    When ``emit_stdout_summary`` is False, the crew still runs and ``result_text`` is
-    captured, but nothing is printed to stdout for this kickoff (used for dynamic
-    iterative intermediate rounds so UIs can show a single final answer).
-
-    When ``execution_error_sink`` is a list, append the final kickoff exception message
-    if execution fails (used for HF→local fallback).
-
-    When ``log_terminal_execution_failure`` is False, omit the usual stderr banner for a
-    terminal kickoff failure (used for the first attempt before HF execution fallback may retry).
-    """
-    _on_workflow_start(built)
-
-    exit_code = 0
-    workflow_result: object | None = None
-    workflow_error: BaseException | None = None
-    result_text: str | None = None
-
-    suppress_stderr_probe = execution_error_sink is not None and not log_terminal_execution_failure
-
-    def _kickoff_once() -> object:
-        with crew_kickoff_context(built):
-            if quiet:
-                with open(os.devnull, "w", encoding="utf-8") as _quiet_sink:
-                    with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
-                        _quiet_sink
-                    ):
-                        return built.crew.kickoff(inputs=built.inputs)
-            if suppress_stderr_probe:
-                with open(os.devnull, "w", encoding="utf-8") as _dn:
-                    with contextlib.redirect_stderr(_dn):
-                        return built.crew.kickoff(inputs=built.inputs)
-            return built.crew.kickoff(inputs=built.inputs)
-
-    def _try_provider_recovery(exc: BaseException) -> bool:
-        recovered = False
-        for ap in built.agent_providers.values():
-            try:
-                if ap.recover_from_workflow_error(exc):
-                    recovered = True
-            except Exception as rec_exc:  # noqa: BLE001
-                print(
-                    f"Warning: provider '{ap.config.id}' recovery failed: {rec_exc}",
-                    file=sys.stderr,
-                )
-        return recovered
-
-    try:
-        try:
-            workflow_result = _kickoff_once()
-        except Exception as exc:
-            retried = False
-            if _try_provider_recovery(exc):
-                retried = True
-                print(
-                    "\nWorkflow execution failed once; provider recovery succeeded. Retrying kickoff once...",
-                    file=sys.stderr,
-                )
-                try:
-                    workflow_result = _kickoff_once()
-                except Exception as retry_exc:
-                    workflow_error = retry_exc
-                    if log_terminal_execution_failure:
-                        print("\nWorkflow execution failed.", file=sys.stderr)
-                        print(
-                            "Check your YAML config and OPENAI settings in .env, then retry.",
-                            file=sys.stderr,
-                        )
-                        print(f"Error: {retry_exc}", file=sys.stderr)
-                    exit_code = 1
-            if not retried:
-                workflow_error = exc
-                if log_terminal_execution_failure:
-                    print("\nWorkflow execution failed.", file=sys.stderr)
-                    print(
-                        "Check your YAML config and OPENAI settings in .env, then retry.",
-                        file=sys.stderr,
-                    )
-                    print(f"Error: {exc}", file=sys.stderr)
-                exit_code = 1
-        else:
-            if emit_stdout_summary:
-                if quiet:
-                    if workflow_result is not None:
-                        _disp = workflow_result_display_text(workflow_result)
-                        if _disp:
-                            print(_disp, flush=True)
-                else:
-                    print("\n=== Workflow Output ===\n")
-                    print(workflow_result)
-            if workflow_result is not None:
-                result_text = workflow_result_to_extractable_text(workflow_result)
-    finally:
-        _on_workflow_end(built, workflow_result, workflow_error)
-        _cleanup_agent_providers(built)
-
-    if execution_error_sink is not None and workflow_error is not None:
-        execution_error_sink.append(str(workflow_error))
-
-    return exit_code, result_text
+    """Execute a pre-built crew via the configured execution backend."""
+    backend = execution_backend_from_env()
+    options = run_options_from_legacy(
+        quiet=quiet,
+        emit_stdout_summary=emit_stdout_summary,
+        execution_error_sink=execution_error_sink,
+        log_terminal_execution_failure=log_terminal_execution_failure,
+        emit_progress_lines=emit_progress_lines,
+        crew_verbose=bool(getattr(built.crew, "verbose", True)),
+    )
+    result = backend.execute_built(built, options=options)
+    return result.exit_code, result.result_text
 
 
 def _run_dynamic_workflow_with_hf_fallback(
@@ -717,6 +587,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--execute-step",
+        default=None,
+        metavar="SPEC.JSON",
+        help="Worker mode: run one step from a StepSpec JSON file and exit (subprocess/K8s workers).",
+    )
+    parser.add_argument(
         "--orchestrator-session-reset",
         action="store_true",
         help="With --dynamic: delete the resolved session JSON before this run "
@@ -734,6 +610,16 @@ def _cli_output_dir(raw: str | None) -> Path | None:
 def main() -> None:
     args = parse_args()
     tool_root = Path(__file__).resolve().parent
+
+    if getattr(args, "execute_step", None):
+        from orchestration.execute_step import execute_step_from_spec_file
+
+        spec = Path(str(args.execute_step).strip())
+        if not spec.is_file():
+            print(f"error: --execute-step file not found: {spec}", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(execute_step_from_spec_file(spec.resolve()))
+
     if getattr(args, "example", None):
         from orchestration.example_overlays import apply_example_overlay_env
 
