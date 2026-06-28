@@ -11,48 +11,42 @@
   </head>
 
   <body>
-    <div id="header_wrap" class="outer">
-      <header class="inner">
-        {% if site.github.is_project_page %}
-          <a id="forkme_banner" href="{{ site.github.repository_url }}">View on GitHub</a>
-        {% endif %}
-
-        <a class="site-brand" href="{{ '/' | relative_url }}">
-          <img
-            class="site-logo"
-            src="{{ 'assets/logo.png' | relative_url }}"
-            alt="Agentic Orchestration"
-            width="420"
-            height="120"
-          />
-        </a>
-
-        <h2 id="project_tagline">{{ site.description | default: site.github.project_tagline }}</h2>
+    <div class="site-shell">
+      <aside class="site-sidebar" aria-label="Site navigation">
+        <div class="sidebar-top">
+          <a class="site-brand" href="{{ '/' | relative_url }}">
+            <img
+              class="site-logo"
+              src="{{ 'assets/logo.png' | relative_url }}"
+              alt="Agentic Orchestration"
+            />
+          </a>
+          <p class="site-tagline">{{ site.description | default: site.github.project_tagline }}</p>
+        </div>
 
         {% include site-nav.html %}
 
-        {% if site.show_downloads %}
-          <section id="downloads">
-            <a class="zip_download_link" href="{{ site.github.zip_url }}">Download this project as a .zip file</a>
-            <a class="tar_download_link" href="{{ site.github.tar_url }}">Download this project as a tar.gz file</a>
-          </section>
-        {% endif %}
-      </header>
-    </div>
-
-    <div id="main_content_wrap" class="outer">
-      <section id="main_content" class="inner">
-        {{ content }}
-      </section>
-    </div>
-
-    <div id="footer_wrap" class="outer">
-      <footer class="inner">
         {% if site.github.is_project_page %}
-          <p class="copyright">{{ site.title | default: site.github.repository_name }} maintained by <a href="{{ site.github.owner_url }}">{{ site.github.owner_name }}</a></p>
+          <a class="sidebar-github" href="{{ site.github.repository_url }}">View on GitHub</a>
         {% endif %}
-        <p>Published with <a href="https://pages.github.com">GitHub Pages</a></p>
-      </footer>
+      </aside>
+
+      <div class="site-main">
+        <div id="main_content_wrap" class="outer">
+          <section id="main_content" class="inner">
+            {{ content }}
+          </section>
+        </div>
+
+        <div id="footer_wrap" class="outer">
+          <footer class="inner">
+            {% if site.github.is_project_page %}
+              <p class="copyright">{{ site.title | default: site.github.repository_name }} maintained by <a href="{{ site.github.owner_url }}">{{ site.github.owner_name }}</a></p>
+            {% endif %}
+            <p>Published with <a href="https://pages.github.com">GitHub Pages</a></p>
+          </footer>
+        </div>
+      </div>
     </div>
   </body>
 </html>
