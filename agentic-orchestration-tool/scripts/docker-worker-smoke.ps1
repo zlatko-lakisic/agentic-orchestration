@@ -10,9 +10,8 @@ docker build -f docker/Dockerfile.worker -t $Image .
 $SmokeDir = Join-Path $env:TEMP "agentic-worker-smoke"
 New-Item -ItemType Directory -Force -Path $SmokeDir | Out-Null
 $BadSpec = Join-Path $SmokeDir "bad-spec.json"
-@'
-{"schema_version":"0.1","run_id":"smoke","step_id":"s1","task":{},"agent_provider":{},"paths":{}}
-'@ | Set-Content -Path $BadSpec -Encoding utf8
+$BadSpecJson = '{"schema_version":"0.1","run_id":"smoke","step_id":"s1","task":{},"agent_provider":{},"paths":{}}'
+[System.IO.File]::WriteAllText($BadSpec, $BadSpecJson, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host "Running worker with invalid spec (expect exit 2) ..."
 docker run --rm -v "${SmokeDir}:/run/store:ro" $Image /run/store/bad-spec.json

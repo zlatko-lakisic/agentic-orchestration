@@ -30,7 +30,7 @@ def _write_step_result(path: Path, result: StepResult) -> None:
 
 def execute_step_from_spec_file(spec_path: Path) -> int:
     """Run a single step from a ``StepSpec`` JSON file (worker entrypoint)."""
-    data: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads(spec_path.read_text(encoding="utf-8-sig"))
     task = data.get("task") or {}
     agent_provider = data.get("agent_provider") or {}
     step_id = str(data.get("step_id", "step"))
