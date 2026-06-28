@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-28
+
+### Added
+
+- Mocked `@pytest.mark.backend_inprocess` regression tests for F1.4 (static, dynamic, and `CrewAIExecutionBackend` kickoff path) in default CI.
+
+### Changed
+
+- `pytest.ini` marker docs for `backend_inprocess` and `timeout`.
+
 ## [1.1.0] - 2026-06-28
 
 ### Added
