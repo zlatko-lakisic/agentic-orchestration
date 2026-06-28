@@ -25,16 +25,18 @@ The documentation site is built with [Jekyll](https://jekyllrb.com/) and the [Sl
 
 ## Editing content
 
-1. Edit markdown under `docs/`.
-2. Use Jekyll pretty-permalink links, e.g. `[Architecture](Architecture/)`.
-3. For legacy `[[Architecture]]` links pasted from old wiki exports, run from `docs/`:
+1. Keep the GitHub wiki (`agentic-orchestration.wiki`) as the primary editing surface, then sync into `docs/`:
 
    ```bash
-   python scripts/convert_wiki_links.py
-   python scripts/add_jekyll_front_matter.py
+   cd docs
+   python scripts/sync_from_wiki.py
    ```
 
-4. Commit and push to `main`.
+   The sync converts `[[Page]]` wiki links, applies Jekyll front matter, maps `Home.md` → `index.md`, and copies `assets/`.
+
+2. Or edit markdown directly under `docs/` using Jekyll pretty-permalink links, e.g. `[Architecture](Architecture/)`.
+
+3. Commit and push to `main`.
 
 ## Local preview
 

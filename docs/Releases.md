@@ -51,4 +51,4 @@ permalink: /Releases/
 
 In Cursor, say **“create a new release”** — the agent will ask **major or minor** (or patch for hotfixes), run the checklist in `RELEASING.md`, and ask before pushing.
 
-See also: [Testing and CI](Testing-and-CI/), [Documentation](/)
+See also: [Testing and CI](Testing-and-CI/), [Home](/)

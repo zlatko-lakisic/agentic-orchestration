@@ -4,57 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
-WIKI_LINK = re.compile(
-    r"\[\["
-    r"(?P<page>[^\]|#]+)"
-    r"(?:#(?P<anchor>[^\]|]+))?"
-    r"(?:\|(?P<label>[^\]]+))?"
-    r"\]\]"
-)
-
-MD_LINK = re.compile(
-    r"\]\("
-    r"(?P<page>[^)#/]+?)"
-    r"(?:\.md)?"
-    r"/?"
-    r"(?:#(?P<anchor>[^)]+))?"
-    r"\)"
-)
-
-
-def _page_href(page: str, anchor: str | None) -> str:
-    page = page.strip()
-    if page.endswith(".md"):
-        page = page[:-3]
-    if page in (".", "index", "Home"):
-        href = "/"
-    else:
-        href = f"{page}/"
-    if anchor:
-        href += f"#{anchor.lower()}"
-    return href
-
-
-def convert_wiki_link(match: re.Match[str]) -> str:
-    page = match.group("page").strip()
-    anchor = match.group("anchor")
-    label = match.group("label") or page.replace("-", " ")
-    return f"[{label}]({_page_href(page, anchor)})"
-
-
-def convert_md_link(match: re.Match[str]) -> str:
-    page = match.group("page").strip()
-    anchor = match.group("anchor")
-    return f"]({_page_href(page, anchor)})"
-
-
-def convert_text(text: str) -> str:
-    text = WIKI_LINK.sub(convert_wiki_link, text)
-    return MD_LINK.sub(convert_md_link, text)
+from wiki_transform import convert_text
 
 
 def convert_file(path: Path, *, dry_run: bool) -> bool:

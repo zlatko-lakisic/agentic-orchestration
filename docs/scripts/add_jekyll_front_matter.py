@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add Jekyll YAML front matter to wiki markdown pages."""
+"""Add Jekyll YAML front matter to docs markdown pages."""
 
 from __future__ import annotations
 
@@ -7,50 +7,17 @@ import argparse
 import sys
 from pathlib import Path
 
-PAGE_TITLES: dict[str, str] = {
-    "index": "Documentation",
-    "Architecture": "Architecture",
-    "Infrastructure": "Infrastructure",
-    "Dual-execution-framework": "Dual execution framework",
-    "Kubernetes-execution-upgrade": "Kubernetes execution upgrade",
-    "Agent-provider-catalog": "Agent provider catalog",
-    "MCP-providers": "MCP providers",
-    "Workflows-and-router": "Workflows and router",
-    "Dynamic-planning": "Dynamic planning",
-    "Sessions-learning-and-knowledge-base": "Sessions, learning, and KB",
-    "Configuration": "Configuration",
-    "Testing-and-CI": "Testing and CI",
-    "Releases": "Releases",
-    "Web-UI": "Web UI",
-    "CLI-reference": "CLI reference",
-    "Third-party-projects": "Third-party projects",
-    "GitHub-Pages-publish": "GitHub Pages publish",
-    "GitLab-Wiki-publish": "GitLab Wiki publish (deprecated)",
-}
+from wiki_transform import front_matter, strip_front_matter
 
 SKIP_FILES = {"_Footer.md"}
 
 
-def front_matter(stem: str) -> str:
-    title = PAGE_TITLES.get(stem, stem.replace("-", " "))
-    if stem == "index":
-        permalink = "/"
-    else:
-        permalink = f"/{stem}/"
-    return (
-        "---\n"
-        f"layout: default\n"
-        f"title: {title}\n"
-        f"permalink: {permalink}\n"
-        "---\n\n"
-    )
-
-
 def add_front_matter(path: Path, *, dry_run: bool) -> bool:
     text = path.read_text(encoding="utf-8")
-    if text.startswith("---\n"):
+    body = strip_front_matter(text)
+    updated = front_matter(path.stem) + body
+    if updated == text:
         return False
-    updated = front_matter(path.stem) + text
     if not dry_run:
         path.write_text(updated, encoding="utf-8")
     return True

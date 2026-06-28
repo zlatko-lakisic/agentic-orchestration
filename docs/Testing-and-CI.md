@@ -19,7 +19,8 @@ How to run automated checks locally and on **GitHub** or **GitLab** for **agenti
 | **Unit** | Every commit / MR | No | ✅ Yes (default) |
 | **Import smoke** | Every commit / MR | No | ✅ Yes |
 | **Docker worker smoke** | Every commit / MR | No | ✅ Yes (K8s Phase 2.3) |
-| **Integration** | Manual / nightly (future) | Sometimes | ❌ Opt-in |
+| **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM) |
+| **Integration** | Manual / with `AGENTIC_KIND_E2E=1` locally | Sometimes | ❌ Excluded from default pytest |
 | **Live LLM** | Local only unless secrets configured | Yes | ❌ Never by default |
 | **Backend parity** (F2.7 / dual framework) | After refactor lands | No for resolution tests | ✅ Planned |
 
@@ -66,6 +67,7 @@ Workflow: **`.github/workflows/ci.yml`** (on push to `main`/`master` and on pull
 | **python-unit** | `pip install` + `pytest` (unit tier) |
 | **python-smoke-import** | Install runtime deps; import `orchestration.*` and `main` |
 | **docker-worker-smoke** | Build `docker/Dockerfile.worker`; invalid spec → exit 2 (`scripts/docker-worker-smoke.sh`) |
+| **kind-kubernetes-e2e** | kind cluster + hostPath PVC + stub worker Jobs (`scripts/k8s-kind-e2e.sh`; `tests/test_kind_kubernetes_e2e.py`) |
 
 No repository secrets required for default CI.
 
@@ -81,6 +83,24 @@ powershell -File scripts/docker-worker-smoke.ps1
 bash scripts/docker-worker-smoke.sh
 ```
 
+**kind Kubernetes e2e** (Linux / Git Bash — same as CI):
+
+```bash
+cd agentic-orchestration-tool
+bash scripts/k8s-kind-e2e.sh
+```
+
+Windows local cluster (real LLM, manual):
+
+```powershell
+.\scripts\k8s-kind-up.ps1
+$env:AGENTIC_K8S_RUN_STORE_VOLUME = "hostpath"
+.\scripts\k8s-apply-run-store.ps1
+.\scripts\docker-worker-smoke.ps1   # builds agentic-orchestrator-worker:local
+# load into kind: .\.tools\kind.exe load docker-image agentic-orchestrator-worker:local --name agentic
+python main.py config/workflows/workflow_brainstorm.yaml --quiet
+```
+
 ---
 
 ## GitLab CI
@@ -92,6 +112,7 @@ Pipeline: **`.gitlab-ci.yml`** at the monorepo root (runs on merge requests and 
 | **unit-tests** | `pip install -r requirements-test.txt` + `pytest` |
 | **import-smoke** | Install full `requirements.txt`; import `orchestration.*` and `main` |
 | **docker-worker-smoke** | DinD: build worker image + smoke script (same as GitHub job) |
+| **kind-kubernetes-e2e** | kind + hostPath PVC + stub worker (`scripts/k8s-kind-e2e.sh`) |
 
 **Enable:** push `.gitlab-ci.yml` to your GitLab project — GitLab picks it up automatically when CI/CD is enabled (**Settings → General → Visibility** and **Build → Pipelines**).
 
@@ -121,7 +142,11 @@ agentic-orchestration-tool/
     ├── run-tests.sh
     ├── run-tests.ps1
     ├── docker-worker-smoke.sh   # CI + Linux local
-    └── docker-worker-smoke.ps1  # Windows local
+    ├── docker-worker-smoke.ps1  # Windows local
+    ├── k8s-kind-up.sh           # kind cluster + host bind mount
+    ├── k8s-kind-up.ps1          # Windows
+    ├── k8s-apply-run-store.sh   # PVC backend (hostpath | nfs | filestore)
+    └── k8s-kind-e2e.sh          # CI kind e2e (stub worker)
 ```
 
 Add new tests under `tests/`; keep fast pure logic in `@pytest.mark.unit`.
@@ -137,7 +162,8 @@ Add new tests under `tests/`; keep fast pure logic in `@pytest.mark.unit`.
 | `live_llm` | Real OpenAI/Ollama/HF calls |
 | `backend_inprocess` | Full crew kickoff regression (future) |
 | `backend_subprocess` | Subprocess execution backend (framework F4) |
-| `backend_kubernetes` | kind/cluster (K8s plan K3) |
+| `backend_kubernetes` | kind/cluster integration |
+| `kind_e2e` | Live kind Jobs via stub worker (`AGENTIC_KIND_E2E=1`) |
 
 Register new markers in `pytest.ini` when adding tiers.
 
@@ -173,8 +199,8 @@ Align with [Dual execution framework](Dual-execution-framework/) guardrails and 
 
 ### K8s plan K3+
 
-- [ ] **T-K3** `@pytest.mark.backend_kubernetes` — run only on kind in CI or manual workflow
-- [ ] Document `workflow_dispatch` for optional cluster CI (future)
+- [x] **T-K3** `@pytest.mark.backend_kubernetes` — mocked Job integration (`tests/test_backend_kubernetes.py`)
+- [x] **T-K3-kind** `@pytest.mark.kind_e2e` — live kind cluster in CI (`scripts/k8s-kind-e2e.sh`, stub worker)
 
 ---
 

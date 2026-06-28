@@ -5,6 +5,42 @@ baseurl: /agentic-orchestration
 logo: assets/logo.png
 image: assets/logo.png
 
+nav:
+  - title: Documentation
+    url: /
+  - title: Architecture
+    url: /Architecture/
+  - title: Infrastructure
+    url: /Infrastructure/
+  - title: Dual execution framework
+    url: /Dual-execution-framework/
+  - title: Kubernetes execution upgrade
+    url: /Kubernetes-execution-upgrade/
+  - title: Agent provider catalog
+    url: /Agent-provider-catalog/
+  - title: MCP providers
+    url: /MCP-providers/
+  - title: Workflows and router
+    url: /Workflows-and-router/
+  - title: Dynamic planning
+    url: /Dynamic-planning/
+  - title: Sessions, learning, and KB
+    url: /Sessions-learning-and-knowledge-base/
+  - title: Configuration
+    url: /Configuration/
+  - title: Testing and CI
+    url: /Testing-and-CI/
+  - title: Releases
+    url: /Releases/
+  - title: Web UI
+    url: /Web-UI/
+  - title: CLI reference
+    url: /CLI-reference/
+  - title: Third-party projects
+    url: /Third-party-projects/
+  - title: GitHub Pages publish
+    url: /GitHub-Pages-publish/
+
 remote_theme: pages-themes/slate@v0.2.0
 plugins:
   - jekyll-remote-theme

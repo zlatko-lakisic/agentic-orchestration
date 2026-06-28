@@ -25,3 +25,31 @@
   margin-top: 0;
   text-align: center;
 }
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem 0.75rem;
+  margin: 1rem auto 0;
+  max-width: 900px;
+}
+
+.site-nav a {
+  color: #d7ecff;
+  font-size: 0.95rem;
+  text-decoration: none;
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+}
+
+.site-nav a:hover,
+.site-nav a:focus {
+  background: rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+}
+
+.site-nav a[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.14);
+  font-weight: 700;
+}
