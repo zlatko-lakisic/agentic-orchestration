@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from orchestration.run_store import DEFAULT_RUN_STORE_MOUNT
 
@@ -13,6 +15,16 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def _parse_json_object_env(name: str) -> dict[str, Any] | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError(f"{name} must be a JSON object")
+    return data
+
+
 @dataclass(frozen=True)
 class K8sSettings:
     namespace: str
@@ -22,12 +34,25 @@ class K8sSettings:
     job_ttl_seconds: int
     job_timeout_seconds: int
     env_secret_name: str | None
+    worker_resources: dict[str, Any] | None = None
+    gpu_node_selector: dict[str, str] | None = None
+    gpu_provider_ids: frozenset[str] | None = None
 
     @classmethod
     def from_env(cls) -> K8sSettings:
         worker_image = os.getenv("AGENTIC_K8S_WORKER_IMAGE", "").strip()
         pvc = os.getenv("AGENTIC_K8S_RUN_STORE_PVC", "").strip()
         secret = os.getenv("AGENTIC_K8S_ENV_SECRET", "").strip() or None
+        gpu_providers_raw = os.getenv("AGENTIC_K8S_GPU_PROVIDER_IDS", "").strip()
+        gpu_providers: frozenset[str] | None = None
+        if gpu_providers_raw:
+            gpu_providers = frozenset(
+                p.strip() for p in gpu_providers_raw.split(",") if p.strip()
+            )
+        gpu_selector_raw = _parse_json_object_env("AGENTIC_K8S_GPU_NODE_SELECTOR")
+        gpu_selector = (
+            {str(k): str(v) for k, v in gpu_selector_raw.items()} if gpu_selector_raw else None
+        )
         return cls(
             namespace=os.getenv("AGENTIC_K8S_NAMESPACE", "agentic-orchestration").strip()
             or "agentic-orchestration",
@@ -38,6 +63,9 @@ class K8sSettings:
             job_ttl_seconds=_env_int("AGENTIC_K8S_JOB_TTL_SECONDS", 3600),
             job_timeout_seconds=_env_int("AGENTIC_K8S_JOB_TIMEOUT_SECONDS", 3600),
             env_secret_name=secret,
+            worker_resources=_parse_json_object_env("AGENTIC_K8S_WORKER_RESOURCES"),
+            gpu_node_selector=gpu_selector,
+            gpu_provider_ids=gpu_providers,
         )
 
     def validate_for_run(self) -> None:

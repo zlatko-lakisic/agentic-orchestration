@@ -5,7 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from orchestration.backends.k8s_settings import K8sSettings, worker_env_from_process
+from orchestration.backends.k8s_settings import K8sSettings
+from orchestration.backends.k8s_worker_pod import build_worker_job_pod_spec
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class KubernetesJobRunner:
         step_id: str,
         spec_container_path: str,
         agent_provider_id: str,
+        sidecar_mcp_ids: list[str] | None = None,
     ) -> tuple[K8sJobRecord, K8sJobWaitResult]:
         settings = self._settings
         job_name = job_name_for_step(run_id=run_id, step_id=step_id)
@@ -84,30 +86,12 @@ class KubernetesJobRunner:
             "agentic.agent_provider_id": sanitize_k8s_name(agent_provider_id, max_len=63),
         }
 
-        container: dict[str, Any] = {
-            "name": "worker",
-            "image": settings.worker_image,
-            "args": [spec_container_path],
-            "volumeMounts": [{"name": "run-store", "mountPath": settings.run_store_mount}],
-        }
-        env_vars = worker_env_from_process()
-        env_vars = [e for e in env_vars if e.get("name") != "AGENTIC_RUN_STORE_PATH"]
-        env_vars.append({"name": "AGENTIC_RUN_STORE_PATH", "value": settings.run_store_mount})
-        if env_vars:
-            container["env"] = env_vars
-        if settings.env_secret_name:
-            container["envFrom"] = [{"secretRef": {"name": settings.env_secret_name}}]
-
-        pod_spec: dict[str, Any] = {
-            "restartPolicy": "Never",
-            "containers": [container],
-            "volumes": [
-                {
-                    "name": "run-store",
-                    "persistentVolumeClaim": {"claimName": settings.run_store_pvc},
-                }
-            ],
-        }
+        pod_spec = build_worker_job_pod_spec(
+            settings=settings,
+            spec_container_path=spec_container_path,
+            sidecar_mcp_ids=sidecar_mcp_ids,
+            agent_provider_id=agent_provider_id,
+        )
 
         job_body = {
             "apiVersion": "batch/v1",

@@ -11,6 +11,7 @@ from orchestration.mcp_providers_catalog import (
     load_mcp_providers_catalog_merged,
     resolve_workflow_mcp_refs,
 )
+from orchestration.k8s_mcp_compat import apply_kubernetes_mcp_catalog_policy
 from orchestration.backends.base import StepSpec
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.step_context import prepare_step_description
@@ -29,6 +30,11 @@ def resolve_task_mcp_maps(
     )
     if mcp_catalog_entries:
         mcp_catalog_entries, _skipped_mcp = filter_mcp_entries_by_api_credentials(
+            mcp_catalog_entries,
+            verbose=not quiet,
+            log_prefix="workflow mcp catalog",
+        )
+        mcp_catalog_entries, _k8s_excluded = apply_kubernetes_mcp_catalog_policy(
             mcp_catalog_entries,
             verbose=not quiet,
             log_prefix="workflow mcp catalog",

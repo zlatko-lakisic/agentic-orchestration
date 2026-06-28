@@ -1070,6 +1070,13 @@ def build_dynamic_workflow_config(
             verbose=not quiet,
             log_prefix="(dynamic) mcp catalog",
         )
+        from orchestration.k8s_mcp_compat import apply_kubernetes_mcp_catalog_policy
+
+        mcp_entries, _k8s_excluded = apply_kubernetes_mcp_catalog_policy(
+            mcp_entries,
+            verbose=not quiet,
+            log_prefix="(dynamic) mcp catalog",
+        )
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
     doc = catalog_for_planner_prompt(entries)

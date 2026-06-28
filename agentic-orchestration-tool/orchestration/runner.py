@@ -233,6 +233,13 @@ def build_workflow(
             verbose=not quiet,
             log_prefix="workflow mcp catalog",
         )
+        from orchestration.k8s_mcp_compat import apply_kubernetes_mcp_catalog_policy
+
+        mcp_catalog_entries, _k8s_excluded = apply_kubernetes_mcp_catalog_policy(
+            mcp_catalog_entries,
+            verbose=not quiet,
+            log_prefix="workflow mcp catalog",
+        )
 
     task_mcps_resolved: dict[str, list[Any]] = {}
     for tdef in config.tasks:

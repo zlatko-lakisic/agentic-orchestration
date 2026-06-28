@@ -1,0 +1,53 @@
+# Shared fetch_url MCP gateway (supergateway + mcp_server_fetch).
+# Set AGENTIC_K8S_MCP_FETCH_URL=http://agentic-mcp-fetch.agentic-orchestration.svc.cluster.local:8080/mcp
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-mcp-fetch
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-mcp-fetch
+spec:
+  selector:
+    app.kubernetes.io/name: agentic-mcp-fetch
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-mcp-fetch
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-mcp-fetch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-mcp-fetch
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-mcp-fetch
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/supercorp/supergateway:3.4.0
+          args:
+            - --stdio
+            - python -m mcp_server_fetch
+            - --port
+            - "8080"
+            - --outputTransport
+            - streamableHttp
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AGENTIC_MCP_FETCH_ENABLED
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+                optional: true

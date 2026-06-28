@@ -12,6 +12,10 @@ from orchestration.backends.kubernetes_jobs import (
 )
 from orchestration.config_loader import WorkflowConfig
 from orchestration.run_store import new_run_id, run_store_base_from_env, run_store_session, write_step_spec
+from orchestration.k8s_mcp_compat import (
+    pod_sidecar_mcp_ids_for_step,
+    rewrite_spec_mcps_for_pod_sidecars,
+)
 from orchestration.step_coordinator import StepCoordinator
 from orchestration.step_recovery import make_step_recovery_callback
 from orchestration.workflow_materializer import build_step_specs
@@ -63,7 +67,10 @@ def run_config_via_kubernetes(
             )
             spec = specs[spec_index]
             spec_path = workspace / f"{spec.step_id}-spec.json"
-            write_step_spec(spec_path, spec.to_dict())
+            mcp_ids = [str(m.get("id") or "") for m in spec.mcp_providers if m.get("id")]
+            sidecar_mcps = pod_sidecar_mcp_ids_for_step(mcp_ids)
+            spec_dict = rewrite_spec_mcps_for_pod_sidecars(spec.to_dict(), sidecar_mcps)
+            write_step_spec(spec_path, spec_dict)
 
             container_spec = spec_path_in_container(
                 mount=settings.run_store_mount,
@@ -76,6 +83,7 @@ def run_config_via_kubernetes(
                 step_id=spec.step_id,
                 spec_container_path=container_spec,
                 agent_provider_id=provider_id,
+                sidecar_mcp_ids=sidecar_mcps,
             )
             k8s_jobs.append(_job_record_to_dict(record, wait))
 

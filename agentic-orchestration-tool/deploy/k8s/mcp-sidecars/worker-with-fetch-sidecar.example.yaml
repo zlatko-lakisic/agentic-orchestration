@@ -1,0 +1,40 @@
+# Example worker Job with fetch_url supergateway sidecar (K4.1).
+# Normally created by KubernetesJobRunner when AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentic-example-fetch-sidecar
+  namespace: agentic-orchestration
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-orchestrator-worker
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: agentic-orchestrator-worker:local
+          args:
+            - /run/store/example-run/research_topic-spec.json
+          volumeMounts:
+            - name: run-store
+              mountPath: /run/store
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+        - name: mcp-fetch-gateway
+          image: ghcr.io/supercorp/supergateway:3.4.0
+          args:
+            - --stdio
+            - python -m mcp_server_fetch
+            - --port
+            - "8080"
+            - --outputTransport
+            - streamableHttp
+      volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store

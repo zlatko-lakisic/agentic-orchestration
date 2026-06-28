@@ -65,4 +65,6 @@ bash scripts/k8s-kind-e2e.sh
 
 - `deploy/k8s/kind/cluster.yaml` — templated kind config (`__RUN_STORE_HOST_PATH__`)
 - `deploy/k8s/run-store/probe-pod.yaml` — PVC mount smoke test
+- `deploy/k8s/mcp-sidecars/` — K4 MCP sidecars and HTTP gateways
+- `deploy/k8s/worker-image-prep.yaml` — optional worker image pre-pull DaemonSet
 - `worker-job.example.yaml` — reference Job shape (normally created by `KubernetesJobRunner`)
