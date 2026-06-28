@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
 import uuid
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 
 from orchestration.backends.base import StepResult
+
+DEFAULT_RUN_STORE_MOUNT = "/run/store"
 
 
 class RunStore(ABC):
@@ -52,3 +59,44 @@ class FileSystemRunStore(RunStore):
 
 def new_run_id() -> str:
     return uuid.uuid4().hex
+
+
+def run_store_base_from_env() -> Path | None:
+    """Return configured run store mount, or ``None`` to allocate a temp dir per run."""
+    raw = os.getenv("AGENTIC_RUN_STORE_PATH", "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def allocate_run_store_root(*, run_id: str) -> tuple[Path, bool]:
+    """Return ``(store_root, ephemeral)`` for one crew run.
+
+    When ``AGENTIC_RUN_STORE_PATH`` is set, uses ``{base}/{run_id}/`` (PVC-friendly).
+    Otherwise creates a temp directory that should be removed after the run.
+    """
+    base = run_store_base_from_env()
+    if base is not None:
+        root = base / run_id
+        root.mkdir(parents=True, exist_ok=True)
+        return root, False
+    root = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))
+    return root, True
+
+
+@contextmanager
+def run_store_session(run_id: str) -> Iterator[tuple[FileSystemRunStore, Path]]:
+    """Yield ``(store, root)``; remove ephemeral roots on exit."""
+    root, ephemeral = allocate_run_store_root(run_id=run_id)
+    store = FileSystemRunStore(root)
+    try:
+        yield store, root
+    finally:
+        if ephemeral:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def write_step_spec(spec_path: Path, spec_dict: dict[str, object]) -> None:
+    """Write a worker ``StepSpec`` JSON file."""
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(json.dumps(spec_dict, indent=2), encoding="utf-8")
