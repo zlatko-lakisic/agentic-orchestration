@@ -66,6 +66,16 @@ Authoritative list: `.env.example` and wiki [[Configuration]].
 
 Worker stderr/stdout lines are prefixed with `[run_id/step_id]` for correlation in Loki/Datadog/K8s logs.
 
+## Stub worker (CI kind e2e)
+
+CI uses a minimal image with no CrewAI/LLM — writes canned `result.json` from the step spec:
+
+```bash
+docker build -f docker/Dockerfile.worker-stub -t agentic-orchestrator-worker-stub:ci .
+```
+
+Orchestrated by `scripts/k8s-kind-e2e.sh` (GitHub job **kind-kubernetes-e2e**).
+
 ## Related
 
 - [[Kubernetes-execution-upgrade]] — Phase 2 / 3
