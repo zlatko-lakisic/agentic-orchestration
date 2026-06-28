@@ -16,8 +16,9 @@
 .site-sidebar {
   width: 15.5rem;
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.75rem;
   padding: 1rem 0.85rem;
   background: #212121;
@@ -25,7 +26,8 @@
   border-right: 1px solid #111;
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
 }
 
@@ -46,7 +48,10 @@
   display: block;
   width: 100% !important;
   max-width: none !important;
+  max-height: 4.5rem;
   height: auto;
+  object-fit: contain;
+  object-position: center;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
@@ -56,11 +61,15 @@
 }
 
 .sidebar-nav-wrap {
-  flex: 1;
   min-height: 0;
   overflow-y: auto;
   margin: 0 -0.25rem;
   padding: 0 0.25rem;
+}
+
+.sidebar-footer {
+  min-height: 0;
+  padding-bottom: 0.15rem;
 }
 
 .site-tagline {
@@ -99,17 +108,19 @@
 }
 
 .sidebar-github {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  align-self: stretch;
-  flex-shrink: 0;
-  padding: 0.45rem 0.65rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.65rem;
   border-radius: 4px;
   background: #0090ff;
   color: #fff !important;
   font-size: 0.78rem;
   font-weight: 700;
+  line-height: 1.2;
   text-decoration: none !important;
   text-shadow: none;
 }
@@ -161,6 +172,8 @@
     width: 100%;
     height: auto;
     max-height: none;
+    display: flex;
+    flex-direction: column;
     position: static;
     overflow: visible;
     border-right: 0;
@@ -185,6 +198,7 @@
   }
 
   .sidebar-github {
+    width: auto;
     align-self: flex-start;
   }
 

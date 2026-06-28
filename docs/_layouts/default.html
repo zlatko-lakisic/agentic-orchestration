@@ -28,9 +28,11 @@
           {% include site-nav.html %}
         </div>
 
-        {% if site.github.is_project_page %}
-          <a class="sidebar-github" href="{{ site.github.repository_url }}">View on GitHub</a>
-        {% endif %}
+        <div class="sidebar-footer">
+          {% if site.github.is_project_page %}
+            <a class="sidebar-github" href="{{ site.github.repository_url }}">View on GitHub</a>
+          {% endif %}
+        </div>
       </aside>
 
       <div class="site-main">
