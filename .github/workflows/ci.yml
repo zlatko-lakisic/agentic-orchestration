@@ -55,3 +55,15 @@ jobs:
         run: |
           python -c "from orchestration import config_loader, runner, dynamic_planner"
           python -c "import main"
+
+  docker-worker-smoke:
+    name: Docker worker smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build worker image and run smoke test
+        run: bash scripts/docker-worker-smoke.sh
