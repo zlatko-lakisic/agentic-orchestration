@@ -1,5 +1,11 @@
 # Agentic Orchestration
 
+<p align="center">
+  <a href="https://zlatko-lakisic.github.io/agentic-orchestration/">
+    <img src="assets/logo.png" alt="Agentic Orchestration" width="420" />
+  </a>
+</p>
+
 **A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**. It turns natural-language goals and YAML configuration into coordinated multi-agent workflows: planners choose steps and backends, agents execute with clear roles, and optional **Model Context Protocol (MCP)** servers extend each agent with tools (Home Assistant, docs, search, and custom servers you add to the catalog).
 
 You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, plus TPU endpoint providers (**vLLM** and **JetStream**)—picked per task from a catalog, filtered by credentials and hardware capability (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics), with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.

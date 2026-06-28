@@ -39,6 +39,24 @@ body {
   background: var(--surface);
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.header-logo {
+  display: block;
+  width: min(320px, 100%);
+  height: auto;
+  flex: 0 0 auto;
+}
+
+.header-copy {
+  min-width: 0;
+}
+
 .header h1 {
   margin: 0;
   font-size: 1.25rem;
