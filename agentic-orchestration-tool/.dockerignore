@@ -1,0 +1,17 @@
+# Docker build context for docker/Dockerfile.worker (build from this directory).
+
+.venv
+__pycache__
+**/*.py[cod]
+.pytest_cache
+.env
+.env.*
+!.env.example
+__orchestrator_sessions__
+__orchestrator_kb__
+__orchestrator_learning__
+__output__
+docker/.dockerignore
+tests
+scripts
+.git

@@ -1,0 +1,32 @@
+# Build from agentic-orchestration-tool/:
+#   docker build -f docker/Dockerfile.worker -t agentic-orchestrator-worker:local .
+#
+# Run one step (spec path is the container arg):
+#   docker run --rm --env-file .env \
+#     -v "%CD%\config:/app/config:ro" \
+#     -v C:\temp\agentic-run:/run/store \
+#     agentic-orchestrator-worker:local /run/store/my-step-spec.json
+
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Node/npm optional for stdio MCP (K4); install when sidecar pattern needs npx in-worker.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt
+
+COPY agent_providers ./agent_providers
+COPY config ./config
+COPY orchestration ./orchestration
+COPY main.py .
+
+ENTRYPOINT ["python", "main.py", "--execute-step"]
