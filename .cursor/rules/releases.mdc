@@ -1,0 +1,45 @@
+---
+description: How to cut a semver GitHub release for agentic-orchestration
+alwaysApply: true
+---
+
+# Release process
+
+When the user asks to **create a new release**, **cut a release**, **publish vX.Y.Z**, or similar:
+
+## 1. Ask bump type (required)
+
+Use AskQuestion (or ask in chat) before changing files:
+
+- **Major** — breaking changes → `X+1.0.0`
+- **Minor** — new features, backward compatible → `X.Y+1.0`
+- **Patch** — fixes / deps only → `X.Y.Z+1` (offer if the diff is clearly hotfix-only)
+
+If the user already said "major" or "minor", do not ask again.
+
+## 2. Follow RELEASING.md
+
+Read `RELEASING.md` at repo root. Summary:
+
+1. Confirm `main` is up to date and tests pass: `agentic-orchestration-tool/scripts/run-tests.ps1`
+2. Ensure `CHANGELOG.md` `[Unreleased]` reflects this release (edit if needed)
+3. Run `python scripts/release.py <major|minor|patch>` (use `--dry-run` first if large)
+4. Commit `VERSION` + `CHANGELOG.md` with message `Release vX.Y.Z`
+5. Annotated tag `vX.Y.Z`, push `main` and tag to `github` remote
+6. Verify `gh release view vX.Y.Z` (workflow `.github/workflows/release.yml` publishes notes)
+
+## 3. Git safety
+
+- **Ask before** `git commit`, `git push`, or `gh release create` unless the user explicitly requested the full release in one go.
+- Never force-push tags.
+- Do not bump version without updating CHANGELOG.
+
+## 4. Version source of truth
+
+- `VERSION` — latest published semver
+- `CHANGELOG.md` — Keep a Changelog format
+- Tag must match: `v` + contents of `VERSION`
+
+## 5. First release
+
+From `VERSION` `0.0.0`, typical first release is **minor** → `0.1.0` or **major** → `1.0.0`.

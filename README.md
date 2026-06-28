@@ -200,6 +200,10 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 
 Treat this repo as a **personal / team experimentation** codebase unless you add an explicit license file. When publishing, ensure **no secrets** in Git (`.env`, API keys, session JSON, KB DB).
 
+## Releases
+
+Version **semver** (`VERSION`), notes in **`CHANGELOG.md`**, process in **`RELEASING.md`**. Push tag `vX.Y.Z` to publish a [GitHub Release](https://github.com/zlatko-lakisic/agentic-orchestration/releases). Say **“create a new release”** in Cursor to run the guided workflow (major / minor bump).
+
 ---
 
 ## Further reading
