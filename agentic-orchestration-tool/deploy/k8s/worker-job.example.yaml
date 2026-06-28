@@ -1,0 +1,34 @@
+# Example worker Job (normally created by KubernetesJobRunner per step).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentic-example-run-step1
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-orchestrator-worker
+    agentic.run_id: example-run
+    agentic.step_id: research-topic
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-orchestrator-worker
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: agentic-orchestrator-worker:local
+          args:
+            - /run/store/example-run/research_topic-spec.json
+          volumeMounts:
+            - name: run-store
+              mountPath: /run/store
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+      volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store

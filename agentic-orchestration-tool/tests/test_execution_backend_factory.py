@@ -20,6 +20,7 @@ def test_execution_backend_default_is_inprocess(monkeypatch: pytest.MonkeyPatch)
     [
         ("crewai", "inprocess", False),
         ("subprocess", "subprocess", True),
+        ("kubernetes", "kubernetes", True),
     ],
 )
 def test_execution_backend_aliases(

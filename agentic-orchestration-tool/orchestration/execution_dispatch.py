@@ -10,6 +10,16 @@ from orchestration.config_loader import WorkflowConfig
 from orchestration.runner import build_workflow
 
 
+def use_distributed_execute_config(backend: object) -> bool:
+    """True when workflow should run via ``backend.execute_config`` (step workers)."""
+    name = getattr(backend, "name", "")
+    if name == "kubernetes":
+        return True
+    if getattr(backend, "supports_distributed_steps", False) and subprocess_workers_enabled():
+        return True
+    return False
+
+
 def execute_workflow_config_resolved(
     config: WorkflowConfig,
     *,
@@ -19,7 +29,7 @@ def execute_workflow_config_resolved(
     backend = execution_backend_from_env()
     if os.getenv("AGENTIC_EXECUTION_BACKEND", "").strip() and not options.quiet:
         print(f"(execution) backend={backend.name}", file=sys.stderr)
-    if backend.supports_distributed_steps and subprocess_workers_enabled():
+    if use_distributed_execute_config(backend):
         return backend.execute_config(config, options=options)
     built = build_workflow(
         config,

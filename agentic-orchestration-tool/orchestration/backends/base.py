@@ -95,6 +95,7 @@ class WorkflowExecutionResult:
     workflow_result: object | None = None
     step_results: list[StepResult] = field(default_factory=list)
     built: BuiltWorkflow | None = None
+    k8s_jobs: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:

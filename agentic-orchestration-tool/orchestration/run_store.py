@@ -86,14 +86,27 @@ def allocate_run_store_root(*, run_id: str) -> tuple[Path, bool]:
 
 @contextmanager
 def run_store_session(run_id: str) -> Iterator[tuple[FileSystemRunStore, Path]]:
-    """Yield ``(store, root)``; remove ephemeral roots on exit."""
-    root, ephemeral = allocate_run_store_root(run_id=run_id)
-    store = FileSystemRunStore(root)
+    """Yield ``(store, workspace)``; remove ephemeral workspaces on exit.
+
+    ``store._root`` is the mount base (``AGENTIC_RUN_STORE_PATH``) or an ephemeral
+    run directory. ``workspace`` holds per-run spec files: ``{base}/{run_id}/`` when
+    persistent, else the ephemeral directory.
+    """
+    base = run_store_base_from_env()
+    if base is not None:
+        store = FileSystemRunStore(base)
+        workspace = base / run_id
+        workspace.mkdir(parents=True, exist_ok=True)
+        ephemeral = False
+    else:
+        workspace = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))
+        store = FileSystemRunStore(workspace)
+        ephemeral = True
     try:
-        yield store, root
+        yield store, workspace
     finally:
         if ephemeral:
-            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(workspace, ignore_errors=True)
 
 
 def write_step_spec(spec_path: Path, spec_dict: dict[str, object]) -> None:

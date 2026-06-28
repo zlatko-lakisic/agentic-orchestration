@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from orchestration.backends.base import RunOptions, StepResult, StepSpec, WorkflowExecutionResult
+from orchestration.backends.k8s_settings import K8sSettings
+from orchestration.backends.kubernetes_jobs import (
+    K8sJobRecord,
+    KubernetesJobRunner,
+    spec_path_in_container,
+)
+from orchestration.config_loader import WorkflowConfig
+from orchestration.run_store import new_run_id, run_store_base_from_env, run_store_session, write_step_spec
+from orchestration.step_coordinator import StepCoordinator
+from orchestration.workflow_materializer import build_step_specs
+
+
+def run_config_via_kubernetes(
+    config: WorkflowConfig,
+    *,
+    options: RunOptions,
+    job_runner: KubernetesJobRunner | None = None,
+) -> WorkflowExecutionResult:
+    """Run each step in an isolated Kubernetes Job (worker image ``--execute-step``)."""
+    if run_store_base_from_env() is None:
+        return WorkflowExecutionResult(
+            exit_code=1,
+            result_text=None,
+            error=ValueError(
+                "AGENTIC_RUN_STORE_PATH must be set for kubernetes backend "
+                "(PVC mount shared with worker Jobs)"
+            ),
+        )
+
+    settings = job_runner._settings if job_runner is not None else K8sSettings.from_env()
+    try:
+        settings.validate_for_run()
+    except ValueError as exc:
+        return WorkflowExecutionResult(exit_code=1, result_text=None, error=exc)
+
+    run_id = options.run_id.strip() or new_run_id()
+    runner = job_runner or KubernetesJobRunner.from_env()
+    k8s_jobs: list[dict[str, Any]] = []
+
+    with run_store_session(run_id) as (store, workspace):
+        store_mount = str(store._root)
+        coordinator = StepCoordinator(store=store)
+        prior_outputs: dict[str, str] = {}
+
+        def _run_one(spec_index: int) -> StepResult:
+            specs = build_step_specs(
+                config,
+                run_id=run_id,
+                mcp_catalog_path=options.mcp_catalog_path,
+                quiet=options.quiet,
+                prior_outputs=prior_outputs,
+                run_store_path=store_mount,
+                artifacts_dir=str(workspace / "artifacts"),
+            )
+            spec = specs[spec_index]
+            spec_path = workspace / f"{spec.step_id}-spec.json"
+            write_step_spec(spec_path, spec.to_dict())
+
+            container_spec = spec_path_in_container(
+                mount=settings.run_store_mount,
+                run_id=run_id,
+                step_id=spec.step_id,
+            )
+            provider_id = str(spec.agent_provider.get("id", "agent"))
+            record, wait = runner.run_step_job(
+                run_id=run_id,
+                step_id=spec.step_id,
+                spec_container_path=container_spec,
+                agent_provider_id=provider_id,
+            )
+            k8s_jobs.append(_job_record_to_dict(record, wait))
+
+            saved = store.read_step_result(run_id, spec.step_id)
+            if saved is not None:
+                if saved.result_text:
+                    prior_outputs[spec.step_id] = saved.result_text
+                return saved
+
+            err = wait.message or "kubernetes job failed without result.json"
+            return StepResult(
+                run_id=run_id,
+                step_id=spec.step_id,
+                exit_code=1 if wait.failed or not wait.succeeded else 0,
+                error=err,
+            )
+
+        all_specs = build_step_specs(
+            config,
+            run_id=run_id,
+            mcp_catalog_path=options.mcp_catalog_path,
+            quiet=options.quiet,
+            run_store_path=store_mount,
+            artifacts_dir=str(workspace / "artifacts"),
+        )
+
+        def execute_step(spec: StepSpec) -> StepResult:
+            index = next(i for i, s in enumerate(all_specs) if s.step_id == spec.step_id)
+            return _run_one(index)
+
+        result = coordinator.run_sequential(all_specs, execute_step=execute_step, options=options)
+        if k8s_jobs:
+            result = WorkflowExecutionResult(
+                exit_code=result.exit_code,
+                result_text=result.result_text,
+                error=result.error,
+                workflow_result=result.workflow_result,
+                step_results=result.step_results,
+                built=result.built,
+                k8s_jobs=k8s_jobs,
+            )
+        return result
+
+
+def _job_record_to_dict(record: K8sJobRecord, wait: Any) -> dict[str, Any]:
+    return {
+        "job_name": record.job_name,
+        "namespace": record.namespace,
+        "pod_name": record.pod_name,
+        "succeeded": wait.succeeded,
+        "failed": wait.failed,
+        "message": wait.message,
+    }

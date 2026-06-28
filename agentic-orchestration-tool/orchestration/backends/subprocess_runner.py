@@ -21,8 +21,9 @@ def run_config_via_subprocess(
     run_id = options.run_id.strip() or new_run_id()
     tool_root = Path(__file__).resolve().parents[2]
 
-    with run_store_session(run_id) as (store, store_root):
+    with run_store_session(run_id) as (store, workspace):
         coordinator = StepCoordinator(store=store)
+        store_mount = str(store._root)
         prior_outputs: dict[str, str] = {}
 
         def _run_one(spec_index: int) -> StepResult:
@@ -32,11 +33,11 @@ def run_config_via_subprocess(
                 mcp_catalog_path=options.mcp_catalog_path,
                 quiet=options.quiet,
                 prior_outputs=prior_outputs,
-                run_store_path=str(store_root),
-                artifacts_dir=str(store_root / "artifacts"),
+                run_store_path=store_mount,
+                artifacts_dir=str(workspace / "artifacts"),
             )
             spec = specs[spec_index]
-            spec_path = store_root / f"{spec.step_id}-spec.json"
+            spec_path = workspace / f"{spec.step_id}-spec.json"
             write_step_spec(spec_path, spec.to_dict())
 
             cmd = [sys.executable, str(tool_root / "main.py"), "--execute-step", str(spec_path)]
@@ -67,8 +68,8 @@ def run_config_via_subprocess(
             run_id=run_id,
             mcp_catalog_path=options.mcp_catalog_path,
             quiet=options.quiet,
-            run_store_path=str(store_root),
-            artifacts_dir=str(store_root / "artifacts"),
+            run_store_path=store_mount,
+            artifacts_dir=str(workspace / "artifacts"),
         )
 
         def execute_step(spec: StepSpec) -> StepResult:
