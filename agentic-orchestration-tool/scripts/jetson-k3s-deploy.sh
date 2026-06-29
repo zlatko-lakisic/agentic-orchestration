@@ -135,7 +135,7 @@ kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
 kubectl set image deployment/agentic-coordinator -n agentic-orchestration \
   coordinator="${COORDINATOR_IMAGE}" 2>/dev/null || true
 
-log "Expose coordinator on host port ${WEB_PORT} (k3s servicelb)"
+log "Expose coordinator on host port ${WEB_PORT}"
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -145,14 +145,23 @@ metadata:
   labels:
     app.kubernetes.io/name: agentic-coordinator
 spec:
-  type: LoadBalancer
+  type: NodePort
   selector:
     app.kubernetes.io/name: agentic-coordinator
   ports:
     - name: http
-      port: ${WEB_PORT}
+      port: 3847
       targetPort: 3847
+      nodePort: 30487
 EOF
+if [[ "${WEB_PORT}" == "80" ]]; then
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null \
+      || iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487
+    iptables -t nat -C OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null \
+      || iptables -t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487
+  fi
+fi
 
 log "Apply warm pool + delegation broker"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/warm-pool.yaml"
@@ -169,9 +178,10 @@ kubectl rollout status deployment/agentic-delegation-broker -n agentic-orchestra
 
 log "Smoke: HTTP + kubernetes brainstorm workflow"
 sleep 5
-curl -sf "http://127.0.0.1:${WEB_PORT}/api/ping" | head -c 200
+curl -sf "http://127.0.0.1:${WEB_PORT}/api/ping" | head -c 200 || curl -sf "http://127.0.0.1:30487/api/ping" | head -c 200
 echo ""
-curl -sf -o /dev/null -w "home HTTP %{http_code}\n" "http://127.0.0.1:${WEB_PORT}/"
+curl -sf -o /dev/null -w "home HTTP %{http_code}\n" "http://127.0.0.1:${WEB_PORT}/" \
+  || curl -sf -o /dev/null -w "home HTTP %{http_code}\n" "http://127.0.0.1:30487/"
 
 cd "${TOOL_ROOT}"
 export AGENTIC_EXECUTION_BACKEND=kubernetes
@@ -190,7 +200,7 @@ elif command -v python3 >/dev/null 2>&1; then
   pip install -q -r requirements.txt
 fi
 
-python main.py config/workflows/workflow_brainstorm.yaml --quiet
+python main.py --batch --config config/workflows/workflow_brainstorm.yaml --quiet
 
 log "Deploy complete"
 kubectl get pods -n agentic-orchestration
