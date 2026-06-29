@@ -213,6 +213,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 - **Kubernetes stack** — Coordinator Deployment, warm pool, delegation broker, run-store PVC, structured JSON logs, kind e2e in CI, Jetson deploy script.
 - **Web chat UX** — Markdown rendering, verbose crew mode, prose-first answers (no JSON blobs in the UI).
 - **Platform agent harness** — Tiered per-catalog verification (`--harness-agent`, `--harness-batch`); L0/L1 in CI; profiles in `config/agent_harnesses/`.
+- **User agent harnesses** — Domain scenario packs (`--harness-dir`, `--user-harness-run-all`); healthcare example under `examples/verticals/healthcare/harnesses/`.
 
 ## TPU capabilities
 

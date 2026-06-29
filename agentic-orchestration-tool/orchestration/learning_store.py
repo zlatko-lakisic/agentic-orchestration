@@ -301,6 +301,35 @@ def record_harness_result(tool_root: Path, result: Any) -> None:
         return
 
 
+def record_user_harness_result(tool_root: Path, result: Any) -> None:
+    """Update rolling user-harness scenario stats (best-effort)."""
+    try:
+        stats = load_stats(tool_root)
+        bucket: dict[str, Any] = stats.setdefault("user_harness_stats", {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+            stats["user_harness_stats"] = bucket
+        pid = str(getattr(result, "agent_provider_id", "") or "").strip()
+        sid = str(getattr(result, "scenario_id", "") or "").strip()
+        if not pid or not sid or sid == "*":
+            return
+        key = f"{pid}::{sid}"
+        entry = bucket.get(key) if isinstance(bucket.get(key), dict) else {}
+        entry = dict(entry)
+        entry["last_status"] = str(getattr(result, "status", "") or "")
+        entry["last_ts"] = str(getattr(result, "timestamp", "") or "")
+        entry["harness_pack"] = str(getattr(result, "harness_pack", "") or "")
+        entry["runs"] = int(entry.get("runs", 0) or 0) + 1
+        if getattr(result, "status", None) == "pass":
+            entry["passes"] = int(entry.get("passes", 0) or 0) + 1
+        elif getattr(result, "status", None) == "fail":
+            entry["failures"] = int(entry.get("failures", 0) or 0) + 1
+        bucket[key] = entry
+        save_stats(tool_root, stats)
+    except Exception:  # noqa: BLE001
+        return
+
+
 def harness_performance_summary(*, stats: dict[str, Any]) -> str:
     """Planner-facing summary of agents with recent harness failures."""
     if os.getenv("AGENTIC_HARNESS_FEED_PLANNER", "1").strip().lower() in ("0", "false", "no", "off"):

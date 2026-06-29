@@ -1,0 +1,21 @@
+id: rpm_council_brief
+description: |
+  Brief a hospital innovation council on remote patient monitoring (RPM) for heart failure:
+  compare two plausible vendor positioning stories (hardware + analytics + service), list what must be true
+  clinically and operationally for adoption, and where public FDA or trial registry evidence would strengthen or weaken
+  each story. No patient-specific advice; flag what legal/regulatory counsel should verify.
+expected_output: >
+  Structured brief with evidence checklist; no invented trial or submission IDs.
+fixtures:
+  - ../fixtures/sample_context.txt
+mcp_providers: []
+assertions:
+  - type: forbids_regex
+    pattern: 'NCT\d{8}'
+  - type: contains_any
+    values: ["not legal advice", "verify", "counsel", "legal"]
+  - type: min_chars
+    value: 400
+optional_eval:
+  rubric_file: ../rubrics/healthcare_claims.yaml
+  min_score: 0.0

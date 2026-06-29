@@ -1,0 +1,15 @@
+id: chf_evidence_outline
+description: |
+  Give a one-page structured outline on evidence needs for a hospital RPM program in CHF: what to prove with
+  trials / FDA / payer literature, and what stays organizational judgment. No bedside recommendations.
+expected_output: >
+  Tight one-page outline with evidence vs judgment separated; planning-oriented tone.
+fixtures: []
+mcp_providers: []
+assertions:
+  - type: bullet_count
+    min: 4
+  - type: contains_any
+    values: ["evidence", "judgment", "organizational", "trial", "FDA"]
+  - type: min_chars
+    value: 300

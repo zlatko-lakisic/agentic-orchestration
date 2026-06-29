@@ -19,6 +19,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-29
+
+### Added
+
+- **User agent harnesses** — domain scenario packs per catalog `agent_provider_id` via `orchestration/user_agent_harness.py`.
+- CLI: `--harness-dir`, `--user-harness-run-all` (with shared `--harness-agent`, `--harness-json`, `--harness-fail-fast`).
+- Env: `AGENTIC_EXTRA_AGENT_HARNESS_DIRS`, `AGENTIC_USER_HARNESS_RECORD_STATS`.
+- Healthcare reference pack: `examples/verticals/healthcare/harnesses/gpt_research/` (three scenarios).
+- Vertical `--example` overlay merges `harnesses/` into harness discovery.
+- Scripts: `scripts/run-user-harness.ps1`, `scripts/run-user-harness.sh`.
+- `@pytest.mark.user_harness` tests; included in harness CI job alongside platform harness tests.
+- User harness stats in `learning_store` (`user_harness_stats`).
+- Public `run_assertions()` and `forbids_regex` assertion type shared with platform harness.
+
 ## [1.4.0] - 2026-06-29
 
 ### Added

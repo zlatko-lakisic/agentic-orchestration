@@ -90,7 +90,7 @@ jobs:
         run: python main.py --harness-batch --harness-tier connectivity --harness-filter "gpt_*" --harness-json
 
       - name: Agent harness unit tests
-        run: pytest -m agent_harness -o addopts="-ra"
+        run: pytest -m "agent_harness or user_harness" -o addopts="-ra"
 
   python-smoke-import:
     name: Import smoke

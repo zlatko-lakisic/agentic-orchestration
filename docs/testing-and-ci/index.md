@@ -230,13 +230,15 @@ See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for 
 - [x] `main.py --harness-agent` / `--harness-batch` CLI (platform tiers)
 - [x] `scripts/run-agent-harness.ps1` / `.sh` and `scripts/harness-report.py`
 
-### User agent harness packs (planned)
+### User agent harness packs (shipped v1.5.0)
 
-See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — adopters maintain scenario libraries outside core; not part of default repo CI.
+See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — domain scenario libraries (adopters maintain packs outside core; healthcare example in-repo).
 
-- [ ] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
-- [ ] Scenario YAML + deterministic assertions + optional rubric
-- [ ] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/`
+- [x] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
+- [x] **T-UH2** `@pytest.mark.user_harness` unit tests (mocked kickoff; harness CI job)
+- [x] Scenario YAML + deterministic assertions + optional rubric (`orchestration/user_agent_harness.py`)
+- [x] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/gpt_research/`
+- [x] `scripts/run-user-harness.ps1` / `.sh`; `--example` overlay merges vertical `harnesses/`
 
 ---
 

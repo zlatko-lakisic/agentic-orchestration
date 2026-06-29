@@ -1,0 +1,6 @@
+agent_provider_id: gpt_research
+mcp_providers: []
+defaults:
+  topic: "Healthcare harness"
+  timeout_s: 120
+  execution_backend: inprocess

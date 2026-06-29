@@ -1,0 +1,18 @@
+id: regulatory_outline
+description: |
+  Draft an outline only for a medtech product manager explaining how FDA's public device and adverse event data
+  sources are typically used in post-market surveillance narratives (not legal advice). Include 5–7 bullet
+  "claims we would only make with citations" and suggest PubMed / ClinicalTrials.gov angles to search next.
+expected_output: >
+  Numbered outline separating citation-required claims from interpretive framing; not legal advice disclaimer.
+fixtures: []
+mcp_providers: []
+assertions:
+  - type: bullet_count
+    min: 5
+  - type: contains_any
+    values: ["not legal advice", "legal advice", "counsel", "regulatory"]
+  - type: forbids_regex
+    pattern: 'NCT\d{8}'
+  - type: min_chars
+    value: 350

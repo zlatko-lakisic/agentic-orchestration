@@ -24,6 +24,15 @@ Iterative mode:
 python main.py --example healthcare --dynamic-iterative "Compare two connected-care platform positioning stories for payer audiences"
 ```
 
+**User harness** (domain regression for catalog agents — requires API keys for live runs):
+
+```bash
+python main.py --example healthcare --harness-agent gpt_research
+# or: scripts/run-user-harness.ps1 -Example healthcare -Agent gpt_research
+```
+
+Scenarios live under `harnesses/gpt_research/` (derived from the expected-output sections below).
+
 **Web UI:** from `agentic-orchestration-web/`:
 
 ```bash

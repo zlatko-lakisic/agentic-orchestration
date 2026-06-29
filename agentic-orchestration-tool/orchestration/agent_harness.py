@@ -128,6 +128,11 @@ def _default_model() -> str:
     )
 
 
+def run_assertions(text: str, assertions: list[Any]) -> tuple[bool, list[dict[str, Any]]]:
+    """Run deterministic harness assertions on output text."""
+    return _run_assertions(text, assertions)
+
+
 def _run_assertions(text: str, assertions: list[Any]) -> tuple[bool, list[dict[str, Any]]]:
     results: list[dict[str, Any]] = []
     ok = True
@@ -164,6 +169,10 @@ def _run_assertions(text: str, assertions: list[Any]) -> tuple[bool, list[dict[s
             pattern = str(raw.get("pattern", ""))
             passed = bool(re.search(pattern, stripped, re.MULTILINE | re.IGNORECASE))
             detail = f"pattern={pattern!r}"
+        elif typ == "forbids_regex":
+            pattern = str(raw.get("pattern", ""))
+            passed = not bool(re.search(pattern, stripped, re.MULTILINE | re.IGNORECASE))
+            detail = f"forbidden pattern={pattern!r}"
         elif typ == "json_parse":
             try:
                 json.loads(stripped)
@@ -225,11 +234,27 @@ def _workflow_config_for_harness(
     )
 
 
+def run_harness_kickoff(
+    config: WorkflowConfig,
+    *,
+    backend: str,
+    quiet: bool,
+    mcp_catalog_path: Path | None = None,
+) -> tuple[str | None, str | None]:
+    return _run_smoke_kickoff(
+        config,
+        backend=backend,
+        quiet=quiet,
+        mcp_catalog_path=mcp_catalog_path,
+    )
+
+
 def _run_smoke_kickoff(
     config: WorkflowConfig,
     *,
     backend: str,
     quiet: bool,
+    mcp_catalog_path: Path | None = None,
 ) -> tuple[str | None, str | None]:
     if backend == "subprocess":
         from orchestration.backends.base import RunOptions
@@ -245,7 +270,13 @@ def _run_smoke_kickoff(
 
     from orchestration.runner import build_workflow, crew_kickoff_context
 
-    built = build_workflow(config, crew_verbose=False, quiet=quiet, emit_progress_lines=False)
+    built = build_workflow(
+        config,
+        crew_verbose=False,
+        quiet=quiet,
+        emit_progress_lines=False,
+        mcp_catalog_path=mcp_catalog_path,
+    )
     with crew_kickoff_context(built):
         workflow_result = built.crew.kickoff(inputs={"topic": config.topic})
     text = workflow_result_to_extractable_text(workflow_result)
@@ -525,6 +556,29 @@ def resolve_harness_tier(raw: str | None) -> HarnessTier:
 
 
 def run_harness_cli(args: Any, tool_root: Path) -> int:
+    harness_dir_arg = getattr(args, "harness_dir", None)
+    user_run_all = bool(getattr(args, "user_harness_run_all", False))
+    single_agent = str(getattr(args, "harness_agent", "") or "").strip()
+    use_user = user_run_all or bool(harness_dir_arg)
+    if not use_user and not getattr(args, "harness_batch", False):
+        from orchestration.user_agent_harness import discover_user_harness_packs, resolve_user_harness_dirs
+
+        resolved = resolve_user_harness_dirs(harness_dir_arg, tool_root=tool_root)
+        if resolved and single_agent:
+            try:
+                packs = discover_user_harness_packs(resolved)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            if any(p.agent_provider_id == single_agent for p in packs):
+                use_user = True
+        elif resolved and user_run_all:
+            use_user = True
+    if use_user:
+        from orchestration.user_agent_harness import run_user_harness_cli
+
+        return run_user_harness_cli(args, tool_root)
+
     tier = resolve_harness_tier(getattr(args, "harness_tier", None))
     catalog_path = Path(getattr(args, "agent_providers_catalog", "config/agent_providers"))
     if not catalog_path.is_absolute():

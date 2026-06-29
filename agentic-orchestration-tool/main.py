@@ -746,10 +746,25 @@ def parse_args() -> argparse.Namespace:
         "(explicit name, env, or default slug).",
     )
     parser.add_argument(
+        "--harness-dir",
+        action="append",
+        default=None,
+        metavar="PATH",
+        help=(
+            "User harness pack root(s); each subdir with harness.yaml is one pack. "
+            "Also merges AGENTIC_EXTRA_AGENT_HARNESS_DIRS. Use with --harness-agent or --user-harness-run-all."
+        ),
+    )
+    parser.add_argument(
+        "--user-harness-run-all",
+        action="store_true",
+        help="Run all user harness scenarios under --harness-dir / AGENTIC_EXTRA_AGENT_HARNESS_DIRS.",
+    )
+    parser.add_argument(
         "--harness-agent",
         default=None,
         metavar="ID",
-        help="Run platform agent harness for one catalog agent_provider_id and exit.",
+        help="Run harness for one catalog agent_provider_id and exit (platform or user pack).",
     )
     parser.add_argument(
         "--harness-batch",
@@ -855,15 +870,21 @@ def main() -> None:
             sys.exit(2)
         sys.exit(execute_step_from_spec_file(spec.resolve()))
 
-    if getattr(args, "harness_agent", None) or getattr(args, "harness_batch", False):
-        from orchestration.agent_harness import run_harness_cli
-
-        sys.exit(run_harness_cli(args, tool_root))
-
     if getattr(args, "example", None):
         from orchestration.example_overlays import apply_example_overlay_env
 
         apply_example_overlay_env(tool_root, str(args.example))
+
+    if (
+        getattr(args, "harness_agent", None)
+        or getattr(args, "harness_batch", False)
+        or getattr(args, "harness_dir", None)
+        or getattr(args, "user_harness_run_all", False)
+    ):
+        from orchestration.agent_harness import run_harness_cli
+
+        sys.exit(run_harness_cli(args, tool_root))
+
     config_dir = (
         (tool_root / args.config_dir).resolve()
         if not Path(args.config_dir).is_absolute()

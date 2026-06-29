@@ -1,0 +1,4 @@
+Hospital innovation council context (synthetic):
+- 450-bed regional system evaluating RPM vendors for CHF readmission reduction.
+- IT requires HL7/FHIR integration; legal wants explicit non-diagnosis framing for council materials.
+- Budget cycle Q3; no vendor has been selected yet.

@@ -56,6 +56,9 @@ def apply_example_overlay_env(tool_root: Path, example: str) -> None:
         _prepend_path_list_env("AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS", agents)
     if mcps.is_dir():
         _prepend_path_list_env("AGENTIC_EXTRA_MCP_PROVIDERS_PATH", mcps)
+    harnesses = root / "harnesses"
+    if harnesses.is_dir():
+        _prepend_path_list_env("AGENTIC_EXTRA_AGENT_HARNESS_DIRS", harnesses)
 
     if ex == "logistics":
         sim = root / "mcp_stubs" / "wms_erp_sim_mcp.py"
