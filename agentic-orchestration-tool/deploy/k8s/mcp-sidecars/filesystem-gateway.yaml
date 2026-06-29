@@ -1,6 +1,6 @@
-# filesystem_local gateway — mount workspace PVC at /workspace for the MCP server.
+# filesystem_local gateway — workspace subdir on the run-store PVC.
 # Set AGENTIC_K8S_MCP_FILESYSTEM_URL=http://agentic-mcp-filesystem.agentic-orchestration.svc.cluster.local:8081/mcp
-# and FILESYSTEM_MCP_ALLOWED_DIRECTORY=/workspace in the worker/coordinator env.
+# Seed the PVC subdir mcp-fs-workspace/ (see scripts/k8s-local-verify.ps1).
 apiVersion: v1
 kind: Service
 metadata:
@@ -41,11 +41,14 @@ spec:
             - "8081"
             - --outputTransport
             - streamableHttp
+            - --protocolVersion
+            - "2024-11-05"
           ports:
             - containerPort: 8081
           volumeMounts:
             - name: workspace
               mountPath: /workspace
+              subPath: mcp-fs-workspace
       volumes:
         - name: workspace
           persistentVolumeClaim:

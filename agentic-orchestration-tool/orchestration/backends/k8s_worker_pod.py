@@ -37,10 +37,15 @@ def build_worker_job_pod_spec(
         worker["envFrom"] = [{"secretRef": {"name": settings.env_secret_name}}]
 
     if sidecars:
+        probe_port = min(
+            int(K8S_POD_SIDECAR_LOCAL_URL[mid].split(":")[2].split("/")[0])
+            for mid in sidecar_mcp_ids
+            if mid in K8S_POD_SIDECAR_LOCAL_URL
+        )
         worker["startupProbe"] = {
-            "tcpSocket": {"port": int(K8S_POD_SIDECAR_LOCAL_URL[sidecar_mcp_ids[0]].split(":")[2].split("/")[0])},
+            "tcpSocket": {"port": probe_port},
             "periodSeconds": 2,
-            "failureThreshold": 60,
+            "failureThreshold": 90,
         }
 
     pod_spec: dict[str, Any] = {

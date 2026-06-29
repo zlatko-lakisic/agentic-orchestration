@@ -15,9 +15,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# Node/npm optional for stdio MCP (K4); install when sidecar pattern needs npx in-worker.
+# Node/npm for stdio MCPs (filesystem_local via npx in worker container).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

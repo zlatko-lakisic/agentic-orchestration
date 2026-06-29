@@ -1,8 +1,9 @@
-# Pre-publish local verification: unit/integration tests + kind cluster e2e + LLM + K4 fetch smoke.
-# Usage: powershell -File scripts/k8s-local-verify.ps1 [-SkipLlm] [-SkipFetchSmoke] [-RecreateCluster]
+# Pre-publish local verification: unit/integration tests + kind cluster e2e + LLM + K4 MCP smokes.
+# Usage: powershell -File scripts/k8s-local-verify.ps1 [-SkipLlm] [-SkipFetchSmoke] [-SkipFilesystemSmoke] [-RecreateCluster]
 param(
     [switch]$SkipLlm,
     [switch]$SkipFetchSmoke,
+    [switch]$SkipFilesystemSmoke,
     [switch]$RecreateCluster
 )
 
@@ -44,6 +45,14 @@ function Assert-LastExit([int]$Expected, [string]$Label) {
     if ($LASTEXITCODE -ne $Expected) {
         throw "$Label failed (exit $LASTEXITCODE, expected $Expected)"
     }
+}
+
+function Initialize-FilesystemSmokeWorkspace([string]$RunStoreHostPath) {
+    $fsRoot = Join-Path ($RunStoreHostPath -replace '/', '\') "mcp-fs-workspace"
+    New-Item -ItemType Directory -Force -Path $fsRoot | Out-Null
+    $hello = Join-Path $fsRoot "hello.txt"
+    Set-Content -Path $hello -Value "K4 filesystem smoke" -Encoding utf8 -NoNewline
+    Write-Host "Seeded $hello"
 }
 
 Import-DotEnv (Join-Path $ToolRoot ".env")
@@ -117,7 +126,8 @@ Write-Step "Sync K8s env secret"
 $SecretEnv = Join-Path $env:TEMP "agentic-k8s-secret.env"
 $extra = @(
     "AGENTIC_MCP_FETCH_ENABLED=1",
-    "AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url"
+    "AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url",
+    "FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace"
 )
 $lines = @()
 Get-Content (Join-Path $ToolRoot ".env") | ForEach-Object {
@@ -151,7 +161,7 @@ $env:AGENTIC_K8S_WORKER_IMAGE = $StubImage
 & $Python -m pytest tests/test_kind_kubernetes_e2e.py -m kind_e2e -o 'addopts=-ra' --tb=short
 Assert-LastExit 0 "kind stub e2e"
 
-if (-not $SkipLlm -or -not $SkipFetchSmoke) {
+if (-not $SkipLlm -or -not $SkipFetchSmoke -or -not $SkipFilesystemSmoke) {
     Write-Step "Load real worker image into kind"
     & $KindExe load docker-image $WorkerImage --name $ClusterName
     Assert-LastExit 0 "worker image load"
@@ -179,6 +189,18 @@ if (-not $SkipFetchSmoke) {
     $env:AGENTIC_K8S_WORKER_IMAGE = $WorkerImage
     & $Python main.py config/workflows/workflow_fetch_sidecar_smoke.yaml --quiet
     Assert-LastExit 0 "fetch worker stdio smoke"
+}
+
+if (-not $SkipFilesystemSmoke) {
+    Write-Step "K4 filesystem MCP smoke (worker stdio filesystem_local)"
+    Initialize-FilesystemSmokeWorkspace $HostPath
+    Remove-Item Env:AGENTIC_K8S_POD_SIDECAR_MCPS -ErrorAction SilentlyContinue
+    Remove-Item Env:AGENTIC_K8S_MCP_FILESYSTEM_URL -ErrorAction SilentlyContinue
+    $env:AGENTIC_K8S_WORKER_STDIO_MCPS = "filesystem_local"
+    $env:FILESYSTEM_MCP_ALLOWED_DIRECTORY = "/run/store/mcp-fs-workspace"
+    $env:AGENTIC_K8S_WORKER_IMAGE = $WorkerImage
+    & $Python main.py config/workflows/workflow_filesystem_smoke.yaml --quiet
+    Assert-LastExit 0 "filesystem worker stdio smoke"
 }
 
 Write-Host ""

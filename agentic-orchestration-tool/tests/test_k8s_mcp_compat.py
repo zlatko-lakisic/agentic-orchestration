@@ -3,14 +3,17 @@ from __future__ import annotations
 import pytest
 
 from orchestration.k8s_mcp_compat import (
+    K8S_MCP_FILESYSTEM_WORKSPACE_SUBDIR,
     K8S_NATIVE_MCP_IDS,
     K8S_STDIO_MCP_IDS,
     adapt_mcp_catalog_entry_for_kubernetes,
     apply_kubernetes_mcp_catalog_policy,
     filter_mcp_ids_for_kubernetes,
     is_k8s_native_mcp,
+    k8s_filesystem_allowed_directory,
     pod_sidecar_mcp_ids_for_step,
     rewrite_spec_mcps_for_pod_sidecars,
+    sidecar_containers_for_mcps,
 )
 
 
@@ -81,9 +84,23 @@ def test_adapt_catalog_entry_rewrites_stdio_to_http(monkeypatch: pytest.MonkeyPa
 def test_filter_mcp_ids_allows_stdio_with_pod_sidecar(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
     monkeypatch.delenv("AGENTIC_K8S_MCP_FETCH_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "0")
     monkeypatch.setenv("AGENTIC_K8S_POD_SIDECAR_MCPS", "fetch_url")
     allowed, excluded = filter_mcp_ids_for_kubernetes(["fetch_url", "memory_knowledge_graph"])
     assert allowed == ["fetch_url"]
+    assert excluded == ["memory_knowledge_graph"]
+
+
+@pytest.mark.unit
+def test_filter_mcp_ids_allows_filesystem_via_worker_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_MCP_FILESYSTEM_URL", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_POD_SIDECAR_MCPS", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "filesystem_local")
+    allowed, excluded = filter_mcp_ids_for_kubernetes(["filesystem_local", "memory_knowledge_graph"])
+    assert allowed == ["filesystem_local"]
     assert excluded == ["memory_knowledge_graph"]
 
 
@@ -93,6 +110,7 @@ def test_apply_kubernetes_mcp_catalog_policy_keeps_sidecar_stdio(
 ) -> None:
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
     monkeypatch.setenv("AGENTIC_K8S_POD_SIDECAR_MCPS", "fetch_url")
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "0")
     monkeypatch.setenv("AGENTIC_MCP_FETCH_ENABLED", "1")
     entries = [
         {"id": "search_tavily", "streamable_http": {"url": "http://t"}},
@@ -152,3 +170,18 @@ def test_pod_sidecar_mcp_ids_skips_when_gateway_configured(
     monkeypatch.setenv("AGENTIC_K8S_POD_SIDECAR_MCPS", "fetch_url")
     monkeypatch.setenv("AGENTIC_K8S_MCP_FETCH_URL", "http://cluster-fetch/mcp")
     assert pod_sidecar_mcp_ids_for_step(["fetch_url"]) == []
+
+
+@pytest.mark.unit
+def test_sidecar_filesystem_mounts_workspace_subpath() -> None:
+    containers = sidecar_containers_for_mcps(["filesystem_local"])
+    assert len(containers) == 1
+    mounts = containers[0]["volumeMounts"]
+    assert mounts[0]["mountPath"] == "/workspace"
+    assert mounts[0]["subPath"] == K8S_MCP_FILESYSTEM_WORKSPACE_SUBDIR
+
+
+@pytest.mark.unit
+def test_k8s_filesystem_allowed_directory_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_K8S_MCP_FILESYSTEM_DIR", "/run/store/custom")
+    assert k8s_filesystem_allowed_directory() == "/run/store/custom"

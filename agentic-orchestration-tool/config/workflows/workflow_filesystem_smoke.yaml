@@ -1,0 +1,39 @@
+# K4 local smoke: filesystem_local via worker-native stdio (npx in worker image).
+# Requires FILESYSTEM_MCP_ALLOWED_DIRECTORY and AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local.
+# Seed {run_store}/mcp-fs-workspace/hello.txt before running (see scripts/k8s-local-verify.ps1).
+meta:
+  id: filesystem_smoke
+  summary: Read hello.txt via filesystem_local MCP in K8s worker (stdio)
+  description: Validates npx @modelcontextprotocol/server-filesystem inside the worker Job pod.
+  good_for:
+    - K4 filesystem smoke on kind
+
+workflow:
+  name: "filesystem-smoke"
+  process: "sequential"
+  topic: "filesystem smoke"
+
+  agent_providers:
+    - id: "fs_reader"
+      type: "crewai"
+      role: "Filesystem Tester"
+      goal: "Read a file from the allowed workspace directory using filesystem MCP tools"
+      backstory: "You verify filesystem MCP tooling works in Kubernetes worker pods."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  mcp_providers: []
+
+  tasks:
+    - id: "read_hello"
+      agent_provider_id: "fs_reader"
+      mcp_providers:
+        - "filesystem_local"
+      description: >
+        Use the filesystem MCP tools to read the file hello.txt in the allowed workspace root.
+        Reply in one sentence with the exact first line of that file.
+      expected_output: "One sentence quoting the first line of hello.txt."
+
+  task_sequence:
+    - "read_hello"

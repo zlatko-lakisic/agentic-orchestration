@@ -37,8 +37,12 @@ K8S_SIDECAR_MCP_IDS: frozenset[str] = frozenset(
     }
 )
 
-# Stdio MCPs run inside the worker container (mcp-server-fetch in worker image; Option A).
+# Stdio MCPs run inside the worker container (mcp-server-fetch / npx filesystem in worker image).
 K8S_WORKER_STDIO_MCP_IDS_DEFAULT = frozenset({"fetch_url"})
+
+# Subdirectory on the run-store PVC used as the filesystem MCP sandbox in K8s.
+K8S_MCP_FILESYSTEM_WORKSPACE_SUBDIR = "mcp-fs-workspace"
+K8S_MCP_FILESYSTEM_DIR_ENV = "AGENTIC_K8S_MCP_FILESYSTEM_DIR"
 
 SHIPPED_MCP_IDS: frozenset[str] = K8S_NATIVE_MCP_IDS | K8S_STDIO_MCP_IDS
 
@@ -91,6 +95,18 @@ def k8s_worker_stdio_mcp_ids_from_env() -> frozenset[str]:
 def k8s_supergateway_stateful_from_env() -> bool:
     raw = os.getenv("AGENTIC_K8S_SUPERGATEWAY_STATEFUL", "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
+
+
+def k8s_filesystem_allowed_directory(run_store_mount: str = "/run/store") -> str:
+    """Absolute path inside the worker pod for ``filesystem_local`` MCP roots."""
+    explicit = os.getenv(K8S_MCP_FILESYSTEM_DIR_ENV, "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    fs_env = os.getenv("FILESYSTEM_MCP_ALLOWED_DIRECTORY", "").strip()
+    if fs_env:
+        return fs_env.rstrip("/")
+    mount = run_store_mount.strip().rstrip("/") or "/run/store"
+    return f"{mount}/{K8S_MCP_FILESYSTEM_WORKSPACE_SUBDIR}"
 
 
 def is_k8s_native_mcp(mcp_id: str) -> bool:
@@ -256,7 +272,8 @@ def _fetch_sidecar_stdio_command() -> list[str]:
 
 
 def _filesystem_sidecar_stdio_command() -> list[str]:
-    directory = os.getenv("FILESYSTEM_MCP_ALLOWED_DIRECTORY", "/workspace").strip() or "/workspace"
+    # Sidecar mounts the PVC subdir at /workspace (see sidecar_containers_for_mcps).
+    directory = "/workspace"
     return ["npx", "-y", "@modelcontextprotocol/server-filesystem", directory]
 
 
@@ -290,13 +307,20 @@ def sidecar_containers_for_mcps(mcp_ids: list[str]) -> list[dict[str, Any]]:
         ]
         if k8s_supergateway_stateful_from_env():
             args.append("--stateful")
-        containers.append(
-            {
-                "name": name,
-                "image": SUPERGATEWAY_IMAGE,
-                "args": args,
-            }
-        )
+        container: dict[str, Any] = {
+            "name": name,
+            "image": SUPERGATEWAY_IMAGE,
+            "args": args,
+        }
+        if mcp_id == "filesystem_local":
+            container["volumeMounts"] = [
+                {
+                    "name": "run-store",
+                    "mountPath": "/workspace",
+                    "subPath": K8S_MCP_FILESYSTEM_WORKSPACE_SUBDIR,
+                }
+            ]
+        containers.append(container)
     return containers
 
 
