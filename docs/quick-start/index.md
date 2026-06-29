@@ -47,7 +47,7 @@ cp .env.example .env
 
 ## Step 3 — Configure
 
-Edit `.env`. Minimum required: set at least one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or configure Ollama (`OLLAMA_HOST`). Everything else is optional — see the [Configuration reference](/configuration/).
+Edit `.env`. Minimum required: set at least one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or configure Ollama (`OLLAMA_HOST`). Everything else is optional — see the [Configuration reference]({{ '/configuration/' | relative_url }}).
 
 {: .notice--info}
 **Tip:** For local-only runs, start Ollama and set `OLLAMA_HOST=http://127.0.0.1:11434`. The planner can use `AGENTIC_PLANNER_MODEL=ollama/llama3.2` once the model is pulled.
@@ -85,7 +85,7 @@ npm start
 
 | Topic | Link |
 |---|---|
-| Browse agent templates | [Agent Catalog](/agent-catalog/) |
-| Browse MCP integrations | [MCP Catalog](/mcp-catalog/) |
-| Environment variables | [Configuration](/configuration/) |
-| How components fit together | [Architecture](/architecture/) |
+| Browse agent templates | [Agent Catalog]({{ '/agent-catalog/' | relative_url }}) |
+| Browse MCP integrations | [MCP Catalog]({{ '/mcp-catalog/' | relative_url }}) |
+| Environment variables | [Configuration]({{ '/configuration/' | relative_url }}) |
+| How components fit together | [Architecture]({{ '/architecture/' | relative_url }}) |

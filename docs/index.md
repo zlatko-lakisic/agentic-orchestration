@@ -53,4 +53,6 @@ Domain overlays bundle orchestrator context, extra agents, and MCP fragments for
 | `--example healthcare` | Evidence-oriented multi-agent briefs with medtech orchestrator context |
 | `--example logistics` | Warehousing flows with WMS/ERP MCP hooks and labor framing |
 
-[Browse all features](/features/){: .btn .btn--primary .btn--large} [Agent catalog](/agent-catalog/){: .btn .btn--inverse .btn--large}
+[Browse all features]({{ '/features/' | relative_url }}){: .btn .btn--primary .btn--large}
+
+[Agent catalog]({{ '/agent-catalog/' | relative_url }}){: .btn .btn--inverse .btn--large}

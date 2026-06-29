@@ -38,7 +38,7 @@ Use `--dynamic-iterative-auto` for controller-driven early stop or continuation 
 
 When goal text lexically matches specialist `planner_hint` or `good_for` fields, general-purpose agents (`general_purpose: true`) are suppressed so domain specialists win. Tune with `AGENTIC_DOMAIN_PROVIDER_MATCH_MIN` or disable via `AGENTIC_DISABLE_DOMAIN_PROVIDER_SUPPRESSION`.
 
-See [Dynamic Planning](/dynamic-planning/) for sessions, attachments, and answer cache.
+See [Dynamic Planning]({{ '/dynamic-planning/' | relative_url }}) for sessions, attachments, and answer cache.
 
 ## 182-Provider Agent Catalog
 
@@ -65,7 +65,7 @@ Extend the catalog without forking via `AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DI
 | vllm | `vllm_tpu_meta_llama_llama_3_1_8b_instruct` | Requires `VLLM_BASE_URL` |
 | jetstream | `jetstream_tpu_meta_llama_meta_llama_3_70b_instruct` | Requires `JETSTREAM_BASE_URL` |
 
-Full listing: [Agent Catalog](/agent-catalog/).
+Full listing: [Agent Catalog]({{ '/agent-catalog/' | relative_url }}).
 
 ## 7 MCP Integrations
 
@@ -83,7 +83,7 @@ MCP tool definitions live under `config/mcp_providers/`. The planner attaches MC
 
 Credential-gated entries stay hidden until required env vars are set. Merge custom YAML via `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`.
 
-Details: [MCP Catalog](/mcp-catalog/).
+Details: [MCP Catalog]({{ '/mcp-catalog/' | relative_url }}).
 
 ## Hardware-Aware Routing
 
@@ -115,7 +115,7 @@ The pluggable `ExecutionBackend` protocol runs the same planner output and step 
 
 Planner JSON, YAML catalogs, session/KB/learning hooks, and post-run QA are identical across backends — only step isolation changes.
 
-Details: [Execution Backends](/execution-backends/).
+Details: [Execution Backends]({{ '/execution-backends/' | relative_url }}).
 
 ## Sessions, Learning, and Knowledge Base
 
@@ -147,7 +147,7 @@ Vertical overlays bundle domain orchestrator context, optional extra agent YAML,
 - **Healthcare** — medtech evidence research, commercial brief generation, specialist agent templates.
 - **Logistics** — warehousing, WMS/ERP integration, labor planning, simulated WMS/ERP MCP fixtures.
 
-Custom verticals: create `examples/verticals/<id>/` with optional `orchestrator-context.md`, `agent_providers/`, and `mcp_providers/`. See [Verticals](/verticals/).
+Custom verticals: create `examples/verticals/<id>/` with optional `orchestrator-context.md`, `agent_providers/`, and `mcp_providers/`. See [Verticals]({{ '/verticals/' | relative_url }}).
 
 ## WebSocket Web UI
 
@@ -179,4 +179,4 @@ python main.py "Brainstorm taglines for a developer CLI"
 
 **Shipped workflows:** default (`workflow.yaml`), brainstorm, web dev, healthcare commercial brief (router), MCP fetch/filesystem smoke tests.
 
-Details: [Workflows](/workflows/).
+Details: [Workflows]({{ '/workflows/' | relative_url }}).

@@ -75,4 +75,4 @@ agentic-orchestration/
 | Subprocess | Process per step | `AGENTIC_RUN_STORE_PATH` | Step isolation, container smoke tests |
 | Kubernetes | Pod per step | PVC at `AGENTIC_K8S_RUN_STORE_MOUNT` | Production, horizontal scale |
 
-See [Execution Backends](/execution-backends/) for configuration.
+See [Execution Backends]({{ '/execution-backends/' | relative_url }}) for configuration.

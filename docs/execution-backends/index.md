@@ -76,4 +76,4 @@ Workers and coordinator must share this path (bind mount, PVC, or NFS).
 - Session, KB, learning, and QA hooks
 - `--execute-step` worker contract
 
-See [Architecture](/architecture/) for the full pipeline.
+See [Architecture]({{ '/architecture/' | relative_url }}) for the full pipeline.

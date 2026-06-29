@@ -62,4 +62,4 @@ workflow:
 | Best for | Repeatable crews | Ad-hoc goals |
 | MCP selection | Fixed in YAML | Planner per step |
 
-See [Dynamic Planning](/dynamic-planning/) for planner-driven runs.
+See [Dynamic Planning]({{ '/dynamic-planning/' | relative_url }}) for planner-driven runs.
