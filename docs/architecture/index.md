@@ -1,6 +1,7 @@
 ---
 title: "Architecture"
 layout: single
+mermaid: true
 sidebar:
   nav: "docs"
 toc: true
@@ -11,15 +12,15 @@ toc_sticky: true
 
 ```mermaid
 flowchart LR
-  User["User goal"] --> Planner
-  Planner["Planner\n(LiteLLM)"] --> Plan["JSON plan\n(steps + agents + MCPs)"]
-  Plan --> Runner["Execution backend\n(CrewAI / subprocess / K8s)"]
-  Runner --> Agents["Agent crews\nper step"]
-  Agents --> MCP["MCP tools\n(search, HA, fetch...)"]
-  Agents --> Output["Step outputs"]
-  Output --> KB["Knowledge base\n+ sessions"]
-  Output --> QA["QA pass\n(hallucination check)"]
-  Output --> User2["Final answer"]
+  User[User goal] --> Planner
+  Planner[Planner LiteLLM] --> Plan[JSON plan]
+  Plan --> Runner[Execution backend]
+  Runner --> Agents[Agent crews per step]
+  Agents --> MCP[MCP tools]
+  Agents --> Output[Step outputs]
+  Output --> KB[Knowledge base + sessions]
+  Output --> QA[QA pass]
+  Output --> User2[Final answer]
 ```
 
 ## Components

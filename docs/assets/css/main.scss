@@ -3,3 +3,9 @@
 
 @import "minimal-mistakes/skins/{{ site.minimal_mistakes_skin | default: 'default' }}";
 @import "minimal-mistakes";
+
+.mermaid {
+  margin: 1.5em 0;
+  text-align: center;
+  overflow-x: auto;
+}
