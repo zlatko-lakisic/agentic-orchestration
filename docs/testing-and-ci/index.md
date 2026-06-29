@@ -26,12 +26,23 @@ How to run automated checks locally and on **GitHub** or **GitLab** for **agenti
 | **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM; includes agent skills spec handoff) |
 | **Integration** | Manual / with `AGENTIC_KIND_E2E=1` locally | Sometimes | ❌ Excluded from default pytest |
 | **Live LLM** | Local only unless secrets configured | Yes | ❌ Never by default |
-| **Agent harness L0** (static catalog) | Every commit / MR | No | 🔲 Planned — [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) |
-| **Agent harness L1** (connectivity) | Every commit / MR (credentialed subset) | Sometimes | 🔲 Planned |
-| **Agent harness L2+** (smoke / capability) | Nightly / manual | Yes | ❌ By default |
+| **Agent harness L0** (static catalog) | Every commit / MR | No | ✅ Yes (`agent-harness-static` job) |
+| **Agent harness L1** (connectivity) | Every commit / MR (credentialed subset) | Sometimes | ✅ Yes (`agent-harness-connectivity` job) |
+| **Agent harness L2+** (smoke / capability) | Nightly / manual | Yes | ❌ By default (weekly `agent-harness-smoke-nightly.yml`) |
 | **Backend parity** (F2.7 / dual framework) | After refactor lands | No for resolution tests | ✅ Planned |
 
-Default CI command excludes `integration` and `live_llm` markers (see `pytest.ini`).
+Default CI command excludes `integration`, `live_llm`, and `agent_harness` markers (see `pytest.ini`).
+
+### Agent harness (local)
+
+```bash
+cd agentic-orchestration-tool
+python main.py --harness-batch --harness-tier static          # L0 full catalog
+python main.py --harness-agent gpt_research --harness-tier smoke
+pytest -m agent_harness -o addopts="-ra"
+powershell -File scripts/run-agent-harness.ps1 -Tier static -Filter "gpt_*"
+python scripts/harness-report.py
+```
 
 ---
 
@@ -209,15 +220,15 @@ Align with [Dual execution framework]({{ '/dual-execution-framework/' | relative
 - [x] **T-K3** `@pytest.mark.backend_kubernetes` — mocked Job integration (`tests/test_backend_kubernetes.py`)
 - [x] **T-K3-kind** `@pytest.mark.kind_e2e` — live kind cluster in CI (`scripts/k8s-kind-e2e.sh`, stub worker)
 
-### Platform agent harness (planned)
+### Platform agent harness (shipped v1.4.0)
 
-See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for full design.
+See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for design.
 
-- [ ] **T-H0** `@pytest.mark.agent_harness` — L0 static validation for full [Agent provider catalog]({{ '/agent-catalog/' | relative_url }})
-- [ ] **T-H1** L1 connectivity for credentialed catalog subset in CI
-- [ ] **T-H2** L2 smoke — nightly workflow, concurrency cap
-- [ ] `main.py --harness-agent` / `--harness-batch` CLI (platform tiers)
-- [ ] `scripts/run-agent-harness.ps1` local helper
+- [x] **T-H0** `@pytest.mark.agent_harness` — L0 static validation for full [Agent provider catalog]({{ '/agent-catalog/' | relative_url }})
+- [x] **T-H1** L1 connectivity for credentialed catalog subset in CI
+- [x] **T-H2** L2 smoke — nightly workflow (`agent-harness-smoke-nightly.yml`)
+- [x] `main.py --harness-agent` / `--harness-batch` CLI (platform tiers)
+- [x] `scripts/run-agent-harness.ps1` / `.sh` and `scripts/harness-report.py`
 
 ### User agent harness packs (planned)
 

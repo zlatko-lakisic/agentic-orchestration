@@ -190,6 +190,8 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "allow_delegation",
         "min_vram_gb",
         "hardware",
+        "harness_profile",
+        "harness",
     }
     provider_options = {k: v for k, v in data.items() if k not in known_keys}
 

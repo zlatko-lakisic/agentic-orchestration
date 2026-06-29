@@ -1,0 +1,17 @@
+id: research
+smoke:
+  topic: Harness smoke
+  description: >
+    In exactly 3 bullet points, compare REST vs GraphQL for a simple CRUD API.
+    Keep each bullet under 25 words.
+  expected_output: Three concise bullets comparing REST and GraphQL.
+assertions:
+  - type: min_chars
+    value: 80
+  - type: bullet_count
+    min: 2
+capability:
+  rubric: >
+    Score whether the output has structured bullets, compares REST and GraphQL fairly,
+    and stays concise without filler.
+  min_score: 0.6

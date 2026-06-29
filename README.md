@@ -212,6 +212,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 - **Execution backends** — `inprocess` (default), `subprocess` (per-step workers on laptop), `kubernetes` (coordinator + warm pool / Jobs on a cluster).
 - **Kubernetes stack** — Coordinator Deployment, warm pool, delegation broker, run-store PVC, structured JSON logs, kind e2e in CI, Jetson deploy script.
 - **Web chat UX** — Markdown rendering, verbose crew mode, prose-first answers (no JSON blobs in the UI).
+- **Platform agent harness** — Tiered per-catalog verification (`--harness-agent`, `--harness-batch`); L0/L1 in CI; profiles in `config/agent_harnesses/`.
 
 ## TPU capabilities
 

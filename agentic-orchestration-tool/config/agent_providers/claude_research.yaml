@@ -1,4 +1,5 @@
 id: claude_research
+harness_profile: research
 general_purpose: true
 type: anthropic
 min_vram_gb: 0  # cloud API — no local GPU memory required

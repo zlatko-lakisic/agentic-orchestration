@@ -1,0 +1,53 @@
+name: Agent harness smoke (nightly)
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-harness-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness-smoke:
+    name: Agent harness L2 smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            agentic-orchestration-tool/requirements.txt
+            agentic-orchestration-tool/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: L2 smoke (cloud reference agents)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENTIC_HARNESS_EVAL: "0"
+        run: |
+          python main.py --harness-batch --harness-tier smoke \
+            --harness-filter "gpt_*" \
+            --harness-max-agents 3 \
+            --harness-json || true
+          python scripts/harness-report.py --json || true
+
+      - name: Upload harness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-smoke-report
+          path: agentic-orchestration-tool/harness_runs/
+          if-no-files-found: ignore

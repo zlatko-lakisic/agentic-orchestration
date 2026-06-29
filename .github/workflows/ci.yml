@@ -35,6 +35,63 @@ jobs:
       - name: Run pytest (unit tier)
         run: pytest
 
+  agent-harness-static:
+    name: Agent harness L0 (static catalog)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            agentic-orchestration-tool/requirements.txt
+            agentic-orchestration-tool/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: L0 static harness (full catalog)
+        run: python main.py --harness-batch --harness-tier static --harness-json
+
+  agent-harness-connectivity:
+    name: Agent harness L1 (connectivity)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic-orchestration-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            agentic-orchestration-tool/requirements.txt
+            agentic-orchestration-tool/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: L1 connectivity (credentialed cloud subset)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT: "1"
+        run: python main.py --harness-batch --harness-tier connectivity --harness-filter "gpt_*" --harness-json
+
+      - name: Agent harness unit tests
+        run: pytest -m agent_harness -o addopts="-ra"
+
   python-smoke-import:
     name: Import smoke
     runs-on: ubuntu-latest

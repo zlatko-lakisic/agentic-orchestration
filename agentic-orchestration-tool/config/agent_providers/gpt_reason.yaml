@@ -1,4 +1,5 @@
 id: gpt_reason
+harness_profile: reason
 type: openai
 min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint: OpenAI API—trade-offs, architecture choices, structured reasoning, and recommendations under constraints.

@@ -1,4 +1,7 @@
 id: ollama_llama3
+harness_profile: general
+harness:
+  skip_live: true
 type: ollama
 min_vram_gb: 8
 planner_hint: Llama 3 base family — general-purpose local assistant.

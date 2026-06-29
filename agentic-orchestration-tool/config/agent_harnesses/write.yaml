@@ -1,0 +1,17 @@
+id: write
+smoke:
+  topic: Harness smoke
+  description: >
+    Turn these notes into one short paragraph for engineers: "orchestrator loads YAML;
+    planner picks agents; steps run sequentially." Use clear, scannable prose.
+  expected_output: One polished paragraph suitable for a technical README.
+assertions:
+  - type: min_chars
+    value: 60
+  - type: max_chars
+    value: 800
+capability:
+  rubric: >
+    Score clarity, scannability, and whether the paragraph reads like professional
+    technical writing without adding unsupported claims.
+  min_score: 0.6

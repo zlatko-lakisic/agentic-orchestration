@@ -1,0 +1,13 @@
+id: general
+smoke:
+  topic: Harness smoke
+  description: >
+    In 2-3 sentences, explain what a YAML-driven multi-agent workflow orchestrator does.
+  expected_output: Short plain-language explanation of workflow orchestration.
+assertions:
+  - type: min_chars
+    value: 40
+capability:
+  rubric: >
+    Score whether the answer is coherent, on-topic, and non-empty for a general assistant.
+  min_score: 0.5

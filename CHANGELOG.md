@@ -7,6 +7,25 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-29
+
+### Added
+
+- **Platform agent harness** — tiered per-catalog-agent verification (`static`, `connectivity`, `smoke`, `capability`) via `orchestration/agent_harness.py`.
+- Harness profile templates under `config/agent_harnesses/` (`general`, `research`, `write`, `reason`, `coding`, `vision`).
+- CLI: `--harness-agent`, `--harness-batch`, `--harness-tier`, `--harness-filter`, `--harness-json`, and related flags.
+- Scripts: `scripts/run-agent-harness.ps1`, `scripts/run-agent-harness.sh`, `scripts/harness-report.py`.
+- CI jobs: `agent-harness-static` (L0 full catalog), `agent-harness-connectivity` (L1 + unit tests); nightly workflow `agent-harness-smoke-nightly.yml` (L2).
+- `harness_profile` / `harness.skip_live` on reference cloud agents (`gpt_*`, `claude_*`, `ollama_llama3`).
+- Harness stats in `learning_store` (`harness_stats`) and planner context via `harness_performance_summary`.
+- Optional `AgentProvider.run_harness_probe()` hook for custom provider classes.
+- Subprocess backend support for smoke/capability tiers (`--harness-backend subprocess`).
+
+### Changed
+
+- Agent catalog generator adds **Harness** column (`docs/scripts/generate_agent_catalog_md.py`).
+- Default pytest excludes `@pytest.mark.agent_harness` (run explicitly or in harness CI job).
+
 ## [1.3.0] - 2026-06-29
 
 ### Added

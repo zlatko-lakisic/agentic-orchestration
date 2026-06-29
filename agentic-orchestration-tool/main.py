@@ -745,6 +745,66 @@ def parse_args() -> argparse.Namespace:
         help="With --dynamic: delete the resolved session JSON before this run "
         "(explicit name, env, or default slug).",
     )
+    parser.add_argument(
+        "--harness-agent",
+        default=None,
+        metavar="ID",
+        help="Run platform agent harness for one catalog agent_provider_id and exit.",
+    )
+    parser.add_argument(
+        "--harness-batch",
+        action="store_true",
+        help="Run platform agent harness for all (or filtered) catalog agents and exit.",
+    )
+    parser.add_argument(
+        "--harness-tier",
+        default=os.getenv("AGENTIC_HARNESS_TIER", "static"),
+        choices=("static", "connectivity", "smoke", "capability", "l0", "l1", "l2", "l3"),
+        help=(
+            "Harness tier: static (L0), connectivity (L1), smoke (L2), capability (L3). "
+            "Default env AGENTIC_HARNESS_TIER or static."
+        ),
+    )
+    parser.add_argument(
+        "--harness-filter",
+        default=None,
+        metavar="GLOB",
+        help="With --harness-batch: fnmatch glob on agent provider ids (e.g. gpt_*).",
+    )
+    parser.add_argument(
+        "--harness-max-agents",
+        default=None,
+        type=int,
+        metavar="N",
+        help="With --harness-batch: cap number of agents to probe.",
+    )
+    parser.add_argument(
+        "--harness-profile",
+        default=None,
+        metavar="PROFILE",
+        help="Force harness profile (general, research, write, reason, coding, vision).",
+    )
+    parser.add_argument(
+        "--harness-backend",
+        default=None,
+        metavar="NAME",
+        help="Execution backend for smoke/capability tiers (inprocess or subprocess).",
+    )
+    parser.add_argument(
+        "--harness-json",
+        action="store_true",
+        help="Emit harness batch report as JSON on stdout.",
+    )
+    parser.add_argument(
+        "--harness-fail-fast",
+        action="store_true",
+        help="Stop harness batch on first failure.",
+    )
+    parser.add_argument(
+        "--harness-verbose",
+        action="store_true",
+        help="Verbose harness smoke runs (CrewAI verbose).",
+    )
     return parser.parse_args()
 
 
@@ -794,6 +854,11 @@ def main() -> None:
             print(f"error: --execute-step file not found: {spec}", file=sys.stderr)
             sys.exit(2)
         sys.exit(execute_step_from_spec_file(spec.resolve()))
+
+    if getattr(args, "harness_agent", None) or getattr(args, "harness_batch", False):
+        from orchestration.agent_harness import run_harness_cli
+
+        sys.exit(run_harness_cli(args, tool_root))
 
     if getattr(args, "example", None):
         from orchestration.example_overlays import apply_example_overlay_env

@@ -1,0 +1,17 @@
+id: reason
+smoke:
+  topic: Harness smoke
+  description: >
+    A service has 200ms p99 latency after a deploy. List 3 plausible root causes
+    and one verification step for each. Use numbered items.
+  expected_output: Three numbered root-cause hypotheses with verification steps.
+assertions:
+  - type: min_chars
+    value: 100
+  - type: regex
+    pattern: '(?m)^\\s*1[.)\\]'
+capability:
+  rubric: >
+    Score whether the answer lists distinct plausible causes, includes verification
+    steps, and reads like structured engineering reasoning.
+  min_score: 0.6

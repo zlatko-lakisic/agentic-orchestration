@@ -1357,6 +1357,7 @@ def build_dynamic_workflow_config(
     try:
         from orchestration.learning_store import (
             consume_pending_ratings,
+            harness_performance_summary,
             learning_enabled,
             load_stats,
             planner_performance_summary,
@@ -1368,6 +1369,7 @@ def build_dynamic_workflow_config(
             st = consume_pending_ratings(tool_root, st)
             save_stats(tool_root, st)
             learning_summary = planner_performance_summary(stats=st, user_prompt=user_prompt)
+            learning_summary += harness_performance_summary(stats=st)
     except Exception:  # noqa: BLE001
         learning_summary = ""
     try:

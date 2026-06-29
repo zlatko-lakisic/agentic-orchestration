@@ -1,0 +1,16 @@
+id: coding
+smoke:
+  topic: Harness smoke
+  description: >
+    Return JSON only: {"languages": ["python", "typescript", "go"]} with exactly
+    those three language names in lowercase. No markdown fences or extra text.
+  expected_output: Valid JSON object with a languages array of three strings.
+assertions:
+  - type: json_parse
+  - type: min_chars
+    value: 10
+capability:
+  rubric: >
+    Score whether the output is valid JSON matching the requested schema and contains
+    no markdown wrappers or commentary.
+  min_score: 0.7

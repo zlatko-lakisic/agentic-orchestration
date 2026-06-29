@@ -267,6 +267,64 @@ def emit_run_rating_meta(config: Any, *, task_index: int = -1) -> None:
     )
 
 
+def record_harness_result(tool_root: Path, result: Any) -> None:
+    """Update rolling harness pass/fail stats per provider (best-effort)."""
+    try:
+        stats = load_stats(tool_root)
+        bucket: dict[str, Any] = stats.setdefault("harness_stats", {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+            stats["harness_stats"] = bucket
+        pid = str(getattr(result, "provider_id", "") or "").strip()
+        if not pid:
+            return
+        entry = bucket.get(pid) if isinstance(bucket.get(pid), dict) else {}
+        entry = dict(entry)
+        entry["last_tier"] = str(getattr(result, "tier", "") or "")
+        entry["last_status"] = str(getattr(result, "status", "") or "")
+        entry["last_ts"] = str(getattr(result, "timestamp", "") or "")
+        entry["last_profile"] = str(getattr(result, "profile", "") or "")
+        entry["runs"] = int(entry.get("runs", 0) or 0) + 1
+        if getattr(result, "status", None) == "pass":
+            entry["passes"] = int(entry.get("passes", 0) or 0) + 1
+        elif getattr(result, "status", None) == "fail":
+            entry["failures"] = int(entry.get("failures", 0) or 0) + 1
+        eval_data = getattr(result, "eval", None)
+        if isinstance(eval_data, dict):
+            score = eval_data.get("score")
+            if isinstance(score, (int, float)):
+                entry["eval_count"] = int(entry.get("eval_count", 0) or 0) + 1
+                entry["eval_sum"] = float(entry.get("eval_sum", 0.0) or 0.0) + float(score)
+        bucket[pid] = entry
+        save_stats(tool_root, stats)
+    except Exception:  # noqa: BLE001
+        return
+
+
+def harness_performance_summary(*, stats: dict[str, Any]) -> str:
+    """Planner-facing summary of agents with recent harness failures."""
+    if os.getenv("AGENTIC_HARNESS_FEED_PLANNER", "1").strip().lower() in ("0", "false", "no", "off"):
+        return ""
+    bucket: dict[str, Any] = stats.get("harness_stats", {}) if isinstance(stats, dict) else {}
+    if not isinstance(bucket, dict) or not bucket:
+        return ""
+    failing: list[str] = []
+    for pid, entry in sorted(bucket.items()):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("last_status", "")) == "fail":
+            failing.append(f"- {pid} (tier={entry.get('last_tier', '?')}, profile={entry.get('last_profile', '?')})")
+    if not failing:
+        return ""
+    return (
+        "\n\n## Harness health (local)\n"
+        "These catalog agents recently failed platform harness probes in this environment; "
+        "prefer other providers when plausible.\n"
+        + "\n".join(failing[:12])
+        + "\n"
+    )
+
+
 def planner_performance_summary(
     *,
     stats: dict[str, Any],

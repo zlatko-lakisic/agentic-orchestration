@@ -39,6 +39,27 @@ def _esc(s: str) -> str:
     return s.replace("|", "\\|").replace("\n", " ")
 
 
+def _harness_profile(data: dict) -> str:
+    explicit = str(data.get("harness_profile", "")).strip()
+    if explicit:
+        return explicit
+    role = str(data.get("role", "")).lower()
+    pid = str(data.get("id", "")).lower()
+    if "research" in role:
+        return "research"
+    if "writer" in role:
+        return "write"
+    if "engineer" in role:
+        return "reason"
+    if "coder" in pid:
+        return "coding"
+    if "vision" in pid or "vlm" in pid:
+        return "vision"
+    if data.get("general_purpose"):
+        return "general"
+    return "general"
+
+
 def main() -> None:
     root = TOOL / "config" / "agent_providers"
     by_type: dict[str, list[dict]] = defaultdict(list)
@@ -54,6 +75,7 @@ def main() -> None:
                 "hw": _hw(data),
                 "env": TYPE_ENV.get(t, "—"),
                 "gp": "✓" if data.get("general_purpose") else "",
+                "harness": _harness_profile(data),
             }
         )
 
@@ -63,11 +85,11 @@ def main() -> None:
         if not entries:
             continue
         lines.append(f"### {t} ({len(entries)} providers)\n")
-        lines.append("| ID | Model | Role | Good for | Hardware | Env | GP |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("| ID | Model | Role | Good for | Hardware | Env | GP | Harness |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for e in entries:
             lines.append(
-                "| `{id}` | {model} | {role} | {hint} | {hw} | {env} | {gp} |".format(
+                "| `{id}` | {model} | {role} | {hint} | {hw} | {env} | {gp} | {harness} |".format(
                     id=_esc(e["id"]),
                     model=_esc(e["model"][:40]),
                     role=_esc(e["role"][:50]),
@@ -75,6 +97,7 @@ def main() -> None:
                     hw=_esc(e["hw"][:30]),
                     env=e["env"],
                     gp=e["gp"],
+                    harness=_esc(e["harness"]),
                 )
             )
         lines.append("")

@@ -1,4 +1,5 @@
 id: claude_write
+harness_profile: write
 type: anthropic
 min_vram_gb: 0  # cloud API — no local GPU memory required
 planner_hint: Anthropic Claude—polish prose, briefings, executive summaries, and clear technical writing.

@@ -79,6 +79,23 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 | `--orchestrator-session NAME` | Session slug for `__orchestrator_sessions__/`. |
 | `--orchestrator-session-reset` | Delete session JSON before run. |
 
+## Platform agent harness
+
+| Flag | Meaning |
+|------|---------|
+| `--harness-agent ID` | Run harness for one catalog `agent_provider_id` and exit. |
+| `--harness-batch` | Run harness for all (or filtered) catalog agents and exit. |
+| `--harness-tier TIER` | `static` (L0), `connectivity` (L1), `smoke` (L2), `capability` (L3). Aliases: `l0`–`l3`. Default: env `AGENTIC_HARNESS_TIER` or `static`. |
+| `--harness-filter GLOB` | With `--harness-batch`: fnmatch on provider ids (e.g. `gpt_*`). |
+| `--harness-max-agents N` | Cap batch size. |
+| `--harness-profile PROFILE` | Force profile (`general`, `research`, `write`, `reason`, `coding`, `vision`). |
+| `--harness-backend NAME` | `inprocess` (default) or `subprocess` for L2/L3. |
+| `--harness-json` | Emit JSON report on stdout. |
+| `--harness-fail-fast` | Stop batch on first failure. |
+| `--harness-verbose` | Verbose CrewAI output during smoke runs. |
+
+Env: `AGENTIC_HARNESS_TIER`, `AGENTIC_HARNESS_EVAL`, `AGENTIC_HARNESS_EVAL_MODEL`, `AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT`, `AGENTIC_HARNESS_FEED_PLANNER`, `AGENTIC_HARNESS_RECORD_STATS`. See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
+
 ## Related
 
 - [Workflows and router]({{ '/workflows/' | relative_url }})

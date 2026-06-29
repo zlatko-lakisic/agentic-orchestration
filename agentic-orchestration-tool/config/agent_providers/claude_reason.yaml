@@ -1,4 +1,5 @@
 id: claude_reason
+harness_profile: reason
 type: anthropic
 hardware:
   architecture: [cpu, gpu, tpu]  # cloud API: usable regardless local accelerator

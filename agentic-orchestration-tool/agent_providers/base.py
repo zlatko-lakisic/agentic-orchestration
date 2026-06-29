@@ -143,6 +143,15 @@ class AgentProvider(ABC):
         typ = str(self.config.provider_type or "").strip().lower() or "unknown"
         return f"{role} [{typ}]"
 
+    def run_harness_probe(self, tier: str, context: dict[str, Any]) -> Any | None:
+        """
+        Optional provider-specific harness probe.
+
+        Return a ``HarnessResult`` to override default harness behavior for this tier,
+        or ``None`` to use the standard runner.
+        """
+        return None
+
     @abstractmethod
     def build_agent(
         self,

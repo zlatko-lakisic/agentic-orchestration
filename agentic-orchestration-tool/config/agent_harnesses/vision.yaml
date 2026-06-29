@@ -1,0 +1,17 @@
+id: vision
+smoke:
+  topic: Harness smoke
+  description: >
+    Without seeing an image: list 4 visual cues a plant-health vision model might use
+    to flag leaf discoloration. Use bullet points.
+  expected_output: Four bullet points describing visual cues for leaf discoloration.
+assertions:
+  - type: min_chars
+    value: 80
+  - type: bullet_count
+    min: 2
+capability:
+  rubric: >
+    Score whether the answer lists plausible visual cues relevant to plant or leaf
+    health analysis.
+  min_score: 0.5

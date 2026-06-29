@@ -20,6 +20,7 @@ _web_uploads/
 __orchestrator_sessions__/
 __orchestrator_learning__/
 __orchestrator_kb__/
+harness_runs/
 
 # Local dev tools (not committed)
 agentic-orchestration-tool/.tools/

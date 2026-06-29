@@ -67,6 +67,24 @@ Extend the catalog without forking via `AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DI
 
 Full listing: [Agent Catalog]({{ '/agent-catalog/' | relative_url }}).
 
+## Platform Agent Harness (v1.4.0)
+
+Verify catalog agents in isolation with tiered probes:
+
+| Tier | CLI `--harness-tier` | Checks |
+|------|----------------------|--------|
+| L0 | `static` | YAML + credentials |
+| L1 | `connectivity` | Backend reachability |
+| L2 | `smoke` | Single-task kickoff + assertions |
+| L3 | `capability` | L2 + LLM rubric |
+
+```bash
+python main.py --harness-batch --harness-tier static
+python main.py --harness-agent gpt_research --harness-tier smoke
+```
+
+Shared profiles in `config/agent_harnesses/`. CI runs L0 on every PR. Details: [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
+
 ## 7 MCP Integrations
 
 MCP tool definitions live under `config/mcp_providers/`. The planner attaches MCPs per step based on goal text, available credentials, and (for Kubernetes) transport compatibility.
