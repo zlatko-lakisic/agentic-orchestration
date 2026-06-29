@@ -25,18 +25,18 @@ The documentation site is built with [Jekyll](https://jekyllrb.com/) and the [Sl
 
 ## Editing content
 
-1. Keep the GitHub wiki (`agentic-orchestration.wiki`) as the primary editing surface, then sync into `docs/`:
+**Product pages** (`index.md`, `features.md`, `getting-started.md`, `documentation.md`) are edited directly in `docs/` and are **not** overwritten by wiki sync.
 
-   ```bash
-   cd docs
-   python scripts/sync_from_wiki.py
-   ```
+**Technical reference pages** are synced from the GitHub wiki:
 
-   The sync converts `[[Page]]` wiki links, applies Jekyll front matter, maps `Home.md` → `index.md`, and copies `assets/`.
+```bash
+cd docs
+python scripts/sync_from_wiki.py
+```
 
-2. Or edit markdown directly under `docs/` using Jekyll pretty-permalink links, e.g. `[Architecture](Architecture/)`.
+The sync converts `[[Page]]` wiki links, applies Jekyll front matter, and copies `assets/`. It skips `Home.md` so the product homepage stays separate from the wiki.
 
-3. Commit and push to `main`.
+Commit and push to `main`.
 
 ## Local preview
 

@@ -214,7 +214,7 @@ Version **semver** (`VERSION`), notes in **`CHANGELOG.md`**, process in **`RELEA
 
 ## Further reading
 
-- **Docs site** — extended documentation (agent and MCP catalogs, architecture, CLI, configuration) on [GitHub Pages](https://zlatko-lakisic.github.io/agentic-orchestration/) (source: [`docs/`](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/docs)); start at **Home** or **MCP providers**.
+- **Product site** — [Agentic Orchestration](https://zlatko-lakisic.github.io/agentic-orchestration/) (features, getting started, and [documentation index](https://zlatko-lakisic.github.io/agentic-orchestration/documentation/)); technical pages sync from [`agentic-orchestration.wiki`](https://github.com/zlatko-lakisic/agentic-orchestration.wiki).
 - **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** — community directory of MCP servers; **`MCP-providers.md`** maps shipped catalog `id`s (search, HA, memory, filesystem, fetch, Exa, …) to related listings and notes official vs community hosts.
 - **[CrewAI documentation](https://docs.crewai.com/)** — core concepts for crews, agents, and tasks.
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** — how MCP tools integrate with agents.

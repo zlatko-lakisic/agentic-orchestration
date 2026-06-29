@@ -1,5 +1,5 @@
-<nav class="site-nav" aria-label="Documentation pages">
-  {% for item in site.nav %}
+<nav class="site-nav" aria-label="Site pages">
+  {% for item in site.product_nav %}
     {% assign item_href = item.url | relative_url %}
     <a href="{{ item_href }}"{% if page.url == item_href %} aria-current="page"{% endif %}>{{ item.title }}</a>
   {% endfor %}

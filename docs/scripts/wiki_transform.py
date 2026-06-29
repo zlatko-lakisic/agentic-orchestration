@@ -25,7 +25,10 @@ MD_LINK = re.compile(
 FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n+", re.DOTALL)
 
 PAGE_TITLES: dict[str, str] = {
-    "index": "Documentation",
+    "index": "Home",
+    "features": "Features",
+    "getting-started": "Getting started",
+    "documentation": "Documentation",
     "Architecture": "Architecture",
     "Infrastructure": "Infrastructure",
     "Dual-execution-framework": "Dual execution framework",
@@ -44,8 +47,14 @@ PAGE_TITLES: dict[str, str] = {
     "GitHub-Pages-publish": "GitHub Pages publish",
 }
 
-WIKI_SKIP = {"_Footer.md", "GitLab-Wiki-publish.md"}
-DOCS_PRESERVE = {"GitHub-Pages-publish.md"}
+WIKI_SKIP = {"_Footer.md", "GitLab-Wiki-publish.md", "Home.md"}
+DOCS_PRESERVE = {
+    "GitHub-Pages-publish.md",
+    "index.md",
+    "features.md",
+    "getting-started.md",
+    "documentation.md",
+}
 
 GITLAB_PUBLISH_ROW = (
     "| How to publish these files to **GitLab Wiki** | [[GitLab-Wiki-publish]] |"

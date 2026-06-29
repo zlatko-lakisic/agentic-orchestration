@@ -1,74 +1,86 @@
 ---
 layout: default
-title: Documentation
+title: Home
 permalink: /
 ---
 
-# Agentic Orchestration
+<div class="product-hero">
 
-Documentation for the **agentic-orchestration** monorepo: a YAML-driven, model-agnostic **CrewAI** orchestration layer with optional **MCP** tools, dynamic planning, browser UI, sessions, learning, and a local knowledge base.
+# Orchestrate multi-agent workflows on your stack
 
-![Agentic orchestration overview](assets/1.png)
+**Agentic Orchestration** is a model-agnostic layer on [CrewAI](https://github.com/crewAIInc/crewAI). Describe a goal in natural language—or wire YAML workflows—and run coordinated agents across **Ollama**, **OpenAI**, **Anthropic**, **Hugging Face**, and **MCP** tools you already operate.
 
-## Who this is for
+<div class="product-cta">
+  <a class="btn btn-primary" href="https://github.com/zlatko-lakisic/agentic-orchestration">View on GitHub</a>
+  <a class="btn btn-secondary" href="{{ '/getting-started/' | relative_url }}">Get started</a>
+  <a class="btn btn-secondary" href="{{ '/documentation/' | relative_url }}">Documentation</a>
+</div>
 
-- Teams who want to **wire existing models, MCP servers, and APIs** into multi-step agent workflows **without** writing a new orchestration framework.
-- Developers evaluating **proof-of-concept** setups using **catalogs** (`config/agent_providers/`, `config/mcp_providers/`) and **environment variables**.
+</div>
 
-## Documentation map
+![Agentic orchestration — from hardcoded workflows to dynamic agent crews](assets/1.png)
 
-| Topic | Page |
-|--------|------|
-| Repository layout, components, data directories | [Architecture](Architecture/) |
-| Docker Compose, optional Ollama, volumes / networking | [Infrastructure](Infrastructure/) |
-| Dual execution framework (CrewAI + pluggable backends) | [Dual execution framework](Dual-execution-framework/) |
-| K8s execution upgrade roadmap (pod-per-step, phased) | [Kubernetes execution upgrade](Kubernetes-execution-upgrade/) |
-| Full list of shipped **agent provider** YAML templates | [Agent provider catalog](Agent-provider-catalog/) |
-| Shipped **MCP** catalog (HA, search, Exa, fetch, memory, filesystem, …) | [MCP providers](MCP-providers/) |
-| Static workflows, router mode, `meta` blocks | [Workflows and router](Workflows-and-router/) |
-| `--dynamic`, `--dynamic-iterative`, planner, controller | [Dynamic planning](Dynamic-planning/) |
-| Sessions, learning loop, KB, answer cache | [Sessions learning and knowledge base](Sessions-learning-and-knowledge-base/) |
-| Environment variables (authoritative: `.env.example`) | [Configuration](Configuration/) |
-| Unit tests, GitHub Actions CI, test tiers | [Testing and CI](Testing-and-CI/) |
-| Versioning, changelog, GitHub Releases | [Releases](Releases/) |
-| WebSocket UI, `AGENTIC_*` web env, scripts | [Web UI](Web-UI/) |
-| CLI flags and modes | [CLI reference](CLI-reference/) |
-| Dependencies, upstream projects, licenses | [Third party projects](Third-party-projects/) |
-| How to publish the docs site on **GitHub Pages** | [GitHub Pages publish](GitHub-Pages-publish/) |
+## Why teams use it
 
-## Recent project updates reflected here
+<div class="feature-grid">
 
-- Dynamic runs now support file attachments via manifest (`--dynamic-attachments`), including web upload flow.
-- Dynamic planner can be constrained to selected provider IDs (`--dynamic-agent-provider-ids`).
-- Iterative mode supports optional per-round stdout streaming (`AGENTIC_DYNAMIC_ITER_STREAM_STEPS`).
-- Web UI improved markdown rendering pipeline and exposes process health metadata (`/api/ping`).
-- `--example healthcare|logistics` overlay flow is now documented in CLI references.
+<div class="feature-card">
 
-## Example vertical visuals
+### Your models, your tools
 
-Healthcare vertical:
+Mix local and cloud LLMs per task. Attach MCP servers for Home Assistant, search, docs, memory, filesystem access, and custom APIs—without rewriting orchestration code.
 
-![Healthcare vertical banner](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/healthcare/banner.png)
+</div>
 
-Logistics vertical:
+<div class="feature-card">
 
-![Logistics vertical banner](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/logistics/banner.png)
+### Configuration, not custom glue
 
-## Source of truth in Git
+Agent templates, MCP catalogs, and workflows live in YAML. Credentials and hardware filters come from environment variables so you can reach a proof of concept quickly.
 
-The canonical codebase paths are:
+</div>
 
-- **Tool:** `agentic-orchestration-tool/` (`main.py`, `orchestration/`, `config/`)
-- **Web:** `agentic-orchestration-web/`
-- **Root:** `README.md`, `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md`
+<div class="feature-card">
 
-When the documentation and repository diverge, prefer the **repository** for filenames, line-accurate behavior, and the latest YAML.
+### Dynamic or deterministic
 
-## Quick links (in the main repository)
+Run **static** workflow YAML, **router** mode over a workflow library, or **dynamic** planning that chooses agents and tools per step—with optional iterative re-planning.
 
-- Root: `README.md`
-- Tool: `agentic-orchestration-tool/README.md`
-- Web: `agentic-orchestration-web/README.md`
-- Environment template: `agentic-orchestration-tool/.env.example`
-- Third-party list: `THIRD_PARTY_NOTICES.md`
-- Community MCP index: [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) — see [MCP providers](MCP-providers/) for how our YAML maps to example entries there.
+</div>
+
+<div class="feature-card">
+
+### Browser UI included
+
+A local WebSocket chat UI spawns the Python orchestrator for interactive dynamic and iterative runs—useful for demos and day-to-day experimentation.
+
+</div>
+
+</div>
+
+## How it works
+
+1. **Plan** — A planner interprets the goal (and optional session history) and emits ordered steps with agent and MCP selections.
+2. **Execute** — CrewAI crews run each step with the right model backend and tool attachments.
+3. **Adapt** — Iterative mode can re-plan between rounds; sessions, learning traces, and a local knowledge base optional carry context forward.
+
+See [Features]({{ '/features/' | relative_url }}) for the full capability list.
+
+## Example scenarios
+
+Shipped **vertical overlays** package domain context, extra agent YAML, and MCP fragments for focused demos:
+
+| Scenario | What it demonstrates |
+|----------|----------------------|
+| **Healthcare** | Evidence-oriented multi-agent briefs with medtech-style orchestrator context |
+| **Logistics** | Warehousing flows with WMS/ERP MCP hooks and labor-oriented framing |
+
+![Healthcare vertical](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/healthcare/banner.png)
+
+![Logistics vertical](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/logistics/banner.png)
+
+Run with `--example healthcare` or `--example logistics` from the tool CLI. Details live in the [repository](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/examples/verticals).
+
+## Open source
+
+The project is maintained on GitHub as an experimentation-friendly orchestration stack. Deep technical references—architecture, catalogs, CLI flags, and operations—live in the [documentation]({{ '/documentation/' | relative_url }}) section.
