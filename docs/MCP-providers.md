@@ -61,15 +61,15 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 
 ## Kubernetes compatibility (K0.6)
 
-When `AGENTIC_EXECUTION_BACKEND=kubernetes`, worker pods cannot spawn local stdio MCP subprocesses unless a **sidecar** is configured (K4). Policy: [Kubernetes execution upgrade](Kubernetes-execution-upgrade/#mcp-compatibility-matrix-k8s-mode); code allowlist: `orchestration/k8s_mcp_compat.py`.
+When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s path (worker stdio, cluster gateway, or in-pod sidecar). Policy: [Kubernetes execution upgrade](Kubernetes-execution-upgrade/#mcp-compatibility-matrix-k8s-mode); code: `orchestration/k8s_mcp_compat.py`.
 
 | `id` | K3 MVP (default) | Notes |
 |------|------------------|-------|
 | `search_brave` | ✅ | streamable_http |
 | `search_tavily` | ✅ | streamable_http |
 | `home_assistant` | ✅ | streamable_http |
-| `search_exa` | ❌ | stdio — K4 sidecar |
-| `fetch_url` | ❌ | stdio — K4 sidecar |
+| `search_exa` | ❌ | stdio — K4 sidecar or gateway |
+| `fetch_url` | ✅ (with worker stdio) | Default: `AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url` + `mcp-server-fetch` in worker image |
 | `filesystem_local` | ❌ | stdio — K4 PVC + sidecar |
 | `memory_knowledge_graph` | ❌ | stdio — K4 sidecar |
 
@@ -99,8 +99,9 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 
 #### `fetch_url`
 
-- Install: `pip install mcp-server-fetch` into the **same** Python environment as `main.py`.
+- Install: `pip install mcp-server-fetch` into the **same** Python environment as `main.py` (included in the K8s worker image).
 - Set `AGENTIC_MCP_FETCH_ENABLED=1` so the catalog entry is not hidden by credential filtering.
+- **Kubernetes:** default path is worker-native stdio (`AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url`). Cluster gateway (`AGENTIC_K8S_MCP_FETCH_URL`) or supergateway sidecar remain optional alternatives; see `deploy/k8s/mcp-sidecars/README.md`.
 
 #### `memory_knowledge_graph`
 

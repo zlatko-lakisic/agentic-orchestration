@@ -8,7 +8,7 @@ permalink: /Kubernetes-execution-upgrade/
 
 Living document for evolving **Agentic Orchestration** from in-process CrewAI `kickoff()` to optional **Kubernetes-backed step execution** (pod-per-step / pod-per-agent), while keeping the planner, catalogs, sessions, learning, and web UI.
 
-**Status:** **K3 MVP implemented** (Job runner + dispatch + mocked integration tests). Cluster e2e on kind is manual. K4–K5 unchanged.
+**Status:** **K3 MVP + K4 implemented** (Job runner, kind CI e2e, MCP sidecars/gateways, planner filter). K5 unchanged.
 
 **Companion plan:** [Dual execution framework](Dual-execution-framework/) — Python refactor for pluggable execution backends (`CrewAI` in-process default, `subprocess`, `kubernetes`). **This page owns cluster delivery; the companion page owns the code seam.** Framework **F0–F4** is complete; K8s Phase 3 implements framework **F5**.
 
@@ -155,8 +155,8 @@ Use this table when prioritizing work. Each row maps to phase tasks below.
 |------|------------|---------------|
 | In-memory step handoffs | Coordinator + run store; port `_inject_previous_output_into_next_task` | 1, 3 |
 | Stdio MCP subprocesses | HTTP MCPs first; sidecars for fetch/filesystem; catalog filter in K8s mode | 3, 4 |
-| HF → Ollama execution fallback | Workflow-level retry in `main` (works for distributed backends today); per-step Job respawn deferred to post-K3-MVP | 3 (post-MVP) |
-| Provider recovery retry | Workflow-level today; per-step `recovery_hint` in `StepCoordinator` deferred to post-K3-MVP | 3 (post-MVP) |
+| HF → Ollama execution fallback | Workflow-level retry in `main` + **per-step** retry in distributed backends (`step_recovery.py`) | 3 ✅ |
+| Provider recovery retry | Workflow-level in-process + **per-step** via `recovery_hint` in `StepCoordinator` | 3 ✅ |
 | CrewAI MCP tool loop | Mini-Crew per pod (Option A) | 2 |
 | LLM provider abstraction | Same `AgentProvider` code inside worker image | 2 |
 | CrewOutput / artifacts | Worker `result.json` contract; thin adapter in coordinator | 1, 2 |
@@ -285,7 +285,7 @@ Track progress by checking boxes as work completes. See [Phase dependencies and 
 - [x] **0.3** Run store v1: **PVC + `FileSystemRunStore`** at mounted path (S3/MinIO/Redis deferred).
 - [x] **0.4** Sign off `ExecutionBackend` protocol — shipped in framework **F0** ([Dual execution framework](Dual-execution-framework/#executionbackend-protocol)).
 - [x] **0.5** Sign off env flag: `AGENTIC_EXECUTION_BACKEND=inprocess|subprocess|kubernetes` (default `inprocess`) — implemented in `orchestration/backends/factory.py`.
-- [x] **0.6** K8s MCP compatibility matrix signed off ([MCP matrix](#mcp-compatibility-matrix-k8s-mode)) — policy in `orchestration/k8s_mcp_compat.py`; planner wiring deferred to **K4.3**.
+- [x] **0.6** K8s MCP compatibility matrix signed off ([MCP matrix](#mcp-compatibility-matrix-k8s-mode)) — policy in `orchestration/k8s_mcp_compat.py`; planner filter **K4.3** ✅.
 
 **Exit criteria:** Schema + contracts merged; Phase 0 complete ✅. K3 MVP uses HTTP-native MCPs only unless `AGENTIC_K8S_ALLOW_STDIO_MCPS=1` after K4 sidecars.
 
@@ -390,13 +390,13 @@ subprocess_runner.py          kubernetes_runner.py
 - [x] **3.1** K8s client — `kubernetes` Python package + `KubernetesJobRunner` (`kubernetes_jobs.py`).
 - [x] **3.2** Job template: labels `run_id`, `step_id`, `agent_provider_id`; TTL; worker args `…/{run_id}/{step_id}-spec.json`.
 - [x] **3.3** PVC mount on worker Jobs (`AGENTIC_K8S_RUN_STORE_PVC`); coordinator uses `AGENTIC_RUN_STORE_PATH` + `FileSystemRunStore`.
-- [ ] **3.4** _(post-K3-MVP)_ Per-step HF execution fallback: failed Job → parse error → rebuild config → new Job.
-- [ ] **3.5** _(post-K3-MVP)_ Per-step provider recovery via `recovery_hint` in `StepCoordinator`.
+- [x] **3.4** Per-step HF execution fallback: failed Job → parse error → rebuild config → new Job (`step_recovery.py`, `StepCoordinator` retry).
+- [x] **3.5** Per-step provider recovery via `recovery_hint` in `StepCoordinator` (`provider_recovery` → `recover_from_workflow_error`).
 - [x] **3.6** Workflow result records `k8s_jobs` metadata per step Job (`WorkflowExecutionResult.k8s_jobs`); session wiring deferred.
 - [x] **3.7** Sample manifests: `deploy/k8s/run-store-pvc.yaml`, `worker-job.example.yaml` (coordinator Deployment deferred).
-- [x] **3.8** Integration test: 2-step workflow with mocked Jobs (`tests/test_backend_kubernetes.py`); kind/minikube e2e manual/opt-in.
+- [x] **3.8** Integration test: mocked Jobs (`tests/test_backend_kubernetes.py`) + live kind e2e in CI (`tests/test_kind_kubernetes_e2e.py`, stub worker).
 
-**K3 MVP exit criteria:** Code path complete ✅; validated with mocked Jobs in CI. **Cluster e2e** (real kind + HTTP MCPs) is manual until a `workflow_dispatch` job is added.
+**K3 MVP exit criteria:** Code path complete ✅; **kind cluster e2e in CI** (stub worker, no LLM). Manual kind + real worker image for LLM validation optional.
 
 ---
 
@@ -412,13 +412,13 @@ subprocess_runner.py          kubernetes_runner.py
 
 **Tasks:**
 
-- [ ] **4.1** Sidecar pattern doc + example manifest for `fetch_url` (stdio → local sidecar).
-- [ ] **4.2** Optional cluster Deployments for fetch/filesystem MCP as HTTP gateways.
-- [ ] **4.3** When `AGENTIC_EXECUTION_BACKEND=kubernetes`, filter planner MCP catalog to compatible entries (or mark `k8s_compatible: true` in YAML).
-- [ ] **4.4** Image pre-pull DaemonSet or documented node prep for worker image.
-- [ ] **4.5** Resource requests/limits per provider type (GPU nodeSelector for heavy local models).
+- [x] **4.1** Sidecar pattern doc + example manifest for `fetch_url` (`deploy/k8s/mcp-sidecars/`).
+- [x] **4.2** Optional cluster Deployments for fetch/filesystem MCP as HTTP gateways.
+- [x] **4.3** When `AGENTIC_EXECUTION_BACKEND=kubernetes`, filter planner MCP catalog (`apply_kubernetes_mcp_catalog_policy`).
+- [x] **4.4** Image pre-pull DaemonSet (`deploy/k8s/worker-image-prep.yaml`) + docs.
+- [x] **4.5** Resource requests/limits + GPU nodeSelector via env (`K8sSettings`, `k8s_worker_pod.py`).
 
-**Exit criteria:** At least one stdio MCP works via sidecar; planner never assigns broken MCP combos in K8s mode.
+**Exit criteria:** At least one stdio MCP works via sidecar (manual kind smoke with `AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url` or cluster gateway); planner never assigns broken MCP combos in K8s mode ✅ (unit tests + `apply_kubernetes_mcp_catalog_policy`).
 
 ---
 
@@ -549,7 +549,7 @@ The protocol, factory, and three backend classes are specified in [Dual executio
 
 ## MCP compatibility matrix (K8s mode)
 
-**Status:** ✅ **Signed off (K0.6, 2026-06-27)** — verified against shipped catalog in `config/mcp_providers/`. Code allowlist: `orchestration/k8s_mcp_compat.py`. Planner catalog filtering: **K4.3** (not K3 MVP).
+**Status:** ✅ **Signed off (K0.6, 2026-06-27)** — verified against shipped catalog in `config/mcp_providers/`. Code: `orchestration/k8s_mcp_compat.py`. Planner filter: **K4.3** ✅ (`apply_kubernetes_mcp_catalog_policy`).
 
 ### Shipped catalog
 
@@ -559,7 +559,7 @@ The protocol, factory, and three backend classes are specified in [Dual executio
 | `search_tavily` | streamable_http | ✅ native | ✅ |
 | `home_assistant` | streamable_http | ✅ native | ✅ |
 | `search_exa` | stdio (`npx exa-mcp-server`) | ❌ excluded | ⚠️ sidecar |
-| `fetch_url` | stdio (`python -m mcp_server_fetch`) | ❌ excluded | ⚠️ sidecar or Deployment |
+| `fetch_url` | stdio (`python -m mcp_server_fetch`) | ❌ excluded | ✅ **worker stdio** (default) or cluster gateway / sidecar |
 | `filesystem_local` | stdio (`npx` filesystem server) | ❌ excluded | ⚠️ PVC + sidecar |
 | `memory_knowledge_graph` | stdio (`npx` memory server) | ❌ excluded | ⚠️ sidecar |
 
@@ -589,8 +589,16 @@ Add to `.env.example` when implementing:
 | `AGENTIC_K8S_WORKER_IMAGE` | — | Worker container image |
 | `AGENTIC_K8S_RUN_STORE_PVC` | — | PVC name for run handoffs |
 | `AGENTIC_K8S_JOB_TTL_SECONDS` | `3600` | Finished Job TTL |
-| `AGENTIC_K8S_ALLOW_STDIO_MCPS` | `0` | When `1`, allow stdio MCP ids in K8s mode (requires K4 sidecar). K3 MVP keeps this `0`. |
-| `AGENTIC_K8S_GPU_NODE_SELECTOR` | — | Optional JSON for GPU steps |
+| `AGENTIC_K8S_ALLOW_STDIO_MCPS` | `0` | When `1`, allow stdio MCP ids in K8s mode (requires K4 sidecar/gateway). |
+| `AGENTIC_K8S_WORKER_STDIO_MCPS` | `fetch_url` | Stdio MCP ids spawned inside the worker container (`mcp-server-fetch` in worker image). Preferred for `fetch_url`. |
+| `AGENTIC_K8S_MCP_FETCH_URL` | — | Cluster HTTP gateway for `fetch_url` (stdio → streamable_http rewrite) |
+| `AGENTIC_K8S_MCP_FILESYSTEM_URL` | — | Cluster HTTP gateway for `filesystem_local` |
+| `AGENTIC_K8S_POD_SIDECAR_MCPS` | — | Comma-separated MCP ids for in-pod supergateway sidecars (e.g. `filesystem_local`) |
+| `AGENTIC_K8S_SUPERGATEWAY_IMAGE` | `supercorp/supergateway:uvx` | Sidecar image for stdio→HTTP bridge |
+| `AGENTIC_K8S_SUPERGATEWAY_STATEFUL` | `0` | When `1`, pass `--stateful` to supergateway (bridge tuning for CrewAI HTTP client) |
+| `AGENTIC_K8S_WORKER_RESOURCES` | — | Optional JSON requests/limits for worker container |
+| `AGENTIC_K8S_GPU_NODE_SELECTOR` | — | Optional JSON nodeSelector when step provider is in `AGENTIC_K8S_GPU_PROVIDER_IDS` |
+| `AGENTIC_K8S_GPU_PROVIDER_IDS` | — | Comma-separated provider ids that trigger GPU nodeSelector |
 
 Existing variables (`AGENTIC_STEP_CONTEXT_CHARS`, `AGENTIC_PROGRESS`, provider API keys) unchanged.
 
@@ -603,7 +611,7 @@ Existing variables (`AGENTIC_STEP_CONTEXT_CHARS`, `AGENTIC_PROGRESS`, provider A
 | 1 | Unit: inject, store, step spec builder — ✅ shipped |
 | 2 | Subprocess 2-step mocked worker — ✅ `tests/test_backend_subprocess.py`; Docker smoke — ✅ CI `docker-worker-smoke` job |
 | 3 | kind/minikube: 2-step plan; workflow-level HF fallback |
-| 4 | Sidecar MCP smoke test |
+| 4 | Sidecar MCP smoke test (manual kind); unit: `test_k8s_mcp_compat.py`, `test_k8s_worker_pod.py` — ✅ |
 | 5 | Load + log correlation |
 
 **Regression bar:** In-process mode (`AGENTIC_EXECUTION_BACKEND=inprocess`) must pass existing behavior for `--dynamic` and static workflows after each phase.

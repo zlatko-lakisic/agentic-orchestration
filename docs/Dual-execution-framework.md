@@ -371,7 +371,7 @@ def supports_distributed_steps(self) -> bool: ...
 | Execution unit | `python main.py --execute-step spec.json` per step |
 | Step handoff | `StepCoordinator` + filesystem run store |
 | MCP stdio | Works in worker subprocess |
-| HF fallback | Workflow-level via `main._run_dynamic_workflow_with_hf_fallback` | Per-step respawn deferred (K3.4 post-MVP) |
+| HF fallback | Workflow-level via `main._run_dynamic_workflow_with_hf_fallback` | Per-step via `step_recovery` + Job/subprocess retry |
 
 Proves the worker contract before K8s Phase 3.
 
@@ -384,7 +384,7 @@ Proves the worker contract before K8s Phase 3.
 | Execution unit | K8s Job → worker pod per step (`kubernetes_runner.py`, mirrors `subprocess_runner.py`) |
 | Step handoff | `StepCoordinator` + PVC-mounted `FileSystemRunStore` |
 | MCP stdio | Sidecars / HTTP MCPs (K8s plan Phase 4) |
-| HF fallback | Workflow-level via `main` for K3 MVP; per-step Job retry deferred |
+| HF fallback | Workflow-level via `main` for K3 MVP; per-step Job retry via `step_recovery` |
 
 This backend is a **thin adapter** over `StepCoordinator` + K8s client (same pattern as `subprocess_runner.py`); cluster manifests and worker image live in the K8s plan.
 
@@ -530,9 +530,9 @@ Track progress by checking boxes. Phases prefixed **F** belong to this plan only
 
 - [x] **F5.0** Extend `execution_dispatch.py` so `kubernetes` backend routes to `execute_config`.
 - [x] **F5.2** Implement `kubernetes_runner.py` + `kubernetes_jobs.py` (Job spawn/wait/read).
-- [ ] **F5.3** Feature parity matrix vs in-process — cluster e2e on kind (K3 MVP code ✅; live cluster pending).
+- [x] **F5.3** Feature parity matrix vs in-process — kind e2e in CI (`scripts/k8s-kind-e2e.sh`, stub worker; live LLM optional manual).
 
-**Exit criteria:** `AGENTIC_EXECUTION_BACKEND=kubernetes` runs on kind/minikube — **code complete**; cluster validation manual.
+**Exit criteria:** `AGENTIC_EXECUTION_BACKEND=kubernetes` runs on kind — **CI validated** (stub worker); live LLM manual on Windows via `k8s-kind-up.ps1`.
 
 ---
 
@@ -542,12 +542,12 @@ Track gaps when testing non-default backends.
 
 | Capability | CrewAI in-process | Subprocess | Kubernetes |
 |------------|-------------------|------------|------------|
-| Static workflows | ✅ today | ✅ (workers opt-in) | ✅ mocked Jobs / kind manual |
-| `--dynamic` | ✅ today | ✅ (workers opt-in) | ✅ mocked Jobs / kind manual |
+| Static workflows | ✅ today | ✅ (workers opt-in) | ✅ kind CI (stub) + manual LLM |
+| `--dynamic` | ✅ today | ✅ (workers opt-in) | ✅ mocked Jobs + kind CI (stub) |
 | `--dynamic-iterative` | ✅ today | TBD | TBD |
 | Stdio MCPs | ✅ | ✅ | K4 sidecars |
 | HF execution fallback | ✅ workflow-level | ✅ workflow-level | ✅ workflow-level (K3 MVP) |
-| Provider recovery | ✅ workflow-level | ✅ workflow-level | K3 MVP / per-step post-MVP |
+| Provider recovery | ✅ workflow-level | ✅ workflow-level | ✅ per-step (K3.5) |
 | Web UI progress lines | ✅ today | ✅ | K3 |
 | Session / KB / learning | ✅ today | ✅ | K3 |
 
@@ -562,7 +562,7 @@ Track gaps when testing non-default backends.
 | F2 | Unit: materializer, coordinator, inject, run store | ✅ shipped |
 | F3 | Integration: dynamic + static via factory | ✅ post-run adapters + dispatch |
 | F4 | Subprocess 2-step e2e | ✅ `backend_subprocess` |
-| F5 | kind/minikube (with K8s plan) | pending |
+| F5 | kind/minikube (with K8s plan) | ✅ CI stub e2e |
 
 **Regression bar:** After every phase, `AGENTIC_EXECUTION_BACKEND=inprocess` must match pre-refactor behavior.
 
