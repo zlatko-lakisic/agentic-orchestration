@@ -17,48 +17,33 @@ excerpt: >
   and three execution backends — from local Ollama to Kubernetes.
 feature_row:
   - title: "Dynamic Planning"
-    excerpt: >
-      State a goal in plain language. The LLM planner selects agents,
-      attaches MCP tools, and builds a multi-step execution plan automatically.
+    excerpt: "State a goal in plain language. The LLM planner selects agents, attaches MCP tools, and builds a multi-step execution plan automatically."
     url: /dynamic-planning/
     btn_label: "Learn more"
     btn_class: "btn--primary"
   - title: "182 Agent Templates"
-    excerpt: >
-      YAML catalog spanning OpenAI, Anthropic, Ollama, Hugging Face, vLLM,
-      and JetStream. Hardware-aware routing filters by CPU/GPU/TPU and VRAM.
+    excerpt: "YAML catalog spanning OpenAI, Anthropic, Ollama, Hugging Face, vLLM, and JetStream. Hardware-aware routing filters by CPU/GPU/TPU and VRAM."
     url: /agent-catalog/
     btn_label: "Browse catalog"
     btn_class: "btn--primary"
   - title: "7 MCP Integrations"
-    excerpt: >
-      Brave Search, Tavily, Exa, Home Assistant, URL fetch, filesystem,
-      and memory knowledge graph — credential-gated and Kubernetes-ready.
+    excerpt: "Brave Search, Tavily, Exa, Home Assistant, URL fetch, filesystem, and memory knowledge graph — credential-gated and Kubernetes-ready."
     url: /mcp-catalog/
     btn_label: "Browse integrations"
     btn_class: "btn--primary"
 feature_row2:
   - title: "Three Execution Backends"
-    excerpt: >
-      Run agents in-process (default), as isolated subprocess workers, or as
-      Kubernetes Jobs with a shared PVC run store. Same YAML catalogs and planner
-      contract across all three.
+    excerpt: "In-process CrewAI (default), subprocess workers, or Kubernetes Jobs with a shared PVC run store. Same YAML catalogs across all three."
     url: /execution-backends/
     btn_label: "Learn more"
     btn_class: "btn--primary"
   - title: "Sessions, Learning & KB"
-    excerpt: >
-      Planner history persists across runs. A SQLite full-text knowledge base
-      injects relevant snippets into future plans. A learning loop tracks
-      per-provider success rates over time.
+    excerpt: "Planner history persists across runs. SQLite full-text knowledge base injects relevant snippets into future plans. Learning loop tracks per-provider success rates."
     url: /architecture/
     btn_label: "Learn more"
     btn_class: "btn--primary"
   - title: "Domain Verticals"
-    excerpt: >
-      Overlay bundles for Healthcare and Logistics ship out of the box.
-      Each adds domain-specific orchestrator context, specialist agent YAML,
-      and a one-command web UI entry point.
+    excerpt: "Healthcare and Logistics overlays ship out of the box. Each adds domain context, specialist agent YAML, and a one-command web UI entry point."
     url: /verticals/
     btn_label: "Learn more"
     btn_class: "btn--primary"
