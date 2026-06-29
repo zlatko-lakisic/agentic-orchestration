@@ -1,0 +1,41 @@
+# Coordinator image: web UI + Python orchestration tool (K3.7).
+# Build from monorepo root:
+#   docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator \
+#     -t agentic-orchestrator-coordinator:local .
+#
+# Runs Node server.mjs; spawns python main.py for workflows with AGENTIC_EXECUTION_BACKEND=kubernetes.
+
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    AGENTIC_TOOL_ROOT=/app/tool \
+    AGENTIC_WEB_HOST=0.0.0.0 \
+    AGENTIC_WEB_PORT=3847
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY agentic-orchestration-tool/requirements.txt /app/tool/requirements.txt
+RUN pip install --upgrade pip \
+    && pip install -r /app/tool/requirements.txt
+
+COPY agentic-orchestration-tool/agent_providers /app/tool/agent_providers
+COPY agentic-orchestration-tool/config /app/tool/config
+COPY agentic-orchestration-tool/orchestration /app/tool/orchestration
+COPY agentic-orchestration-tool/main.py /app/tool/main.py
+
+COPY agentic-orchestration-web/package.json agentic-orchestration-web/package-lock.json /app/web/
+WORKDIR /app/web
+RUN npm ci --omit=dev
+
+COPY agentic-orchestration-web/server.mjs agentic-orchestration-web/public /app/web/
+
+WORKDIR /app/web
+EXPOSE 3847
+
+CMD ["node", "server.mjs"]

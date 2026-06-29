@@ -61,8 +61,24 @@ cd agentic-orchestration-tool
 bash scripts/k8s-kind-e2e.sh
 ```
 
+## Coordinator (K3.7)
+
+In-cluster web UI + orchestrator (creates worker Jobs via in-cluster API):
+
+```powershell
+# From monorepo root — build + load images (kind)
+docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator -t agentic-orchestrator-coordinator:local .
+kind load docker-image agentic-orchestrator-coordinator:local --name agentic
+
+powershell -File agentic-orchestration-tool/scripts/k8s-apply-coordinator.ps1
+kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
+```
+
+See `deploy/k8s/coordinator/README.md` and `docker/README.coordinator.md`.
+
 ## Other manifests
 
+- `deploy/k8s/coordinator/` — **K3.7** coordinator Deployment, Service, RBAC (web UI + in-cluster Job dispatch)
 - `deploy/k8s/kind/cluster.yaml` — templated kind config (`__RUN_STORE_HOST_PATH__`)
 - `deploy/k8s/run-store/probe-pod.yaml` — PVC mount smoke test
 - `deploy/k8s/mcp-sidecars/` — K4 MCP sidecars and HTTP gateways

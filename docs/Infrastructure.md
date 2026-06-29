@@ -42,9 +42,9 @@ When using containers, the repository defines a **`docker-compose.yml`** (or `co
 - The web stack **executes local Python** with user-supplied chat text. Do not expose **`AGENTIC_WEB_HOST`** to untrusted networks without authentication and hardening (see [Web UI](Web-UI/)).
 - Restrict Ollama’s published port if only the orchestration container should call it.
 
-## Kubernetes (planned)
+## Kubernetes (K3 MVP + K4)
 
-Distributed step execution (pod-per-step, coordinator + worker Jobs) is documented in [Kubernetes execution upgrade](Kubernetes-execution-upgrade/). Framework F0–F4 and K8s Phases 0–2 (worker CLI, image) are implemented in code; cluster Jobs (K3) are next.
+Distributed step execution (pod-per-step, coordinator + worker Jobs) is documented in [Kubernetes execution upgrade](Kubernetes-execution-upgrade/). Framework F0–F4 and K8s Phases 0–4 are implemented in code.
 
 ### Worker image (K8s Phase 2.3)
 
@@ -54,9 +54,20 @@ Build from `agentic-orchestration-tool/`:
 docker build -f docker/Dockerfile.worker -t agentic-orchestrator-worker:local .
 ```
 
-See `agentic-orchestration-tool/docker/README.worker.md` for mounts, secrets, and smoke script (`scripts/docker-worker-smoke.ps1`). Set `AGENTIC_K8S_WORKER_IMAGE` when K3 Job templates land.
+See `agentic-orchestration-tool/docker/README.worker.md` for mounts, secrets, and smoke script (`scripts/docker-worker-smoke.ps1`). Set `AGENTIC_K8S_WORKER_IMAGE` on the coordinator.
 
-Coordinator Deployment + Job manifests: K3.7 (not yet in repo).
+### Coordinator Deployment (K3.7)
+
+Build from **monorepo root**:
+
+```bash
+docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator \
+  -t agentic-orchestrator-coordinator:local .
+```
+
+Apply manifests under `agentic-orchestration-tool/deploy/k8s/coordinator/` (ServiceAccount, RBAC, Deployment, Service). The coordinator pod runs the web UI on port **3847**, mounts the run-store PVC, and creates worker Jobs with in-cluster credentials.
+
+See `deploy/k8s/coordinator/README.md` and `docker/README.coordinator.md`.
 
 ## Related
 

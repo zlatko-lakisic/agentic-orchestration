@@ -1,0 +1,80 @@
+# Coordinator Deployment (K3.7): web UI + in-cluster Kubernetes step dispatch.
+# Prerequisites: namespace, run-store PVC, agentic-orchestrator-env Secret, worker image in cluster.
+# Apply: scripts/k8s-apply-coordinator.ps1 (or kubectl apply -k deploy/k8s/coordinator)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-coordinator
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-coordinator
+    app.kubernetes.io/component: coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-coordinator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-coordinator
+        app.kubernetes.io/component: coordinator
+    spec:
+      serviceAccountName: agentic-coordinator
+      containers:
+        - name: coordinator
+          image: agentic-orchestrator-coordinator:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3847
+          env:
+            - name: AGENTIC_EXECUTION_BACKEND
+              value: kubernetes
+            - name: AGENTIC_RUN_STORE_PATH
+              value: /run/store
+            - name: AGENTIC_K8S_NAMESPACE
+              value: agentic-orchestration
+            - name: AGENTIC_K8S_RUN_STORE_PVC
+              value: agentic-run-store
+            - name: AGENTIC_K8S_RUN_STORE_MOUNT
+              value: /run/store
+            - name: AGENTIC_K8S_ENV_SECRET
+              value: agentic-orchestrator-env
+            - name: AGENTIC_K8S_WORKER_IMAGE
+              value: agentic-orchestrator-worker:local
+            - name: AGENTIC_TOOL_ROOT
+              value: /app/tool
+            - name: AGENTIC_WEB_HOST
+              value: "0.0.0.0"
+            - name: AGENTIC_WEB_PORT
+              value: "3847"
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+                optional: true
+          volumeMounts:
+            - name: run-store
+              mountPath: /run/store
+            - name: runtime-data
+              mountPath: /app/tool/__orchestrator_sessions__
+              subPath: sessions
+            - name: runtime-data
+              mountPath: /app/tool/_web_uploads
+              subPath: uploads
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store
+        - name: runtime-data
+          emptyDir: {}
