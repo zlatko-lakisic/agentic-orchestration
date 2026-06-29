@@ -1,86 +1,56 @@
 ---
-layout: default
-title: Home
-permalink: /
+layout: splash
+title: "Agentic Orchestration"
+excerpt: "YAML-driven multi-agent workflows on your models, your tools, your infrastructure."
+header:
+  overlay_color: "#0d1117"
+  overlay_filter: 0.7
+  overlay_image: /assets/images/hero-bg.png
+  actions:
+    - label: "Quick Start"
+      url: /quick-start/
+    - label: "View on GitHub"
+      url: https://github.com/zlatko-lakisic/agentic-orchestration
+      btn_class: "btn--inverse"
+feature_row:
+  - image_path: /assets/logo.png
+    alt: "Model agnostic"
+    title: "Any model, any backend"
+    excerpt: "Mix Ollama, OpenAI, Anthropic, Hugging Face, vLLM, and JetStream per step. Swap providers without touching orchestration code."
+  - title: "YAML catalogs, not custom glue"
+    excerpt: "Agent templates, MCP tool integrations, and workflows live in YAML. Credentials and hardware filters come from environment variables."
+  - title: "Dynamic or deterministic"
+    excerpt: "Run static YAML workflows, let a router pick the right one, or use `--dynamic` for LLM-planned multi-step execution with optional iterative re-planning."
+feature_row2:
+  - title: "MCP tools out of the box"
+    excerpt: "Shipped integrations for Home Assistant, Brave Search, Tavily, Exa, URL fetch, local filesystem, and memory knowledge graph. Add your own via YAML."
+  - title: "Memory & learning"
+    excerpt: "Sessions persist planner history across runs. A local SQLite knowledge base caches finalized answers. A lightweight learning loop nudges provider selection over time."
+  - title: "Execution backends"
+    excerpt: "In-process CrewAI for development. Subprocess workers for step isolation. Kubernetes pod-per-step for production scale."
 ---
 
-<div class="product-hero">
-
-# Orchestrate multi-agent workflows on your stack
-
-**Agentic Orchestration** is a model-agnostic layer on [CrewAI](https://github.com/crewAIInc/crewAI). Describe a goal in natural language—or wire YAML workflows—and run coordinated agents across **Ollama**, **OpenAI**, **Anthropic**, **Hugging Face**, and **MCP** tools you already operate.
-
-<div class="product-cta">
-  <a class="btn btn-primary" href="https://github.com/zlatko-lakisic/agentic-orchestration">View on GitHub</a>
-  <a class="btn btn-secondary" href="{{ '/getting-started/' | relative_url }}">Get started</a>
-  <a class="btn btn-secondary" href="{{ '/documentation/' | relative_url }}">Documentation</a>
-</div>
-
-</div>
-
-![Agentic orchestration — from hardcoded workflows to dynamic agent crews](assets/1.png)
-
-## Why teams use it
-
-<div class="feature-grid">
-
-<div class="feature-card">
-
-### Your models, your tools
-
-Mix local and cloud LLMs per task. Attach MCP servers for Home Assistant, search, docs, memory, filesystem access, and custom APIs—without rewriting orchestration code.
-
-</div>
-
-<div class="feature-card">
-
-### Configuration, not custom glue
-
-Agent templates, MCP catalogs, and workflows live in YAML. Credentials and hardware filters come from environment variables so you can reach a proof of concept quickly.
-
-</div>
-
-<div class="feature-card">
-
-### Dynamic or deterministic
-
-Run **static** workflow YAML, **router** mode over a workflow library, or **dynamic** planning that chooses agents and tools per step—with optional iterative re-planning.
-
-</div>
-
-<div class="feature-card">
-
-### Browser UI included
-
-A local WebSocket chat UI spawns the Python orchestrator for interactive dynamic and iterative runs—useful for demos and day-to-day experimentation.
-
-</div>
-
-</div>
+{% include feature_row %}
 
 ## How it works
 
-1. **Plan** — A planner interprets the goal (and optional session history) and emits ordered steps with agent and MCP selections.
-2. **Execute** — CrewAI crews run each step with the right model backend and tool attachments.
-3. **Adapt** — Iterative mode can re-plan between rounds; sessions, learning traces, and a local knowledge base optional carry context forward.
+Give it a goal. The planner reads your agent catalog and MCP catalog, picks the right specialists, and builds a sequential multi-agent workflow — all from a single command:
 
-See [Features]({{ '/features/' | relative_url }}) for the full capability list.
+```bash
+python main.py --dynamic "Research the top 5 open-source LLM inference frameworks and produce a comparison"
+```
 
-## Example scenarios
+Each step runs the right model with the right tools attached. Sessions, knowledge base, and quality assurance run automatically.
 
-Shipped **vertical overlays** package domain context, extra agent YAML, and MCP fragments for focused demos:
+{% include feature_row id="feature_row2" %}
 
-| Scenario | What it demonstrates |
-|----------|----------------------|
-| **Healthcare** | Evidence-oriented multi-agent briefs with medtech-style orchestrator context |
-| **Logistics** | Warehousing flows with WMS/ERP MCP hooks and labor-oriented framing |
+## Shipped verticals
 
-![Healthcare vertical](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/healthcare/banner.png)
+Domain overlays bundle orchestrator context, extra agents, and MCP fragments for focused demos. Run them with a single flag:
 
-![Logistics vertical](https://raw.githubusercontent.com/zlatko-lakisic/agentic-orchestration/main/examples/verticals/logistics/banner.png)
+| Vertical | What it demonstrates |
+|---|---|
+| `--example healthcare` | Evidence-oriented multi-agent briefs with medtech orchestrator context |
+| `--example logistics` | Warehousing flows with WMS/ERP MCP hooks and labor framing |
 
-Run with `--example healthcare` or `--example logistics` from the tool CLI. Details live in the [repository](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/examples/verticals).
-
-## Open source
-
-The project is maintained on GitHub as an experimentation-friendly orchestration stack. Deep technical references—architecture, catalogs, CLI flags, and operations—live in the [documentation]({{ '/documentation/' | relative_url }}) section.
+[Browse all features](/features/){: .btn .btn--primary .btn--large} [Agent catalog](/agent-catalog/){: .btn .btn--inverse .btn--large}

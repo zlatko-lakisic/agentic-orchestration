@@ -1,0 +1,49 @@
+main:
+  - title: "Features"
+    url: /features/
+  - title: "Quick Start"
+    url: /quick-start/
+  - title: "Agent Catalog"
+    url: /agent-catalog/
+  - title: "MCP Catalog"
+    url: /mcp-catalog/
+  - title: "Architecture"
+    url: /architecture/
+  - title: "Configuration"
+    url: /configuration/
+  - title: "Changelog"
+    url: /changelog/
+
+docs:
+  - title: "Getting Started"
+    children:
+      - title: "Quick Start"
+        url: /quick-start/
+      - title: "Architecture"
+        url: /architecture/
+  - title: "Catalogs"
+    children:
+      - title: "Agent Providers"
+        url: /agent-catalog/
+      - title: "MCP Integrations"
+        url: /mcp-catalog/
+  - title: "Reference"
+    children:
+      - title: "Configuration"
+        url: /configuration/
+      - title: "CLI Reference"
+        url: /cli-reference/
+      - title: "Workflows"
+        url: /workflows/
+  - title: "Advanced"
+    children:
+      - title: "Dynamic Planning"
+        url: /dynamic-planning/
+      - title: "Execution Backends"
+        url: /execution-backends/
+      - title: "Verticals"
+        url: /verticals/
+  - title: "Project"
+    children:
+      - title: "Changelog"
+        url: /changelog/

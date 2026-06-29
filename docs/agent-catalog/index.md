@@ -1,0 +1,250 @@
+﻿---
+title: "Agent Catalog"
+layout: single
+sidebar:
+  nav: "docs"
+toc: true
+toc_sticky: true
+---
+
+The planner selects from this catalog automatically during `--dynamic` runs. Constrain selection with `--dynamic-agent-provider-ids ID1,ID2`. Add providers via YAML directories or Python classes.
+
+**182 shipped templates** in `config/agent_providers/`. Regenerate this table from source: `python scripts/generate_agent_catalog_md.py`.
+
+## YAML structure
+
+```yaml
+id: gpt_research
+type: openai
+role: Research Analyst
+goal: Produce accurate, concise research grounded in general knowledge
+backstory: You are precise, cite limitations when uncertain, and prefer structured bullets.
+model: gpt-4o-mini
+general_purpose: true
+planner_hint: OpenAI API—research, comparisons, grounded summaries, and structured factual explanations.
+hardware:
+  architecture: [cpu]
+```
+
+## External catalogs
+
+| Variable | Purpose |
+|---|---|
+| `AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS` | Merge extra YAML directories (vertical overlays) |
+| `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` | Scan for custom `AgentProvider` Python classes |
+
+
+## Shipped providers
+
+### openai (3 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `gpt_reason` | gpt-4o | Staff Engineer | OpenAI APIâ€”trade-offs, architecture choices, structured reasoning, and | min_vram 0 GiB | OPENAI_API_KEY |  |
+| `gpt_research` | gpt-4o-mini | Research Analyst | OpenAI APIâ€”research, comparisons, grounded summaries, and structured f | min_vram 0 GiB | OPENAI_API_KEY | âœ“ |
+| `gpt_write` | gpt-4o-mini | Technical Writer | OpenAI APIâ€”polish prose, briefings, executive summaries, and clear tec | min_vram 0 GiB | OPENAI_API_KEY |  |
+
+### anthropic (3 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `claude_reason` | claude-3-5-sonnet-20241022 | Staff Engineer | Anthropic Claudeâ€”trade-offs, architecture choices, structured reasonin | cpu, gpu, tpu | ANTHROPIC_API_KEY |  |
+| `claude_research` | claude-3-5-haiku-20241022 | Research Analyst | Anthropic Claudeâ€”research, comparisons, grounded summaries, and struct | min_vram 0 GiB | ANTHROPIC_API_KEY | âœ“ |
+| `claude_write` | claude-3-5-haiku-20241022 | Technical Writer | Anthropic Claudeâ€”polish prose, briefings, executive summaries, and cle | min_vram 0 GiB | ANTHROPIC_API_KEY |  |
+
+### ollama (84 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `ollama_agribot` | ayansh03/agribot | Local Crop-Care Assistant | Agriculture chatbot for crop-care, plant disease triage, and irrigatio | min_vram 6 GiB | OLLAMA_HOST |  |
+| `ollama_agrillama` | sike_aditya/AgriLlama | Local Agriculture Assistant | Agriculture-tuned Ollama model for crop, soil, and irrigation support. | min_vram 4 GiB | OLLAMA_HOST |  |
+| `ollama_codegemma` | codegemma | Software Engineer | CodeGemma â€” Google code-specialized Gemma. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_codellama` | codellama | Software Engineer | Code Llama â€” Meta code completion and generation. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_codeqwen` | codeqwen | Software Engineer | CodeQwen â€” Qwen code variant. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_codestral` | codestral | Software Engineer | Codestral â€” Mistral code model. | min_vram 12 GiB | OLLAMA_HOST |  |
+| `ollama_cogito` | cogito | Reasoning Assistant | Cogito â€” reasoning-oriented general model line. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_command_r` | command-r | Research-Oriented Assistant | Cohere Command R â€” long-context, RAG-friendly general assistant. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_deepcoder` | deepcoder | Software Engineer | DeepCoder â€” code-specialized line on Ollama library. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_deepscaler` | deepscaler | Math Assistant | DeepScaler â€” math/reasoning-tuned line. | min_vram 14 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_coder` | deepseek-coder | Software Engineer | DeepSeek Coder â€” strong competitive coding and repo-style tasks. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_coder_v2` | deepseek-coder-v2 | Senior Software Engineer | DeepSeek Coder V2 â€” larger coding model for complex patches. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_llm` | deepseek-llm | General Assistant | DeepSeek LLM â€” earlier DeepSeek general base. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_r1` | deepseek-r1 | Reasoning Specialist | DeepSeek R1 â€” chain-of-thought style reasoning; math, logic, proofs sk | min_vram 14 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_v2` | deepseek-v2 | Analyst | DeepSeek V2 â€” prior DeepSeek generation for general chat. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_deepseek_v3` | deepseek-v3 | Senior Analyst | DeepSeek V3 â€” large general+reasoning; heavy but capable. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_devstral` | devstral | Developer Tools Engineer | Devstral â€” dev-focused Mistral line for tooling workflows. | min_vram 12 GiB | OLLAMA_HOST |  |
+| `ollama_dolphin3` | dolphin3 | Unrestricted Assistant | Dolphin 3 â€” uncensored-tuned line; use only where policy allows. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_falcon` | falcon | General Assistant | Falcon â€” earlier TII general line. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_falcon3` | falcon3 | General Assistant | Falcon 3 â€” TII general instruct family. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_gemma` | gemma | General Assistant | Original Gemma â€” smaller/older; simple tasks and classification-style  | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_gemma2` | gemma2 | General Assistant | Gemma 2 â€” prior Gemma generation; stable general chat. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_gemma3` | gemma3 | General Assistant | Gemma 3 â€” Google open general model; good instruction following. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_gemma3n` | gemma3n | General Assistant | Gemma 3n â€” efficient Gemma variant for lighter devices. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_glm4` | glm4 | Multilingual Analyst | GLM-4 â€” general multilingual (strong Chinese/English) chat. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_glm_4_7_flash` | glm-4.7-flash | Fast Analyst | GLM 4.7 Flash â€” fast GLM line for interactive use. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_gpt_oss` | gpt-oss | General Assistant | gpt-oss â€” open-weight models in OpenAI-style families on Ollama. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_granite3_1_moe` | granite3.1-moe | Efficient Analyst | Granite 3.1 MoE â€” efficient MoE general model. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_granite3_2_vision` | granite3.2-vision | Vision Analyst | Granite 3.2 Vision â€” IBM multimodal for enterprise visuals. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_granite3_3` | granite3.3 | Enterprise Assistant | IBM Granite 3.3 â€” enterprise-leaning general instruct. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_granite4` | granite4 | Enterprise Assistant | Granite 4 â€” newer IBM Granite general line. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_granite_code` | granite-code | Software Engineer | Granite Code â€” IBM code models for enterprise patterns. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_hermes3` | hermes3 | General Assistant | Hermes 3 â€” Nous general instruct; tool-use friendly style. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_lfm2` | lfm2 | Efficient Assistant | LFM2 â€” Liquid AI efficient foundation model. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_lfm2_5_thinking` | lfm2.5-thinking | Reasoning Assistant | LFM2.5 Thinking â€” thinking-augmented efficient model. | min_vram 14 GiB | OLLAMA_HOST |  |
+| `ollama_llama2` | llama2 | General Assistant | Legacy Llama 2 â€” lighter hardware; ok for simple Q&A and drafts. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llama3` | llama3 | General Assistant | Llama 3 base family â€” general-purpose local assistant. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llama3_1` | llama3.1 | General Assistant | Llama 3.1 family â€” general chat, longer context than 3.2 for many tags | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llama3_2` | llama3.2 | General Assistant | Default local generalist; planning, Q&A, summaries, light analysis. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llama3_2_vision` | llama3.2-vision | Vision Analyst | Llama 3.2 Vision â€” Meta multimodal; images + instructions. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_llama3_3` | llama3.3 | Senior Generalist | Stronger Llama 3.3 for harder general reasoning and longer outputs. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llama4` | llama4 | Senior Generalist | Llama 4 when available â€” frontier-class local general model (large dow | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_llava` | llava | Vision Analyst | LLaVA â€” image+text; describe screenshots, diagrams, UI. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_llava_llama3` | llava-llama3 | Vision Analyst | LLaVA Llama 3 â€” stronger LLaVA backbone for vision QA. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_magistral` | magistral | Reasoning Specialist | Magistral â€” Mistral reasoning line. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_minicpm_v` | minicpm-v | Efficient Vision Assistant | MiniCPM-V â€” efficient vision-language for edge. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_ministral_3` | ministral-3 | General Assistant | Ministral 3 â€” efficient Mistral line for edge and fast iteration. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_mistral` | mistral | General Assistant | Mistral 7B-class general instruct; fast, good default for many subject | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_mistral_large` | mistral-large | Senior Generalist | Mistral Large â€” demanding analysis, writing, and reasoning locally. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_mistral_nemo` | mistral-nemo | General Assistant | Mistral Nemo â€” strong multilingual and general instruct mid-size. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_mistral_small` | mistral-small | General Assistant | Mistral Small â€” balanced speed/quality for everyday tasks. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_mixtral` | mixtral | Senior Generalist | Mixtral MoE â€” stronger general quality when you have RAM/VRAM. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_moondream` | moondream | Lightweight Vision Assistant | Moondream â€” tiny VLM for quick image Q&A. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_nous_hermes` | nous-hermes | General Assistant | Nous Hermes â€” earlier Nous instruct line. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_olmo2` | olmo2 | Research Assistant | OLMo 2 â€” open research LM; general knowledge tasks. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_openchat` | openchat | Conversational Assistant | OpenChat â€” conversational, assistant-style dialogue. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_openhermes` | openhermes | General Assistant | OpenHermes â€” Mistral-based instruct tuning. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_openthinker` | openthinker | Reasoning Specialist | OpenThinker â€” open reasoning-style assistant. | min_vram 14 GiB | OLLAMA_HOST |  |
+| `ollama_orca_mini` | orca-mini | Lightweight Assistant | Orca Mini â€” tiny model for demos and smoke tests. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_phi` | phi | Lightweight Assistant | Legacy Phi â€” very small; trivial classification and micro-tasks. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_phi3` | phi3 | Efficient Assistant | Phi-3 â€” Microsoft small model; fast reasoning on modest hardware. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_phi4` | phi4 | Analyst | Phi-4 â€” stronger small Microsoft model for reasoning and instruction. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_phi4_mini` | phi4-mini | Efficient Assistant | Phi-4 mini â€” smallest Phi-4 line for edge and high throughput. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_phi4_reasoning` | phi4-reasoning | Reasoning Assistant | Phi-4 reasoning â€” Microsoft small reasoning specialist. | min_vram 14 GiB | OLLAMA_HOST |  |
+| `ollama_qwen` | qwen | General Assistant | Qwen base â€” legacy general Qwen family. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen2` | qwen2 | General Analyst | Qwen 2 â€” earlier Qwen general; still useful for many languages. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen2_5` | qwen2.5 | General Analyst | Qwen 2.5 general â€” strong multilingual and STEM-friendly chat. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen2_5_coder` | qwen2.5-coder | Software Engineer | Primary code model â€” implementation, refactors, scripts, APIs. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen2_5vl` | qwen2.5vl | Vision Analyst | Qwen2.5-VL â€” strong document and scene understanding. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_qwen3` | qwen3 | General Analyst | Qwen 3 â€” newer general Qwen for harder questions and coding-adjacent c | cpu, gpu | OLLAMA_HOST |  |
+| `ollama_qwen3_5` | qwen3.5 | Senior Analyst | Qwen 3.5 â€” upgraded Qwen line for demanding general tasks. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen3_coder` | qwen3-coder | Software Engineer | Qwen3 Coder â€” newer coding-focused Qwen. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_qwen3_coder_next` | qwen3-coder-next | Senior Software Engineer | Qwen3 Coder Next â€” latest Qwen coding line when available. | min_vram 12 GiB | OLLAMA_HOST |  |
+| `ollama_qwen3_vl` | qwen3-vl | Vision Analyst | Qwen3-VL â€” newer Qwen vision-language line. | min_vram 10 GiB | OLLAMA_HOST |  |
+| `ollama_qwq` | qwq | Reasoning Specialist | QwQ â€” Qwen reasoning model for hard puzzles and math. | min_vram 16 GiB | OLLAMA_HOST |  |
+| `ollama_smollm` | smollm | Lightweight Assistant | SmolLM â€” first-gen small LM line. | min_vram 4 GiB | OLLAMA_HOST |  |
+| `ollama_smollm2` | smollm2 | Efficient Assistant | SmolLM2 â€” Hugging Face small LM for edge. | min_vram 4 GiB | OLLAMA_HOST |  |
+| `ollama_starcoder` | starcoder | Software Engineer | StarCoder â€” first-gen BigCode model. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_starcoder2` | starcoder2 | Software Engineer | StarCoder2 â€” BigCode family for code generation. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_tinyllama` | tinyllama | Micro Assistant | TinyLlama â€” very small; prototyping only. | min_vram 4 GiB | OLLAMA_HOST |  |
+| `ollama_translategemma` | translategemma | Translator | TranslateGemma â€” translation-focused Gemma; parallel text, localizatio | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_wizardlm2` | wizardlm2 | General Assistant | WizardLM 2 â€” complex instruction following. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_yi` | yi | Multilingual Assistant | Yi â€” bilingual EN/ZH capable general models. | min_vram 8 GiB | OLLAMA_HOST |  |
+| `ollama_zephyr` | zephyr | General Assistant | Zephyr â€” alignment-tuned small chat model. | min_vram 8 GiB | OLLAMA_HOST |  |
+
+### huggingface (62 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `hf_codellama_7b` | codellama/CodeLlama-7b-Instruct-hf | Code Specialist | HF Hubâ€”Code Llama 7B instruct. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_cohere_aya_8b` | CohereForAI/aya-expanse-8b | Multilingual Specialist | HF Hubâ€”Cohere Aya 8B multilingual. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_cohere_command_r` | CohereLabs/c4ai-command-r7b-12-2024 | RAG-Friendly Assistant | HF Hubâ€”Cohere Command R (7B Decâ€™24 route via Inference Providers); RAG | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_deepseek_coder_6_7b` | deepseek-ai/deepseek-coder-6.7b-instruct | Coder | HF Hubâ€”DeepSeek Coder 6.7B for code-heavy tasks. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_deepseek_r1_distill_llama_8b` | deepseek-ai/DeepSeek-R1-Distill-Llama-8B | Reasoning Assistant | HF Hubâ€”R1-distilled Llama; good for math-like steps. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_deepseek_r1_distill_qwen_7b` | deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | Reasoning Assistant | HF Hubâ€”R1-distilled Qwen; concise chain-of-thought style. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_deepseek_v25` | deepseek-ai/DeepSeek-V2.5 | General Assistant | HF Hubâ€”DeepSeek V2.5 general/chat; larger context tasks. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_falcon_7b` | tiiuae/falcon-7b-instruct | General Chat | HF Hubâ€”Falcon 7B instruct baseline. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_agri_chat_multilingual` | mesabo/agri-chat-multilingual | Multilingual Extension-Style Gardening Advisor | Agriculture-focused multilingual chat model for extension-like guidanc | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_agriassist_llm` | sikeaditya/AgriAssist_LLM | Applied Agronomy Advisor | Domain-oriented agriculture/gardening fine-tune intended for crop-care | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_agriculture_advisory_8b` | Navinaa21/Agriculture-Advisory-LLM-8B | Crop and Vegetation Advisory Specialist | Agriculture advisory LLM for medium-depth guidance on crop management, | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_agriparam` | bharatgenai/AgriParam | Agriculture Decision-Support Advisor | Agriculture decision-support assistant tuned for agronomy and farm adv | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_diagnostics_qwen2_vl_7b` | Qwen/Qwen2-VL-7B-Instruct | Plant Health Diagnostics Specialist | Vision-capable gardening diagnostics model for leaf/stem/fruit image a | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_fast_triage_gemma3_4b` | google/gemma-3-4b-it | Rapid Garden Triage Assistant | Fast first-pass gardening triage for quick follow-up questions, checkl | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_generalist_qwen25_14b` | Qwen/Qwen2.5-14B-Instruct | Gardening Planning Advisor | Gardening generalist for practical home-garden guidance (plant selecti | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_irrigation_phi3_mini` | YuvrajSingh9886/phi3-mini-fine-tuned-agr | Irrigation Optimization Advisor | Irrigation-focused agriculture Q&A. Use for turf/zone watering **minut | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_leaf_disease_vlm` | YuchengShi/LLaVA-v1.5-7B-Plant-Leaf-Dise | Leaf Disease Visual Analyst | Plant leaf disease vision-language specialist fine-tuned for symptom r | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_multilingual_aya_8b` | CohereForAI/aya-expanse-8b | Multilingual Gardening Support Agent | Multilingual gardening advisor for non-English or mixed-language suppo | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_reasoning_r1_qwen7b` | deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | Garden Root-Cause Analyst | Deep troubleshooting model for complex gardening failures with multipl | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_garden_soil_water_command_r` | CohereLabs/c4ai-command-r7b-12-2024 | Soil and Irrigation Planner | Primary pick for turf/lawn watering decisionsâ€”including zone watering  | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_gemma2_27b` | google/gemma-2-27b-it | Reasoning Assistant | HF Hubâ€”Gemma 2 27B; stronger reasoning than 9B line. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_gemma2_9b` | google/gemma-2-9b-it | Research Assistant | HF Hubâ€”Gemma 2 9B instruct; Google Gemma chat. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_gemma3_4b` | google/gemma-3-4b-it | Compact Assistant | HF Hubâ€”compact Gemma 3 4B for edge-like cloud calls. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_hermes_llama31_8b` | NousResearch/Hermes-3-Llama-3.1-8B | Tool-Aware Assistant | HF Hubâ€”Hermes 3 on Llama 3.1 8B; tool-friendly tendencies. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_ibm_granite_8b` | ibm-granite/granite-3.1-8b-instruct | Enterprise Coder-Analyst | HF Hubâ€”IBM Granite 3.1 8B instruct. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_internlm25_7b` | internlm/internlm2_5-7b-chat | Research Chat | HF Hubâ€”InternLM2.5 7B chat. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_llama_3_2_11b_vision` | meta-llama/Llama-3.2-11B-Vision-Instruct | Vision-Language Assistant | HF Hubâ€”vision+language; describe images and charts when the crew passe | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_llama_3_2_3b` | meta-llama/Llama-3.2-3B-Instruct | Lightweight Assistant | HF Hubâ€”small fast Llama 3.2 for quick drafts and classification. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_llama_3_3_70b` | meta-llama/Llama-3.3-70B-Instruct | Senior Analyst | HF Hubâ€”Llama 3.3 70B; heavier reasoning and long-context tasks. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_magistral_small` | mistralai/Magistral-Small-2509 | Reasoning Assistant | HF Hubâ€”Mistral Magistral Small reasoning-oriented line. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_meta_llama_3_1_70b` | meta-llama/Meta-Llama-3.1-70B-Instruct | Lead Assistant | HF Hubâ€”Llama 3.1 70B instruct flagship tier. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_meta_llama_3_1_8b` | meta-llama/Meta-Llama-3.1-8B-Instruct | Instruction-Following Assistant | HF Hubâ€”Llama 3.1 8B; strong instruction following. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_meta_llama_3_8b` | meta-llama/Meta-Llama-3-8B-Instruct | General Assistant | HF Hubâ€”Llama 3 8B instruct; balanced chat and reasoning. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_mistral_7b_v3` | mistralai/Mistral-7B-Instruct-v0.3 | Chat Specialist | HF Hubâ€”Mistral 7B v0.3 general instruct chat. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_mistral_small_24b` | mistralai/Mistral-Small-24B-Instruct-250 | Technical Generalist | HF Hubâ€”Mistral Small 24B instruct; good mid-size workhorse. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_mixtral_8x7b` | mistralai/Mixtral-8x7B-Instruct-v0.1 | MoE Generalist | HF Hubâ€”Mixtral MoE 8x7B; stronger quality at medium cost. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_nemotron_70b` | nvidia/Llama-3.1-Nemotron-70B-Instruct-H | Technical Advisor | HF Hubâ€”Nemotron 70B instruct; NVIDIA-tuned Llama family. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_olmo2_7b` | allenai/OLMo-2-1124-7B-Instruct | Open Science Assistant | HF Hubâ€”OLMo 2 7B instruct (Allen AI). | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_openchat_35` | openchat/openchat-3.5-0106 | Conversational Assistant | HF Hubâ€”OpenChat 3.5 conversation model. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_openhermes_25_7b` | teknium/OpenHermes-2.5-Mistral-7B | General Instruct | HF Hubâ€”OpenHermes 2.5 on Mistral 7B. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_phi3_medium` | microsoft/Phi-3-medium-4k-instruct | Explainer | HF Hubâ€”Phi-3 medium instruct for longer explanations. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_phi3_mini` | microsoft/Phi-3-mini-4k-instruct | Analyst | HF Hubâ€”Phi-3 mini; strong small model for reasoning snippets. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_phi4_mini` | microsoft/Phi-4-mini-instruct | Assistant | HF Hubâ€”Phi-4 mini; Microsoft small instruct model. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen25_14b` | Qwen/Qwen2.5-14B-Instruct | Generalist | HF Hubâ€”Qwen2.5 14B; stronger general instruct. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen25_72b` | Qwen/Qwen2.5-72B-Instruct | Research Lead | HF Hubâ€”Qwen2.5 72B; heavy lifting for research-grade answers. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen25_7b` | Qwen/Qwen2.5-7B-Instruct | Multilingual Assistant | HF Hubâ€”Qwen2.5 7B instruct; multilingual general tasks. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen25_coder_32b` | Qwen/Qwen2.5-Coder-32B-Instruct | Staff Engineer | HF Hubâ€”Qwen2.5 Coder 32B; larger coding model. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen25_coder_7b` | Qwen/Qwen2.5-Coder-7B-Instruct | Code Assistant | HF Hubâ€”Qwen2.5 Coder 7B; code completion and refactoring hints. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen2_vl_7b` | Qwen/Qwen2-VL-7B-Instruct | Vision Assistant | HF Hubâ€”Qwen2-VL multimodal text+image understanding. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_qwen3_8b` | Qwen/Qwen3-8B | Assistant | HF Hubâ€”Qwen3 8B family; modern Qwen chat/reasoning. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_sambanova_qwen25_72b` | sambanova/Qwen/Qwen2.5-72B-Instruct | Heavyweight Generalist | HF Hub via Sambanovaâ€”Qwen2.5 72B instruct. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_smollm2_1_7b` | HuggingFaceTB/SmolLM2-1.7B-Instruct | Light Assistant | HF Hubâ€”SmolLM2 tiny instruct for cheap passes. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_snowflake_arctic` | snowflake/snowflake-arctic-instruct | Enterprise Assistant | HF Hubâ€”Snowflake Arctic instruct for enterprise-flavored QA. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_solar_10b` | upstage/SOLAR-10.7B-Instruct-v1.0 | Instruct Model | HF Hubâ€”SOLAR 10.7B instruct (Upstage). | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_starchat2_15b` | HuggingFaceH4/starchat2-15b-v0.1 | Code Chat | HF Hubâ€”StarChat2 code conversation. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_starcoder2_15b` | bigcode/starcoder2-15b | Code Generator | HF Hubâ€”StarCoder2 15B for code generation. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_tinyllama_1b` | TinyLlama/TinyLlama-1.1B-Chat-v1.0 | Micro Assistant | HF Hubâ€”TinyLlama 1.1B for ultra-cheap generations. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_together_deepseek_r1` | together/deepseek-ai/DeepSeek-R1 | Reasoning Model | HF Hub via Together provider routeâ€”DeepSeek R1 class reasoning. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_together_llama3_70b` | together/meta-llama/Meta-Llama-3-70B-Ins | Large Chat Model | HF Hub via Togetherâ€”Llama 3 70B instruct. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_vicuna_7b` | lmsys/vicuna-7b-v1.5 | Chat Model | HF Hubâ€”Vicuna v1.5 7B chat baseline. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_yi_15_9b` | 01-ai/Yi-1.5-9B-Chat-16K | Bilingual Assistant | HF Hubâ€”Yi 1.5 9B chat with 16k flavor. | min_vram 0 GiB | HF_TOKEN |  |
+| `hf_zephyr_7b` | HuggingFaceH4/zephyr-7b-beta | Helpful Assistant | HF Hubâ€”Zephyr 7B aligned chat. | min_vram 0 GiB | HF_TOKEN |  |
+
+### vllm (8 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `vllm_tpu_google_gemma_3_27b_it` | google/gemma-3-27b-it | TPU Inference Specialist | vLLM TPU recommended model: google/gemma-3-27b-it. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_meta_llama_llama_3_1_8b_instruct` | meta-llama/Llama-3.1-8B-Instruct | TPU Inference Specialist | vLLM TPU recommended model: meta-llama/Llama-3.1-8B-Instruct. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_meta_llama_llama_3_3_70b_instruct` | meta-llama/Llama-3.3-70B-Instruct | TPU Inference Specialist | vLLM TPU recommended model: meta-llama/Llama-3.3-70B-Instruct. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_meta_llama_llama_guard_4_12b` | meta-llama/Llama-Guard-4-12B | TPU Inference Specialist | vLLM TPU recommended model: meta-llama/Llama-Guard-4-12B. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_qwen_qwen2_5_vl_7b_instruct` | Qwen/Qwen2.5-VL-7B-Instruct | TPU Inference Specialist | vLLM TPU recommended model: Qwen/Qwen2.5-VL-7B-Instruct. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_qwen_qwen3_30b_a3b` | Qwen/Qwen3-30B-A3B | TPU Inference Specialist | vLLM TPU recommended model: Qwen/Qwen3-30B-A3B. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_qwen_qwen3_32b` | Qwen/Qwen3-32B | TPU Inference Specialist | vLLM TPU recommended model: Qwen/Qwen3-32B. | tpu | VLLM_BASE_URL |  |
+| `vllm_tpu_qwen_qwen3_4b` | Qwen/Qwen3-4B | TPU Inference Specialist | vLLM TPU recommended model: Qwen/Qwen3-4B. | tpu | VLLM_BASE_URL |  |
+
+### jetstream (22 providers)
+
+| ID | Model | Role | Good for | Hardware | Env | GP |
+|---|---|---|---|---|---|---|
+| `jetstream_tpu_google_gemma_2b` | google/gemma-2b | TPU Inference Specialist | JetStream PyTorch listed model: google/gemma-2b. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_google_gemma_2b_it` | google/gemma-2b-it | TPU Inference Specialist | JetStream PyTorch listed model: google/gemma-2b-it. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_google_gemma_7b` | google/gemma-7b | TPU Inference Specialist | JetStream PyTorch listed model: google/gemma-7b. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_google_gemma_7b_it` | google/gemma-7b-it | TPU Inference Specialist | JetStream PyTorch listed model: google/gemma-7b-it. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_13b_chat_hf` | meta-llama/Llama-2-13b-chat-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-13b-chat-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_13b_hf` | meta-llama/Llama-2-13b-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-13b-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_70b_chat_hf` | meta-llama/Llama-2-70b-chat-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-70b-chat-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_70b_hf` | meta-llama/Llama-2-70b-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-70b-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_7b_chat_hf` | meta-llama/Llama-2-7b-chat-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-7b-chat-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_2_7b_hf` | meta-llama/Llama-2-7b-hf | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-2-7b-hf. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_1_8b` | meta-llama/Llama-3.1-8B | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.1-8B. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_1_8b_instruct` | meta-llama/Llama-3.1-8B-Instruct | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.1-8B-Instruct. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_2_1b` | meta-llama/Llama-3.2-1B | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.2-1B. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_2_1b_instruct` | meta-llama/Llama-3.2-1B-Instruct | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.2-1B-Instruct. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_3_70b` | meta-llama/Llama-3.3-70B | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.3-70B. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_llama_3_3_70b_instruct` | meta-llama/Llama-3.3-70B-Instruct | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Llama-3.3-70B-Instruct. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_meta_llama_3_70b` | meta-llama/Meta-Llama-3-70B | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Meta-Llama-3-70B. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_meta_llama_3_70b_instruct` | meta-llama/Meta-Llama-3-70B-Instruct | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Meta-Llama-3-70B-Instruct. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_meta_llama_3_8b` | meta-llama/Meta-Llama-3-8B | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Meta-Llama-3-8B. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_meta_llama_meta_llama_3_8b_instruct` | meta-llama/Meta-Llama-3-8B-Instruct | TPU Inference Specialist | JetStream PyTorch listed model: meta-llama/Meta-Llama-3-8B-Instruct. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_mistralai_mixtral_8x7b_instruct_v0_1` | mistralai/Mixtral-8x7B-Instruct-v0.1 | TPU Inference Specialist | JetStream PyTorch listed model: mistralai/Mixtral-8x7B-Instruct-v0.1. | tpu | JETSTREAM_BASE_URL |  |
+| `jetstream_tpu_mistralai_mixtral_8x7b_v0_1` | mistralai/Mixtral-8x7B-v0.1 | TPU Inference Specialist | JetStream PyTorch listed model: mistralai/Mixtral-8x7B-v0.1. | tpu | JETSTREAM_BASE_URL |  |
+

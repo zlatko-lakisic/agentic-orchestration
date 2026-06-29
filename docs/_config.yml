@@ -1,25 +1,35 @@
-title: Agentic Orchestration
-description: Model-agnostic agent orchestration with MCP tools, dynamic planning, and a web UI
-url: https://zlatko-lakisic.github.io
-baseurl: /agentic-orchestration
-logo: assets/logo.png
-image: assets/logo.png
+remote_theme: "mmistakes/minimal-mistakes@4.26.2"
+minimal_mistakes_skin: "dark"
 
-product_nav:
-  - title: Home
-    url: /
-  - title: Features
-    url: /features/
-  - title: Getting started
-    url: /getting-started/
-  - title: Documentation
-    url: /documentation/
-
-remote_theme: pages-themes/slate@v0.2.0
 plugins:
+  - jekyll-include-cache
   - jekyll-remote-theme
+  - jekyll-feed
+  - jekyll-sitemap
+  - jekyll-seo-tag
 
-show_downloads: false
+title: "Agentic Orchestration"
+description: "Model-agnostic multi-agent orchestration built on CrewAI. Dynamic planning, MCP tools, YAML catalogs."
+url: "https://zlatko-lakisic.github.io"
+baseurl: "/agentic-orchestration"
+repository: "zlatko-lakisic/agentic-orchestration"
+
+logo: "/assets/logo.png"
+favicon: "/favicon.ico"
+
+author:
+  name: "Zlatko Lakisic"
+  github: "zlatko-lakisic"
+  linkedin: "zlatko-lakisic"
+
+masthead_title: "Agentic Orchestration"
+
+footer:
+  links:
+    - label: "GitHub"
+      icon: "fab fa-fw fa-github"
+      url: "https://github.com/zlatko-lakisic/agentic-orchestration"
+
 markdown: kramdown
 permalink: pretty
 
@@ -28,7 +38,15 @@ exclude:
   - Gemfile.lock
   - scripts
   - README.md
-  - _Footer.md
+  - vendor
+  - agent-catalog/_catalog_body.md
   - GitLab-Wiki-publish.md
   - GitHub-Pages-publish.md
-  - vendor
+  - _Footer.md
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: single
+      author_profile: false
