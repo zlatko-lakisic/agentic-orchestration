@@ -5,6 +5,7 @@ permalink: /
 header:
   overlay_color: "#1a1a2e"
   overlay_filter: 0.6
+  overlay_image: /assets/images/hero-bg.png
   actions:
     - label: "Quick Start"
       url: /quick-start/
