@@ -1,0 +1,38 @@
+# K4 local smoke: one step with fetch_url via in-pod supergateway sidecar.
+# Requires AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url and AGENTIC_MCP_FETCH_ENABLED=1.
+meta:
+  id: fetch_sidecar_smoke
+  summary: Fetch example.com via fetch_url MCP sidecar on K8s
+  description: Validates supergateway sidecar + worker can call streamable HTTP MCP in a Job pod.
+  good_for:
+    - K4 sidecar smoke on kind
+
+workflow:
+  name: "fetch-sidecar-smoke"
+  process: "sequential"
+  topic: "https://example.com"
+
+  agent_providers:
+    - id: "fetch_reader"
+      type: "crewai"
+      role: "URL Fetch Tester"
+      goal: "Fetch a URL with the fetch MCP tool and report the page title"
+      backstory: "You verify MCP fetch tooling works in Kubernetes worker pods."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  mcp_providers: []
+
+  tasks:
+    - id: "fetch_page"
+      agent_provider_id: "fetch_reader"
+      mcp_providers:
+        - "fetch_url"
+      description: >
+        Use the fetch tool to retrieve the page at {topic}. Reply in one sentence whether
+        the fetch succeeded and whether the content mentions "Example Domain".
+      expected_output: "One sentence confirming fetch result and Example Domain mention."
+
+  task_sequence:
+    - "fetch_page"

@@ -55,7 +55,7 @@ K8S_POD_SIDECAR_LOCAL_URL: dict[str, str] = {
 
 SUPERGATEWAY_IMAGE = os.getenv(
     "AGENTIC_K8S_SUPERGATEWAY_IMAGE",
-    "ghcr.io/supercorp/supergateway:3.4.0",
+    "supercorp/supergateway:uvx",
 ).strip()
 
 
@@ -104,12 +104,15 @@ def filter_mcp_ids_for_kubernetes(
     """Return ``(allowed, excluded)`` for ``AGENTIC_EXECUTION_BACKEND=kubernetes``."""
     if allow_stdio is None:
         allow_stdio = k8s_allow_stdio_mcps_from_env()
+    sidecar_ids = k8s_pod_sidecar_mcp_ids_from_env()
     allowed: list[str] = []
     excluded: list[str] = []
     for mcp_id in mcp_ids:
         if is_k8s_native_mcp(mcp_id):
             allowed.append(mcp_id)
         elif mcp_has_k8s_gateway(mcp_id):
+            allowed.append(mcp_id)
+        elif mcp_id in sidecar_ids and is_k8s_stdio_mcp(mcp_id):
             allowed.append(mcp_id)
         elif allow_stdio and is_k8s_stdio_mcp(mcp_id):
             allowed.append(mcp_id)
@@ -226,7 +229,7 @@ def rewrite_spec_mcps_for_pod_sidecars(
 
 
 def _fetch_sidecar_stdio_command() -> list[str]:
-    return ["python", "-m", "mcp_server_fetch"]
+    return ["uvx", "mcp-server-fetch"]
 
 
 def _filesystem_sidecar_stdio_command() -> list[str]:

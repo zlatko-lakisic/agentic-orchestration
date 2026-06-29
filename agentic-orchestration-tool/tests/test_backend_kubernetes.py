@@ -129,17 +129,28 @@ def test_two_step_kubernetes_workflow_mocked_jobs(
         "write_brief": "Final briefing with action items.",
     }
 
+    store_root = tmp_path / "store"
+
     class FakeJobRunner:
         def __init__(self) -> None:
             self._settings = K8sSettings.from_env()
             self.jobs: list[str] = []
 
-        def run_step_job(self, *, run_id, step_id, spec_container_path, agent_provider_id):
-            spec_host_path = Path(spec_container_path.replace("/run/store", str(tmp_path / "store")))
+        def run_step_job(
+            self,
+            *,
+            run_id,
+            step_id,
+            spec_container_path,
+            agent_provider_id,
+            sidecar_mcp_ids=None,
+        ):
+            spec_host_path = Path(
+                spec_container_path.replace("/run/store", str(store_root))
+            )
             data = json.loads(spec_host_path.read_text(encoding="utf-8-sig"))
             text = step_outputs[step_id]
-            run_store = Path(str(data["paths"]["run_store"]))
-            result_path = run_store / run_id / step_id / "result.json"
+            result_path = store_root / run_id / step_id / "result.json"
             result_path.parent.mkdir(parents=True, exist_ok=True)
             result_path.write_text(
                 json.dumps(
@@ -234,16 +245,27 @@ def test_kubernetes_hf_recovery_retries_failed_step(
     )
 
     attempts: dict[str, int] = {}
+    store_root = tmp_path / "store"
 
     class FakeJobRunner:
         def __init__(self) -> None:
             self._settings = K8sSettings.from_env()
             self.jobs: list[str] = []
 
-        def run_step_job(self, *, run_id, step_id, spec_container_path, agent_provider_id):
+        def run_step_job(
+            self,
+            *,
+            run_id,
+            step_id,
+            spec_container_path,
+            agent_provider_id,
+            sidecar_mcp_ids=None,
+        ):
             attempts[step_id] = attempts.get(step_id, 0) + 1
-            spec_host_path = Path(spec_container_path.replace("/run/store", str(tmp_path / "store")))
-            run_store = Path(str(json.loads(spec_host_path.read_text(encoding="utf-8-sig"))["paths"]["run_store"]))
+            spec_host_path = Path(
+                spec_container_path.replace("/run/store", str(store_root))
+            )
+            run_store = store_root
             result_path = run_store / run_id / step_id / "result.json"
             result_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -24,8 +24,10 @@ def test_build_worker_pod_with_fetch_sidecar() -> None:
         sidecar_mcp_ids=["fetch_url"],
         agent_provider_id="openai_gpt4o_mini",
     )
-    names = [c["name"] for c in pod["containers"]]
-    assert names == ["worker", "mcp-fetch-gateway"]
+    worker_names = [c["name"] for c in pod["containers"]]
+    sidecar_names = [c["name"] for c in pod.get("initContainers", [])]
+    assert worker_names == ["worker"]
+    assert sidecar_names == ["mcp-fetch-gateway"]
 
 
 @pytest.mark.unit

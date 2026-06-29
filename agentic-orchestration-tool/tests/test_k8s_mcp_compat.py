@@ -24,6 +24,7 @@ def test_k8s_native_mcps() -> None:
 def test_filter_mcp_ids_k3_mvp_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
     monkeypatch.delenv("AGENTIC_K8S_MCP_FETCH_URL", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_POD_SIDECAR_MCPS", raising=False)
     ids = list(K8S_NATIVE_MCP_IDS) + list(K8S_STDIO_MCP_IDS)
     allowed, excluded = filter_mcp_ids_for_kubernetes(ids)
     assert set(allowed) == K8S_NATIVE_MCP_IDS
@@ -61,9 +62,37 @@ def test_adapt_catalog_entry_rewrites_stdio_to_http(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.unit
+def test_filter_mcp_ids_allows_stdio_with_pod_sidecar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_MCP_FETCH_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_POD_SIDECAR_MCPS", "fetch_url")
+    allowed, excluded = filter_mcp_ids_for_kubernetes(["fetch_url", "memory_knowledge_graph"])
+    assert allowed == ["fetch_url"]
+    assert excluded == ["memory_knowledge_graph"]
+
+
+@pytest.mark.unit
+def test_apply_kubernetes_mcp_catalog_policy_keeps_sidecar_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.setenv("AGENTIC_K8S_POD_SIDECAR_MCPS", "fetch_url")
+    monkeypatch.setenv("AGENTIC_MCP_FETCH_ENABLED", "1")
+    entries = [
+        {"id": "search_tavily", "streamable_http": {"url": "http://t"}},
+        {"id": "fetch_url", "stdio": {"command": "python", "args": []}},
+    ]
+    kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
+    assert [e["id"] for e in kept] == ["search_tavily", "fetch_url"]
+    assert excluded == []
+
+
+@pytest.mark.unit
 def test_apply_kubernetes_mcp_catalog_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
     monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_POD_SIDECAR_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_MCP_FETCH_URL", raising=False)
     entries = [
         {"id": "search_tavily", "streamable_http": {"url": "http://t"}},
         {"id": "fetch_url", "stdio": {"command": "python", "args": []}},

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from orchestration.backends.k8s_settings import K8sSettings, worker_env_from_process
-from orchestration.k8s_mcp_compat import sidecar_containers_for_mcps
+from orchestration.k8s_mcp_compat import K8S_POD_SIDECAR_LOCAL_URL, sidecar_containers_for_mcps
 
 
 def build_worker_job_pod_spec(
@@ -36,9 +36,16 @@ def build_worker_job_pod_spec(
     if settings.env_secret_name:
         worker["envFrom"] = [{"secretRef": {"name": settings.env_secret_name}}]
 
+    if sidecars:
+        worker["startupProbe"] = {
+            "tcpSocket": {"port": int(K8S_POD_SIDECAR_LOCAL_URL[sidecar_mcp_ids[0]].split(":")[2].split("/")[0])},
+            "periodSeconds": 2,
+            "failureThreshold": 60,
+        }
+
     pod_spec: dict[str, Any] = {
         "restartPolicy": "Never",
-        "containers": [worker, *sidecars],
+        "containers": [worker],
         "volumes": [
             {
                 "name": "run-store",
@@ -46,6 +53,11 @@ def build_worker_job_pod_spec(
             }
         ],
     }
+
+    if sidecars:
+        pod_spec["initContainers"] = [
+            {**container, "restartPolicy": "Always"} for container in sidecars
+        ]
 
     node_selector = _node_selector_for_job(
         settings=settings,

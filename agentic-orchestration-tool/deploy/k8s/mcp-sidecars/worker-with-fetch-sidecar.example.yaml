@@ -26,10 +26,10 @@ spec:
             - secretRef:
                 name: agentic-orchestrator-env
         - name: mcp-fetch-gateway
-          image: ghcr.io/supercorp/supergateway:3.4.0
+          image: supercorp/supergateway:uvx
           args:
             - --stdio
-            - python -m mcp_server_fetch
+            - uvx mcp-server-fetch
             - --port
             - "8080"
             - --outputTransport

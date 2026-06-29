@@ -13,5 +13,6 @@ __orchestrator_learning__
 __output__
 docker/.dockerignore
 tests
-scripts
+scripts/*
+!scripts/k8s-stub-worker.py
 .git

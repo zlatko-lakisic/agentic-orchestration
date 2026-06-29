@@ -20,7 +20,7 @@ See `worker-with-fetch-sidecar.example.yaml`.
 Sidecar image (override if needed):
 
 ```env
-AGENTIC_K8S_SUPERGATEWAY_IMAGE=ghcr.io/supercorp/supergateway:3.4.0
+AGENTIC_K8S_SUPERGATEWAY_IMAGE=supercorp/supergateway:uvx
 ```
 
 Worker image must include the stdio server (`mcp-server-fetch` is in `Dockerfile.worker`).
