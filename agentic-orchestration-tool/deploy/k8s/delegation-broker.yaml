@@ -1,0 +1,58 @@
+# Delegation broker (K5.5): spawns child worker Jobs when parent workers call k8s_delegate_task.
+# Enable on workers: AGENTIC_K8S_DELEGATION_ENABLED=1
+# Uses the coordinator ServiceAccount/RBAC (Job create) — apply coordinator manifests first.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-delegation-broker
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-delegation-broker
+    app.kubernetes.io/component: delegation-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-delegation-broker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-delegation-broker
+        app.kubernetes.io/component: delegation-broker
+    spec:
+      serviceAccountName: agentic-coordinator
+      containers:
+        - name: broker
+          image: agentic-orchestrator-worker:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "main.py", "--delegation-broker"]
+          env:
+            - name: AGENTIC_RUN_STORE_PATH
+              value: /run/store
+            - name: AGENTIC_K8S_NAMESPACE
+              value: agentic-orchestration
+            - name: AGENTIC_K8S_RUN_STORE_PVC
+              value: agentic-run-store
+            - name: AGENTIC_K8S_RUN_STORE_MOUNT
+              value: /run/store
+            - name: AGENTIC_K8S_WORKER_IMAGE
+              value: agentic-orchestrator-worker:local
+            - name: AGENTIC_K8S_ENV_SECRET
+              value: agentic-orchestrator-env
+            - name: AGENTIC_LOG_FORMAT
+              value: json
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+                optional: true
+          volumeMounts:
+            - name: run-store
+              mountPath: /run/store
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+      volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store

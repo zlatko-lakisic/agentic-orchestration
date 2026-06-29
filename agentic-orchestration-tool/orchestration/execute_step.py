@@ -78,6 +78,16 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 emit_progress_lines=False,
                 task_mcp_overrides={step_id: mcp_resolved} if mcp_resolved else None,
             )
+            if run_store:
+                from orchestration.k8s_delegation_tool import attach_k8s_delegation_tool
+
+                attach_k8s_delegation_tool(
+                    built,
+                    parent_run_id=run_id,
+                    parent_step_id=step_id,
+                    run_store_mount=run_store,
+                    topic=topic,
+                )
             print("kickoff", file=sys.stderr)
             with crew_kickoff_context(built):
                 workflow_result = built.crew.kickoff(inputs={"topic": topic})

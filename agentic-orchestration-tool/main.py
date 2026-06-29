@@ -706,6 +706,11 @@ def parse_args() -> argparse.Namespace:
         help="K8s warm pool mode: poll run-store queue and execute steps until terminated.",
     )
     parser.add_argument(
+        "--delegation-broker",
+        action="store_true",
+        help="K8s delegation broker (K5.5): spawn child Jobs for worker delegation requests.",
+    )
+    parser.add_argument(
         "--orchestrator-session-reset",
         action="store_true",
         help="With --dynamic: delete the resolved session JSON before this run "
@@ -736,6 +741,20 @@ def main() -> None:
             )
             sys.exit(2)
         run_warm_pool_worker_loop(run_store_mount=mount)
+        sys.exit(0)
+
+    if getattr(args, "delegation_broker", False):
+        from orchestration.backends.kubernetes_delegation import run_delegation_broker_loop
+        from orchestration.run_store import run_store_base_from_env
+
+        mount = run_store_base_from_env()
+        if not mount:
+            print(
+                "error: AGENTIC_RUN_STORE_PATH required for --delegation-broker",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        run_delegation_broker_loop(run_store_mount=str(mount))
         sys.exit(0)
 
     if getattr(args, "execute_step", None):

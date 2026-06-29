@@ -84,11 +84,13 @@ See `deploy/k8s/coordinator/README.md` and `docker/README.coordinator.md`.
 | Structured logging | `deploy/k8s/LOGGING.md`, `AGENTIC_LOG_FORMAT=json` |
 | CrewAI pin / upgrade | `requirements.txt` (`crewai==…`), `docker/CREWAI_UPGRADE.md` |
 | Load test | `scripts/k8s-load-test.ps1` (stub worker, p50/p95 wall time) |
+| Delegation RPC | `deploy/k8s/delegation-broker.yaml`, `AGENTIC_K8S_DELEGATION_ENABLED=1`, tool `k8s_delegate_task` |
 
 ## Other manifests
 
 - `deploy/k8s/coordinator/` — **K3.7** coordinator Deployment, Service, RBAC (web UI + in-cluster Job dispatch)
 - `deploy/k8s/warm-pool.yaml` — **K5.1** warm pool Deployment (`AGENTIC_K8S_WARM_POOL_ENABLED=1`)
+- `deploy/k8s/delegation-broker.yaml` — **K5.5** delegation broker (`AGENTIC_K8S_DELEGATION_ENABLED=1`)
 - `deploy/k8s/LOGGING.md` — **K5.2** JSON log contract for Loki/Datadog
 - `deploy/k8s/kind/cluster.yaml` — templated kind config (`__RUN_STORE_HOST_PATH__`)
 - `deploy/k8s/run-store/probe-pod.yaml` — PVC mount smoke test
