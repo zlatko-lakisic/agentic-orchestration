@@ -128,6 +128,10 @@ docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
 
 log "Apply coordinator RBAC + deployment"
 kubectl apply -k "${TOOL_ROOT}/deploy/k8s/coordinator"
+# Strip stale hostPort patches (conflicts with k3s Traefik on :80).
+kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
+  -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "protocol": "TCP"}]}]' \
+  2>/dev/null || true
 kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
   AGENTIC_K8S_WARM_POOL_ENABLED=1 \
   AGENTIC_LOG_FORMAT=json \
@@ -136,24 +140,7 @@ kubectl set image deployment/agentic-coordinator -n agentic-orchestration \
   coordinator="${COORDINATOR_IMAGE}" 2>/dev/null || true
 
 log "Expose coordinator on host port ${WEB_PORT}"
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: agentic-coordinator
-  namespace: agentic-orchestration
-  labels:
-    app.kubernetes.io/name: agentic-coordinator
-spec:
-  type: NodePort
-  selector:
-    app.kubernetes.io/name: agentic-coordinator
-  ports:
-    - name: http
-      port: 3847
-      targetPort: 3847
-      nodePort: 30487
-EOF
+kubectl apply -f "${TOOL_ROOT}/deploy/k8s/coordinator/service-nodeport.yaml"
 if [[ "${WEB_PORT}" == "80" ]]; then
   if command -v iptables >/dev/null 2>&1; then
     iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null \
