@@ -36,6 +36,19 @@ def augment_backstory_for_mcp_tools(backstory: str, mcps: Sequence[Any] | None) 
     return backstory.rstrip() + "\n\n" + _MCP_TOOL_CALLING_HINT
 
 
+def resolve_agent_backstory(
+    base_backstory: str,
+    *,
+    mcps: Sequence[Any] | None = None,
+    skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
+) -> str:
+    """Apply MCP tool hints and optional skill blocks to a CrewAI agent backstory."""
+    from orchestration.agent_skills_context import augment_backstory_for_skills
+
+    backstory = augment_backstory_for_mcp_tools(base_backstory, mcps)
+    return augment_backstory_for_skills(backstory, skill_backstory_blocks or ())
+
+
 @dataclass(frozen=True)
 class AgentProviderConfig:
     """Structured agent-provider definition loaded from YAML (LLM-backed CrewAI agents)."""
@@ -135,6 +148,7 @@ class AgentProvider(ABC):
         self,
         *,
         mcps: Sequence[Any] | None = None,
+        skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
         role_suffix: str | None = None,
     ) -> Agent:
         """Build and return a CrewAI agent instance."""

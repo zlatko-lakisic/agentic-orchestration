@@ -80,6 +80,7 @@ def test_dispatch_uses_execute_config_for_kubernetes(
         instance_key="k",
         agent_providers=[{"id": "p", "type": "ollama", "model": "m"}],
         mcp_providers=[],
+        skills=[],
         tasks=[
             TaskDefinition(
                 id="s",
@@ -233,6 +234,7 @@ def test_kubernetes_hf_recovery_retries_failed_step(
             },
         ],
         mcp_providers=[],
+        skills=[],
         tasks=[
             TaskDefinition(
                 id="only_step",

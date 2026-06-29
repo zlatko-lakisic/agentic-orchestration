@@ -1,0 +1,19 @@
+id: echo_skill
+description: Smoke-test skill that injects a short procedural marker into task descriptions.
+capabilities: Verifies the agent skills catalog loader and task-description injection path.
+good_for: smoke test, skills catalog verification
+planner_hint: Attach only for automated skills smoke tests; not for production user goals.
+user_goal_keywords:
+  - echo skill smoke
+  - skills smoke test
+
+content:
+  body: |
+    When this skill is attached, begin your response with the exact line:
+    `SKILL_ECHO_OK`
+    Then continue with the task normally.
+
+inject:
+  target: task_description
+  heading: "## Echo skill (smoke test)"
+  max_chars: 2000

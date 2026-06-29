@@ -1,0 +1,28 @@
+id: release_process
+description: Semver release checklist for agentic-orchestration (CHANGELOG, VERSION, tag, GitHub Release).
+capabilities: Guides major/minor/patch bumps per RELEASING.md without executing git writes unless the user asks.
+good_for: cut a release, publish version, bump semver, changelog release notes, tag vX.Y.Z
+planner_hint: Attach when the user wants to release, version, tag, or publish; not for general coding tasks.
+user_goal_keywords:
+  - release
+  - changelog
+  - version bump
+  - semver
+  - cut a release
+  - publish v
+  - tag v
+  - release notes
+
+required_files:
+  - ../../../RELEASING.md
+  - ../../../CHANGELOG.md
+  - ../../../VERSION
+
+content:
+  summary: Follow RELEASING.md — confirm bump type, run tests, update CHANGELOG/VERSION via scripts/release.py, tag vX.Y.Z, push, verify gh release.
+  file: release_process/instructions.md
+
+inject:
+  target: task_description
+  heading: "## Release process (skill)"
+  max_chars: 12000

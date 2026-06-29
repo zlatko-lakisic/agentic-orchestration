@@ -15,6 +15,8 @@ class TaskDefinition:
     expected_output: str
     # When None, inherit ``WorkflowConfig.mcp_providers``. When [], no MCP for this task only.
     mcp_providers: list[Any] | None = None
+    # When None, inherit ``WorkflowConfig.skills``. When [], no skills for this task only.
+    skills: list[str] | None = None
 
 
 def raw_mcp_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[Any]:
@@ -22,6 +24,13 @@ def raw_mcp_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[
     if task.mcp_providers is not None:
         return list(task.mcp_providers)
     return list(config.mcp_providers)
+
+
+def raw_skill_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[str]:
+    """Raw skill id list for a task (inherits ``config.skills`` when ``task.skills`` is None)."""
+    if task.skills is not None:
+        return [str(x).strip() for x in task.skills if str(x).strip()]
+    return [str(x).strip() for x in config.skills if str(x).strip()]
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,7 @@ class WorkflowConfig:
     agent_providers: list[dict[str, Any]]
     # Catalog ids (strings) and/or inline mappings with ``ref`` / ``refs`` (CrewAI MCP DSL strings).
     mcp_providers: list[Any]
+    skills: list[str]
     tasks: list[TaskDefinition]
     task_sequence: list[str]
 
@@ -65,6 +75,7 @@ def load_workflow_config(
     if agent_providers is None:
         agent_providers = workflow.get("providers", [])
     mcp_providers = workflow.get("mcp_providers", [])
+    skills = workflow.get("skills", [])
     tasks = workflow.get("tasks", [])
     sequence = workflow.get("task_sequence", [])
 
@@ -86,6 +97,11 @@ def load_workflow_config(
         raise ValueError(
             f"workflow.mcp_providers[{j}] must be a catalog id string or an inline mapping",
         )
+    if not isinstance(skills, list):
+        raise ValueError("'workflow.skills' must be a list when set.")
+    for j, skill_item in enumerate(skills):
+        if not isinstance(skill_item, str) or not str(skill_item).strip():
+            raise ValueError(f"workflow.skills[{j}] must be a non-empty catalog id string")
 
     task_definitions: list[TaskDefinition] = []
     for item in tasks:
@@ -124,6 +140,20 @@ def load_workflow_config(
         else:
             task_mcp = None
 
+        task_skills: list[str] | None
+        if "skills" in item:
+            tskills = item["skills"]
+            if not isinstance(tskills, list):
+                raise ValueError(f"Task '{task_id}' skills must be a list when set.")
+            for j, skill_item in enumerate(tskills):
+                if not isinstance(skill_item, str) or not str(skill_item).strip():
+                    raise ValueError(
+                        f"Task '{task_id}' skills[{j}] must be a non-empty catalog id string",
+                    )
+            task_skills = [str(x).strip() for x in tskills if str(x).strip()]
+        else:
+            task_skills = None
+
         task_definitions.append(
             TaskDefinition(
                 id=task_id,
@@ -131,6 +161,7 @@ def load_workflow_config(
                 description=description,
                 expected_output=expected_output,
                 mcp_providers=task_mcp,
+                skills=task_skills,
             )
         )
 
@@ -141,6 +172,7 @@ def load_workflow_config(
         instance_key=instance_key,
         agent_providers=agent_providers,
         mcp_providers=list(mcp_providers),
+        skills=[str(x).strip() for x in skills if str(x).strip()],
         tasks=task_definitions,
         task_sequence=[str(task_id).strip() for task_id in sequence],
     )

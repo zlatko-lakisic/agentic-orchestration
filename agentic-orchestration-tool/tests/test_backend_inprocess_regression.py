@@ -34,6 +34,7 @@ def _minimal_workflow_config() -> WorkflowConfig:
             }
         ],
         mcp_providers=[],
+        skills=[],
         tasks=[
             TaskDefinition(
                 id="step_one",
@@ -131,6 +132,7 @@ def test_dynamic_workflow_path(
         cfg,
         agent_providers_catalog_path=tool_root / "config" / "agent_providers",
         mcp_catalog_path=None,
+        agent_skills_catalog_path=None,
         crew_verbose=False,
         quiet=True,
         emit_stdout_summary=False,

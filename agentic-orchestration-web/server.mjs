@@ -2216,7 +2216,7 @@ wss.on("connection", (ws) => {
       appendPendingRating({
         session_slug: msg.sessionId || "",
         provider_id: msg.providerId || "",
-        mcp_fingerprint: msg.mcpFingerprint || "none",
+        mcp_fingerprint: (msg.attachmentFingerprint || msg.mcpFingerprint || "none").trim() || "none",
         task_tag: msg.taskTag || "general",
         rating: msg.rating,
       });

@@ -19,6 +19,7 @@ class RunOptions:
     log_terminal_execution_failure: bool = True
     crew_verbose: bool = True
     mcp_catalog_path: Path | None = None
+    agent_skills_catalog_path: Path | None = None
     run_id: str = ""
 
 
@@ -34,12 +35,20 @@ class StepSpec:
     task_expected_output: str
     agent_provider: dict[str, Any]
     mcp_providers: list[dict[str, Any]]
+    skills: list[str]
     prior_output: str
     inputs: dict[str, Any]
     run_store_path: str = ""
     artifacts_dir: str = ""
+    agent_skills_catalog_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        paths: dict[str, str] = {
+            "run_store": self.run_store_path,
+            "artifacts_dir": self.artifacts_dir,
+        }
+        if self.agent_skills_catalog_path:
+            paths["agent_skills_catalog"] = self.agent_skills_catalog_path
         return {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
@@ -53,12 +62,10 @@ class StepSpec:
             },
             "agent_provider": dict(self.agent_provider),
             "mcp_providers": list(self.mcp_providers),
+            "skills": list(self.skills),
             "prior_output": self.prior_output,
             "inputs": dict(self.inputs),
-            "paths": {
-                "run_store": self.run_store_path,
-                "artifacts_dir": self.artifacts_dir,
-            },
+            "paths": paths,
         }
 
 

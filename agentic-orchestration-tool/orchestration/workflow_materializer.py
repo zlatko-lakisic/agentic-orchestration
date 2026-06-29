@@ -5,12 +5,18 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task
+from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
     resolve_workflow_mcp_refs,
 )
+from orchestration.agent_skills_catalog import (
+    partition_skill_entries,
+    resolve_skill_blocks,
+    resolve_task_skill_maps,
+)
+from orchestration.agent_skills_context import augment_backstory_for_skills, augment_description_for_skills
 from orchestration.k8s_mcp_compat import apply_kubernetes_mcp_catalog_policy
 from orchestration.backends.base import StepSpec
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
@@ -54,6 +60,7 @@ def build_step_specs(
     *,
     run_id: str,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
     quiet: bool = False,
     prior_outputs: dict[str, str] | None = None,
     run_store_path: str = "",
@@ -71,6 +78,11 @@ def build_step_specs(
     task_mcps = resolve_task_mcp_maps(
         config,
         mcp_catalog_path=mcp_catalog_path,
+        quiet=quiet,
+    )
+    task_skills = resolve_task_skill_maps(
+        config,
+        skills_catalog_path=agent_skills_catalog_path,
         quiet=quiet,
     )
     topic = config.topic or ""
@@ -91,8 +103,14 @@ def build_step_specs(
             prev_id = config.task_sequence[index - 1]
             prior_output = prior.get(prev_id, "")
 
-        description = prepare_step_description(task_def.description, prior_output)
+        task_entries, backstory_entries = partition_skill_entries(task_skills.get(task_id, []))
+        description = augment_description_for_skills(
+            task_def.description,
+            resolve_skill_blocks(task_entries),
+        )
+        description = prepare_step_description(description, prior_output)
         raw_mcps = raw_mcp_spec_for_task(task_def, config)
+        raw_skills = raw_skill_spec_for_task(task_def, config)
         mcp_resolved = task_mcps.get(task_id, [])
         mcp_payload: list[dict[str, Any]] = []
         for i, resolved_mcp in enumerate(mcp_resolved):
@@ -105,6 +123,14 @@ def build_step_specs(
                     entry["id"] = str(raw_item.get("id") or raw_item.get("ref") or "")
             mcp_payload.append(entry)
 
+        provider_payload = copy.deepcopy(provider)
+        backstory_blocks = resolve_skill_blocks(backstory_entries)
+        if backstory_blocks:
+            provider_payload["backstory"] = augment_backstory_for_skills(
+                str(provider_payload.get("backstory", "")),
+                backstory_blocks,
+            )
+
         specs.append(
             StepSpec(
                 schema_version="0.1",
@@ -115,12 +141,18 @@ def build_step_specs(
                 topic=topic,
                 task_description=description,
                 task_expected_output=task_def.expected_output,
-                agent_provider=provider,
+                agent_provider=provider_payload,
                 mcp_providers=mcp_payload,
+                skills=list(raw_skills),
                 prior_output=prior_output,
                 inputs={"topic": topic},
                 run_store_path=run_store_path,
                 artifacts_dir=artifacts_dir,
+                agent_skills_catalog_path=(
+                    str(agent_skills_catalog_path.resolve())
+                    if agent_skills_catalog_path is not None
+                    else ""
+                ),
             )
         )
     return specs
@@ -128,17 +160,19 @@ def build_step_specs(
 
 def step_specs_resolution_fingerprint(
     specs: list[StepSpec],
-) -> tuple[tuple[str, str, int, tuple[str, ...]], ...]:
+) -> tuple[tuple[str, str, int, tuple[str, ...], tuple[str, ...]], ...]:
     """Stable per-step catalog resolution fingerprint (G4 parity; ignores ``run_id`` / prior inject)."""
-    rows: list[tuple[str, str, int, tuple[str, ...]]] = []
+    rows: list[tuple[str, str, int, tuple[str, ...], tuple[str, ...]]] = []
     for spec in specs:
         mcp_ids = tuple(str(m.get("id", "")) for m in spec.mcp_providers)
+        skill_ids = tuple(spec.skills)
         rows.append(
             (
                 spec.step_id,
                 str(spec.agent_provider.get("id", "")),
                 len(spec.mcp_providers),
                 mcp_ids,
+                skill_ids,
             )
         )
     return tuple(rows)

@@ -27,6 +27,7 @@ def _spec(*, step_id: str = "research") -> StepSpec:
         task_expected_output="o",
         agent_provider={"id": "hf_agent", "type": "huggingface", "model": "org/model-a"},
         mcp_providers=[],
+        skills=[],
         prior_output="",
         inputs={"topic": "t"},
         run_store_path="/run/store",
@@ -59,6 +60,7 @@ def _hf_config() -> WorkflowConfig:
             },
         ],
         mcp_providers=[],
+        skills=[],
         tasks=[
             TaskDefinition(
                 id="research",

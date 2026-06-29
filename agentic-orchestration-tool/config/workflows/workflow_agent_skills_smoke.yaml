@@ -1,0 +1,45 @@
+# Static smoke: verifies agent skills catalog injection on a single task.
+# Run: python main.py --config config/workflows/workflow_agent_skills_smoke.yaml "skills smoke test"
+meta:
+  id: agent_skills_smoke
+  summary: Smoke test for agent skills catalog injection
+  description: >
+    Single-step workflow attaching echo_skill to prove procedural instructions
+    are injected into the task description (see SKILL_ECHO_OK marker).
+  good_for:
+    - skills smoke test
+    - agent skills catalog verification
+    - catalog injection test
+
+workflow:
+  name: "agent-skills-smoke"
+  process: "sequential"
+  topic: "agent skills catalog smoke test"
+
+  agent_providers:
+    - id: "writer"
+      type: "openai"
+      role: "Smoke Tester"
+      goal: "Confirm skill injection by following attached procedural instructions"
+      backstory: "You run short verification tasks for the orchestrator catalog."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  mcp_providers: []
+  skills: []
+
+  tasks:
+    - id: "skills_echo"
+      agent_provider_id: "writer"
+      skills:
+        - echo_skill
+      description: >
+        Complete this smoke test for topic: {topic}.
+        Follow any attached skill instructions exactly.
+      expected_output: >
+        A response that includes the exact token SKILL_ECHO_OK on its own line,
+        then one sentence confirming skills injection works.
+
+  task_sequence:
+    - "skills_echo"

@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider, augment_backstory_for_mcp_tools
+from agent_providers.base import AgentProvider, resolve_agent_backstory
 from agent_providers.openai_provider import (
     _is_likely_local_url,
     _normalize_openai_base,
@@ -58,6 +58,7 @@ class VllmProvider(AgentProvider):
         self,
         *,
         mcps: Sequence[Any] | None = None,
+        skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
         role_suffix: str | None = None,
     ) -> Agent:
         llm_kwargs: dict[str, Any] = {
@@ -72,7 +73,11 @@ class VllmProvider(AgentProvider):
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),
             goal=self.config.goal,
-            backstory=augment_backstory_for_mcp_tools(self.config.backstory, mcps),
+            backstory=resolve_agent_backstory(
+                self.config.backstory,
+                mcps=mcps,
+                skill_backstory_blocks=skill_backstory_blocks,
+            ),
             llm=llm,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,

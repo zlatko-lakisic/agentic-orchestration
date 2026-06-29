@@ -36,6 +36,7 @@ def execute_workflow_config_resolved(
         crew_verbose=options.crew_verbose,
         quiet=options.quiet,
         mcp_catalog_path=options.mcp_catalog_path,
+        agent_skills_catalog_path=options.agent_skills_catalog_path,
         emit_progress_lines=options.emit_progress_lines,
     )
     return backend.execute_built(built, options=options)

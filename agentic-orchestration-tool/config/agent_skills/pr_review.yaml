@@ -1,0 +1,21 @@
+id: pr_review
+description: Structured pull-request review checklist (scope, tests, security, docs).
+capabilities: Produces blocker/suggestion/question sections for code review tasks.
+good_for: review pull request, PR feedback, code review, diff review, merge readiness
+planner_hint: Attach for PR/diff review goals; pair with fetch or filesystem MCP when the user supplies a PR URL or branch diff.
+user_goal_keywords:
+  - pull request
+  - pr review
+  - code review
+  - review diff
+  - merge request
+  - ci check
+
+content:
+  summary: Structured PR review — scope, correctness, tests, security, docs; output blockers, suggestions, questions.
+  file: pr_review/instructions.md
+
+inject:
+  target: task_description
+  heading: "## PR review (skill)"
+  max_chars: 10000

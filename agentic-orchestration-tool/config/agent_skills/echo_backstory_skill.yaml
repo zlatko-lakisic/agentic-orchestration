@@ -1,0 +1,18 @@
+id: echo_backstory_skill
+description: Smoke-test skill that injects a procedural marker into agent backstory.
+capabilities: Verifies backstory injection for agent skills.
+good_for: backstory skill smoke test
+planner_hint: Attach only for automated backstory injection smoke tests.
+user_goal_keywords:
+  - backstory skill smoke
+  - backstory injection test
+
+content:
+  body: |
+    Standing rule when this skill is attached: treat every answer as a backstory-injection smoke test.
+    Include the exact token `BACKSTORY_SKILL_ECHO_OK` once in your reply.
+
+inject:
+  target: backstory
+  heading: "## Echo backstory skill (smoke test)"
+  max_chars: 2000

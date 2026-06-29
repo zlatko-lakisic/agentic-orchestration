@@ -14,7 +14,12 @@ from urllib.parse import urlparse
 import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
+from orchestration.config_loader import (
+    TaskDefinition,
+    WorkflowConfig,
+    raw_mcp_spec_for_task,
+    raw_skill_spec_for_task,
+)
 from orchestration.goal_format_hints import (
     goal_requires_machine_readable_only,
     web_prose_deliverable_enabled,
@@ -76,6 +81,13 @@ from orchestration.mcp_providers_catalog import (
     mcp_catalog_for_planner_prompt,
     resolve_workflow_mcp_refs,
     suggest_mcp_ids_from_user_goal,
+)
+from orchestration.agent_skills_catalog import (
+    filter_skill_entries_by_credentials,
+    load_agent_skills_catalog_merged,
+    skills_catalog_for_planner_prompt,
+    resolve_workflow_skill_refs,
+    suggest_skill_ids_from_user_goal,
 )
 
 
@@ -443,6 +455,7 @@ def _planner_system_prompt(
     max_steps: int,
     last_crew_excerpt: str | None = None,
     mcp_catalog_doc: str = "",
+    skills_catalog_doc: str = "",
     learning_summary: str = "",
     kb_context: str = "",
 ) -> str:
@@ -458,6 +471,18 @@ Available **MCP providers** — pick ids **only** from this catalog (docs/API/to
 - **Per-step MCP:** Prefer a **minimal** per-step `mcp_provider_ids` list for each step that needs tools; use the same top-level default only when every step needs the same set.
 - **Default MCP:** Top-level `mcp_provider_ids` applies to steps that **omit** `mcp_provider_ids`.
 - **No MCP for one step:** Set that step's `mcp_provider_ids` to `[]`.
+"""
+    skills_block = ""
+    if skills_catalog_doc.strip():
+        skills_block = f"""
+
+Available **agent skills** — pick ids **only** from this catalog (procedural instructions injected into agent task text):
+{skills_catalog_doc}
+
+- **Attach skills only when relevant:** If the user's goal clearly matches an entry's scope (read each `id`, `description`, and `planner_hint`), include those ids in `skill_ids` (top-level default and/or per-step). If none match, use `[]` and omit per-step lists.
+- **Per-step skills:** Prefer a **minimal** per-step `skill_ids` list for steps that need a specific playbook; use the top-level default only when every step needs the same skills.
+- **Default skills:** Top-level `skill_ids` applies to steps that **omit** `skill_ids`.
+- **No skills for one step:** Set that step's `skill_ids` to `[]`.
 """
     agi_traits = ""
     if os.getenv("AGENTIC_AGI_TRAITS", "1").strip().lower() not in ("0", "false", "no", "off"):
@@ -475,6 +500,7 @@ Core operating traits (AGI-inspired, practical constraints apply):
 Available **agent providers** (pick ONLY `agent_provider_id` values from this catalog; every id is valid):
 {catalog_doc}
 {mcp_block}
+{skills_block}
 {agi_traits}
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
@@ -494,19 +520,21 @@ Rules:
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
-- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)** each step uses (or state explicitly when none apply).
+- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)** and **skill id(s)** each step uses (or state explicitly when none apply).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 **Planner vs crew output:** Your reply is the **plan**, not the user's deliverable. If the user goal asks for a tiny JSON object (e.g. `{{"minutes": ...}}`) or strict machine-readable fields, that output must be produced **by agents in `steps`**, not by you here. Never reply with only those keys—always emit `plan_summary` and a non-empty `steps` array using catalog `agent_provider_id` values.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
-  "plan_summary": "short rationale for steps, agent providers, and MCP choices",
+  "plan_summary": "short rationale for steps, agent providers, MCP choices, and skill choices",
   "mcp_provider_ids": ["optional default MCP ids for steps that omit their own list"],
+  "skill_ids": ["optional default skill ids for steps that omit their own list"],
   "steps": [
     {{
       "agent_provider_id": "<id from catalog>",
       "mcp_provider_ids": ["optional; per-step MCP subset — omit key to use top-level default"],
+      "skill_ids": ["optional; per-step skill subset — omit key to use top-level default"],
       "description": "Instructions for the agent. Must mention {{topic}}.",
       "expected_output": "What this step should produce",
       "rationale": "optional one-line: why this step now (helps users/logs when iterating)"
@@ -514,6 +542,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
   ]
 }}
 If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `mcp_provider_ids`.
+If no agent skill is relevant, set `"skill_ids": []` and omit per-step `skill_ids`.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -636,13 +665,21 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
                 mcp_note = f"\n  - mcp_providers: {', '.join(parts)}"
         else:
             mcp_note = "\n  - mcp_providers: (workflow default)"
+        skill_note = ""
+        if match.skills is not None:
+            if not match.skills:
+                skill_note = "\n  - skills: (none)"
+            else:
+                skill_note = f"\n  - skills: {', '.join(match.skills)}"
+        else:
+            skill_note = "\n  - skills: (workflow default)"
         task_lines.append(
-            f"- `{match.id}` → agent_provider `{match.agent_provider_id}`{mcp_note}\n"
+            f"- `{match.id}` → agent_provider `{match.agent_provider_id}`{mcp_note}{skill_note}\n"
             f"  - description: {clip(match.description, cap_desc)}\n"
             f"  - expected_output: {clip(match.expected_output, cap_exp)}"
         )
 
-    if not prov_lines and not task_lines and not cfg.mcp_providers:
+    if not prov_lines and not task_lines and not cfg.mcp_providers and not cfg.skills:
         return ""
 
     mcp_line = ""
@@ -650,6 +687,11 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
         mcp_line = (
             "\n\n### MCP providers (workflow)\n"
             + "\n".join(f"- `{str(x)}`" if not isinstance(x, dict) else f"- (inline) `{x!r}`" for x in cfg.mcp_providers)
+        )
+    skills_line = ""
+    if cfg.skills:
+        skills_line = "\n\n### Agent skills (workflow)\n" + "\n".join(
+            f"- `{str(x)}`" for x in cfg.skills
         )
 
     return (
@@ -660,6 +702,7 @@ def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
         + "\n\n### Tasks (execution order)\n"
         + ("\n".join(task_lines) if task_lines else "(none)")
         + mcp_line
+        + skills_line
     )
 
 
@@ -693,6 +736,7 @@ def workflow_config_from_plan(
     instance_key: str,
     max_steps: int,
     mcp_catalog_entries: list[dict[str, Any]] | None = None,
+    skill_catalog_entries: list[dict[str, Any]] | None = None,
     quiet: bool = False,
 ) -> WorkflowConfig:
     def _user_wants_local_only(text: str) -> bool:
@@ -729,6 +773,7 @@ def workflow_config_from_plan(
     used_provider_ids: list[str] = []
     seen_providers: set[str] = set()
     _mcp_step_sentinel: Any = object()
+    _skill_step_sentinel: Any = object()
 
     mcp_raw = plan.get("mcp_provider_ids", [])
     if mcp_raw is None:
@@ -740,6 +785,17 @@ def workflow_config_from_plan(
         s = str(x).strip()
         if s:
             mcp_plan_ids.append(s)
+
+    skill_raw = plan.get("skill_ids", [])
+    if skill_raw is None:
+        skill_raw = []
+    if not isinstance(skill_raw, list):
+        raise ValueError("Planner JSON 'skill_ids' must be an array when present")
+    skill_plan_ids: list[str] = []
+    for x in skill_raw:
+        s = str(x).strip()
+        if s:
+            skill_plan_ids.append(s)
 
     for i, step in enumerate(steps_raw):
         if not isinstance(step, dict):
@@ -778,6 +834,15 @@ def workflow_config_from_plan(
                 raise ValueError(f"steps[{i}].mcp_provider_ids must be an array when present")
             per_step_mcp = [str(x).strip() for x in sm_raw if str(x).strip()]
 
+        ss_raw = step.get("skill_ids", _skill_step_sentinel)
+        per_step_skills: list[str] | None
+        if ss_raw is _skill_step_sentinel:
+            per_step_skills = None
+        else:
+            if not isinstance(ss_raw, list):
+                raise ValueError(f"steps[{i}].skill_ids must be an array when present")
+            per_step_skills = [str(x).strip() for x in ss_raw if str(x).strip()]
+
         # NOTE: We intentionally do not "prefer" a backend here.
         # The planner should choose the most relevant agent provider (including Ollama),
         # based on each entry's planner_hint/role/goal and the user's description.
@@ -790,6 +855,7 @@ def workflow_config_from_plan(
                 description=desc,
                 expected_output=expected,
                 mcp_providers=per_step_mcp,
+                skills=per_step_skills,
             )
         )
         if pid not in seen_providers:
@@ -850,6 +916,56 @@ def workflow_config_from_plan(
             new_task_defs.append(replace(t, mcp_providers=kept))
         task_definitions = new_task_defs
 
+    if skill_catalog_entries is not None:
+        known_skill = {
+            str(p.get("id", "")).strip()
+            for p in skill_catalog_entries
+            if str(p.get("id", "")).strip()
+        }
+        strict_skill = os.getenv("AGENTIC_STRICT_SKILL_IDS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+
+        def _filter_known_skills(xs: list[str]) -> tuple[list[str], list[str]]:
+            kept: list[str] = []
+            dropped: list[str] = []
+            for x in xs:
+                if x in known_skill:
+                    kept.append(x)
+                else:
+                    dropped.append(x)
+            return kept, dropped
+
+        skill_plan_ids, dropped_skill_default = _filter_known_skills(skill_plan_ids)
+        if dropped_skill_default and not quiet:
+            msg = (
+                f"(dynamic) warning: dropping unknown skill_id(s) from plan default: "
+                f"{dropped_skill_default!r}. Known: {', '.join(sorted(known_skill))}"
+            )
+            if strict_skill:
+                raise ValueError(msg)
+            print(msg, file=sys.stderr)
+
+        new_task_defs_skill: list[TaskDefinition] = []
+        for t in task_definitions:
+            if t.skills is None:
+                new_task_defs_skill.append(t)
+                continue
+            kept, dropped = _filter_known_skills(list(t.skills))
+            if dropped and not quiet:
+                msg = (
+                    f"(dynamic) warning: dropping unknown skill_id(s) from {t.id}: "
+                    f"{dropped!r}. Known: {', '.join(sorted(known_skill))}"
+                )
+                if strict_skill:
+                    raise ValueError(msg)
+                print(msg, file=sys.stderr)
+            new_task_defs_skill.append(replace(t, skills=kept))
+        task_definitions = new_task_defs_skill
+
     return WorkflowConfig(
         name="dynamic-plan",
         process="sequential",
@@ -857,6 +973,7 @@ def workflow_config_from_plan(
         instance_key=instance_key,
         agent_providers=provider_payloads,
         mcp_providers=mcp_plan_ids,
+        skills=skill_plan_ids,
         tasks=task_definitions,
         task_sequence=[t.id for t in task_definitions],
     )
@@ -968,12 +1085,115 @@ def _prune_irrelevant_mcp_from_user_goal(
     return replace(cfg, mcp_providers=kept)
 
 
+def _prune_irrelevant_skills_from_user_goal(
+    cfg: WorkflowConfig,
+    *,
+    user_prompt: str,
+    skill_catalog: list[dict[str, Any]],
+    quiet: bool,
+) -> WorkflowConfig:
+    """
+    Guardrail: if the planner selected skill ids that don't match the user goal,
+    drop them instead of forcing irrelevant procedural instructions.
+    """
+    if not skill_catalog:
+        return cfg
+    if not cfg.skills:
+        return cfg
+    suggested = set(suggest_skill_ids_from_user_goal(user_prompt, skill_catalog))
+    if not suggested:
+        if not quiet:
+            print(
+                f"(dynamic) skill relevance: dropping default skill_ids {cfg.skills!r} "
+                f"(no skill keywords matched goal)",
+                file=sys.stderr,
+            )
+        return replace(cfg, skills=[])
+
+    kept: list[str] = []
+    dropped: list[str] = []
+    for x in cfg.skills:
+        sx = str(x).strip()
+        if not sx:
+            continue
+        if sx in suggested:
+            kept.append(sx)
+        else:
+            dropped.append(sx)
+
+    if dropped and not quiet:
+        print(
+            f"(dynamic) skill relevance: dropped {dropped!r}; kept {kept!r}",
+            file=sys.stderr,
+        )
+    return replace(cfg, skills=kept)
+
+
+def _dynamic_plan_resolves_no_skills(
+    cfg: WorkflowConfig,
+    skill_catalog: list[dict[str, Any]],
+) -> bool:
+    if not skill_catalog:
+        return False
+    for t in cfg.tasks:
+        raw = raw_skill_spec_for_task(t, cfg)
+        if resolve_workflow_skill_refs(raw, skill_catalog):
+            return False
+    return True
+
+
+def _maybe_augment_skills_from_user_goal(
+    cfg: WorkflowConfig,
+    *,
+    user_prompt: str,
+    skill_catalog: list[dict[str, Any]],
+    quiet: bool,
+) -> WorkflowConfig:
+    if not skill_catalog:
+        return cfg
+    if goal_requires_machine_readable_only(user_prompt):
+        return cfg
+    if os.getenv("AGENTIC_DISABLE_SKILL_GOAL_MATCH", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return cfg
+    if not _dynamic_plan_resolves_no_skills(cfg, skill_catalog):
+        return cfg
+    suggested = suggest_skill_ids_from_user_goal(user_prompt, skill_catalog)
+    if not suggested:
+        return cfg
+
+    merged: list[str] = []
+    seen_ids: set[str] = set()
+    for x in cfg.skills:
+        sx = str(x).strip()
+        if sx and sx not in seen_ids:
+            seen_ids.add(sx)
+            merged.append(sx)
+    for sid in suggested:
+        if sid not in seen_ids:
+            seen_ids.add(sid)
+            merged.append(sid)
+
+    if not quiet:
+        print(
+            f"(dynamic) skill auto-match: default skill_ids {merged!r} "
+            f"(planner resolved no skills; user goal matched {suggested!r})",
+            file=sys.stderr,
+        )
+    return replace(cfg, skills=merged)
+
+
 def build_dynamic_workflow_config(
     *,
     user_prompt: str,
     catalog_path: Path,
     allowed_agent_provider_ids: list[str] | None = None,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
     instance_key: str | None = None,
     max_steps: int | None = None,
     planner_model: str | None = None,
@@ -1085,6 +1305,16 @@ def build_dynamic_workflow_config(
         )
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
+    skill_entries: list[dict[str, Any]] = []
+    if agent_skills_catalog_path is not None:
+        skill_entries = load_agent_skills_catalog_merged(agent_skills_catalog_path)
+        skill_entries, _skipped_skills = filter_skill_entries_by_credentials(
+            skill_entries,
+            verbose=not quiet,
+            log_prefix="(dynamic) skills catalog",
+        )
+    skills_doc = skills_catalog_for_planner_prompt(skill_entries)
+
     doc = catalog_for_planner_prompt(entries)
     learning_summary = ""
     kb_context = ""
@@ -1116,6 +1346,7 @@ def build_dynamic_workflow_config(
         max_steps=limit,
         last_crew_excerpt=last_excerpt,
         mcp_catalog_doc=mcp_doc,
+        skills_catalog_doc=skills_doc,
         learning_summary=learning_summary,
         kb_context=kb_context,
     )
@@ -1134,7 +1365,7 @@ def build_dynamic_workflow_config(
                     f"Problem: {reason}\n\n"
                     "Return a corrected JSON object that strictly matches the schema: "
                     "`plan_summary`, non-empty `steps` with `agent_provider_id` / `description` / `expected_output`, "
-                    "optional `mcp_provider_ids`. "
+                    "optional `mcp_provider_ids` and `skill_ids`. "
                     "Do NOT reply with only user-wire keys like `minutes`—that is not the planner schema."
                 ),
             }
@@ -1149,6 +1380,7 @@ def build_dynamic_workflow_config(
                 instance_key=key,
                 max_steps=limit,
                 mcp_catalog_entries=mcp_entries,
+                skill_catalog_entries=skill_entries,
                 quiet=quiet,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1173,6 +1405,7 @@ def build_dynamic_workflow_config(
             instance_key=key,
             max_steps=limit,
             mcp_catalog_entries=mcp_entries,
+            skill_catalog_entries=skill_entries,
             quiet=quiet,
         )
     except Exception as exc:  # noqa: BLE001
@@ -1202,6 +1435,18 @@ def build_dynamic_workflow_config(
         cfg,
         user_prompt=user_prompt,
         mcp_catalog=mcp_entries,
+        quiet=quiet,
+    )
+    cfg = _prune_irrelevant_skills_from_user_goal(
+        cfg,
+        user_prompt=user_prompt,
+        skill_catalog=skill_entries,
+        quiet=quiet,
+    )
+    cfg = _maybe_augment_skills_from_user_goal(
+        cfg,
+        user_prompt=user_prompt,
+        skill_catalog=skill_entries,
         quiet=quiet,
     )
 

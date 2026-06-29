@@ -17,13 +17,20 @@ from agent_providers.base import AgentProvider
 from agent_providers.factory import agent_provider_from_dict
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
+from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
     mcps_list_fingerprint,
     resolve_workflow_mcp_refs,
 )
+from orchestration.agent_skills_catalog import (
+    partition_skill_entries,
+    resolve_skill_blocks,
+    resolve_task_skill_maps,
+    skills_list_fingerprint,
+)
+from orchestration.agent_skills_context import augment_description_for_skills
 from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
 from orchestration.step_context import prepare_step_description
 
@@ -188,8 +195,10 @@ def build_workflow(
     crew_verbose: bool = True,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
     task_mcp_overrides: dict[str, list[Any]] | None = None,
+    task_skill_overrides: dict[str, list[dict[str, Any]]] | None = None,
 ) -> BuiltWorkflow:
     """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
 
@@ -251,13 +260,39 @@ def build_workflow(
             resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []
         )
 
+    task_skills_resolved = resolve_task_skill_maps(
+        config,
+        skills_catalog_path=agent_skills_catalog_path,
+        quiet=quiet,
+    )
+    if task_skill_overrides is not None:
+        for tid, override in task_skill_overrides.items():
+            task_skills_resolved[tid] = list(override)
+
+    task_skill_blocks: dict[str, list[tuple[str, str]]] = {}
+    backstory_skill_blocks: dict[str, list[tuple[str, str]]] = {}
+    backstory_skill_fp_by_task: dict[str, tuple[str, ...]] = {}
+    for tdef in config.tasks:
+        task_entries, backstory_entries = partition_skill_entries(
+            task_skills_resolved[tdef.id],
+        )
+        task_skill_blocks[tdef.id] = resolve_skill_blocks(task_entries)
+        backstory_skill_blocks[tdef.id] = resolve_skill_blocks(backstory_entries)
+        backstory_skill_fp_by_task[tdef.id] = skills_list_fingerprint(
+            [str(e.get("id", "")).strip() for e in backstory_entries],
+        )
+
     fingerprint_by_task: dict[str, tuple[str, ...]] = {
         tid: mcps_list_fingerprint(mclist) for tid, mclist in task_mcps_resolved.items()
     }
+    agent_cache_fp_by_task: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+        tid: (fingerprint_by_task[tid], backstory_skill_fp_by_task[tid])
+        for tid in fingerprint_by_task
+    }
 
-    groups_by_apid: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+    groups_by_apid: dict[str, set[tuple[tuple[str, ...], tuple[str, ...]]]] = defaultdict(set)
     for tdef in config.tasks:
-        groups_by_apid[tdef.agent_provider_id].add(fingerprint_by_task[tdef.id])
+        groups_by_apid[tdef.agent_provider_id].add(agent_cache_fp_by_task[tdef.id])
 
     if not quiet and any(task_mcps_resolved[t.id] for t in config.tasks):
         for tdef in config.tasks:
@@ -265,6 +300,16 @@ def build_workflow(
             spec_label = raw_spec if raw_spec else "(none — workflow default empty)"
             print(
                 f"(mcp) task {tdef.id!r} -> {len(task_mcps_resolved[tdef.id])} MCP config(s); "
+                f"yaml/plan spec: {spec_label!r}",
+                file=sys.stderr,
+            )
+
+    if not quiet and any(task_skills_resolved[t.id] for t in config.tasks):
+        for tdef in config.tasks:
+            raw_spec = raw_skill_spec_for_task(tdef, config)
+            spec_label = raw_spec if raw_spec else "(none — workflow default empty)"
+            print(
+                f"(skills) task {tdef.id!r} -> {len(task_skills_resolved[tdef.id])} skill(s); "
                 f"yaml/plan spec: {spec_label!r}",
                 file=sys.stderr,
             )
@@ -279,11 +324,11 @@ def build_workflow(
         ap.health_check()
         agent_providers[ap.config.id] = ap
 
-    crew_agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
+    crew_agent_cache: dict[tuple[str, tuple[tuple[str, ...], tuple[str, ...]]], Any] = {}
     mcps_disabled_for_provider: set[str] = set()
     for tdef in config.tasks:
         apid = tdef.agent_provider_id
-        fp = fingerprint_by_task[tdef.id]
+        fp = agent_cache_fp_by_task[tdef.id]
         key = (apid, fp)
         if key in crew_agent_cache:
             continue
@@ -292,10 +337,13 @@ def build_workflow(
         effective_mcps = mcps_list if (mcps_list and apid not in mcps_disabled_for_provider) else []
         role_suffix: str | None = None
         if len(groups_by_apid[apid]) > 1:
-            role_suffix = hashlib.sha256("|".join(fp).encode("utf-8")).hexdigest()[:8]
+            role_suffix = hashlib.sha256(
+                "|".join(fp[0]) + "||" + "|".join(fp[1])
+            ).encode("utf-8").hexdigest()[:8]
         try:
             crew_agent_cache[key] = ap.build_agent(
                 mcps=effective_mcps if effective_mcps else None,
+                skill_backstory_blocks=backstory_skill_blocks[tdef.id] or None,
                 role_suffix=role_suffix,
             )
         except Exception as exc:
@@ -309,6 +357,7 @@ def build_workflow(
                     )
                 crew_agent_cache[key] = ap.build_agent(
                     mcps=None,
+                    skill_backstory_blocks=backstory_skill_blocks[tdef.id] or None,
                     role_suffix=role_suffix,
                 )
             else:
@@ -320,7 +369,7 @@ def build_workflow(
     tasks_by_id: dict[str, Task] = {}
     for task_def in config.tasks:
         apid = task_def.agent_provider_id
-        fp = fingerprint_by_task[task_def.id]
+        fp = agent_cache_fp_by_task[task_def.id]
         agent = crew_agent_cache.get((apid, fp))
         if agent is None:
             raise ValueError(
@@ -329,7 +378,10 @@ def build_workflow(
             )
 
         tasks_by_id[task_def.id] = Task(
-            description=task_def.description,
+            description=augment_description_for_skills(
+                task_def.description,
+                task_skill_blocks[task_def.id],
+            ),
             expected_output=task_def.expected_output,
             agent=agent,
         )
@@ -373,6 +425,9 @@ def build_workflow(
         "process": config.process,
         "topic": topic,
         "task_mcps_resolved": {k: list(v) for k, v in task_mcps_resolved.items()},
+        "task_skills_resolved": {
+            k: [str(e.get("id", "")).strip() for e in v] for k, v in task_skills_resolved.items()
+        },
     }
     return BuiltWorkflow(
         crew=crew,

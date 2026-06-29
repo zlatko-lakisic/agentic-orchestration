@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,16 @@ from orchestration.config_loader import WorkflowConfig, TaskDefinition
 from orchestration.output_artifacts import workflow_result_to_extractable_text
 from orchestration.runner import build_workflow, crew_kickoff_context
 from orchestration.worker_logging import worker_log_context
+from orchestration.worker_step_skills import (
+    prepare_worker_agent_provider_for_skills,
+    prepare_worker_task_description_for_skills,
+    resolve_agent_skills_catalog_path_for_worker,
+    skill_ids_from_step_spec,
+)
+
+
+def _tool_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
 
 def _resolved_mcps_from_spec(data: dict[str, Any]) -> list[Any]:
@@ -50,21 +61,49 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
 
         print(f"loading spec {spec_path.name}", file=sys.stderr)
 
+        tool_root = _tool_root()
         mcp_resolved = _resolved_mcps_from_spec(data)
+        skill_ids = skill_ids_from_step_spec(data)
+        skills_catalog_path = resolve_agent_skills_catalog_path_for_worker(
+            data,
+            tool_root=tool_root,
+        )
+        reresolve_skills = bool(skill_ids and skills_catalog_path is not None)
+        if reresolve_skills:
+            task_description = prepare_worker_task_description_for_skills(
+                str(task.get("description", "")),
+                skill_ids=skill_ids,
+            )
+            provider_payload = prepare_worker_agent_provider_for_skills(
+                agent_provider,
+                skill_ids=skill_ids,
+            )
+            task_skill_ids: list[str] | None = skill_ids
+            workflow_skill_ids = skill_ids
+            catalog_for_build = skills_catalog_path
+        else:
+            task_description = str(task.get("description", ""))
+            provider_payload = deepcopy(agent_provider)
+            task_skill_ids = None
+            workflow_skill_ids = []
+            catalog_for_build = None
+
         cfg = WorkflowConfig(
             name=str(data.get("workflow_name", "execute-step")),
             process="sequential",
             topic=topic,
             instance_key="execute-step",
-            agent_providers=[agent_provider],
+            agent_providers=[provider_payload],
             mcp_providers=[],
+            skills=workflow_skill_ids,
             tasks=[
                 TaskDefinition(
                     id=step_id,
                     agent_provider_id=str(agent_provider["id"]),
-                    description=str(task.get("description", "")),
+                    description=task_description,
                     expected_output=str(task.get("expected_output", "")),
                     mcp_providers=[],
+                    skills=task_skill_ids,
                 )
             ],
             task_sequence=[step_id],
@@ -76,6 +115,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 crew_verbose=False,
                 quiet=True,
                 emit_progress_lines=False,
+                agent_skills_catalog_path=catalog_for_build,
                 task_mcp_overrides={step_id: mcp_resolved} if mcp_resolved else None,
             )
             if run_store:

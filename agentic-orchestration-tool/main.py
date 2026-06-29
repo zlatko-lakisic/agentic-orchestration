@@ -54,6 +54,7 @@ from orchestration.workflow_router import select_workflow_with_ollama
 _DEFAULT_CONFIG_PATH = "config/workflows/workflow.yaml"
 _DEFAULT_AGENT_PROVIDERS_CATALOG_REL = "config/agent_providers"
 _DEFAULT_MCP_PROVIDERS_CATALOG = "config/mcp_providers"
+_DEFAULT_AGENT_SKILLS_CATALOG = "config/agent_skills"
 
 
 def _default_agent_providers_catalog_arg() -> str:
@@ -214,6 +215,7 @@ def _run_dynamic_workflow_with_hf_fallback(
     *,
     agent_providers_catalog_path: Path,
     mcp_catalog_path: Path | None,
+    agent_skills_catalog_path: Path | None,
     crew_verbose: bool,
     quiet: bool,
     emit_stdout_summary: bool = True,
@@ -233,6 +235,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         crew_verbose=crew_verbose,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
         execution_error_sink=sink,
@@ -263,6 +266,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         crew_verbose=crew_verbose,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
     )
@@ -275,6 +279,7 @@ def execute_workflow_from_config(
     crew_verbose: bool = True,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
     emit_stdout_summary: bool = True,
     emit_progress_lines: bool = True,
     execution_error_sink: list[str] | None = None,
@@ -288,6 +293,7 @@ def execute_workflow_from_config(
         log_terminal_execution_failure=log_terminal_execution_failure,
         crew_verbose=crew_verbose,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         emit_progress_lines=emit_progress_lines,
     )
     return execute_workflow_config_resolved(config, options=options)
@@ -299,6 +305,7 @@ def run_workflow(
     topic_override: str | None = None,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
 ) -> tuple[int, str | None]:
     """Load workflow YAML, run crew; return (exit code, final output text if any)."""
     result = run_workflow_execution(
@@ -306,6 +313,7 @@ def run_workflow(
         topic_override=topic_override,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
     )
     return result.exit_code, result.result_text
 
@@ -316,6 +324,7 @@ def run_workflow_execution(
     topic_override: str | None = None,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
 ) -> WorkflowExecutionResult:
     """Load workflow YAML and return the backend execution result (F3 post-run adapter entry)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
@@ -324,6 +333,7 @@ def run_workflow_execution(
         crew_verbose=not quiet,
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
     )
 
 
@@ -339,6 +349,7 @@ def run_interactive_router(
     verify_saved: bool,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for tasks until quit; Ollama router picks a catalog workflow each time."""
     entries = discover_workflow_catalog(config_dir)
@@ -421,6 +432,7 @@ def run_interactive_fixed_config(
     verify_saved: bool,
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
+    agent_skills_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for topics until quit; always runs the same workflow file."""
     if not config_path.exists():
@@ -453,6 +465,7 @@ def run_interactive_fixed_config(
             topic_override=task,
             quiet=quiet,
             mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         )
         if exit_code == 0 and result_text:
             saved = offer_save_extracted_files(
@@ -689,6 +702,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--agent-skills-catalog",
+        default=_DEFAULT_AGENT_SKILLS_CATALOG,
+        metavar="PATH",
+        help=(
+            f"Directory of one YAML per agent skill (procedural instructions injected into tasks). "
+            f"Or a bundle YAML with 'agent_skills'. "
+            f"Default {_DEFAULT_AGENT_SKILLS_CATALOG!r}; missing path loads no skill catalog entries. "
+            f"Also merges directories in AGENTIC_EXTRA_AGENT_SKILLS_PATH ({os.pathsep}-separated)."
+        ),
+    )
+    parser.add_argument(
         "--orchestrator-session",
         default=None,
         metavar="NAME",
@@ -799,6 +823,11 @@ def main() -> None:
         (tool_root / args.mcp_providers_catalog).resolve()
         if not Path(args.mcp_providers_catalog).is_absolute()
         else Path(args.mcp_providers_catalog)
+    )
+    agent_skills_catalog_path = (
+        (tool_root / args.agent_skills_catalog).resolve()
+        if not Path(args.agent_skills_catalog).is_absolute()
+        else Path(args.agent_skills_catalog)
     )
     selected_dynamic_provider_ids = _parse_dynamic_agent_provider_ids(
         str(getattr(args, "dynamic_agent_provider_ids", "") or "")
@@ -918,6 +947,7 @@ def main() -> None:
                     catalog_path=agent_providers_catalog_path,
                     allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
+                    agent_skills_catalog_path=agent_skills_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
                     tool_root=tool_root,
@@ -926,6 +956,13 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 print(f"(dynamic-iter) planning failed: {exc}", file=sys.stderr)
                 sys.exit(1)
+
+            try:
+                from orchestration.learning_store import emit_run_rating_meta
+
+                emit_run_rating_meta(dyn_cfg)
+            except Exception:  # noqa: BLE001
+                pass
 
             summary = plan.get("plan_summary")
             if not args.quiet and isinstance(summary, str) and summary.strip():
@@ -964,6 +1001,7 @@ def main() -> None:
                 dyn_cfg,
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
+                agent_skills_catalog_path=agent_skills_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 emit_stdout_summary=stream_iter_steps,
@@ -977,21 +1015,20 @@ def main() -> None:
             try:
                 from orchestration.learning_store import (
                     append_trace_event,
+                    attachment_fingerprint_for_task,
                     learning_enabled,
                     load_stats,
-                    mcp_fingerprint_from_ids,
                     save_stats,
                     update_provider_score,
                 )
 
                 if learning_enabled():
                     provider_id = dyn_cfg.tasks[0].agent_provider_id if dyn_cfg.tasks else "unknown"
-                    mcp_ids = (
-                        dyn_cfg.tasks[0].mcp_providers
-                        if (dyn_cfg.tasks and dyn_cfg.tasks[0].mcp_providers is not None)
-                        else dyn_cfg.mcp_providers
+                    fp = (
+                        attachment_fingerprint_for_task(dyn_cfg.tasks[0], dyn_cfg)
+                        if dyn_cfg.tasks
+                        else "none"
                     )
-                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                     eval_data = evaluate_run_quality(
                         user_goal=compose_goal(logical_goal),
                         output_text=result_text or "",
@@ -1136,6 +1173,7 @@ def main() -> None:
                     catalog_path=agent_providers_catalog_path,
                     allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
+                    agent_skills_catalog_path=agent_skills_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
                     tool_root=tool_root,
@@ -1145,10 +1183,18 @@ def main() -> None:
                 print(f"(dynamic-iter) synthesis planning failed: {exc}", file=sys.stderr)
                 sys.exit(1)
 
+            try:
+                from orchestration.learning_store import emit_run_rating_meta
+
+                emit_run_rating_meta(synth_cfg)
+            except Exception:  # noqa: BLE001
+                pass
+
             exit_code, result_text, synth_cfg = _run_dynamic_workflow_with_hf_fallback(
                 synth_cfg,
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
+                agent_skills_catalog_path=agent_skills_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 emit_stdout_summary=True,
@@ -1162,15 +1208,16 @@ def main() -> None:
             )
             try:
                 from orchestration.knowledge_base import add_document
-                from orchestration.learning_store import mcp_fingerprint_from_ids
+                from orchestration.learning_store import (
+                    attachment_fingerprint_for_task,
+                )
 
                 provider_id = synth_cfg.tasks[0].agent_provider_id if synth_cfg.tasks else "unknown"
-                mcp_ids = (
-                    synth_cfg.tasks[0].mcp_providers
-                    if (synth_cfg.tasks and synth_cfg.tasks[0].mcp_providers is not None)
-                    else synth_cfg.mcp_providers
+                fp = (
+                    attachment_fingerprint_for_task(synth_cfg.tasks[0], synth_cfg)
+                    if synth_cfg.tasks
+                    else "none"
                 )
-                fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                 add_document(
                     tool_root=tool_root,
                     session_slug=slug,
@@ -1184,21 +1231,20 @@ def main() -> None:
             try:
                 from orchestration.learning_store import (
                     append_trace_event,
+                    attachment_fingerprint_for_task,
                     learning_enabled,
                     load_stats,
-                    mcp_fingerprint_from_ids,
                     save_stats,
                     update_provider_score,
                 )
 
                 if learning_enabled():
                     provider_id = synth_cfg.tasks[0].agent_provider_id if synth_cfg.tasks else "unknown"
-                    mcp_ids = (
-                        synth_cfg.tasks[0].mcp_providers
-                        if (synth_cfg.tasks and synth_cfg.tasks[0].mcp_providers is not None)
-                        else synth_cfg.mcp_providers
+                    fp = (
+                        attachment_fingerprint_for_task(synth_cfg.tasks[0], synth_cfg)
+                        if synth_cfg.tasks
+                        else "none"
                     )
-                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
                     eval_data = evaluate_run_quality(
                         user_goal=cache_goal,
                         output_text=result_text or "",
@@ -1354,6 +1400,7 @@ def main() -> None:
                 catalog_path=agent_providers_catalog_path,
                 allowed_agent_provider_ids=selected_dynamic_provider_ids,
                 mcp_catalog_path=mcp_catalog_path,
+                agent_skills_catalog_path=agent_skills_catalog_path,
                 session_path=orchestrator_session_path,
                 tool_root=tool_root,
                 quiet=args.quiet,
@@ -1361,6 +1408,12 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"(dynamic) planning failed: {exc}", file=sys.stderr)
             sys.exit(1)
+        try:
+            from orchestration.learning_store import emit_run_rating_meta
+
+            emit_run_rating_meta(dyn_cfg)
+        except Exception:  # noqa: BLE001
+            pass
         summary = plan.get("plan_summary")
         if not args.quiet:
             if isinstance(summary, str) and summary.strip():
@@ -1379,6 +1432,7 @@ def main() -> None:
             dyn_cfg,
             agent_providers_catalog_path=agent_providers_catalog_path,
             mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
             crew_verbose=not args.quiet,
             quiet=args.quiet,
             emit_stdout_summary=True,
@@ -1397,11 +1451,13 @@ def main() -> None:
         )
         try:
             from orchestration.knowledge_base import add_document
-            from orchestration.learning_store import mcp_fingerprint_from_ids
+            from orchestration.learning_store import attachment_fingerprint_from_specs
 
             provider_id = dyn_cfg.tasks[-1].agent_provider_id if dyn_cfg.tasks else "unknown"
-            # Use workflow default MCP ids for KB metadata (good enough).
-            fp = mcp_fingerprint_from_ids(list(dyn_cfg.mcp_providers or []))
+            fp = attachment_fingerprint_from_specs(
+                list(dyn_cfg.mcp_providers or []),
+                list(dyn_cfg.skills or []),
+            )
             add_document(
                 tool_root=tool_root,
                 session_slug=slug,
@@ -1415,9 +1471,9 @@ def main() -> None:
         try:
             from orchestration.learning_store import (
                 append_trace_event,
+                attachment_fingerprint_for_task,
                 learning_enabled,
                 load_stats,
-                mcp_fingerprint_from_ids,
                 save_stats,
                 update_provider_score,
             )
@@ -1425,8 +1481,7 @@ def main() -> None:
             if learning_enabled():
                 used = []
                 for t in dyn_cfg.tasks:
-                    mcp_ids = t.mcp_providers if t.mcp_providers is not None else dyn_cfg.mcp_providers
-                    fp = mcp_fingerprint_from_ids(list(mcp_ids or []))
+                    fp = attachment_fingerprint_for_task(t, dyn_cfg)
                     used.append((t.agent_provider_id, fp))
                 eval_data = evaluate_run_quality(
                     user_goal=cache_goal,
@@ -1485,6 +1540,7 @@ def main() -> None:
             topic_override=args.task,
             quiet=args.quiet,
             mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         )
         if exit_code:
             sys.exit(exit_code)
@@ -1527,6 +1583,7 @@ def main() -> None:
             topic_override=None,
             quiet=args.quiet,
             mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
         )
         if execution.exit_code:
             sys.exit(execution.exit_code)
@@ -1565,6 +1622,7 @@ def main() -> None:
         verify_saved=verify_saved,
         quiet=args.quiet,
         mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
     )
 
 

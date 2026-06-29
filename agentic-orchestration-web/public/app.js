@@ -197,6 +197,39 @@ function unwrapJsonLikeAssistantText(text) {
     return `${pct}% - ${rest}`;
   }
 
+  const RUN_RATING_META_PREFIX = "(agentic) run_rating_meta:";
+
+  function applyRatingMetaFromText(text) {
+    if (!text) return;
+    const parts = String(text).split(/\r?\n/);
+    for (const rawLine of parts) {
+      const line = rawLine.trim();
+      if (!line.includes(RUN_RATING_META_PREFIX)) continue;
+      const jsonPart = line.slice(line.indexOf(RUN_RATING_META_PREFIX) + RUN_RATING_META_PREFIX.length).trim();
+      if (!jsonPart) continue;
+      try {
+        const meta = JSON.parse(jsonPart);
+        if (!lastRunRatingPayload) {
+          lastRunRatingPayload = {
+            sessionId: sessionId || "",
+            providerId: "",
+            attachmentFingerprint: "none",
+            mcpFingerprint: "none",
+            taskTag: "general",
+          };
+        }
+        if (meta.provider_id) lastRunRatingPayload.providerId = String(meta.provider_id);
+        if (meta.attachment_fingerprint) {
+          const fp = String(meta.attachment_fingerprint);
+          lastRunRatingPayload.attachmentFingerprint = fp;
+          lastRunRatingPayload.mcpFingerprint = fp;
+        }
+      } catch {
+        // ignore malformed meta lines
+      }
+    }
+  }
+
   function applyProgressFromText(text) {
     if (!text || !activityLabel) return;
     // Update activity bar with the latest "(progress) ..." line.
@@ -420,6 +453,7 @@ function unwrapJsonLikeAssistantText(text) {
           assistantBubble.textContent += line;
           if (data.stream === "stderr") {
             assistantBubble.classList.add("stderr");
+            applyRatingMetaFromText(line);
           }
         } else if (data.stream === "stdout") {
           stdoutBuf += line;
@@ -427,6 +461,7 @@ function unwrapJsonLikeAssistantText(text) {
         } else {
           stderrBuf += line;
           applyProgressFromText(line);
+          applyRatingMetaFromText(line);
         }
         if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
         return;
@@ -771,10 +806,11 @@ function unwrapJsonLikeAssistantText(text) {
     }
     ws.send(JSON.stringify(payload));
     resetSessionEl.checked = false;
-    // Prepare rating envelope; provider/mcp are filled by Python traces (not available in UI).
+    // Prepare rating envelope; provider/attachment fp filled from Python stderr meta.
     lastRunRatingPayload = {
       sessionId: sessionId || "",
       providerId: "",
+      attachmentFingerprint: "none",
       mcpFingerprint: "none",
       taskTag: inferTaskTag(text),
     };

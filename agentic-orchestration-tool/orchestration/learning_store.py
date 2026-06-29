@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+RUN_RATING_META_PREFIX = "(agentic) run_rating_meta:"
 
 
 LEARNING_DIR_NAME = "__orchestrator_learning__"
@@ -59,7 +63,7 @@ def append_trace_event(tool_root: Path, event: dict[str, Any]) -> None:
 @dataclass
 class ProviderKey:
     provider_id: str
-    mcp_fingerprint: str
+    mcp_fingerprint: str  # MCP digest, skill digest, or ``{mcp}+{skills}`` combined
     task_tag: str
 
     def as_key(self) -> str:
@@ -177,14 +181,61 @@ def update_provider_score(
 
 def mcp_fingerprint_from_ids(mcp_provider_ids: list[Any] | None) -> str:
     """Stable fingerprint for a list of MCP ids (strings)."""
-    raw = []
-    for x in (mcp_provider_ids or []):
-        s = str(x).strip()
-        if s:
-            raw.append(s)
-    raw = sorted(set(raw))
+    return _catalog_ids_fingerprint(mcp_provider_ids)
+
+
+def skill_fingerprint_from_ids(skill_ids: list[Any] | None) -> str:
+    """Stable fingerprint for a list of agent skill catalog ids."""
+    return _catalog_ids_fingerprint(skill_ids)
+
+
+def _catalog_ids_fingerprint(ids: list[Any] | None) -> str:
+    raw = sorted({str(x).strip() for x in (ids or []) if str(x).strip()})
     digest = hashlib.sha256(json.dumps(raw, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
     return digest if raw else "none"
+
+
+def attachment_fingerprint_from_specs(
+    mcp_provider_ids: list[Any] | None,
+    skill_ids: list[Any] | None,
+) -> str:
+    """Stable fingerprint for MCP + skill attachments (learning/KB stat keys)."""
+    mcp_fp = mcp_fingerprint_from_ids(mcp_provider_ids)
+    skill_fp = skill_fingerprint_from_ids(skill_ids)
+    if mcp_fp == "none" and skill_fp == "none":
+        return "none"
+    if mcp_fp == "none":
+        return skill_fp
+    if skill_fp == "none":
+        return mcp_fp
+    return f"{mcp_fp}+{skill_fp}"
+
+
+def attachment_fingerprint_for_task(task: Any, config: Any) -> str:
+    """Fingerprint MCP + skill ids resolved for one task (inherits workflow defaults)."""
+    from orchestration.config_loader import raw_mcp_spec_for_task, raw_skill_spec_for_task
+
+    return attachment_fingerprint_from_specs(
+        raw_mcp_spec_for_task(task, config),
+        raw_skill_spec_for_task(task, config),
+    )
+
+
+def emit_run_rating_meta(config: Any, *, task_index: int = -1) -> None:
+    """Emit one stderr JSON line for web UI thumbs up/down (MCP + skill attachment fp)."""
+    tasks = getattr(config, "tasks", None) or []
+    if not tasks:
+        return
+    task = tasks[task_index]
+    payload = {
+        "provider_id": str(getattr(task, "agent_provider_id", "") or "").strip() or "unknown",
+        "attachment_fingerprint": attachment_fingerprint_for_task(task, config),
+    }
+    print(
+        f"{RUN_RATING_META_PREFIX}{json.dumps(payload, separators=(',', ':'))}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def planner_performance_summary(

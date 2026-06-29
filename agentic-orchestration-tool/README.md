@@ -4,7 +4,7 @@
   <img src="../assets/logo.png" alt="Agentic Orchestration" width="360" />
 </p>
 
-YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration, plus an MCP **catalog** under `config/mcp_providers/` for dynamic and static runs (Streamable HTTP, env-gated entries, optional `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`).
+YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration, plus MCP and agent-skills **catalogs** under `config/mcp_providers/` and `config/agent_skills/` for dynamic and static runs (env-gated entries, optional extra catalog paths).
 
 ## Features
 
@@ -271,6 +271,16 @@ Each file documents **what the integration does**, **capabilities**, and **when 
 Shipped ids include **`home_assistant`**, **`search_brave`**, **`search_tavily`**, **`search_exa`**, **`fetch_url`**, **`memory_knowledge_graph`**, **`filesystem_local`** — see comments in each YAML for required env vars and awesome-mcp-servers cross-links.
 
 Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository for this project (often checked out beside the main repo). Broader discovery: **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)**.
+
+## Agent skills catalog
+
+Templates live in **`config/agent_skills/`** (one YAML per procedural skill — release checklists, review playbooks, domain runbooks). The CLI flag **`--agent-skills-catalog`** points at that directory (or a bundle YAML with an `agent_skills` list). Extra directories merge via **`AGENTIC_EXTRA_AGENT_SKILLS_PATH`**.
+
+Skills inject **markdown instructions** into task descriptions (default) or agent backstory — they do not add callable tools (use MCP for that). Attach per workflow/task in static YAML (`workflow.skills`, `task.skills`) or let the dynamic planner emit `skill_ids`. Distributed workers (`--execute-step`) re-resolve skill ids from the catalog path recorded in `StepSpec.paths.agent_skills_catalog`.
+
+Shipped skill ids: **`echo_skill`**, **`release_process`**, **`pr_review`**. Smoke workflow: `config/workflows/workflow_agent_skills_smoke.yaml`.
+
+Useful env vars: `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`, `AGENTIC_DISABLE_SKILL_GOAL_MATCH`, `AGENTIC_STRICT_SKILL_IDS`. See **`.env.example`** and wiki **`Agent-skills-roadmap`**.
 
 ## Tests
 
