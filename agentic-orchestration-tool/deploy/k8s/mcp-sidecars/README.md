@@ -1,29 +1,43 @@
 # MCP sidecars and HTTP gateways (K4)
 
-Stdio MCPs (`fetch_url`, `filesystem_local`, …) cannot spawn subprocesses inside ephemeral worker pods. Phase 4 provides two patterns:
+Stdio MCPs need a K8s-compatible transport. Phase 4 provides three patterns:
 
-## 1. In-pod supergateway sidecar (K4.1)
+## 0. Worker-native stdio (recommended for `fetch_url`)
 
-Worker Job pod = **worker container** + **supergateway sidecar** that bridges stdio MCP → streamable HTTP on `localhost`.
-
-Enable per MCP id:
+The worker image includes `mcp-server-fetch`. The worker container spawns stdio MCP subprocesses directly (same as in-process mode).
 
 ```env
-AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url
+AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url   # default
 AGENTIC_MCP_FETCH_ENABLED=1
 ```
 
-The coordinator rewrites the step spec so the worker uses `http://127.0.0.1:8080/mcp` instead of stdio.
+No supergateway sidecar or cluster gateway required. Smoke test: `config/workflows/workflow_fetch_sidecar_smoke.yaml`.
+
+## 1. In-pod supergateway sidecar (K4.1)
+
+Worker Job pod = **worker container** + **supergateway init sidecar** that bridges stdio MCP → streamable HTTP on `localhost`.
+
+Use for MCPs not bundled in the worker image (e.g. `filesystem_local`):
+
+```env
+AGENTIC_K8S_POD_SIDECAR_MCPS=filesystem_local
+```
+
+Optional bridge tuning:
+
+```env
+AGENTIC_K8S_SUPERGATEWAY_STATEFUL=1
+```
+
+Note: CrewAI + supergateway Streamable HTTP may return HTTP 400 for some MCPs; use worker stdio for `fetch_url` instead. Repro: `python scripts/mcp-fetch-supergateway-repro.py --crewai`.
 
 See `worker-with-fetch-sidecar.example.yaml`.
 
-Sidecar image (override if needed):
+Sidecar image:
 
 ```env
 AGENTIC_K8S_SUPERGATEWAY_IMAGE=supercorp/supergateway:uvx
 ```
-
-Worker image must include the stdio server (`mcp-server-fetch` is in `Dockerfile.worker`).
 
 ## 2. Cluster HTTP gateway (K4.2)
 

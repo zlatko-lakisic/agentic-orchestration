@@ -4,3 +4,4 @@ python-dotenv
 pyyaml
 httpx
 kubernetes>=29.0
+mcp-server-fetch

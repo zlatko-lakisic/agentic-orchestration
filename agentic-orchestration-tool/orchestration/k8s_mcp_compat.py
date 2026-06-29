@@ -37,6 +37,9 @@ K8S_SIDECAR_MCP_IDS: frozenset[str] = frozenset(
     }
 )
 
+# Stdio MCPs run inside the worker container (mcp-server-fetch in worker image; Option A).
+K8S_WORKER_STDIO_MCP_IDS_DEFAULT = frozenset({"fetch_url"})
+
 SHIPPED_MCP_IDS: frozenset[str] = K8S_NATIVE_MCP_IDS | K8S_STDIO_MCP_IDS
 
 # Env var holding HTTP gateway base URL for a stdio MCP (runtime policy — no YAML schema change).
@@ -76,6 +79,20 @@ def k8s_pod_sidecar_mcp_ids_from_env() -> frozenset[str]:
     return frozenset(ids & K8S_SIDECAR_MCP_IDS)
 
 
+def k8s_worker_stdio_mcp_ids_from_env() -> frozenset[str]:
+    """MCP ids allowed as stdio subprocesses inside the worker container (not sidecar)."""
+    raw = os.getenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "fetch_url").strip()
+    if raw.lower() in ("", "0", "false", "none", "off"):
+        return frozenset()
+    ids = {part.strip() for part in raw.split(",") if part.strip()}
+    return frozenset(ids & K8S_STDIO_MCP_IDS)
+
+
+def k8s_supergateway_stateful_from_env() -> bool:
+    raw = os.getenv("AGENTIC_K8S_SUPERGATEWAY_STATEFUL", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def is_k8s_native_mcp(mcp_id: str) -> bool:
     return mcp_id in K8S_NATIVE_MCP_IDS
 
@@ -105,12 +122,15 @@ def filter_mcp_ids_for_kubernetes(
     if allow_stdio is None:
         allow_stdio = k8s_allow_stdio_mcps_from_env()
     sidecar_ids = k8s_pod_sidecar_mcp_ids_from_env()
+    worker_stdio_ids = k8s_worker_stdio_mcp_ids_from_env()
     allowed: list[str] = []
     excluded: list[str] = []
     for mcp_id in mcp_ids:
         if is_k8s_native_mcp(mcp_id):
             allowed.append(mcp_id)
         elif mcp_has_k8s_gateway(mcp_id):
+            allowed.append(mcp_id)
+        elif mcp_id in worker_stdio_ids:
             allowed.append(mcp_id)
         elif mcp_id in sidecar_ids and is_k8s_stdio_mcp(mcp_id):
             allowed.append(mcp_id)
@@ -182,9 +202,12 @@ def pod_sidecar_mcp_ids_for_step(mcp_ids: list[str]) -> list[str]:
     configured = k8s_pod_sidecar_mcp_ids_from_env()
     if not configured:
         return []
+    worker_stdio = k8s_worker_stdio_mcp_ids_from_env()
     out: list[str] = []
     for mcp_id in mcp_ids:
         if mcp_id not in configured:
+            continue
+        if mcp_id in worker_stdio:
             continue
         if mcp_has_k8s_gateway(mcp_id):
             continue
@@ -255,18 +278,23 @@ def sidecar_containers_for_mcps(mcp_ids: list[str]) -> list[dict[str, Any]]:
             continue
 
         stdio_joined = " ".join(stdio_cmd)
+        args = [
+            "--stdio",
+            stdio_joined,
+            "--port",
+            port,
+            "--outputTransport",
+            "streamableHttp",
+            "--protocolVersion",
+            "2024-11-05",
+        ]
+        if k8s_supergateway_stateful_from_env():
+            args.append("--stateful")
         containers.append(
             {
                 "name": name,
                 "image": SUPERGATEWAY_IMAGE,
-                "args": [
-                    "--stdio",
-                    stdio_joined,
-                    "--port",
-                    port,
-                    "--outputTransport",
-                    "streamableHttp",
-                ],
+                "args": args,
             }
         )
     return containers

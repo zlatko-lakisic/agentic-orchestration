@@ -1,9 +1,9 @@
-# K4 local smoke: one step with fetch_url via in-pod supergateway sidecar.
-# Requires AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url and AGENTIC_MCP_FETCH_ENABLED=1.
+# K4 local smoke: one step with fetch_url via worker-native stdio (mcp-server-fetch in worker image).
+# Requires AGENTIC_MCP_FETCH_ENABLED=1 and AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url (default).
 meta:
   id: fetch_sidecar_smoke
-  summary: Fetch example.com via fetch_url MCP sidecar on K8s
-  description: Validates supergateway sidecar + worker can call streamable HTTP MCP in a Job pod.
+  summary: Fetch example.com via fetch_url MCP in K8s worker (stdio)
+  description: Validates mcp-server-fetch stdio inside the worker Job pod (Option A).
   good_for:
     - K4 sidecar smoke on kind
 
@@ -30,8 +30,8 @@ workflow:
       mcp_providers:
         - "fetch_url"
       description: >
-        Use the fetch tool to retrieve the page at {topic}. Reply in one sentence whether
-        the fetch succeeded and whether the content mentions "Example Domain".
+        Use the fetch tool to retrieve the page at https://example.com (use this exact URL).
+        Reply in one sentence whether the fetch succeeded and whether the content mentions "Example Domain".
       expected_output: "One sentence confirming fetch result and Example Domain mention."
 
   task_sequence:

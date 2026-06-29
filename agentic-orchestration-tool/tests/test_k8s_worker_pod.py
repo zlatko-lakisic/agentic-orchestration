@@ -36,3 +36,12 @@ def test_sidecar_fetch_uses_supergateway() -> None:
     assert len(containers) == 1
     assert "supergateway" in containers[0]["image"]
     assert "8080" in containers[0]["args"]
+    assert "--protocolVersion" in containers[0]["args"]
+    assert "2024-11-05" in containers[0]["args"]
+
+
+@pytest.mark.unit
+def test_sidecar_fetch_stateful_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_K8S_SUPERGATEWAY_STATEFUL", "1")
+    containers = sidecar_containers_for_mcps(["fetch_url"])
+    assert "--stateful" in containers[0]["args"]

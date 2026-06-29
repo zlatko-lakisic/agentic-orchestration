@@ -1,11 +1,8 @@
-# Pre-publish local verification: unit/integration tests + kind cluster e2e + LLM + K4 gateway.
-# Usage: powershell -File scripts/k8s-local-verify.ps1 [-SkipLlm] [-SkipSidecar] [-RecreateCluster]
-#
-# Note: fetch_url MCP via supergateway may fail CrewAI client handshake (HTTP 400) — gateway
-# rollout + sidecar pod spec are still verified; full fetch LLM smoke is optional (-SkipSidecar).
+# Pre-publish local verification: unit/integration tests + kind cluster e2e + LLM + K4 fetch smoke.
+# Usage: powershell -File scripts/k8s-local-verify.ps1 [-SkipLlm] [-SkipFetchSmoke] [-RecreateCluster]
 param(
     [switch]$SkipLlm,
-    [switch]$SkipSidecar,
+    [switch]$SkipFetchSmoke,
     [switch]$RecreateCluster
 )
 
@@ -120,7 +117,7 @@ Write-Step "Sync K8s env secret"
 $SecretEnv = Join-Path $env:TEMP "agentic-k8s-secret.env"
 $extra = @(
     "AGENTIC_MCP_FETCH_ENABLED=1",
-    "AGENTIC_K8S_POD_SIDECAR_MCPS=fetch_url"
+    "AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url"
 )
 $lines = @()
 Get-Content (Join-Path $ToolRoot ".env") | ForEach-Object {
@@ -154,10 +151,14 @@ $env:AGENTIC_K8S_WORKER_IMAGE = $StubImage
 & $Python -m pytest tests/test_kind_kubernetes_e2e.py -m kind_e2e -o 'addopts=-ra' --tb=short
 Assert-LastExit 0 "kind stub e2e"
 
-if (-not $SkipLlm) {
-    Write-Step "Kind e2e (real worker + LLM) - workflow_brainstorm"
+if (-not $SkipLlm -or -not $SkipFetchSmoke) {
+    Write-Step "Load real worker image into kind"
     & $KindExe load docker-image $WorkerImage --name $ClusterName
     Assert-LastExit 0 "worker image load"
+}
+
+if (-not $SkipLlm) {
+    Write-Step "Kind e2e (real worker + LLM) - workflow_brainstorm"
     $env:AGENTIC_K8S_WORKER_IMAGE = $WorkerImage
     Remove-Item Env:AGENTIC_KIND_E2E -ErrorAction SilentlyContinue
     & $Python main.py config/workflows/workflow_brainstorm.yaml --quiet
@@ -169,17 +170,15 @@ kubectl apply -f (Join-Path $ToolRoot "deploy\k8s\mcp-sidecars\fetch-url-gateway
 kubectl rollout status deployment/agentic-mcp-fetch -n agentic-orchestration --timeout=180s
 Assert-LastExit 0 "fetch gateway rollout"
 
-if (-not $SkipSidecar) {
-    Write-Step "K4 fetch MCP smoke (optional LLM + fetch_url)"
-    Write-Host "Note: may fail on CrewAI/supergateway protocol mismatch; gateway rollout above is the hard gate."
+if (-not $SkipFetchSmoke) {
+    Write-Step "K4 fetch MCP smoke (worker stdio fetch_url)"
     Remove-Item Env:AGENTIC_K8S_POD_SIDECAR_MCPS -ErrorAction SilentlyContinue
-    $env:AGENTIC_K8S_MCP_FETCH_URL = "http://agentic-mcp-fetch.agentic-orchestration.svc.cluster.local:8080/mcp"
+    Remove-Item Env:AGENTIC_K8S_MCP_FETCH_URL -ErrorAction SilentlyContinue
+    $env:AGENTIC_K8S_WORKER_STDIO_MCPS = "fetch_url"
     $env:AGENTIC_MCP_FETCH_ENABLED = "1"
     $env:AGENTIC_K8S_WORKER_IMAGE = $WorkerImage
     & $Python main.py config/workflows/workflow_fetch_sidecar_smoke.yaml --quiet
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "fetch MCP LLM smoke failed (exit $LASTEXITCODE) - known supergateway/CrewAI issue; continuing." -ForegroundColor Yellow
-    }
+    Assert-LastExit 0 "fetch worker stdio smoke"
 }
 
 Write-Host ""
