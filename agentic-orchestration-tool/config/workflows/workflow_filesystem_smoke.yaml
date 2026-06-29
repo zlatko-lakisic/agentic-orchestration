@@ -31,8 +31,9 @@ workflow:
       mcp_providers:
         - "filesystem_local"
       description: >
-        Use the filesystem MCP tools to read the file hello.txt in the allowed workspace root.
-        Reply in one sentence with the exact first line of that file.
+        The filesystem MCP workspace root is /run/store/mcp-fs-workspace.
+        Use the filesystem MCP read tool on the file /run/store/mcp-fs-workspace/hello.txt
+        (use this exact absolute path). Reply in one sentence with the exact first line of that file.
       expected_output: "One sentence quoting the first line of hello.txt."
 
   task_sequence:

@@ -51,7 +51,7 @@ function Initialize-FilesystemSmokeWorkspace([string]$RunStoreHostPath) {
     $fsRoot = Join-Path ($RunStoreHostPath -replace '/', '\') "mcp-fs-workspace"
     New-Item -ItemType Directory -Force -Path $fsRoot | Out-Null
     $hello = Join-Path $fsRoot "hello.txt"
-    Set-Content -Path $hello -Value "K4 filesystem smoke" -Encoding utf8 -NoNewline
+    [System.IO.File]::WriteAllText($hello, "K4 filesystem smoke", (New-Object System.Text.UTF8Encoding $false))
     Write-Host "Seeded $hello"
 }
 
