@@ -7,6 +7,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-29
+
+### Added
+
+- **Agent skills catalog** (`config/agent_skills/`, `--agent-skills-catalog`) — YAML procedural playbooks injected into task descriptions or agent backstory; composes with MCP attachments.
+- Shipped skills: `echo_skill`, `echo_backstory_skill`, `release_process`, `pr_review`; smoke workflow `workflow_agent_skills_smoke.yaml`.
+- Dynamic planner `skill_ids` (workflow default + per-step), keyword goal-match augmentation, and relevance pruning (workflow and per-task).
+- **Worker skills re-resolve** — `--execute-step` and distributed backends reload skills from `StepSpec.skills` + `paths.agent_skills_catalog`.
+- **Kind CI skills e2e** — stub worker verifies skills spec handoff (`k8s_stub_skills`, `test_agent_skills_smoke_kind_kubernetes_workflow`).
+- Catalog features: `content.summary`, `required_files` gating, `SKILL.md` frontmatter strip, bundle YAML, `AGENTIC_EXTRA_AGENT_SKILLS_PATH`.
+- Combined **attachment fingerprint** (MCP + skills) for learning stats, KB writes, web UI ratings, and planner traces (`attachment_fingerprint` with legacy `mcp_fingerprint` alias).
+- Web UI parses `(agentic) run_rating_meta` stderr for thumbs up/down envelope.
+
+### Changed
+
+- `learning_store` / `knowledge_base` APIs accept `attachment_fingerprint`; KB dynamic runs store per-task fingerprint on the final task.
+- Stub worker Docker image embeds `config/agent_skills` for skills verification in kind e2e.
+
+### Fixed
+
+- Web ratings now record combined MCP+skill attachment digest instead of always `none`.
+
 ## [1.2.0] - 2026-06-29
 
 ### Added
