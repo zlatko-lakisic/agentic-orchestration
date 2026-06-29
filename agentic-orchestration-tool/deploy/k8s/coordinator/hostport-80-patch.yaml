@@ -1,0 +1,11 @@
+# Jetson / single-node: expose coordinator on host port 80 (replaces legacy systemd web).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          ports:
+            - name: http
+              containerPort: 3847
+              hostPort: 80
+              protocol: TCP
