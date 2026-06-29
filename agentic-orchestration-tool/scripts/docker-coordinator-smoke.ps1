@@ -23,7 +23,11 @@ try {
     if ($resp.StatusCode -ne 200) {
         throw "Expected HTTP 200 from /api/ping, got $($resp.StatusCode)"
     }
-    Write-Host "Coordinator smoke OK (/api/ping 200)."
+    $home = Invoke-WebRequest -Uri "http://127.0.0.1:3847/" -UseBasicParsing -TimeoutSec 10
+    if ($home.StatusCode -ne 200) {
+        throw "Expected HTTP 200 from /, got $($home.StatusCode)"
+    }
+    Write-Host "Coordinator smoke OK (/api/ping and / return 200)."
 } finally {
     docker stop $cid | Out-Null
 }
