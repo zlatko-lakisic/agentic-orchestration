@@ -1362,6 +1362,7 @@ def build_dynamic_workflow_config(
             load_stats,
             planner_performance_summary,
             save_stats,
+            user_harness_performance_summary,
         )
 
         if tool_root is not None and learning_enabled():
@@ -1370,6 +1371,7 @@ def build_dynamic_workflow_config(
             save_stats(tool_root, st)
             learning_summary = planner_performance_summary(stats=st, user_prompt=user_prompt)
             learning_summary += harness_performance_summary(stats=st)
+            learning_summary += user_harness_performance_summary(stats=st)
     except Exception:  # noqa: BLE001
         learning_summary = ""
     try:

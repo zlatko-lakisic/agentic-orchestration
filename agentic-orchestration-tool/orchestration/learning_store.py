@@ -331,7 +331,7 @@ def record_user_harness_result(tool_root: Path, result: Any) -> None:
 
 
 def harness_performance_summary(*, stats: dict[str, Any]) -> str:
-    """Planner-facing summary of agents with recent harness failures."""
+    """Planner-facing summary of agents with recent platform harness failures."""
     if os.getenv("AGENTIC_HARNESS_FEED_PLANNER", "1").strip().lower() in ("0", "false", "no", "off"):
         return ""
     bucket: dict[str, Any] = stats.get("harness_stats", {}) if isinstance(stats, dict) else {}
@@ -352,6 +352,47 @@ def harness_performance_summary(*, stats: dict[str, Any]) -> str:
         + "\n".join(failing[:12])
         + "\n"
     )
+
+
+def user_harness_performance_summary(*, stats: dict[str, Any]) -> str:
+    """Planner-facing summary of user-harness scenario pass rates and recent failures."""
+    if os.getenv("AGENTIC_USER_HARNESS_FEED_PLANNER", "1").strip().lower() in ("0", "false", "no", "off"):
+        return ""
+    bucket: dict[str, Any] = stats.get("user_harness_stats", {}) if isinstance(stats, dict) else {}
+    if not isinstance(bucket, dict) or not bucket:
+        return ""
+    failing: list[str] = []
+    weak: list[str] = []
+    for key, entry in sorted(bucket.items()):
+        if not isinstance(entry, dict):
+            continue
+        if "::" not in key:
+            continue
+        pid, sid = key.split("::", 1)
+        runs = int(entry.get("runs", 0) or 0)
+        if runs <= 0:
+            continue
+        passes = int(entry.get("passes", 0) or 0)
+        rate = passes / runs
+        if str(entry.get("last_status", "")) == "fail":
+            failing.append(f"- {pid}/{sid} (last fail; {passes}/{runs} pass)")
+        elif runs >= 3 and rate < 0.5:
+            weak.append(f"- {pid}/{sid} ({passes}/{runs} pass rate)")
+    if not failing and not weak:
+        return ""
+    lines: list[str] = [
+        "\n\n## User harness scenarios (local)",
+        "Domain scenario packs recently failed or show low pass rates in this environment; "
+        "prefer other agents or re-run harness before relying on these ids.",
+    ]
+    if failing:
+        lines.append("Recent failures:")
+        lines.extend(failing[:8])
+    if weak:
+        lines.append("Low pass rate:")
+        lines.extend(weak[:8])
+    lines.append("")
+    return "\n".join(lines)
 
 
 def planner_performance_summary(

@@ -7,9 +7,14 @@ from unittest.mock import patch
 
 import pytest
 
+from orchestration.agent_harness import run_harness_kickoff
 from orchestration.agent_harness import run_assertions
+from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.learning_store import user_harness_performance_summary
 from orchestration.user_agent_harness import (
+    UserHarnessScenario,
     discover_user_harness_packs,
+    expand_scenario_runs,
     load_user_harness_pack,
     resolve_user_harness_dirs,
     run_user_harness_packs,
@@ -22,6 +27,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 HEALTHCARE_HARNESS_ROOT = REPO_ROOT / "examples" / "verticals" / "healthcare" / "harnesses"
 
 
+def _expected_healthcare_run_count(pack) -> int:
+    total = 0
+    for scenario in pack.scenarios:
+        total += len(expand_scenario_runs(scenario, pack_defaults=pack.defaults))
+    return total
+
+
 def test_load_healthcare_gpt_research_pack() -> None:
     pack_dir = HEALTHCARE_HARNESS_ROOT / "gpt_research"
     pack = load_user_harness_pack(pack_dir)
@@ -31,6 +43,33 @@ def test_load_healthcare_gpt_research_pack() -> None:
     ids = {s.id for s in pack.scenarios}
     assert "rpm_council_brief" in ids
     assert "regulatory_outline" in ids
+    chf = next(s for s in pack.scenarios if s.id == "chf_evidence_outline")
+    assert len(expand_scenario_runs(chf, pack_defaults=pack.defaults)) == 2
+
+
+def test_expand_scenario_matrix() -> None:
+    scenario = UserHarnessScenario(
+        id="demo",
+        description="Topic is {topic}.",
+        expected_output="Output for {topic}.",
+        assertions=(),
+        fixtures=(),
+        mcp_providers=(),
+        optional_eval={},
+        inputs={
+            "topic": "Base",
+            "matrix": [
+                {"label": "a", "topic": "Alpha", "description_append": "Extra A."},
+                {"label": "b", "topic": "Beta"},
+            ],
+        },
+        path=Path("demo.yaml"),
+    )
+    runs = expand_scenario_runs(scenario, pack_defaults={"topic": "Default"})
+    assert len(runs) == 2
+    assert runs[0].run_id == "demo[a]"
+    assert runs[0].inputs["topic"] == "Alpha"
+    assert runs[1].run_id == "demo[b]"
 
 
 def test_discover_duplicate_pack_raises(tmp_path: Path) -> None:
@@ -61,6 +100,26 @@ def test_run_assertions_forbids_regex() -> None:
     assert ok2 is False
 
 
+def test_user_harness_performance_summary() -> None:
+    stats = {
+        "user_harness_stats": {
+            "gpt_research::rpm_council_brief": {
+                "runs": 3,
+                "passes": 1,
+                "last_status": "fail",
+            },
+            "gpt_research::stable_scenario": {
+                "runs": 5,
+                "passes": 5,
+                "last_status": "pass",
+            },
+        }
+    }
+    text = user_harness_performance_summary(stats=stats)
+    assert "rpm_council_brief" in text
+    assert "stable_scenario" not in text
+
+
 @pytest.mark.user_harness
 def test_run_user_scenario_mocked_kickoff(tool_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-for-user-harness")
@@ -68,6 +127,7 @@ def test_run_user_scenario_mocked_kickoff(tool_root: Path, monkeypatch: pytest.M
     pack = load_user_harness_pack(HEALTHCARE_HARNESS_ROOT / "gpt_research")
     assert pack is not None
     scenario = next(s for s in pack.scenarios if s.id == "rpm_council_brief")
+    run = expand_scenario_runs(scenario, pack_defaults=pack.defaults)[0]
     entry = {
         "id": "gpt_research",
         "type": "openai",
@@ -91,13 +151,71 @@ def test_run_user_scenario_mocked_kickoff(tool_root: Path, monkeypatch: pytest.M
     ):
         result = run_user_scenario(
             pack=pack,
-            scenario=scenario,
+            run=run,
             entry=entry,
             tool_root=tool_root,
             quiet=True,
         )
     assert result.status == "pass"
     assert result.assertion_results
+
+
+@pytest.mark.user_harness
+def test_run_harness_kickoff_subprocess_backend(tool_root: Path) -> None:
+    config = WorkflowConfig(
+        name="harness-subprocess-test",
+        process="sequential",
+        topic="Harness",
+        instance_key="harness-subprocess",
+        agent_providers=[{"id": "a", "type": "openai", "role": "R", "goal": "G", "model": "m"}],
+        mcp_providers=[],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="a",
+                description="d",
+                expected_output="e",
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    with patch(
+        "orchestration.backends.subprocess_runner.run_config_via_subprocess",
+        return_value=type("R", (), {"exit_code": 0, "result_text": "subprocess output", "error": None})(),
+    ):
+        text, err = run_harness_kickoff(config, backend="subprocess", quiet=True)
+    assert err is None
+    assert text == "subprocess output"
+
+
+@pytest.mark.user_harness
+def test_run_harness_kickoff_kubernetes_backend(tool_root: Path) -> None:
+    config = WorkflowConfig(
+        name="harness-k8s-test",
+        process="sequential",
+        topic="Harness",
+        instance_key="harness-k8s",
+        agent_providers=[{"id": "a", "type": "openai", "role": "R", "goal": "G", "model": "m"}],
+        mcp_providers=[],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="a",
+                description="d",
+                expected_output="e",
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    with patch(
+        "orchestration.backends.kubernetes_runner.run_config_via_kubernetes",
+        return_value=type("R", (), {"exit_code": 0, "result_text": "k8s output", "error": None})(),
+    ):
+        text, err = run_harness_kickoff(config, backend="kubernetes", quiet=True)
+    assert err is None
+    assert text == "k8s output"
 
 
 @pytest.mark.user_harness
@@ -124,5 +242,5 @@ def test_run_user_harness_packs_static_skip_without_creds(
         agent_filter="gpt_research",
         quiet=True,
     )
-    assert len(results) == len(pack.scenarios)
+    assert len(results) == _expected_healthcare_run_count(pack)
     assert all(r.status == "skip" for r in results)

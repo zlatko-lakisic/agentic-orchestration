@@ -6,6 +6,15 @@ expected_output: >
   Tight one-page outline with evidence vs judgment separated; planning-oriented tone.
 fixtures: []
 mcp_providers: []
+inputs:
+  topic: "Healthcare harness"
+  matrix:
+    - label: evidence_focus
+      topic: "CHF RPM evidence categories"
+      description_append: "Weight the outline toward trial, FDA, and payer literature evidence categories."
+    - label: ops_focus
+      topic: "CHF RPM operational judgment"
+      description_append: "Weight the outline toward operational feasibility and organizational judgment."
 assertions:
   - type: bullet_count
     min: 4

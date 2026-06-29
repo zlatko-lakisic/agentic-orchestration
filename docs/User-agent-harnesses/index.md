@@ -77,7 +77,11 @@ Each `scenarios/*.yaml` runs a **single-task** workflow via the same `build_work
 
 Deterministic assertions (Phase 1): `min_chars`, `max_chars`, `bullet_count`, `contains_any`, `forbids_regex`, `json_parse`.
 
+**Matrix runs (Phase 4):** set `inputs.matrix` to a list of variant dicts (`label`, optional `topic`, `description_append`, …). Each variant runs as `scenario_id[label]`.
+
 Optional `optional_eval` with `rubric_file` reuses `evaluate_run_quality` (disable with `AGENTIC_HARNESS_EVAL=0`).
+
+Backends: `--harness-backend subprocess|kubernetes` or manifest `defaults.execution_backend` (same path as production `execute_step`).
 
 Reports: `harness_runs/user_batch_*.json` (gitignored).
 
@@ -87,6 +91,7 @@ Reports: `harness_runs/user_batch_*.json` (gitignored).
 |----------|---------|---------|
 | `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` | — | Extra harness roots |
 | `AGENTIC_USER_HARNESS_RECORD_STATS` | `1` | Rolling pass/fail in `user_harness_stats` |
+| `AGENTIC_USER_HARNESS_FEED_PLANNER` | `1` | Inject scenario pass/fail hints into dynamic planner |
 | `AGENTIC_HARNESS_EVAL` | `1` | LLM rubric per scenario when `optional_eval` set |
 | `AGENTIC_EXECUTION_BACKEND` | `inprocess` | Override via manifest `defaults.execution_backend` |
 

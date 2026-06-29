@@ -256,16 +256,23 @@ def _run_smoke_kickoff(
     quiet: bool,
     mcp_catalog_path: Path | None = None,
 ) -> tuple[str | None, str | None]:
-    if backend == "subprocess":
+    normalized = (backend or "inprocess").strip().lower()
+    if normalized in ("subprocess", "kubernetes", "k8s"):
         from orchestration.backends.base import RunOptions
-        from orchestration.backends.subprocess_runner import run_config_via_subprocess
 
-        result = run_config_via_subprocess(
-            config,
-            options=RunOptions(quiet=quiet),
-        )
+        options = RunOptions(quiet=quiet, mcp_catalog_path=mcp_catalog_path)
+        if normalized == "subprocess":
+            from orchestration.backends.subprocess_runner import run_config_via_subprocess
+
+            result = run_config_via_subprocess(config, options=options)
+        else:
+            from orchestration.backends.kubernetes_runner import run_config_via_kubernetes
+
+            result = run_config_via_kubernetes(config, options=options)
         if result.exit_code != 0:
-            return None, result.error or f"subprocess exit {result.exit_code}"
+            err = result.error
+            msg = str(err) if err else f"{normalized} exit {result.exit_code}"
+            return None, msg
         return (result.result_text or "").strip() or None, None
 
     from orchestration.runner import build_workflow, crew_kickoff_context

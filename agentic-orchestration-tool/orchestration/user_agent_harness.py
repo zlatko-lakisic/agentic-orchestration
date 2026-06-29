@@ -38,9 +38,26 @@ class UserHarnessResult:
     eval: dict[str, Any] | None = None
     timestamp: str = ""
     kind: str = "user"
+    variant_id: str = ""
+    backend: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class UserHarnessScenarioRun:
+    """One executable scenario instance (base scenario or a matrix variant)."""
+
+    scenario: UserHarnessScenario
+    variant_id: str
+    inputs: dict[str, Any]
+
+    @property
+    def run_id(self) -> str:
+        if self.variant_id:
+            return f"{self.scenario.id}[{self.variant_id}]"
+        return self.scenario.id
 
 
 @dataclass(frozen=True)
@@ -199,6 +216,92 @@ def discover_user_harness_packs(harness_roots: list[Path]) -> list[UserHarnessPa
     return packs
 
 
+def _scenario_inputs_without_matrix(inputs: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in inputs.items() if k != "matrix"}
+
+
+def _merge_scenario_inputs(
+    pack_defaults: dict[str, Any],
+    scenario_inputs: dict[str, Any],
+    variant: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(pack_defaults)
+    merged.update(_scenario_inputs_without_matrix(scenario_inputs))
+    if variant:
+        merged.update({k: v for k, v in variant.items() if k not in ("label", "id")})
+    return merged
+
+
+def _apply_input_templates(text: str, values: dict[str, Any]) -> str:
+    out = text
+    for key, val in values.items():
+        if key == "matrix" or val is None:
+            continue
+        if isinstance(val, (str, int, float, bool)):
+            out = out.replace("{" + key + "}", str(val))
+    return out
+
+
+def expand_scenario_runs(
+    scenario: UserHarnessScenario,
+    *,
+    pack_defaults: dict[str, Any],
+) -> list[UserHarnessScenarioRun]:
+    matrix = scenario.inputs.get("matrix")
+    if not isinstance(matrix, list) or not matrix:
+        return [
+            UserHarnessScenarioRun(
+                scenario=scenario,
+                variant_id="",
+                inputs=_merge_scenario_inputs(pack_defaults, scenario.inputs),
+            )
+        ]
+    runs: list[UserHarnessScenarioRun] = []
+    for idx, row in enumerate(matrix):
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("id") or f"variant_{idx + 1}").strip()
+        if not label:
+            label = f"variant_{idx + 1}"
+        runs.append(
+            UserHarnessScenarioRun(
+                scenario=scenario,
+                variant_id=label,
+                inputs=_merge_scenario_inputs(pack_defaults, scenario.inputs, row),
+            )
+        )
+    if not runs:
+        return [
+            UserHarnessScenarioRun(
+                scenario=scenario,
+                variant_id="",
+                inputs=_merge_scenario_inputs(pack_defaults, scenario.inputs),
+            )
+        ]
+    return runs
+
+
+def _effective_scenario_text(
+    scenario: UserHarnessScenario,
+    *,
+    inputs: dict[str, Any],
+    field_name: str,
+    append_field: str,
+) -> str:
+    override = str(inputs.get(field_name, "")).strip()
+    if override:
+        base = override
+    elif field_name == "description":
+        base = scenario.description
+    else:
+        base = scenario.expected_output
+    if not override:
+        append = str(inputs.get(append_field, "")).strip()
+        if append:
+            base = base.rstrip() + "\n\n" + append
+    return _apply_input_templates(base, inputs)
+
+
 def _read_fixture_text(pack_dir: Path, rel: str) -> str:
     candidate = (pack_dir / rel).resolve()
     if not candidate.is_file():
@@ -233,20 +336,35 @@ def _load_rubric_text(pack_dir: Path, scenario: UserHarnessScenario) -> str:
 def _workflow_for_scenario(
     entry: dict[str, Any],
     pack: UserHarnessPack,
-    scenario: UserHarnessScenario,
+    run: UserHarnessScenarioRun,
 ) -> WorkflowConfig:
-    defaults = pack.defaults
-    topic = str(scenario.inputs.get("topic") or defaults.get("topic") or "User harness")
+    scenario = run.scenario
+    inputs = run.inputs
+    topic = str(inputs.get("topic") or "User harness")
     description = _description_with_fixtures(
         scenario.path.parent,
-        scenario.description,
+        _effective_scenario_text(
+            scenario,
+            inputs=inputs,
+            field_name="description",
+            append_field="description_append",
+        ),
         scenario.fixtures,
     )
-    expected = scenario.expected_output
+    expected = _effective_scenario_text(
+        scenario,
+        inputs=inputs,
+        field_name="expected_output",
+        append_field="expected_output_append",
+    )
     mcp_ids = list(scenario.mcp_providers or pack.mcp_providers)
     pid = str(entry["id"])
+    task_id = f"scenario_{scenario.id}"
+    if run.variant_id:
+        safe_variant = run.variant_id.replace(" ", "_")
+        task_id = f"{task_id}_{safe_variant}"
     return WorkflowConfig(
-        name=f"user-harness-{pid}-{scenario.id}",
+        name=f"user-harness-{pid}-{run.run_id}",
         process="sequential",
         topic=topic,
         instance_key=f"user-harness-{pid}",
@@ -255,14 +373,14 @@ def _workflow_for_scenario(
         skills=[],
         tasks=[
             TaskDefinition(
-                id=f"scenario_{scenario.id}",
+                id=task_id,
                 agent_provider_id=pid,
                 description=description,
                 expected_output=expected,
                 mcp_providers=mcp_ids if mcp_ids else [],
             )
         ],
-        task_sequence=[f"scenario_{scenario.id}"],
+        task_sequence=[task_id],
     )
 
 
@@ -287,7 +405,7 @@ def _run_scenario_eval(
 def run_user_scenario(
     *,
     pack: UserHarnessPack,
-    scenario: UserHarnessScenario,
+    run: UserHarnessScenarioRun,
     entry: dict[str, Any],
     tool_root: Path,
     backend: str | None = None,
@@ -296,29 +414,33 @@ def run_user_scenario(
 ) -> UserHarnessResult:
     import time
 
+    scenario = run.scenario
     started = time.perf_counter()
     ts = datetime.now(timezone.utc).isoformat()
     pid = pack.agent_provider_id
+    scenario_id = run.run_id
 
     if not catalog_entry_has_api_credentials(entry):
         return UserHarnessResult(
             harness_pack=pack.root_dir.name,
             agent_provider_id=pid,
-            scenario_id=scenario.id,
+            scenario_id=scenario_id,
             status="skip",
             duration_ms=int((time.perf_counter() - started) * 1000),
             error=credential_skip_reason(entry),
             timestamp=ts,
+            variant_id=run.variant_id,
         )
 
     exec_backend = (
         backend
+        or str(run.inputs.get("execution_backend", "")).strip()
         or str(pack.defaults.get("execution_backend", "")).strip()
         or os.getenv("AGENTIC_EXECUTION_BACKEND", "inprocess")
     ).strip() or "inprocess"
 
     try:
-        config = _workflow_for_scenario(entry, pack, scenario)
+        config = _workflow_for_scenario(entry, pack, run)
         text, err = run_harness_kickoff(
             config,
             backend=exec_backend,
@@ -329,18 +451,26 @@ def run_user_scenario(
             return UserHarnessResult(
                 harness_pack=pack.root_dir.name,
                 agent_provider_id=pid,
-                scenario_id=scenario.id,
+                scenario_id=scenario_id,
                 status="fail",
                 duration_ms=int((time.perf_counter() - started) * 1000),
                 error=err,
                 timestamp=ts,
+                variant_id=run.variant_id,
+                backend=exec_backend,
             )
         ok, assertion_results = run_assertions(text or "", list(scenario.assertions))
         eval_data = None
         if scenario.optional_eval:
             rubric = _load_rubric_text(pack.root_dir, scenario)
+            eval_goal = _effective_scenario_text(
+                scenario,
+                inputs=run.inputs,
+                field_name="description",
+                append_field="description_append",
+            )
             eval_data = _run_scenario_eval(
-                user_goal=scenario.description,
+                user_goal=eval_goal,
                 output_text=text or "",
                 rubric=rubric,
             )
@@ -352,7 +482,7 @@ def run_user_scenario(
         result = UserHarnessResult(
             harness_pack=pack.root_dir.name,
             agent_provider_id=pid,
-            scenario_id=scenario.id,
+            scenario_id=scenario_id,
             status=status,
             duration_ms=int((time.perf_counter() - started) * 1000),
             error=None if ok else "assertion or eval failed",
@@ -360,6 +490,8 @@ def run_user_scenario(
             assertion_results=assertion_results,
             eval=eval_data,
             timestamp=ts,
+            variant_id=run.variant_id,
+            backend=exec_backend,
         )
         _maybe_record_user_harness_stats(tool_root, result)
         return result
@@ -367,11 +499,13 @@ def run_user_scenario(
         return UserHarnessResult(
             harness_pack=pack.root_dir.name,
             agent_provider_id=pid,
-            scenario_id=scenario.id,
+            scenario_id=scenario_id,
             status="fail",
             duration_ms=int((time.perf_counter() - started) * 1000),
             error=str(exc),
             timestamp=ts,
+            variant_id=run.variant_id,
+            backend=exec_backend,
         )
 
 
@@ -418,18 +552,19 @@ def run_user_harness_packs(
                 break
             continue
         for scenario in pack.scenarios:
-            result = run_user_scenario(
-                pack=pack,
-                scenario=scenario,
-                entry=entry,
-                tool_root=tool_root,
-                backend=backend,
-                quiet=quiet,
-                mcp_catalog_path=mcp_catalog_path,
-            )
-            results.append(result)
-            if fail_fast and result.status == "fail":
-                return results
+            for run in expand_scenario_runs(scenario, pack_defaults=pack.defaults):
+                result = run_user_scenario(
+                    pack=pack,
+                    run=run,
+                    entry=entry,
+                    tool_root=tool_root,
+                    backend=backend,
+                    quiet=quiet,
+                    mcp_catalog_path=mcp_catalog_path,
+                )
+                results.append(result)
+                if fail_fast and result.status == "fail":
+                    return results
     return results
 
 

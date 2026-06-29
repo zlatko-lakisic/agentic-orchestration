@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-29
+
+### Added
+
+- **User harness Phase 4** — subprocess/Kubernetes backend parity in shared `run_harness_kickoff`; scenario `inputs.matrix` variant expansion; planner context via `user_harness_performance_summary` (`AGENTIC_USER_HARNESS_FEED_PLANNER`).
+
 ## [1.5.0] - 2026-06-29
 
 ### Added
