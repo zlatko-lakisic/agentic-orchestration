@@ -11,7 +11,7 @@ toc_sticky: true
 ## System flow
 
 ```mermaid
-flowchart LR
+flowchart TB
   User[User goal] --> Planner
   Planner[Planner LiteLLM] --> Plan[JSON plan]
   Plan --> Runner[Execution backend]
