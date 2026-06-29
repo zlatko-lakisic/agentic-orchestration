@@ -26,6 +26,7 @@ Recent behavior updates:
 - Markdown answers render client-side with sanitized HTML (using bundled browser ESM vendor assets).
 - File uploads are supported in chat; server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Upload safety limits are enforced server-side (per-file, total bytes, max file count).
+- Thumbs up/down ratings emit `(agentic) run_rating_meta` on stderr with **`attachment_fingerprint`** (combined MCP + skill ids; legacy `mcp_fingerprint` alias). The learning loop consumes these on the next planner run.
 
 ## Setup
 
@@ -66,4 +67,5 @@ The server runs **local Python** with **user-supplied text**. Do **not** expose 
 - `agentic-orchestration-web/README.md`
 - [Configuration]({{ '/configuration/' | relative_url }}) — `AGENTIC_*` web variables
 - [Dynamic planning]({{ '/dynamic-planning/' | relative_url }})
+- [Agent skills]({{ '/agent-skills/' | relative_url }}) — procedural playbooks attached to runs
 - [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}) — ratings

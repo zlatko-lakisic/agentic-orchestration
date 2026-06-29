@@ -9,7 +9,7 @@ plugins:
   - jekyll-seo-tag
 
 title: "Agentic Orchestration"
-description: "Model-agnostic multi-agent orchestration built on CrewAI. Dynamic planning, MCP tools, YAML catalogs."
+description: "Model-agnostic multi-agent orchestration built on CrewAI. Dynamic planning, MCP tools, agent skills playbooks, YAML catalogs."
 url: "https://zlatko-lakisic.github.io"
 baseurl: "/agentic-orchestration"
 repository: "zlatko-lakisic/agentic-orchestration"

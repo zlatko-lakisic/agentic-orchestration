@@ -7,6 +7,8 @@ main:
     url: /agent-catalog/
   - title: "MCP Catalog"
     url: /mcp-catalog/
+  - title: "Agent Skills"
+    url: /agent-skills/
   - title: "Architecture"
     url: /architecture/
   - title: "Configuration"
@@ -31,6 +33,8 @@ docs:
         url: /agent-catalog/
       - title: "MCP Integrations"
         url: /mcp-catalog/
+      - title: "Agent Skills"
+        url: /agent-skills/
   - title: "Reference"
     children:
       - title: "Configuration"
@@ -57,6 +61,8 @@ docs:
         url: /dual-execution-framework/
       - title: "Kubernetes Execution"
         url: /kubernetes-execution-upgrade/
+      - title: "Agent Skills Roadmap"
+        url: /agent-skills-roadmap/
       - title: "Verticals"
         url: /verticals/
   - title: "Project"

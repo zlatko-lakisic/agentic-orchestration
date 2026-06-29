@@ -14,7 +14,8 @@ header:
 excerpt: >
   Model-agnostic multi-agent orchestration built on CrewAI.
   Dynamic planning, 182 agent templates, 7 MCP integrations,
-  and three execution backends — from local Ollama to Kubernetes.
+  agent skills playbooks, and three execution backends — from local Ollama to Kubernetes.
+  Latest release: v1.3.0.
 feature_row:
   - title: "Dynamic Planning"
     excerpt: "State a goal in plain language. The LLM planner selects agents, attaches MCP tools, and builds a multi-step execution plan automatically."
@@ -30,6 +31,11 @@ feature_row:
     excerpt: "Brave Search, Tavily, Exa, Home Assistant, URL fetch, filesystem, and memory knowledge graph — credential-gated and Kubernetes-ready."
     url: /mcp-catalog/
     btn_label: "Browse integrations"
+    btn_class: "btn--primary"
+  - title: "Agent Skills"
+    excerpt: "YAML procedural playbooks — release checklists, PR review, domain how-tos — injected into tasks or backstory; composes with MCP tools."
+    url: /agent-skills/
+    btn_label: "Browse skills"
     btn_class: "btn--primary"
 feature_row2:
   - title: "Three Execution Backends"

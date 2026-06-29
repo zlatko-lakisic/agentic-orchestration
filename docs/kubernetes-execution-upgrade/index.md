@@ -50,7 +50,7 @@ See the companion plan for module layout (`orchestration/backends/`), `Execution
 ## Non-goals (initial phases)
 
 - Replacing the dynamic planner with a K8s-native workflow engine (Argo, Temporal, etc.).
-- In-run CrewAI delegation / hierarchical manager agents (not used today; defer unless needed).
+- In-run CrewAI delegation / hierarchical manager agents (not used today; defer to [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}) K6).
 - Multi-tenant hardening beyond what Compose/K8s secrets already imply.
 - Forked or backend-specific agent/MCP/workflow YAML catalogs (runtime policy only; see [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}#shared-configuration-yaml-unchanged)).
 
@@ -442,6 +442,8 @@ subprocess_runner.py          kubernetes_runner.py
 - [x] **5.3** Pin CrewAI in worker image; document upgrade runbook (`crewai==1.12.2`, `docker/CREWAI_UPGRADE.md`).
 - [x] **5.4** Load test: `scripts/k8s-load-test.ps1` / `.sh` (N concurrent runs, p50/p95).
 - [x] **5.5** Delegation RPC: worker `k8s_delegate_task` tool + `delegation-broker` Deployment spawns child Jobs (`kubernetes_delegation.py`).
+
+**Next (optional):** [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}) — K6 phased plan for autonomous multi-agent societies (blackboard, protocol engine, society broker, web graph UI). Builds on K5.5 delegation and warm pool; revisits deferred in-run CrewAI delegation / hierarchical managers.
 
 ---
 

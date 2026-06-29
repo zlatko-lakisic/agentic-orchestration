@@ -10,7 +10,7 @@ sidebar:
 ---
 # Dynamic planning
 
-Dynamic modes turn a **natural-language goal** into a **JSON plan** (steps with agent provider ids and optional MCP ids), build an ephemeral CrewAI workflow, and execute it.
+Dynamic modes turn a **natural-language goal** into a **JSON plan** (steps with agent provider ids, optional MCP ids, and optional skill ids), build an ephemeral CrewAI workflow, and execute it.
 
 ## Modes
 
@@ -31,7 +31,7 @@ The planner is steered toward **specialist** YAMLs when they fit the topic. Addi
 
 ## Strict JSON / machine-readable-only goals
 
-If the goal clearly asks for **only** a structured artefact (e.g. exactly one JSON object, no markdown, no prose—typical HA / automation payloads), orchestration skips **MCP auto-match** augmentation (so pasted forecast JSON doesn’t accidentally trigger web search), and **`--dynamic-iterative` omits final prose synthesis** so stdout stays the last crew’s structured output (e.g. `{"minutes":0}`) instead of an expanded narrative.
+If the goal clearly asks for **only** a structured artefact (e.g. exactly one JSON object, no markdown, no prose—typical HA / automation payloads), orchestration skips **MCP and skill auto-match** augmentation (so pasted forecast JSON doesn’t accidentally trigger web search or release playbooks), and **`--dynamic-iterative` omits final prose synthesis** so stdout stays the last crew’s structured output (e.g. `{"minutes":0}`) instead of an expanded narrative.
 
 ## Iterative options
 
@@ -64,6 +64,25 @@ Use **`--dynamic-agent-provider-ids ID1,ID2,...`** to constrain planner selectio
 
 The planner can attach MCP provider **ids** per step when the MCP catalog (see [MCP providers]({{ '/mcp-catalog/' | relative_url }})) exposes `planner_hint` and credentials are present. Per-task MCP sets are resolved at runtime.
 
+## Agent skills in plans
+
+The planner can attach skill **ids** (procedural playbooks) via top-level `skill_ids` and/or per-step `skill_ids` when entries in [Agent skills]({{ '/agent-skills/' | relative_url }}) match the goal. Semantics mirror MCP: workflow default, per-step override, `[]` to force none. Irrelevant planner-selected skills are pruned by keyword relevance before execution; goal-based auto-attach runs when the planner omits skills entirely.
+
+```json
+{
+  "skill_ids": ["release_process"],
+  "mcp_provider_ids": [],
+  "steps": [
+    {
+      "agent_provider_id": "gpt_write",
+      "skill_ids": ["release_process"],
+      "description": "...",
+      "expected_output": "..."
+    }
+  ]
+}
+```
+
 ## Sessions
 
 Use **`--orchestrator-session NAME`** (or env `AGENTIC_ORCHESTRATOR_SESSION`) so planner history and crew excerpts persist under `__orchestrator_sessions__/`. **`--orchestrator-session-reset`** clears the session file for that run.
@@ -76,6 +95,7 @@ See [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relativ
 
 - Agent templates: `--agent-providers-catalog` (default `config/agent_providers`).
 - MCP templates: `--mcp-providers-catalog` (default `config/mcp_providers`).
+- Agent skills: `--agent-skills-catalog` (default `config/agent_skills`). See [Agent skills]({{ '/agent-skills/' | relative_url }}).
 
 ## Learning and KB
 
@@ -86,3 +106,5 @@ When enabled, post-run **eval** and **learning stats** feed the next planner; **
 - [CLI reference]({{ '/cli-reference/' | relative_url }})
 - [Configuration]({{ '/configuration/' | relative_url }})
 - [Agent provider catalog]({{ '/agent-catalog/' | relative_url }})
+- [Agent skills]({{ '/agent-skills/' | relative_url }})
+- [MCP providers]({{ '/mcp-catalog/' | relative_url }})

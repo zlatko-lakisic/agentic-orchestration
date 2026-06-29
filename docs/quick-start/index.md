@@ -87,5 +87,6 @@ npm start
 |---|---|
 | Browse agent templates | [Agent Catalog]({{ '/agent-catalog/' | relative_url }}) |
 | Browse MCP integrations | [MCP Catalog]({{ '/mcp-catalog/' | relative_url }}) |
+| Agent skills playbooks | [Agent Skills]({{ '/agent-skills/' | relative_url }}) |
 | Environment variables | [Configuration]({{ '/configuration/' | relative_url }}) |
 | How components fit together | [Architecture]({{ '/architecture/' | relative_url }}) |

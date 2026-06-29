@@ -40,6 +40,8 @@ PAGE_TITLES: dict[str, str] = {
     "Web-UI": "Web UI",
     "CLI-reference": "CLI reference",
     "Third-party-projects": "Third-party projects",
+    "Agent-skills": "Agent skills",
+    "Agent-skills-roadmap": "Agent skills roadmap",
     "GitHub-Pages-publish": "GitHub Pages publish",
 }
 
@@ -58,6 +60,8 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "Web-UI.md": "web-ui/index.md",
     "Sessions-learning-and-knowledge-base.md": "sessions-learning-kb/index.md",
     "Third-party-projects.md": "third-party-projects/index.md",
+    "Agent-skills.md": "agent-skills/index.md",
+    "Agent-skills-roadmap.md": "agent-skills-roadmap/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
@@ -92,6 +96,8 @@ PAGE_SLUGS: dict[str, str] = {
     "Web-UI": "web-ui",
     "Sessions-learning-and-knowledge-base": "sessions-learning-kb",
     "Third-party-projects": "third-party-projects",
+    "Agent-skills": "agent-skills",
+    "Agent-skills-roadmap": "agent-skills-roadmap",
     "Releases": "changelog",
     "Execution-backends": "execution-backends",
     "features": "features",

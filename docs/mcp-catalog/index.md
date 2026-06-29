@@ -127,6 +127,8 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 ## Related pages
 
 - [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) — when MCP sets appear in plans.
+- [Agent skills]({{ '/agent-skills/' | relative_url }}) — procedural playbooks (complementary; skills may reference MCP tools in prose).
+- [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}) — planned in-process tool catalog (files, media, vision) parallel to this MCP catalog.
 - [Configuration]({{ '/configuration/' | relative_url }}) — env vars summary.
 - [Third party projects]({{ '/third-party-projects/' | relative_url }}) — upstream products and licenses.
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) — full community index.

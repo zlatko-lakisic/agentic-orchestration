@@ -15,7 +15,7 @@ Living document for refactoring **Agentic Orchestration** so workflow **executio
 
 **Status:** **F0–F5 MVP implemented** (in-process default). Subprocess: `AGENTIC_SUBPROCESS_WORKERS=1`. Kubernetes: `AGENTIC_EXECUTION_BACKEND=kubernetes` + K8s env vars (cluster e2e manual).
 
-**Companion plan:** [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) — distributed workers, cluster manifests, MCP sidecars, and K8s-specific ops. This page owns the **code seam**; the K8s page owns **cluster delivery**.
+**Companion plan:** [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) — distributed workers, cluster manifests, MCP sidecars, and K8s-specific ops. This page owns the **code seam**; the K8s page owns **cluster delivery**. **Future:** [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}) (K6) for multi-agent societies on top of the execution backends.
 
 **Related:** [Architecture]({{ '/architecture/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }})
 

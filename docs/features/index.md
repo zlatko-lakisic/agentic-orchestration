@@ -85,6 +85,30 @@ Credential-gated entries stay hidden until required env vars are set. Merge cust
 
 Details: [MCP Catalog]({{ '/mcp-catalog/' | relative_url }}).
 
+## Agent Skills (v1.3.0)
+
+Procedural **playbooks** live as YAML under `config/agent_skills/`. Unlike MCP integrations, skills do not add callable tools — they inject curated markdown instructions into **task descriptions** (default) or **agent backstory**, composable with MCP and any agent provider.
+
+```bash
+python main.py --dynamic "Cut a patch release following our semver process"
+# Planner may attach release_process when goal text matches
+
+python main.py --config config/workflows/workflow_agent_skills_smoke.yaml "skills smoke test"
+```
+
+| Skill `id` | Injection | Purpose |
+|---|---|---|
+| `echo_skill` | task | Smoke test — injects `SKILL_ECHO_OK` marker |
+| `echo_backstory_skill` | backstory | Backstory injection smoke test |
+| `release_process` | task | Semver release checklist (`RELEASING.md`, `scripts/release.py`) |
+| `pr_review` | task | Structured pull-request review checklist |
+
+Attachment semantics mirror MCP: `workflow.skills`, per-task `task.skills`, planner `skill_ids`, and `[]` to force none. Workers on subprocess/Kubernetes backends re-resolve skill content from `StepSpec.skills` + catalog path.
+
+CLI: **`--agent-skills-catalog`** (default `config/agent_skills`). Extend via `AGENTIC_EXTRA_AGENT_SKILLS_PATH`.
+
+Details: [Agent Skills]({{ '/agent-skills/' | relative_url }}) · [Agent Skills Roadmap]({{ '/agent-skills-roadmap/' | relative_url }}).
+
 ## Hardware-Aware Routing
 
 Before planning, the runtime filters the agent catalog by detected hardware. Each provider YAML may declare `architecture` (`cpu`, `gpu`, `tpu`) and optional `min_vram_gb`. Detection uses `nvidia-smi` when available; Ollama models can use built-in VRAM heuristics.
@@ -129,7 +153,7 @@ When `AGENTIC_KB=1`, finalized outputs are indexed in SQLite FTS (`__orchestrato
 
 ### Learning loop
 
-`AGENTIC_LEARNING=1` records per-provider success/failure stats and decision traces under `__orchestrator_learning__/`. Optional evaluator model via `AGENTIC_LEARNING_EVAL=1`. A learning summary feeds the planner on each run; web UI ratings are consumed on the next planner call.
+`AGENTIC_LEARNING=1` records per-provider success/failure stats and decision traces under `__orchestrator_learning__/`. Optional evaluator model via `AGENTIC_LEARNING_EVAL=1`. A learning summary feeds the planner on each run; web UI ratings are consumed on the next planner call. Ratings and KB rows use a combined **attachment fingerprint** (MCP + skill ids).
 
 ### Answer cache
 
@@ -177,6 +201,6 @@ python main.py -i --config config/workflows/workflow_brainstorm.yaml
 python main.py "Brainstorm taglines for a developer CLI"
 ```
 
-**Shipped workflows:** default (`workflow.yaml`), brainstorm, web dev, healthcare commercial brief (router), MCP fetch/filesystem smoke tests.
+**Shipped workflows:** default (`workflow.yaml`), brainstorm, web dev, healthcare commercial brief (router), MCP fetch/filesystem smoke tests, agent skills smoke (`workflow_agent_skills_smoke.yaml`).
 
 Details: [Workflows]({{ '/workflows/' | relative_url }}).

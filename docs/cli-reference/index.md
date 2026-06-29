@@ -51,7 +51,7 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 
 | Flag | Meaning |
 |------|---------|
-| `--execute-step SPEC.JSON` | Worker mode: run one step from a `StepSpec` JSON file and exit. Used by subprocess/K8s backends; not for normal CLI runs. Re-resolves `skills` ids from `paths.agent_skills_catalog` (or env default) when present. |
+| `--execute-step SPEC.JSON` | Worker mode: run one step from a `StepSpec` JSON file and exit. Used by subprocess/K8s backends; not for normal CLI runs. |
 
 ## Dynamic catalog paths
 
@@ -59,7 +59,6 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 |------|---------|--------|
 | `--agent-providers-catalog` (`--providers-catalog`) | `config/agent_providers` | Agent YAML dir or bundle. |
 | `--mcp-providers-catalog` | `config/mcp_providers` | MCP YAML dir or bundle. |
-| `--agent-skills-catalog` | `config/agent_skills` | Agent skill YAML dir or bundle (procedural instructions injected into tasks). Merges `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. |
 | `--dynamic-agent-provider-ids` | _empty_ | Restrict planner choices to comma-separated provider IDs. |
 | `--dynamic-attachments` | _none_ | Attachment manifest for file-aware dynamic planning/execution. |
 

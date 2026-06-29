@@ -12,7 +12,7 @@ sidebar:
 
 How to run automated checks locally and on **GitHub** or **GitLab** for **agentic-orchestration**. Designed to grow with [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) and [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) without requiring API keys or a cluster for the default tier.
 
-**Related:** [Configuration]({{ '/configuration/' | relative_url }}), [Architecture]({{ '/architecture/' | relative_url }}), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }})
+**Related:** [Configuration]({{ '/configuration/' | relative_url }}), [Architecture]({{ '/architecture/' | relative_url }}), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}), [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}), [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})
 
 ---
 
@@ -23,9 +23,12 @@ How to run automated checks locally and on **GitHub** or **GitLab** for **agenti
 | **Unit** | Every commit / MR | No | ✅ Yes (default) |
 | **Import smoke** | Every commit / MR | No | ✅ Yes |
 | **Docker worker smoke** | Every commit / MR | No | ✅ Yes (K8s Phase 2.3) |
-| **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM) |
+| **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM; includes agent skills spec handoff) |
 | **Integration** | Manual / with `AGENTIC_KIND_E2E=1` locally | Sometimes | ❌ Excluded from default pytest |
 | **Live LLM** | Local only unless secrets configured | Yes | ❌ Never by default |
+| **Agent harness L0** (static catalog) | Every commit / MR | No | 🔲 Planned — [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) |
+| **Agent harness L1** (connectivity) | Every commit / MR (credentialed subset) | Sometimes | 🔲 Planned |
+| **Agent harness L2+** (smoke / capability) | Nightly / manual | Yes | ❌ By default |
 | **Backend parity** (F2.7 / dual framework) | After refactor lands | No for resolution tests | ✅ Planned |
 
 Default CI command excludes `integration` and `live_llm` markers (see `pytest.ini`).
@@ -71,7 +74,7 @@ Workflow: **`.github/workflows/ci.yml`** (on push to `main`/`master` and on pull
 | **python-unit** | `pip install` + `pytest` (unit tier) |
 | **python-smoke-import** | Install runtime deps; import `orchestration.*` and `main` |
 | **docker-worker-smoke** | Build `docker/Dockerfile.worker`; invalid spec → exit 2 (`scripts/docker-worker-smoke.sh`) |
-| **kind-kubernetes-e2e** | kind cluster + hostPath PVC + stub worker Jobs (`scripts/k8s-kind-e2e.sh`; `tests/test_kind_kubernetes_e2e.py`) |
+| **kind-kubernetes-e2e** | kind cluster + hostPath PVC + stub worker Jobs (`scripts/k8s-kind-e2e.sh`; `tests/test_kind_kubernetes_e2e.py`, including `test_agent_skills_smoke_kind_kubernetes_workflow`) |
 
 No repository secrets required for default CI.
 
@@ -205,6 +208,24 @@ Align with [Dual execution framework]({{ '/dual-execution-framework/' | relative
 
 - [x] **T-K3** `@pytest.mark.backend_kubernetes` — mocked Job integration (`tests/test_backend_kubernetes.py`)
 - [x] **T-K3-kind** `@pytest.mark.kind_e2e` — live kind cluster in CI (`scripts/k8s-kind-e2e.sh`, stub worker)
+
+### Platform agent harness (planned)
+
+See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for full design.
+
+- [ ] **T-H0** `@pytest.mark.agent_harness` — L0 static validation for full [Agent provider catalog]({{ '/agent-catalog/' | relative_url }})
+- [ ] **T-H1** L1 connectivity for credentialed catalog subset in CI
+- [ ] **T-H2** L2 smoke — nightly workflow, concurrency cap
+- [ ] `main.py --harness-agent` / `--harness-batch` CLI (platform tiers)
+- [ ] `scripts/run-agent-harness.ps1` local helper
+
+### User agent harness packs (planned)
+
+See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — adopters maintain scenario libraries outside core; not part of default repo CI.
+
+- [ ] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
+- [ ] Scenario YAML + deterministic assertions + optional rubric
+- [ ] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/`
 
 ---
 

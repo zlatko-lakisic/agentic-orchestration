@@ -29,7 +29,7 @@ sidebar:
 | **Agent skills** | `AGENTIC_AGENT_SKILLS_CATALOG`, `AGENTIC_EXTRA_AGENT_SKILLS_PATH`, `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`, `AGENTIC_DISABLE_SKILL_GOAL_MATCH`, `AGENTIC_STRICT_SKILL_IDS` |
 | **Execution backend** | `AGENTIC_EXECUTION_BACKEND`, `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_RUN_STORE_PATH` | See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) |
 | **Progress / step context** | `AGENTIC_PROGRESS`, `AGENTIC_STEP_CONTEXT_*` |
-| **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints use `attachment_fingerprint`; legacy `mcp_fingerprint` alias) |
+| **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints: `attachment_fingerprint`; legacy `mcp_fingerprint` alias) |
 | **Answer cache** | `AGENTIC_ANSWER_CACHE` |
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, controller-related vars |
 | **Iterative stdout behavior** | `AGENTIC_DYNAMIC_ITER_STREAM_STEPS` |
@@ -71,7 +71,8 @@ Never commit `.env` or tokens. `.env` files are gitignored by convention.
 
 ## Related
 
-- [[MCP-providers]] — required env per integration; [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) cross-reference
-- [Agent skills]({{ '/agent-skills/' | relative_url }}) — shipped procedural skill catalog (when published to docs site)
+- [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — required env per integration; [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) cross-reference
+- [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}) — procedural skill catalog env vars and attachment semantics
+- [Agent skills]({{ '/agent-skills/' | relative_url }}) — shipped skill inventory
 - [CLI reference]({{ '/cli-reference/' | relative_url }})
 - Root `README.md` — summary table
