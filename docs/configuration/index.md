@@ -27,6 +27,7 @@ sidebar:
 | **VRAM / hardware** | `AGENTIC_ASSUME_VRAM_GB`, `AGENTIC_MAX_VRAM_FRACTION`, `AGENTIC_MAX_VRAM_GB`, disable filters |
 | **MCP** | `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`, `HOME_ASSISTANT_*`, `BRAVE_SEARCH_*`, `TAVILY_API_KEY`, `EXA_API_KEY`, `AGENTIC_MCP_FETCH_ENABLED`, `AGENTIC_MCP_MEMORY_MCP_ENABLED`, `FILESYSTEM_MCP_ALLOWED_DIRECTORY`, goal-match toggles |
 | **Agent skills** | `AGENTIC_AGENT_SKILLS_CATALOG`, `AGENTIC_EXTRA_AGENT_SKILLS_PATH`, `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`, `AGENTIC_DISABLE_SKILL_GOAL_MATCH`, `AGENTIC_STRICT_SKILL_IDS` |
+| **Agent harness** | `AGENTIC_HARNESS_TIER`, `AGENTIC_HARNESS_EVAL`, `AGENTIC_HARNESS_EVAL_MODEL`, `AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT`, `AGENTIC_HARNESS_FEED_PLANNER`, `AGENTIC_HARNESS_RECORD_STATS` — see [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) |
 | **Execution backend** | `AGENTIC_EXECUTION_BACKEND`, `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_RUN_STORE_PATH` | See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) |
 | **Progress / step context** | `AGENTIC_PROGRESS`, `AGENTIC_STEP_CONTEXT_*` |
 | **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints: `attachment_fingerprint`; legacy `mcp_fingerprint` alias) |
@@ -47,6 +48,19 @@ sidebar:
 | `AGENTIC_K8S_ALLOW_STDIO_MCPS` | `0` | K8s mode only: when `1`, allow stdio MCP ids if sidecars exist (K4). K3 MVP keeps `0`. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#mcp-compatibility-matrix-k8s-mode). |
 
 See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) for architecture and phased rollout. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) for PVC layout on cluster.
+
+## Platform agent harness
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_HARNESS_TIER` | `static` | Default tier when `--harness-tier` omitted: `static`, `connectivity`, `smoke`, `capability`. |
+| `AGENTIC_HARNESS_EVAL` | `1` | When `0`, skip LLM rubric on L3 capability tier. |
+| `AGENTIC_HARNESS_EVAL_MODEL` | _(planner default)_ | Model for capability-tier eval. |
+| `AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT` | `0` | When `1`, L1 connectivity skips `initialize()` on Ollama `selfcontained` entries (faster CI). |
+| `AGENTIC_HARNESS_FEED_PLANNER` | `1` | Inject recent harness failures into dynamic planner context. |
+| `AGENTIC_HARNESS_RECORD_STATS` | `1` | Record harness pass/fail in `__orchestrator_learning__/stats.json`. |
+
+CLI: `--harness-agent`, `--harness-batch`, `--harness-filter`, `--harness-json`. Helpers: `scripts/run-agent-harness.ps1`, `scripts/harness-report.py`.
 
 ## Notable runtime toggles
 
@@ -72,6 +86,7 @@ Never commit `.env` or tokens. `.env` files are gitignored by convention.
 ## Related
 
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — required env per integration; [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) cross-reference
+- [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) — tiers, profiles, CI
 - [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}) — procedural skill catalog env vars and attachment semantics
 - [Agent skills]({{ '/agent-skills/' | relative_url }}) — shipped skill inventory
 - [CLI reference]({{ '/cli-reference/' | relative_url }})

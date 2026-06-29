@@ -5,6 +5,8 @@ main:
     url: /quick-start/
   - title: "Agent Catalog"
     url: /agent-catalog/
+  - title: "Agent Harness"
+    url: /Agent-harness-roadmap/
   - title: "MCP Catalog"
     url: /mcp-catalog/
   - title: "Agent Skills"
@@ -23,6 +25,8 @@ docs:
         url: /features/
       - title: "Quick Start"
         url: /quick-start/
+      - title: "Agent Harness"
+        url: /Agent-harness-roadmap/
       - title: "Architecture"
         url: /architecture/
       - title: "Infrastructure"

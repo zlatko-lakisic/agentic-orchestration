@@ -14,8 +14,8 @@ header:
 excerpt: >
   Model-agnostic multi-agent orchestration built on CrewAI.
   Dynamic planning, 182 agent templates, 7 MCP integrations,
-  agent skills playbooks, and three execution backends — from local Ollama to Kubernetes.
-  Latest release: v1.3.0.
+  agent skills playbooks, platform agent harness, and three execution backends — from local Ollama to Kubernetes.
+  Latest release: v1.4.0.
 feature_row:
   - title: "Dynamic Planning"
     excerpt: "State a goal in plain language. The LLM planner selects agents, attaches MCP tools, and builds a multi-step execution plan automatically."
@@ -36,6 +36,11 @@ feature_row:
     excerpt: "YAML procedural playbooks — release checklists, PR review, domain how-tos — injected into tasks or backstory; composes with MCP tools."
     url: /agent-skills/
     btn_label: "Browse skills"
+    btn_class: "btn--primary"
+  - title: "Platform Agent Harness"
+    excerpt: "Tiered per-catalog verification (L0–L3): static YAML checks, connectivity probes, smoke tasks, and capability rubrics. L0/L1 run in CI on every PR."
+    url: /Agent-harness-roadmap/
+    btn_label: "Harness guide"
     btn_class: "btn--primary"
 feature_row2:
   - title: "Three Execution Backends"

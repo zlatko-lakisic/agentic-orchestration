@@ -72,7 +72,24 @@ python main.py --batch
 python main.py "Generate taglines for a developer CLI tool"
 ```
 
-## Step 5 — (Optional) Web UI
+## Step 5 — Verify your catalog (optional)
+
+Run the **platform agent harness** to confirm agent YAML is valid and (with API keys) backends are reachable:
+
+```bash
+# L0 — no API keys; validates full catalog YAML
+python main.py --harness-batch --harness-tier static
+
+# L1 — credentialed cloud agents only
+python main.py --harness-batch --harness-tier connectivity --harness-filter "gpt_*"
+
+# L2 — single-agent smoke (requires OPENAI_API_KEY or similar)
+python main.py --harness-agent gpt_research --harness-tier smoke
+```
+
+See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for tiers, profiles, and CI integration.
+
+## Step 6 — (Optional) Web UI
 
 ```bash
 cd ../agentic-orchestration-web
@@ -86,6 +103,7 @@ npm start
 | Topic | Link |
 |---|---|
 | Browse agent templates | [Agent Catalog]({{ '/agent-catalog/' | relative_url }}) |
+| Verify catalog agents | [Agent harness]({{ '/Agent-harness-roadmap/' | relative_url }}) |
 | Browse MCP integrations | [MCP Catalog]({{ '/mcp-catalog/' | relative_url }}) |
 | Agent skills playbooks | [Agent Skills]({{ '/agent-skills/' | relative_url }}) |
 | Environment variables | [Configuration]({{ '/configuration/' | relative_url }}) |

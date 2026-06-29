@@ -15,7 +15,7 @@ sidebar:
 ![Core architecture diagram](assets/2.png)
 
 1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id`, optional MCP ids, optional skill ids (see [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }})), and (when implemented) optional agent-tool ids — see [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}).
-2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Agent skills load from `config/agent_skills/` plus `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. Entries without required credentials (or missing `required_files`) are filtered out before planning. Planned catalogs: `config/agent_tools/` (in-process CrewAI tools — [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }})). Planned **harness** layers: platform catalog verification ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }})) and user scenario packs ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})).
+2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Agent skills load from `config/agent_skills/` plus `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. Entries without required credentials (or missing `required_files`) are filtered out before planning. **Platform agent harness** ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }})) verifies catalog entries per environment; user scenario packs are planned separately ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})).
 3. **Runner** — Selects execution backend (`AGENTIC_EXECUTION_BACKEND`, default in-process CrewAI). Builds CrewAI `Agent` / `Task` / `Crew` for in-process runs; distributed backends materialize `StepSpec` lists and coordinate per-step workers.
 4. **Post-run** — Optional artifact extraction, verification, session JSON updates, learning traces, KB append, web UI progress.
 
@@ -32,8 +32,7 @@ sidebar:
 agentic-orchestration-tool/config/
 ├── workflows/           # Static workflow YAML; routable files add top-level `meta`
 ├── agent_providers/    # One YAML per agent template (dynamic catalog)
-├── agent_harnesses/    # Planned — platform smoke profiles ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}))
-# User harness packs live outside core — AGENTIC_EXTRA_AGENT_HARNESS_DIRS ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}))
+├── agent_harnesses/    # Platform smoke/capability profiles ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}))
 ├── mcp_providers/      # One YAML per MCP template (streamable HTTP, stdio, refs, env gates)
 ├── agent_tools/        # Planned — one YAML per in-process tool bundle ([Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}))
 └── agent_skills/       # One YAML per procedural skill ([Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}))
@@ -48,8 +47,7 @@ Under `agentic-orchestration-tool/orchestration/`:
 - `step_coordinator.py` — Sequential step loop shared by subprocess/K8s backends.
 - `run_store.py` — Filesystem `{run_id}/{step_id}/result.json` handoff.
 - `execute_step.py` — Worker entrypoint for `--execute-step`.
-- `agent_harness.py` — Planned — platform harness tiers (static, connectivity, smoke) — [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
-- `user_agent_harness.py` — Planned — user scenario packs (`--harness-dir`) — [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}).
+- `agent_harness.py` — Platform harness tiers (`--harness-agent`, `--harness-batch`) — [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
 - `runner.py` — Build workflow, crew lifecycle (in-process path).
 - `dynamic_planner.py` — Planning, iterative rounds, controller, synthesis, eval hooks.
 - `mcp_providers_catalog.py` — Load/merge MCP YAML, env substitution, credential filtering, planner hints; resolves `streamable_http` and `stdio` blocks into CrewAI MCP configs.
