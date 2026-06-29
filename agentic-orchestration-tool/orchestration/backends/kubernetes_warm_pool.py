@@ -181,7 +181,7 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
     """Long-running loop: claim queue requests and execute step specs."""
     from orchestration.execute_step import execute_step_from_spec_file
 
-    mount = run_store_mount.rstrip("/") or "/run/store"
+    mount = str(run_store_mount).rstrip("/") or "/run/store"
     emit_log(
         f"warm pool worker started (mount={mount})",
         component="warm-pool-worker",

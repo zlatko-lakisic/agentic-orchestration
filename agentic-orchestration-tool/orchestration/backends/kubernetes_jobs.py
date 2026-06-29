@@ -70,9 +70,11 @@ class KubernetesJobRunner:
         )
 
         if warm_pool_enabled_from_env() and not sidecar_mcp_ids:
+            from orchestration.run_store import shared_run_store_mount_path
+
             return dispatch_step_via_warm_pool(
                 namespace=settings.namespace,
-                run_store_mount=settings.run_store_mount,
+                run_store_mount=shared_run_store_mount_path(),
                 run_id=run_id,
                 step_id=step_id,
                 spec_container_path=spec_container_path,

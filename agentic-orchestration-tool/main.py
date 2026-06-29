@@ -740,7 +740,7 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(2)
-        run_warm_pool_worker_loop(run_store_mount=mount)
+        run_warm_pool_worker_loop(run_store_mount=str(mount))
         sys.exit(0)
 
     if getattr(args, "delegation_broker", False):

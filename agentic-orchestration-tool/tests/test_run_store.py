@@ -11,6 +11,7 @@ from orchestration.run_store import (
     allocate_run_store_root,
     run_store_base_from_env,
     run_store_session,
+    shared_run_store_mount_path,
     write_step_spec,
 )
 
@@ -47,6 +48,25 @@ def test_run_store_base_from_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_run_store_base_from_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_RUN_STORE_PATH", "/run/store")
     assert run_store_base_from_env() == Path("/run/store")
+
+
+@pytest.mark.unit
+def test_shared_run_store_mount_path_prefers_run_store_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_RUN_STORE_PATH", str(tmp_path))
+    monkeypatch.setenv("AGENTIC_K8S_RUN_STORE_MOUNT", "/run/store")
+    assert shared_run_store_mount_path() == str(tmp_path)
+
+
+@pytest.mark.unit
+def test_shared_run_store_mount_path_falls_back_to_k8s_mount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENTIC_RUN_STORE_PATH", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_RUN_STORE_MOUNT", "/run/store")
+    assert shared_run_store_mount_path() == "/run/store"
 
 
 @pytest.mark.unit

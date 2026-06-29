@@ -69,6 +69,15 @@ def run_store_base_from_env() -> Path | None:
     return Path(raw)
 
 
+def shared_run_store_mount_path() -> str:
+    """PVC root for queue/result file I/O from this process (host path or in-cluster mount)."""
+    base = run_store_base_from_env()
+    if base is not None:
+        return str(base).rstrip("\\/")
+    mount = os.getenv("AGENTIC_K8S_RUN_STORE_MOUNT", DEFAULT_RUN_STORE_MOUNT).strip()
+    return mount.rstrip("/") or DEFAULT_RUN_STORE_MOUNT
+
+
 def allocate_run_store_root(*, run_id: str) -> tuple[Path, bool]:
     """Return ``(store_root, ephemeral)`` for one crew run.
 

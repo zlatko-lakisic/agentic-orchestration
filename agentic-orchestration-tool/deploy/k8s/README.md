@@ -61,6 +61,16 @@ cd agentic-orchestration-tool
 bash scripts/k8s-kind-e2e.sh
 ```
 
+## Full stack (local kind)
+
+```powershell
+# Builds coordinator + worker, syncs secret, applies coordinator + warm pool + delegation broker + fetch gateway
+powershell -File agentic-orchestration-tool/scripts/k8s-apply-full-stack.ps1
+
+kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
+# Open http://127.0.0.1:3847
+```
+
 ## Coordinator (K3.7)
 
 In-cluster web UI + orchestrator (creates worker Jobs via in-cluster API):
