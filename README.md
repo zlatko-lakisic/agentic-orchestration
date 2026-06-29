@@ -1,5 +1,7 @@
 # Agentic Orchestration
 
+[![CI](https://github.com/zlatko-lakisic/agentic-orchestration/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/zlatko-lakisic/agentic-orchestration/actions/workflows/ci.yml)
+
 <p align="center">
   <a href="https://zlatko-lakisic.github.io/agentic-orchestration/">
     <img src="assets/logo.png" alt="Agentic Orchestration" width="420" />
