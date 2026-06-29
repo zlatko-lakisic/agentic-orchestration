@@ -147,6 +147,59 @@ def test_prune_drops_all_skills_when_none_match_goal() -> None:
 
 
 @pytest.mark.unit
+def test_prune_irrelevant_per_task_skills_from_user_goal() -> None:
+    from orchestration.dynamic_planner import _prune_irrelevant_skills_from_user_goal
+
+    cfg = WorkflowConfig(
+        name="prune-task-skills",
+        process="sequential",
+        topic="t",
+        instance_key="prune-task-skills",
+        agent_providers=[
+            {
+                "id": "writer",
+                "type": "openai",
+                "role": "Writer",
+                "goal": "Write",
+                "backstory": "Test",
+                "model": "gpt-4o-mini",
+            }
+        ],
+        mcp_providers=[],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="writer",
+                description="d",
+                expected_output="o",
+                skills=["echo_skill", "unrelated_skill"],
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    catalog = [
+        {
+            "id": "echo_skill",
+            "user_goal_keywords": ["skills", "smoke"],
+            "content": {"body": "x"},
+        },
+        {
+            "id": "unrelated_skill",
+            "user_goal_keywords": ["kubernetes"],
+            "content": {"body": "y"},
+        },
+    ]
+    pruned = _prune_irrelevant_skills_from_user_goal(
+        cfg,
+        user_prompt="run skills smoke test",
+        skill_catalog=catalog,
+        quiet=True,
+    )
+    assert pruned.tasks[0].skills == ["echo_skill"]
+
+
+@pytest.mark.unit
 def test_suggest_pr_review_from_user_goal(config_dir: Path) -> None:
     from orchestration.agent_skills_catalog import (
         filter_skill_entries_by_credentials,

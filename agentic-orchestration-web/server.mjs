@@ -2213,10 +2213,12 @@ wss.on("connection", (ws) => {
       return;
     }
     if (msg.type === "rate") {
+      const fp = (msg.attachmentFingerprint || msg.mcpFingerprint || "none").trim() || "none";
       appendPendingRating({
         session_slug: msg.sessionId || "",
         provider_id: msg.providerId || "",
-        mcp_fingerprint: (msg.attachmentFingerprint || msg.mcpFingerprint || "none").trim() || "none",
+        attachment_fingerprint: fp,
+        mcp_fingerprint: fp,
         task_tag: msg.taskTag || "general",
         rating: msg.rating,
       });

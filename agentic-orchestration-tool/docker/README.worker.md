@@ -68,7 +68,7 @@ Worker stderr/stdout lines are prefixed with `[run_id/step_id]` for correlation 
 
 ## Stub worker (CI kind e2e)
 
-CI uses a minimal image with no CrewAI/LLM — writes canned `result.json` from the step spec:
+CI uses a minimal image with no CrewAI/LLM — writes canned `result.json` from the step spec. The stub embeds `config/agent_skills` and verifies `skills` + `paths.agent_skills_catalog` + baked task description markers on skills workflows (`workflow_agent_skills_smoke.yaml`).
 
 ```bash
 docker build -f docker/Dockerfile.worker-stub -t agentic-orchestrator-worker-stub:ci .

@@ -63,11 +63,34 @@ def append_trace_event(tool_root: Path, event: dict[str, Any]) -> None:
 @dataclass
 class ProviderKey:
     provider_id: str
-    mcp_fingerprint: str  # MCP digest, skill digest, or ``{mcp}+{skills}`` combined
+    mcp_fingerprint: str  # Legacy name; value is combined MCP+skill attachment digest
     task_tag: str
+
+    @property
+    def attachment_fingerprint(self) -> str:
+        return self.mcp_fingerprint
 
     def as_key(self) -> str:
         return f"{self.task_tag}::{self.provider_id}::{self.mcp_fingerprint}"
+
+
+def normalize_attachment_fingerprint(
+    value: str | None = None,
+    *,
+    legacy_mcp_fingerprint: str | None = None,
+) -> str:
+    """Normalize attachment fingerprint from new or legacy field names."""
+    raw = (value or legacy_mcp_fingerprint or "").strip()
+    return raw or "none"
+
+
+def attachment_fingerprint_event_fields(fp: str) -> dict[str, str]:
+    """Trace/rating JSON fields (new name + legacy ``mcp_fingerprint`` alias)."""
+    normalized = normalize_attachment_fingerprint(fp)
+    return {
+        "attachment_fingerprint": normalized,
+        "mcp_fingerprint": normalized,
+    }
 
 
 def _infer_task_tag(user_prompt: str) -> str:
@@ -108,7 +131,8 @@ def consume_pending_ratings(tool_root: Path, stats: dict[str, Any]) -> dict[str,
     Merge pending user ratings into stats and clear the pending file.
 
     Rating event expected shape:
-      { session_slug, provider_id, mcp_fingerprint, task_tag, rating: -1|+1 }
+      { session_slug, provider_id, attachment_fingerprint, task_tag, rating: -1|+1 }
+      Legacy alias: ``mcp_fingerprint`` (same value as ``attachment_fingerprint``).
     """
     p = pending_ratings_path(tool_root)
     if not p.exists():
@@ -134,7 +158,10 @@ def consume_pending_ratings(tool_root: Path, stats: dict[str, Any]) -> dict[str,
             continue
         pk = ProviderKey(
             provider_id=str(ev.get("provider_id", "")).strip() or "unknown",
-            mcp_fingerprint=str(ev.get("mcp_fingerprint", "")).strip() or "none",
+            mcp_fingerprint=normalize_attachment_fingerprint(
+                str(ev.get("attachment_fingerprint", "")).strip() or None,
+                legacy_mcp_fingerprint=str(ev.get("mcp_fingerprint", "")).strip() or None,
+            ),
             task_tag=str(ev.get("task_tag", "")).strip() or "general",
         )
         key = pk.as_key()
@@ -154,14 +181,16 @@ def update_provider_score(
     *,
     stats: dict[str, Any],
     provider_id: str,
-    mcp_fingerprint: str,
     user_prompt: str,
     eval_score: float | None,
+    attachment_fingerprint: str | None = None,
+    mcp_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     tag = _infer_task_tag(user_prompt)
+    fp = normalize_attachment_fingerprint(attachment_fingerprint, legacy_mcp_fingerprint=mcp_fingerprint)
     pk = ProviderKey(
         provider_id=provider_id.strip() or "unknown",
-        mcp_fingerprint=mcp_fingerprint.strip() or "none",
+        mcp_fingerprint=fp,
         task_tag=tag,
     )
     key = pk.as_key()

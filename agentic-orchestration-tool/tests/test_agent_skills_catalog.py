@@ -176,6 +176,7 @@ def test_runner_injects_backstory_skill(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("crewai")
     from orchestration.agent_skills_context import BACKSTORY_SKILLS_MARKER
     from orchestration.runner import build_workflow
 
@@ -225,6 +226,7 @@ def test_runner_injects_skill_into_task_description(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("crewai")
     from orchestration.runner import build_workflow
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -468,3 +470,36 @@ def test_workflow_agent_skills_smoke_yaml(config_dir: Path) -> None:
     assert cfg.name == "agent-skills-smoke"
     assert cfg.tasks[0].skills == ["echo_skill"]
     assert cfg.task_sequence == ["skills_echo"]
+
+
+@pytest.mark.unit
+def test_agent_skills_smoke_workflow_materializes(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestration.agent_skills_context import SKILLS_MARKER
+    from orchestration.config_loader import load_workflow_config
+    from orchestration.workflow_materializer import build_step_specs
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    cfg = load_workflow_config(config_dir / "workflows" / "workflow_agent_skills_smoke.yaml")
+    specs = build_step_specs(
+        cfg,
+        run_id="smoke-run",
+        agent_skills_catalog_path=config_dir / "agent_skills",
+        quiet=True,
+    )
+    assert len(specs) == 1
+    assert specs[0].skills == ["echo_skill"]
+    assert SKILLS_MARKER in specs[0].task_description
+    assert "SKILL_ECHO_OK" in specs[0].task_description
+
+
+@pytest.mark.unit
+def test_learning_attachment_fingerprint_aliases() -> None:
+    from orchestration.learning_store import (
+        attachment_fingerprint_event_fields,
+        normalize_attachment_fingerprint,
+    )
+
+    assert normalize_attachment_fingerprint("abc", legacy_mcp_fingerprint="def") == "abc"
+    assert normalize_attachment_fingerprint(None, legacy_mcp_fingerprint="legacy") == "legacy"
+    fields = attachment_fingerprint_event_fields("fp123")
+    assert fields == {"attachment_fingerprint": "fp123", "mcp_fingerprint": "fp123"}

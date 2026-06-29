@@ -39,3 +39,36 @@ def test_two_step_kind_kubernetes_workflow(
     assert [s.step_id for s in result.step_results] == ["diverge", "converge"]
     assert len(result.k8s_jobs) == 2
     assert all(job.get("succeeded") for job in result.k8s_jobs)
+
+
+@pytest.mark.integration
+@pytest.mark.backend_kubernetes
+@pytest.mark.kind_e2e
+def test_agent_skills_smoke_kind_kubernetes_workflow(
+    tool_root: Path,
+) -> None:
+    """K8s stub worker verifies StepSpec skills handoff (workflow_agent_skills_smoke.yaml)."""
+    if os.getenv("AGENTIC_KIND_E2E", "").strip() != "1":
+        pytest.skip("Set AGENTIC_KIND_E2E=1 (see scripts/k8s-kind-e2e.sh)")
+
+    if os.getenv("AGENTIC_EXECUTION_BACKEND", "").strip() != "kubernetes":
+        pytest.skip("AGENTIC_EXECUTION_BACKEND must be kubernetes for kind e2e")
+
+    workflow_path = tool_root / "config" / "workflows" / "workflow_agent_skills_smoke.yaml"
+    cfg = load_workflow_config(workflow_path)
+    catalog = tool_root / "config" / "agent_skills"
+    result = execute_workflow_config_resolved(
+        cfg,
+        options=RunOptions(
+            quiet=True,
+            agent_skills_catalog_path=catalog,
+        ),
+    )
+
+    assert result.exit_code == 0, result.error
+    assert result.result_text
+    assert "SKILL_ECHO_OK" in result.result_text
+    assert len(result.step_results) == 1
+    assert result.step_results[0].step_id == "skills_echo"
+    assert len(result.k8s_jobs) == 1
+    assert result.k8s_jobs[0].get("succeeded")

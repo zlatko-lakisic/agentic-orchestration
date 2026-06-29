@@ -81,6 +81,7 @@ def add_document(
     user_goal: str,
     content: str,
     provider_id: str | None = None,
+    attachment_fingerprint: str | None = None,
     mcp_fingerprint: str | None = None,
 ) -> None:
     if not kb_enabled():
@@ -88,6 +89,7 @@ def add_document(
     text = (content or "").strip()
     if not text:
         return
+    fp = (attachment_fingerprint or mcp_fingerprint or "").strip() or None
     cap = int(os.getenv("AGENTIC_KB_DOC_CHARS", "20000"))
     cap = max(2000, min(200000, cap))
     text = text[:cap]
@@ -101,7 +103,7 @@ def add_document(
                 (session_slug or "").strip() or None,
                 str(user_goal or "").strip(),
                 (provider_id or "").strip() or None,
-                (mcp_fingerprint or "").strip() or None,
+                fp,
                 text,
             ),
         )

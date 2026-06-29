@@ -1,4 +1,10 @@
 # Stub worker for kind CI e2e — implements the --execute-step contract without LLM calls.
 FROM python:3.12-slim
+WORKDIR /app
+COPY orchestration/__init__.py orchestration/__init__.py
+COPY orchestration/k8s_stub_skills.py orchestration/k8s_stub_skills.py
+COPY config/agent_skills /app/config/agent_skills
 COPY scripts/k8s-stub-worker.py /app/k8s-stub-worker.py
+ENV PYTHONPATH=/app
+ENV AGENTIC_K8S_STUB_SKILLS_CATALOG=/app/config/agent_skills
 ENTRYPOINT ["python", "/app/k8s-stub-worker.py"]

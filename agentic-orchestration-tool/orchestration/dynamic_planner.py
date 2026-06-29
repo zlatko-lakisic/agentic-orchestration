@@ -1095,38 +1095,74 @@ def _prune_irrelevant_skills_from_user_goal(
     """
     Guardrail: if the planner selected skill ids that don't match the user goal,
     drop them instead of forcing irrelevant procedural instructions.
+    Applies to workflow-default ``skills`` and per-task explicit ``skills`` lists.
     """
     if not skill_catalog:
         return cfg
-    if not cfg.skills:
-        return cfg
     suggested = set(suggest_skill_ids_from_user_goal(user_prompt, skill_catalog))
-    if not suggested:
-        if not quiet:
+    if not cfg.skills and not any(t.skills is not None for t in cfg.tasks):
+        return cfg
+
+    workflow_skills = list(cfg.skills)
+    if workflow_skills:
+        if not suggested:
+            if not quiet:
+                print(
+                    f"(dynamic) skill relevance: dropping default skill_ids {workflow_skills!r} "
+                    f"(no skill keywords matched goal)",
+                    file=sys.stderr,
+                )
+            workflow_skills = []
+        else:
+            kept_wf: list[str] = []
+            dropped_wf: list[str] = []
+            for x in workflow_skills:
+                sx = str(x).strip()
+                if not sx:
+                    continue
+                if sx in suggested:
+                    kept_wf.append(sx)
+                else:
+                    dropped_wf.append(sx)
+            if dropped_wf and not quiet:
+                print(
+                    f"(dynamic) skill relevance: dropped default {dropped_wf!r}; kept {kept_wf!r}",
+                    file=sys.stderr,
+                )
+            workflow_skills = kept_wf
+
+    new_tasks: list[TaskDefinition] = []
+    for tdef in cfg.tasks:
+        if tdef.skills is None:
+            new_tasks.append(tdef)
+            continue
+        if not suggested:
+            if tdef.skills and not quiet:
+                print(
+                    f"(dynamic) skill relevance: dropping task {tdef.id!r} skill_ids {tdef.skills!r} "
+                    f"(no skill keywords matched goal)",
+                    file=sys.stderr,
+                )
+            new_tasks.append(replace(tdef, skills=[] if tdef.skills else tdef.skills))
+            continue
+        kept_task: list[str] = []
+        dropped_task: list[str] = []
+        for x in tdef.skills:
+            sx = str(x).strip()
+            if not sx:
+                continue
+            if sx in suggested:
+                kept_task.append(sx)
+            else:
+                dropped_task.append(sx)
+        if dropped_task and not quiet:
             print(
-                f"(dynamic) skill relevance: dropping default skill_ids {cfg.skills!r} "
-                f"(no skill keywords matched goal)",
+                f"(dynamic) skill relevance: task {tdef.id!r} dropped {dropped_task!r}; kept {kept_task!r}",
                 file=sys.stderr,
             )
-        return replace(cfg, skills=[])
+        new_tasks.append(replace(tdef, skills=kept_task))
 
-    kept: list[str] = []
-    dropped: list[str] = []
-    for x in cfg.skills:
-        sx = str(x).strip()
-        if not sx:
-            continue
-        if sx in suggested:
-            kept.append(sx)
-        else:
-            dropped.append(sx)
-
-    if dropped and not quiet:
-        print(
-            f"(dynamic) skill relevance: dropped {dropped!r}; kept {kept!r}",
-            file=sys.stderr,
-        )
-    return replace(cfg, skills=kept)
+    return replace(cfg, skills=workflow_skills, tasks=new_tasks)
 
 
 def _dynamic_plan_resolves_no_skills(

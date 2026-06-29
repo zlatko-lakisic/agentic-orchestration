@@ -1015,6 +1015,7 @@ def main() -> None:
             try:
                 from orchestration.learning_store import (
                     append_trace_event,
+                    attachment_fingerprint_event_fields,
                     attachment_fingerprint_for_task,
                     learning_enabled,
                     load_stats,
@@ -1042,7 +1043,7 @@ def main() -> None:
                             "mode": "dynamic-iterative",
                             "round": r,
                             "provider_id": provider_id,
-                            "mcp_fingerprint": fp,
+                            **attachment_fingerprint_event_fields(fp),
                             "eval": eval_data,
                         },
                     )
@@ -1050,7 +1051,7 @@ def main() -> None:
                     st = update_provider_score(
                         stats=st,
                         provider_id=provider_id,
-                        mcp_fingerprint=fp,
+                        attachment_fingerprint=fp,
                         user_prompt=compose_goal(logical_goal),
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )
@@ -1224,13 +1225,14 @@ def main() -> None:
                     user_goal=cache_goal,
                     content=result_text or "",
                     provider_id=provider_id,
-                    mcp_fingerprint=fp,
+                    attachment_fingerprint=fp,
                 )
             except Exception:  # noqa: BLE001
                 pass
             try:
                 from orchestration.learning_store import (
                     append_trace_event,
+                    attachment_fingerprint_event_fields,
                     attachment_fingerprint_for_task,
                     learning_enabled,
                     load_stats,
@@ -1257,7 +1259,7 @@ def main() -> None:
                             "kind": "final_synthesis_result",
                             "mode": "dynamic-iterative",
                             "provider_id": provider_id,
-                            "mcp_fingerprint": fp,
+                            **attachment_fingerprint_event_fields(fp),
                             "eval": eval_data,
                         },
                     )
@@ -1265,7 +1267,7 @@ def main() -> None:
                     st = update_provider_score(
                         stats=st,
                         provider_id=provider_id,
-                        mcp_fingerprint=fp,
+                        attachment_fingerprint=fp,
                         user_prompt=cache_goal,
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )
@@ -1451,26 +1453,25 @@ def main() -> None:
         )
         try:
             from orchestration.knowledge_base import add_document
-            from orchestration.learning_store import attachment_fingerprint_from_specs
+            from orchestration.learning_store import attachment_fingerprint_for_task
 
-            provider_id = dyn_cfg.tasks[-1].agent_provider_id if dyn_cfg.tasks else "unknown"
-            fp = attachment_fingerprint_from_specs(
-                list(dyn_cfg.mcp_providers or []),
-                list(dyn_cfg.skills or []),
-            )
+            last_task = dyn_cfg.tasks[-1] if dyn_cfg.tasks else None
+            provider_id = last_task.agent_provider_id if last_task else "unknown"
+            fp = attachment_fingerprint_for_task(last_task, dyn_cfg) if last_task else "none"
             add_document(
                 tool_root=tool_root,
                 session_slug=slug,
                 user_goal=cache_goal,
                 content=result_text or "",
                 provider_id=provider_id,
-                mcp_fingerprint=fp,
+                attachment_fingerprint=fp,
             )
         except Exception:  # noqa: BLE001
             pass
         try:
             from orchestration.learning_store import (
                 append_trace_event,
+                attachment_fingerprint_event_fields,
                 attachment_fingerprint_for_task,
                 learning_enabled,
                 load_stats,
@@ -1498,7 +1499,7 @@ def main() -> None:
                     st = update_provider_score(
                         stats=st,
                         provider_id=pid,
-                        mcp_fingerprint=fp,
+                        attachment_fingerprint=fp,
                         user_prompt=cache_goal,
                         eval_score=float(score) if isinstance(score, (int, float)) else None,
                     )

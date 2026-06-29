@@ -8,7 +8,7 @@
   </a>
 </p>
 
-**A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**. It turns natural-language goals and YAML configuration into coordinated multi-agent workflows: planners choose steps and backends, agents execute with clear roles, and optional **Model Context Protocol (MCP)** servers extend each agent with tools (Home Assistant, docs, search, and custom servers you add to the catalog).
+**A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**. It turns natural-language goals and YAML configuration into coordinated multi-agent workflows: planners choose steps and backends, agents execute with clear roles, and optional **Model Context Protocol (MCP)** servers plus **agent skills** (procedural playbooks) extend each step with tools and how-to instructions.
 
 You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, plus TPU endpoint providers (**vLLM** and **JetStream**)—picked per task from a catalog, filtered by credentials and hardware capability (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics), with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.
 

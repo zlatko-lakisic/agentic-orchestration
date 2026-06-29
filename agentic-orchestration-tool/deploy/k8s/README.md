@@ -51,8 +51,8 @@ GitHub Actions job **kind-kubernetes-e2e** runs `scripts/k8s-kind-e2e.sh`:
 
 - kind cluster (`deploy/k8s/kind/cluster.ci.yaml`)
 - hostPath PVC + probe pod
-- stub worker image (`docker/Dockerfile.worker-stub`) — no LLM
-- `tests/test_kind_kubernetes_e2e.py`
+- stub worker image (`docker/Dockerfile.worker-stub`) — no LLM; verifies agent-skills `StepSpec` handoff
+- `tests/test_kind_kubernetes_e2e.py` (brainstorm two-step + agent skills smoke)
 
 Local reproduction (Linux / Git Bash with Docker + kind):
 
