@@ -143,6 +143,16 @@ function sendJson(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
 }
 
+/** Env for Python orchestrator runs started from the web UI (chat expects prose, not JSON). */
+function webOrchestratorSpawnEnv(extra = {}) {
+  return {
+    ...process.env,
+    PYTHONUTF8: "1",
+    AGENTIC_WEB_PROSE_DELIVERABLE: "1",
+    ...extra,
+  };
+}
+
 function _pythonCanImportDotenv() {
   const chk = spawnSync(PYTHON, ["-c", "import dotenv"], {
     cwd: TOOL_ROOT,
@@ -2039,11 +2049,9 @@ async function runDynamicAwait({
     selectedAgentProviderIds,
     attachmentManifestPath,
   });
-  const env = { ...process.env };
-  env.PYTHONUTF8 = "1";
-  if (disableAnswerCache) {
-    env.AGENTIC_ANSWER_CACHE = "0";
-  }
+  const env = webOrchestratorSpawnEnv(
+    disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {},
+  );
   return new Promise((resolve, reject) => {
     const proc = spawn(PYTHON, args, {
       cwd: TOOL_ROOT,
@@ -2134,8 +2142,7 @@ function runDynamic(
 
   sendJson(ws, { type: "run_start", args });
 
-  const env = { ...process.env };
-  env.PYTHONUTF8 = "1";
+  const env = webOrchestratorSpawnEnv();
 
   const proc = spawn(PYTHON, args, {
     cwd: TOOL_ROOT,

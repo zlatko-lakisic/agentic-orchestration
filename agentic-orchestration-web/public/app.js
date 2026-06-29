@@ -42,6 +42,72 @@ function applyAssistantPlain(el, text) {
   el.textContent = text;
 }
 
+function jsonValueToProse(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (typeof v === "string" ? `- ${v}` : `- ${jsonValueToProse(v)}`))
+      .join("\n");
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    const finalKeys = ["Final Answer", "final_answer", "answer", "response", "summary", "text"];
+    for (const k of finalKeys) {
+      if (typeof value[k] === "string" && value[k].trim()) {
+        const main = value[k].trim();
+        const rest = keys.filter((key) => key !== k && value[key] != null && value[key] !== "");
+        if (!rest.length) return main;
+        const extras = rest
+          .map((key) => {
+            const v = value[key];
+            if (Array.isArray(v)) return `**${key}:**\n${v.map((x) => `- ${x}`).join("\n")}`;
+            if (typeof v === "string") return `**${key}:** ${v}`;
+            return `**${key}:** ${JSON.stringify(v)}`;
+          })
+          .join("\n\n");
+        return `${main}\n\n${extras}`;
+      }
+    }
+    return keys
+      .map((k) => {
+        const v = value[k];
+        if (typeof v === "string") return `**${k}:** ${v}`;
+        if (Array.isArray(v)) return `**${k}:**\n${v.map((x) => `- ${x}`).join("\n")}`;
+        return `**${k}:** ${JSON.stringify(v)}`;
+      })
+      .join("\n\n");
+  }
+  return String(value);
+}
+
+function unwrapJsonLikeAssistantText(text) {
+  let t = String(text ?? "").trim();
+  if (!t) return t;
+
+  const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fence) t = fence[1].trim();
+
+  if (!t.startsWith("{") && !t.startsWith("[")) return text;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(t);
+  } catch {
+    const m = t.match(/\{[\s\S]*\}/);
+    if (!m) return text;
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      return text;
+    }
+  }
+
+  const prose = jsonValueToProse(parsed);
+  return prose.trim() ? prose : text;
+}
+
 {
   const chat = document.getElementById("chat");
   const chatScroll = document.getElementById("chatScroll");
@@ -381,7 +447,7 @@ function applyAssistantPlain(el, text) {
           assistantBubble.classList.remove("processing", "typing");
         }
         if (!streamVerbose && assistantBubble) {
-          const out = stdoutBuf.trim();
+          const out = unwrapJsonLikeAssistantText(stdoutBuf.trim());
           const err = stderrBuf.trim();
           if (data.code !== 0 && err) {
             applyAssistantPlain(assistantBubble, err);
@@ -405,7 +471,7 @@ function applyAssistantPlain(el, text) {
           }
         }
         if (streamVerbose && assistantBubble) {
-          const out = stdoutBuf.trim();
+          const out = unwrapJsonLikeAssistantText(stdoutBuf.trim());
           if (out) {
             try {
               await applyAssistantMarkdown(assistantBubble, out);

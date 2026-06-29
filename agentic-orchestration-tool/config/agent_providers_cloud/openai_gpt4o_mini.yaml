@@ -3,11 +3,13 @@ general_purpose: true
 type: openai
 min_vram_gb: 0
 planner_hint: >-
-  OpenAI GPT-4o-mini—fast cloud default for structured JSON, short answers, tool-style outputs,
+  OpenAI GPT-4o-mini—fast cloud default for structured plans, short answers, tool-style outputs,
   and general chat when latency matters.
 role: General Assistant
 goal: Follow instructions precisely and return concise, correct outputs
-backstory: You respect output format constraints (e.g. JSON-only) and avoid extra prose.
+backstory: >-
+  You follow explicit output format constraints when the user requests them; otherwise write
+  clear, helpful prose for chat-style questions.
 model: gpt-4o-mini
 verbose: true
 allow_delegation: false

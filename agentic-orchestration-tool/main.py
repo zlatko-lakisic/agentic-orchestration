@@ -17,7 +17,12 @@ from orchestration.attachments import (
 )
 from orchestration.catalog_loader import discover_workflow_catalog, get_catalog_entry_by_id
 from orchestration.config_loader import WorkflowConfig, load_workflow_config
-from orchestration.goal_format_hints import goal_requires_machine_readable_only
+from orchestration.goal_format_hints import (
+    apply_web_prose_goal_if_enabled,
+    goal_requires_machine_readable_only,
+    web_prose_deliverable_enabled,
+    web_prose_synthesis_instructions,
+)
 from orchestration.dynamic_planner import (
     build_dynamic_workflow_config,
     emit_faithfulness_qa_report,
@@ -834,7 +839,9 @@ def main() -> None:
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
 
         def compose_goal(g: str) -> str:
-            return compose_goal_with_attachments(g, attachment_block)
+            return apply_web_prose_goal_if_enabled(
+                compose_goal_with_attachments(g, attachment_block)
+            )
 
         raw_task = str(args.task or "").strip()
         if not raw_task:
@@ -1108,8 +1115,12 @@ def main() -> None:
             # Final synthesis: use the last crew excerpt as context.
             sess = load_session(orchestrator_session_path)
             excerpt = (sess.last_crew_output_excerpt or "").strip()
+            prose_hdr = ""
+            if web_prose_deliverable_enabled() and not strict_mr_goal:
+                prose_hdr = web_prose_synthesis_instructions()
             synth_prompt = (
                 f"{compose_goal(logical_goal)}\n\n"
+                f"{prose_hdr}"
                 "Synthesize a final answer by combining the intermediate results below. "
                 "Resolve contradictions; if information is missing, explicitly list assumptions.\n\n"
                 "Math/finance formatting rules:\n"
@@ -1290,7 +1301,9 @@ def main() -> None:
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
 
         def compose_goal(g: str) -> str:
-            return compose_goal_with_attachments(g, attachment_block)
+            return apply_web_prose_goal_if_enabled(
+                compose_goal_with_attachments(g, attachment_block)
+            )
 
         raw_task = str(args.task or "").strip()
         if not raw_task:

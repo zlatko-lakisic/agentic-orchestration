@@ -15,7 +15,11 @@ import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task
-from orchestration.goal_format_hints import goal_requires_machine_readable_only
+from orchestration.goal_format_hints import (
+    goal_requires_machine_readable_only,
+    web_prose_deliverable_enabled,
+    web_prose_planner_rules,
+)
 from orchestration.provider_goal_match import (
     maybe_remap_planner_provider_missing_from_catalog,
     suppress_general_providers_when_domains_align,
@@ -523,6 +527,8 @@ If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `
     if kb_context and kb_context.strip():
         system += str(kb_context)
     system += orchestrator_vertical_context_section()
+    if web_prose_deliverable_enabled():
+        system += web_prose_planner_rules()
     return system
 
 
