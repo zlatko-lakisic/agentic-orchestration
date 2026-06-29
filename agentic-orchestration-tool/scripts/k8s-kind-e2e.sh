@@ -33,6 +33,17 @@ fi
 bash scripts/k8s-kind-up.sh
 bash scripts/k8s-apply-run-store.sh
 
+echo "Waiting for default ServiceAccount in agentic-orchestration ..."
+deadline=$((SECONDS + 60))
+until kubectl get serviceaccount default -n agentic-orchestration >/dev/null 2>&1; do
+  if (( SECONDS >= deadline )); then
+    echo "Timed out waiting for default ServiceAccount in agentic-orchestration" >&2
+    kubectl get serviceaccount -n agentic-orchestration 2>&1 || true
+    exit 1
+  fi
+  sleep 1
+done
+
 kubectl delete pod run-store-probe -n agentic-orchestration --ignore-not-found
 kubectl apply -f deploy/k8s/run-store/probe-pod.yaml
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
