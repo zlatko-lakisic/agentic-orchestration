@@ -14,6 +14,13 @@ url: "https://zlatko-lakisic.github.io"
 baseurl: "/agentic-orchestration"
 repository: "zlatko-lakisic/agentic-orchestration"
 
+# Google Analytics 4 (web stream: agentic-orchestration docs)
+analytics:
+  provider: "google-gtag"
+  google:
+    tracking_id: "G-Q8XP6XJE35"
+    anonymize_ip: false
+
 logo: "/assets/logo.png"
 favicon: "/favicon.ico"
 
