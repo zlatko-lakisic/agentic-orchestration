@@ -77,3 +77,5 @@ Workers and coordinator must share this path (bind mount, PVC, or NFS).
 - `--execute-step` worker contract
 
 See [Architecture]({{ '/architecture/' | relative_url }}) for the full pipeline.
+
+Deep dives: [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) (F0–F5 code seam) and [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (cluster delivery, K3–K5).

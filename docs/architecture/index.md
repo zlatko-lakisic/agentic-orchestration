@@ -1,78 +1,71 @@
 ---
-title: "Architecture"
 layout: single
-mermaid: true
+title: "Architecture"
+permalink: /architecture/
+toc: true
+toc_label: "On this page"
+toc_icon: "list"
 sidebar:
   nav: "docs"
-toc: true
-toc_sticky: true
 ---
+# Architecture
 
-## System flow
+## High-level flow
 
-```mermaid
-flowchart TB
-  User[User goal] --> Planner
-  Planner[Planner LiteLLM] --> Plan[JSON plan]
-  Plan --> Runner[Execution backend]
-  Runner --> Agents[Agent crews per step]
-  Agents --> MCP[MCP tools]
-  Agents --> Output[Step outputs]
-  Output --> KB[Knowledge base + sessions]
-  Output --> QA[QA pass]
-  Output --> User2[Final answer]
-```
+![Core architecture diagram](assets/2.png)
 
-## Components
+1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id` and optional MCP ids.
+2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Entries without required credentials are filtered out before planning.
+3. **Runner** — Selects execution backend (`AGENTIC_EXECUTION_BACKEND`, default in-process CrewAI). Builds CrewAI `Agent` / `Task` / `Crew` for in-process runs; distributed backends materialize `StepSpec` lists and coordinate per-step workers.
+4. **Post-run** — Optional artifact extraction, verification, session JSON updates, learning traces, KB append, web UI progress.
 
-### Planner
+## Packages
 
-Reads the user goal, session history, knowledge-base snippets, and learning summary. Outputs a structured JSON plan: steps, agent provider IDs, MCP IDs, and task descriptions. Runs via LiteLLM (`AGENTIC_PLANNER_MODEL`).
+| Package | Role |
+|---------|------|
+| `agentic-orchestration-tool` | Python: YAML workflows, dynamic planner, MCP catalog, sessions, learning, KB, CLI (`main.py`). |
+| `agentic-orchestration-web` | Node: HTTP + WebSocket server; spawns the tool for chat messages. |
 
-### Catalog resolution
-
-- **Agent providers** filtered by credentials, hardware (`architecture`, `min_vram_gb`), and optional domain-aware suppression of general-purpose entries.
-- **MCP providers** filtered by `required_env` / `required_env_any` gates.
-
-### Runner
-
-`ExecutionBackend` factory selects how each step runs:
-
-| Backend | Implementation |
-|---|---|
-| `inprocess` | `CrewAIExecutionBackend` — default, zero extra setup |
-| `subprocess` | Spawns `python main.py --execute-step` workers |
-| `kubernetes` | Creates a K8s Job per step with shared PVC run store |
-
-### Post-run pipeline
-
-1. Update orchestrator session JSON
-2. Append to knowledge base (if enabled)
-3. Record learning trace (if enabled)
-4. Final faithfulness QA (if enabled)
-5. Extract and optionally verify saved artifacts
-
-## Repository layout
+## Configuration directories (tool)
 
 ```
-agentic-orchestration/
-├── agentic-orchestration-tool/
-│   ├── config/
-│   │   ├── agent_providers/   # one YAML per agent template
-│   │   ├── mcp_providers/     # one YAML per MCP integration
-│   │   └── workflows/         # static workflow YAML
-│   ├── orchestration/         # planner, runner, backends, sessions, KB
-│   └── main.py
-├── agentic-orchestration-web/ # Node.js WebSocket UI
-└── examples/verticals/        # domain overlays (healthcare, logistics)
+agentic-orchestration-tool/config/
+├── workflows/           # Static workflow YAML; routable files add top-level `meta`
+├── agent_providers/    # One YAML per agent template (dynamic catalog)
+└── mcp_providers/      # One YAML per MCP template (streamable HTTP, stdio, refs, env gates)
 ```
 
-## Execution backend comparison
+## Orchestration modules (selected)
 
-| Backend | Isolation | Shared state | Best for |
-|---|---|---|---|
-| In-process | None | In-memory | Local dev, fastest iteration |
-| Subprocess | Process per step | `AGENTIC_RUN_STORE_PATH` | Step isolation, container smoke tests |
-| Kubernetes | Pod per step | PVC at `AGENTIC_K8S_RUN_STORE_MOUNT` | Production, horizontal scale |
+Under `agentic-orchestration-tool/orchestration/`:
 
-See [Execution Backends]({{ '/execution-backends/' | relative_url }}) for configuration.
+- `backends/` — Pluggable execution (`crewai`, `subprocess`, `kubernetes` stub); factory reads `AGENTIC_EXECUTION_BACKEND`.
+- `workflow_materializer.py` — `WorkflowConfig` → `StepSpec` for distributed backends.
+- `step_coordinator.py` — Sequential step loop shared by subprocess/K8s backends.
+- `run_store.py` — Filesystem `{run_id}/{step_id}/result.json` handoff.
+- `execute_step.py` — Worker entrypoint for `--execute-step`.
+- `runner.py` — Build workflow, crew lifecycle (in-process path).
+- `dynamic_planner.py` — Planning, iterative rounds, controller, synthesis, eval hooks.
+- `mcp_providers_catalog.py` — Load/merge MCP YAML, env substitution, credential filtering, planner hints; resolves `streamable_http` and `stdio` blocks into CrewAI MCP configs.
+- `orchestrator_session.py` — Session JSON under `__orchestrator_sessions__/`.
+- `learning_store.py` — Traces, stats, pending ratings under `__orchestrator_learning__/`.
+- `knowledge_base.py` — SQLite FTS under `__orchestrator_kb__/`.
+- `catalog_loader.py` / `config_loader.py` — Workflow and provider discovery.
+
+## Gitignored runtime paths
+
+| Path | Content |
+|------|---------|
+| `__orchestrator_sessions__/` | Planner turns + excerpts per session slug. |
+| `__orchestrator_learning__/` | `stats.json`, `traces.jsonl`, `pending_ratings.jsonl`. |
+| `__orchestrator_kb__/` | `kb.sqlite3` (FTS index). |
+| `__output__/` | Extracted artifacts from runs. |
+| `.env` | Secrets — never commit. |
+
+## Extension points
+
+- **More agents:** add YAML under `config/agent_providers/` or `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (Python provider classes).
+- **More MCPs:** add YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Discover third-party servers via [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (see [MCP providers]({{ '/mcp-catalog/' | relative_url }}) for shipped examples).
+- **Custom workflows:** add files under `config/workflows/`; optional `meta` for router inclusion.
+
+See also: [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}) (Docker Compose, Ollama sidecar, volumes), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) (pluggable execution backends — F0–F3 shipped), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (cluster delivery — K3+ pending).

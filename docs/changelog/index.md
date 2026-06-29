@@ -1,21 +1,25 @@
 ---
-title: "Changelog"
 layout: single
+title: "Changelog"
+permalink: /changelog/
+toc: true
+toc_label: "On this page"
+toc_icon: "list"
 sidebar:
   nav: "docs"
-toc: true
-toc_sticky: true
 ---
+Version history for **agentic-orchestration**. Source: [`CHANGELOG.md`](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/CHANGELOG.md) at repo root.
 
-Version history for **agentic-orchestration**. Format follows [Keep a Changelog](https://keepachangelog.com/). Version source: [`VERSION`](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/VERSION) at repo root.
+# Changelog
+
+All notable changes to **agentic-orchestration** are documented here.
+
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).  
+Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`VERSION` at repo root).
 
 ## [Unreleased]
 
-_No changes yet._
-
-## [1.1.1] — 2026-06-28
-
-[GitHub Release v1.1.1](https://github.com/zlatko-lakisic/agentic-orchestration/releases/tag/v1.1.1)
+## [1.1.1] - 2026-06-28
 
 ### Added
 
@@ -25,9 +29,7 @@ _No changes yet._
 
 - `pytest.ini` marker docs for `backend_inprocess` and `timeout`.
 
-## [1.1.0] — 2026-06-28
-
-[GitHub Release v1.1.0](https://github.com/zlatko-lakisic/agentic-orchestration/releases/tag/v1.1.0)
+## [1.1.0] - 2026-06-28
 
 ### Added
 
@@ -36,16 +38,14 @@ _No changes yet._
 - `workflow_materializer`, `step_coordinator`, `run_store`, and `--execute-step` worker entrypoint for distributed step execution.
 - Subprocess backend (`AGENTIC_SUBPROCESS_WORKERS=1`) spawns per-step workers via `python main.py --execute-step`.
 - Unit tests for step context, workflow materializer, run store, and execution backend factory.
-- Opt-in **Live LLM** GitHub Actions workflow and `tests/test_live_llm_smoke.py`.
+- Opt-in **Live LLM** GitHub Actions workflow (`.github/workflows/live-llm.yml`) and `tests/test_live_llm_smoke.py`.
 
 ### Changed
 
 - `main.py` delegates kickoff to `CrewAIExecutionBackend` via factory; lifecycle hooks moved to `orchestration/backends/crewai.py`.
 - `.env.example` documents `AGENTIC_EXECUTION_BACKEND` and `AGENTIC_SUBPROCESS_WORKERS`.
 
-## [1.0.0] — 2026-06-27
-
-[GitHub Release v1.0.0](https://github.com/zlatko-lakisic/agentic-orchestration/releases/tag/v1.0.0)
+## [1.0.0] - 2026-06-27
 
 ### Added
 
@@ -56,7 +56,7 @@ _No changes yet._
 
 ### Changed
 
-- Web dependency: `marked` 18.0.0 → 18.0.2 (#2).
+- Web dependency: `marked` 18.0.0 -> 18.0.2 (#2).
 
 ### Fixed
 

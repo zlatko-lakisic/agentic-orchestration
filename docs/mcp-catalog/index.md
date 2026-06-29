@@ -1,91 +1,132 @@
 ---
-title: "MCP Catalog"
 layout: single
+title: "MCP providers"
+permalink: /mcp-catalog/
+toc: true
+toc_label: "On this page"
+toc_icon: "list"
 sidebar:
   nav: "docs"
-toc: true
-toc_sticky: true
 ---
+# MCP providers (shipped catalog)
 
-Model Context Protocol (MCP) integrations ship as one YAML file per provider in `config/mcp_providers/`. The planner attaches MCPs per step based on goal text, hints, and credential availability.
+The tool loads MCP **templates** from `agentic-orchestration-tool/config/mcp_providers/` (one `*.yaml` per integration unless using a legacy bundle file). Merge additional directories via `AGENTIC_EXTRA_MCP_PROVIDERS_PATH` (`;` on Windows, `:` on Unix).
 
-## Shipped integrations
+![MCP integration model](assets/3.png)
 
-| ID | Description | Transport | Required env | K8s |
-|---|---|---|---|---|
-| `search_brave` | Web search via Brave Search API | streamable_http | `BRAVE_SEARCH_API_KEY`, `BRAVE_SEARCH_MCP_URL` | ✅ native |
-| `search_tavily` | Web search via Tavily (research-optimized) | streamable_http | `TAVILY_API_KEY` | ✅ native |
-| `search_exa` | Semantic web search via Exa | stdio (npx) | `EXA_API_KEY` | ⚠️ sidecar |
-| `home_assistant` | Control and query Home Assistant | streamable_http | `HOME_ASSISTANT_URL`, `HOME_ASSISTANT_TOKEN` | ✅ native |
-| `fetch_url` | Fetch and parse any URL | stdio (python) | `AGENTIC_MCP_FETCH_ENABLED=1` | ✅ worker stdio |
-| `filesystem_local` | Read/write local files | stdio (npx) | `FILESYSTEM_MCP_ALLOWED_DIRECTORY` | ✅ worker stdio + PVC |
-| `memory_knowledge_graph` | Persistent entity memory graph | stdio (npx) | `AGENTIC_MCP_MEMORY_MCP_ENABLED=1` | ⚠️ sidecar |
+## Design
 
-## Provider details
+Each file is a **single** mapping (not a list) with at least:
 
-### search_brave
+- **`id`** — Stable identifier referenced by the planner / plan JSON.
+- **`description`** — What the server does in context (human + planner).
+- **`planner_hint`** — When the planner should attach this MCP.
+- **`capabilities`** — Tool surface / behavior at a glance (optional but recommended for shipped entries).
+- **`good_for`** — Task patterns and pairing hints (optional).
+- **`user_goal_keywords`** (optional) — Keyword hints for relevance / pruning.
+- **`required_env`** / **`required_env_any`** (optional) — Credential or opt-in gating; entries are dropped if env is missing/empty.
 
-General-purpose web search backed by Brave’s index. You host or subscribe to a Brave Search–compatible MCP server and set `BRAVE_SEARCH_MCP_URL`.
+Connection shapes:
 
-**Good for:** Timely facts, competitor/news scans, finding primary sources.
+- **`streamable_http`** — `url` and optional `headers`; `${VAR}` placeholders expand from the environment.
+- **`stdio`** — `command`, `args`, optional `env` — local subprocess (e.g. `npx`, `python -m …`). Same expansion rules for args/env values.
 
-### search_tavily
+Upstream protocol: [Model Context Protocol](https://modelcontextprotocol.io/).
 
-Tavily returns concise, citation-oriented excerpts optimized for RAG. Uses Tavily’s hosted MCP endpoint — minimal ops.
+## Curated MCP directory (community)
 
-**Good for:** Current events, regulatory docs, product comparisons, market snapshots.
+The **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)** list groups thousands of third-party MCP implementations by category. It is a **discovery index**, not an endorsement list. Use it to find servers to run yourself, then wire them into this project via new YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`.
 
-### search_exa
+### Mapping: this repo’s YAML ↔ awesome-mcp-servers
 
-Neural/semantic search plus code-context tools from the public web (GitHub, technical docs).
+Related listings are **alternatives or complements** for the same *kind* of capability; they are **not** necessarily what this repo invokes by default.
 
-**Good for:** Library usage examples, company research, authoritative page discovery before deeper fetch.
+| Catalog `id` | What we wire by default | Example related entries on [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) |
+|--------------|-------------------------|---------------------------------------------------------------------------------------------------|
+| `home_assistant` | Official [Home Assistant MCP](https://www.home-assistant.io/integrations/mcp_server/) — Streamable HTTP `/api/mcp`, bearer token. | [allenporter/mcp-server-home-assistant](https://github.com/allenporter/mcp-server-home-assistant), [tevonsb/homeassistant-mcp](https://github.com/tevonsb/homeassistant-mcp) |
+| `search_brave` | Your Brave Search MCP **Streamable HTTP** URL (`BRAVE_SEARCH_MCP_URL`) + API key. | [brave/brave-search-mcp-server](https://github.com/brave/brave-search-mcp-server), [mikechao/brave-search-mcp](https://github.com/mikechao/brave-search-mcp) |
+| `search_tavily` | Tavily **hosted** MCP URL (API key; default pattern in YAML). | [tavily-ai/tavily-mcp](https://github.com/tavily-ai/tavily-mcp), [Tomatio13/mcp-server-tavily](https://github.com/Tomatio13/mcp-server-tavily), [kshern/mcp-tavily](https://github.com/kshern/mcp-tavily) |
+| `search_exa` | **Exa** via official npm server (`exa-mcp-server`) and `EXA_API_KEY`. | [exa-labs/exa-mcp-server](https://github.com/exa-labs/exa-mcp-server) (see also hosted `https://mcp.exa.ai/mcp` in their docs) |
+| `fetch_url` | Official **fetch** server (`python -m mcp_server_fetch`); PyPI `mcp-server-fetch`. | [modelcontextprotocol/server-fetch](https://github.com/modelcontextprotocol/servers) — **Search & data extraction** |
+| `memory_knowledge_graph` | Official **memory** server (`@modelcontextprotocol/server-memory`). | [modelcontextprotocol/server-memory](https://github.com/modelcontextprotocol/servers) — **Knowledge & Memory** |
+| `filesystem_local` | Official **filesystem** server (`@modelcontextprotocol/server-filesystem`) + one allowed path. | [modelcontextprotocol/server-filesystem](https://github.com/modelcontextprotocol/servers) — **File Systems** |
 
-### home_assistant
+## Inventory (repository)
 
-First-party Home Assistant MCP at `${HOME_ASSISTANT_URL}/api/mcp` with a long-lived token.
+| `id` | Transport | Purpose | Required environment / opt-in |
+|------|-----------|---------|--------------------------------|
+| `home_assistant` | `streamable_http` | HA entities/actions via official MCP integration. | `HOME_ASSISTANT_URL`, `HOME_ASSISTANT_TOKEN` |
+| `search_brave` | `streamable_http` | Web search via your Brave-compatible MCP host. | `BRAVE_SEARCH_API_KEY` (+ `BRAVE_SEARCH_MCP_URL` per YAML) |
+| `search_tavily` | `streamable_http` | Web search via Tavily-hosted MCP. | `TAVILY_API_KEY` |
+| `search_exa` | `stdio` | Exa web + code-context search. | `EXA_API_KEY` |
+| `fetch_url` | `stdio` | Fetch and normalize a **known** URL for the model. | `AGENTIC_MCP_FETCH_ENABLED` + `pip install mcp-server-fetch` |
+| `memory_knowledge_graph` | `stdio` | In-process knowledge graph memory tools. | `AGENTIC_MCP_MEMORY_MCP_ENABLED` (+ `npx` / Node) |
+| `filesystem_local` | `stdio` | Read/write under one allowed directory root. | `FILESYSTEM_MCP_ALLOWED_DIRECTORY` (absolute path) |
 
-**Good for:** Smart-home control scoped to entities you expose through Assist.
+## Kubernetes compatibility (K0.6)
 
-### fetch_url
+When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s path (worker stdio, cluster gateway, or in-pod sidecar). Policy: [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#mcp-compatibility-matrix-k8s-mode); code: `orchestration/k8s_mcp_compat.py`.
 
-Official MCP fetch server (`pip install mcp-server-fetch`). Converts HTML pages to agent-readable text.
+| `id` | K3 MVP (default) | Notes |
+|------|------------------|-------|
+| `search_brave` | ✅ | streamable_http |
+| `search_tavily` | ✅ | streamable_http |
+| `home_assistant` | ✅ | streamable_http |
+| `search_exa` | ❌ | stdio — K4 sidecar or gateway |
+| `fetch_url` | ✅ (with worker stdio) | Default: `AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url` + `mcp-server-fetch` in worker image |
+| `filesystem_local` | ✅ (with worker stdio + PVC) | `AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local` + `FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace`; seed `mcp-fs-workspace/` on PVC |
+| `memory_knowledge_graph` | ❌ | stdio — K4 sidecar |
 
-**Good for:** “Open this link and summarize” after search surfaces URLs.
+Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs in dynamic plans when targeting the kubernetes backend.
 
-### filesystem_local
+### Notes per id
 
-Official MCP filesystem server scoped to `FILESYSTEM_MCP_ALLOWED_DIRECTORY` (absolute path).
+#### `home_assistant`
 
-**Good for:** Repository exploration and controlled edits inside one workspace.
+- **Docs:** [Home Assistant MCP Server](https://www.home-assistant.io/integrations/mcp_server/)
+- **Auth:** `Authorization: Bearer ${HOME_ASSISTANT_TOKEN}`
 
-### memory_knowledge_graph
+#### `search_brave`
 
-In-process knowledge graph memory (`@modelcontextprotocol/server-memory` via npx).
+- Point `BRAVE_SEARCH_MCP_URL` at **your** Streamable HTTP endpoint (self-hosted or vendor).
+- **Awesome:** [brave/brave-search-mcp-server](https://github.com/brave/brave-search-mcp-server), [mikechao/brave-search-mcp](https://github.com/mikechao/brave-search-mcp).
 
-**Good for:** Multi-step projects needing explicit recall across turns.
+#### `search_tavily`
 
-## YAML structure
+- Default URL pattern: [Tavily MCP guide](https://docs.tavily.com/guides/mcp)
+- **Awesome:** [tavily-ai/tavily-mcp](https://github.com/tavily-ai/tavily-mcp), [Tomatio13/mcp-server-tavily](https://github.com/Tomatio13/mcp-server-tavily), [kshern/mcp-tavily](https://github.com/kshern/mcp-tavily).
 
-```yaml
-id: search_brave
-description: "General-purpose web search backed by Brave's index"
-capabilities: "Web search, query refinement, news/local lookups (server-dependent)"
-good_for: "Timely facts, competitor scans, grounding on search snippets"
-planner_hint: "Use for web research when Brave is your configured engine"
-required_env_any:
-  - BRAVE_SEARCH_API_KEY
-streamable_http:
-  url: "${BRAVE_SEARCH_MCP_URL}"
-  headers:
-    Accept: "application/json, text/event-stream"
-```
+#### `search_exa`
 
-## Custom integrations
+- **Docs / keys:** [Exa MCP](https://docs.exa.ai/reference/exa-mcp)
+- Runs `npx -y exa-mcp-server` with `EXA_API_KEY` in the subprocess environment.
 
-| Variable | Purpose |
-|---|---|
-| `AGENTIC_EXTRA_MCP_PROVIDERS_PATH` | Merge extra YAML directories (`os.pathsep`-separated) |
-| `--mcp-providers-catalog PATH` | Override default catalog directory |
+#### `fetch_url`
 
-Discover third-party MCP servers on [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers).
+- Install: `pip install mcp-server-fetch` into the **same** Python environment as `main.py` (included in the K8s worker image).
+- Set `AGENTIC_MCP_FETCH_ENABLED=1` so the catalog entry is not hidden by credential filtering.
+- **Kubernetes:** default path is worker-native stdio (`AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url`). Cluster gateway (`AGENTIC_K8S_MCP_FETCH_URL`) or supergateway sidecar remain optional alternatives; see `deploy/k8s/mcp-sidecars/README.md`.
+
+#### `memory_knowledge_graph`
+
+- Runs `npx -y @modelcontextprotocol/server-memory`. Set `AGENTIC_MCP_MEMORY_MCP_ENABLED=1` for opt-in.
+
+#### `filesystem_local`
+
+- Set `FILESYSTEM_MCP_ALLOWED_DIRECTORY` to an **absolute** path. The model's file tools are scoped to that root only.
+- **Kubernetes:** use `/run/store/mcp-fs-workspace` on the run-store PVC (`AGENTIC_K8S_MCP_FILESYSTEM_DIR`). Worker image includes Node.js for `npx @modelcontextprotocol/server-filesystem`. Set `AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local`. Smoke: `config/workflows/workflow_filesystem_smoke.yaml`.
+
+## Adding a new MCP
+
+1. Create `config/mcp_providers/<id>.yaml` with a unique `id`.
+2. Add `description`, `capabilities`, `good_for`, and `planner_hint` so planners and humans understand scope.
+3. Set `required_env` / `required_env_any` so only runnable integrations appear when credentials are present.
+4. Use **`streamable_http`** or **`stdio`** (not both in one file).
+5. Find related community servers in [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) and document them here if the integration is non-obvious.
+
+## Related pages
+
+- [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) — when MCP sets appear in plans.
+- [Configuration]({{ '/configuration/' | relative_url }}) — env vars summary.
+- [Third party projects]({{ '/third-party-projects/' | relative_url }}) — upstream products and licenses.
+- [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) — full community index.

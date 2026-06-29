@@ -23,6 +23,8 @@ docs:
         url: /quick-start/
       - title: "Architecture"
         url: /architecture/
+      - title: "Infrastructure"
+        url: /infrastructure/
   - title: "Catalogs"
     children:
       - title: "Agent Providers"
@@ -37,12 +39,24 @@ docs:
         url: /cli-reference/
       - title: "Workflows"
         url: /workflows/
+      - title: "Web UI"
+        url: /web-ui/
+      - title: "Testing and CI"
+        url: /testing-and-ci/
+      - title: "Third-party Projects"
+        url: /third-party-projects/
   - title: "Advanced"
     children:
       - title: "Dynamic Planning"
         url: /dynamic-planning/
+      - title: "Sessions, Learning & KB"
+        url: /sessions-learning-kb/
       - title: "Execution Backends"
         url: /execution-backends/
+      - title: "Dual Execution Framework"
+        url: /dual-execution-framework/
+      - title: "Kubernetes Execution"
+        url: /kubernetes-execution-upgrade/
       - title: "Verticals"
         url: /verticals/
   - title: "Project"
