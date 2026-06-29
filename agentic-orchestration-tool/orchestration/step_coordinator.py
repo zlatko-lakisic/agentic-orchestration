@@ -48,7 +48,9 @@ class StepCoordinator:
                 break
 
             assert result is not None
-            self._store.write_step_result(spec.run_id, spec.step_id, result)
+            result_path = self._store.step_result_path(spec.run_id, spec.step_id)
+            if not result_path.is_file():
+                self._store.write_step_result(spec.run_id, spec.step_id, result)
             step_results.append(result)
 
             if result.exit_code != 0:

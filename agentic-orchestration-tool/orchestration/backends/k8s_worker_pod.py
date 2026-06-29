@@ -71,6 +71,9 @@ def build_worker_job_pod_spec(
     if node_selector:
         pod_spec["nodeSelector"] = node_selector
 
+    if settings.worker_run_as_user is not None:
+        pod_spec["securityContext"] = {"runAsUser": settings.worker_run_as_user}
+
     return pod_spec
 
 

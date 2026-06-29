@@ -37,6 +37,7 @@ class K8sSettings:
     worker_resources: dict[str, Any] | None = None
     gpu_node_selector: dict[str, str] | None = None
     gpu_provider_ids: frozenset[str] | None = None
+    worker_run_as_user: int | None = None
 
     @classmethod
     def from_env(cls) -> K8sSettings:
@@ -53,6 +54,8 @@ class K8sSettings:
         gpu_selector = (
             {str(k): str(v) for k, v in gpu_selector_raw.items()} if gpu_selector_raw else None
         )
+        run_as_user_raw = os.getenv("AGENTIC_K8S_WORKER_RUN_AS_USER", "").strip()
+        worker_run_as_user = int(run_as_user_raw) if run_as_user_raw else None
         return cls(
             namespace=os.getenv("AGENTIC_K8S_NAMESPACE", "agentic-orchestration").strip()
             or "agentic-orchestration",
@@ -66,6 +69,7 @@ class K8sSettings:
             worker_resources=_parse_json_object_env("AGENTIC_K8S_WORKER_RESOURCES"),
             gpu_node_selector=gpu_selector,
             gpu_provider_ids=gpu_providers,
+            worker_run_as_user=worker_run_as_user,
         )
 
     def validate_for_run(self) -> None:

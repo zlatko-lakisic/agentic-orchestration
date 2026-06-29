@@ -20,6 +20,7 @@ export AGENTIC_K8S_WORKER_IMAGE="${WORKER_IMAGE}"
 export AGENTIC_K8S_NAMESPACE=agentic-orchestration
 export AGENTIC_K8S_RUN_STORE_PVC=agentic-run-store
 export AGENTIC_K8S_RUN_STORE_MOUNT=/run/store
+export AGENTIC_K8S_WORKER_RUN_AS_USER="$(id -u)"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-test-key-for-kind-e2e}"
 
 mkdir -p "${RUN_STORE}"
