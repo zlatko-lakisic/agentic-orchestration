@@ -26,7 +26,13 @@ systemctl disable agentic-orchestration-web.service 2>/dev/null || true
 
 log "Update repository from GitHub"
 cd "${PROJECT_ROOT}"
-if [[ -d .git ]]; then
+git config --global --add safe.directory "${PROJECT_ROOT}" 2>/dev/null || true
+DEPLOY_USER="${SUDO_USER:-${DEPLOY_USER:-}}"
+if [[ -n "${DEPLOY_USER}" && "${DEPLOY_USER}" != "root" ]]; then
+  sudo -u "${DEPLOY_USER}" git -C "${PROJECT_ROOT}" fetch "${GIT_REMOTE}"
+  sudo -u "${DEPLOY_USER}" git -C "${PROJECT_ROOT}" checkout "${GIT_BRANCH}"
+  sudo -u "${DEPLOY_USER}" git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
+elif [[ -d .git ]]; then
   git fetch "${GIT_REMOTE}"
   git checkout "${GIT_BRANCH}"
   git pull "${GIT_REMOTE}" "${GIT_BRANCH}"
