@@ -21,7 +21,8 @@ You are not locked to one vendor or one model. The same orchestrator can mix **O
 | You want… | Start here |
 |-----------|------------|
 | **Production-style orchestration** (YAML workflows, dynamic planning, MCP, sessions, learning, KB) | [`agentic-orchestration-tool/`](agentic-orchestration-tool/) |
-| **Browser chat** over local WebSockets (dynamic & iterative modes) | [`agentic-orchestration-web/`](agentic-orchestration-web/) |
+| **Browser chat** over local WebSockets (dynamic & iterative modes, prose answers) | [`agentic-orchestration-web/`](agentic-orchestration-web/) |
+| **Kubernetes / edge deploy** (coordinator, warm pool, delegation, Jetson k3s) | [`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md) |
 | **Industry / scenario overlays** (extra orchestrator context, agent YAML, MCP catalog fragments; spans tool + web) | [`examples/verticals/`](examples/verticals/) |
 
 **Deeper documentation (per package):**
@@ -54,7 +55,7 @@ Verticals live under **[`examples/verticals/`](examples/verticals/)** at the **m
 This stack is an **orchestration layer**, not a replacement for any one LLM:
 
 1. **Planner** — Interprets the user goal (and session history) and emits a structured plan: steps, agent provider IDs, optional MCP IDs.
-2. **Runner** — Builds a CrewAI `Crew` with agents and tasks, resolves MCP configs per task, and executes sequentially (or as configured).
+2. **Runner** — Builds a CrewAI `Crew` with agents and tasks, resolves MCP configs per task, and executes sequentially (or as configured). With **`AGENTIC_EXECUTION_BACKEND=kubernetes`**, each workflow **step** runs in a worker pod (warm pool or one-shot Job); the coordinator only plans and dispatches.
 3. **Tools (MCP)** — When relevant, agents get MCP servers attached so they can call real APIs instead of inventing facts.
 4. **Adaptation** — Iterative dynamic mode re-plans between steps; a small controller can stop early or suggest refined goals; step output can flow into the next task for continuity.
 5. **Memory & aggregation** — Sessions persist planner turns and excerpts; an optional local **knowledge base** (SQLite + FTS) stores finalized outputs for reuse in future plans; an optional **learning** loop scores runs and nudges provider choice over time.
@@ -72,7 +73,9 @@ agentic-orchestration/
 │   │   ├── workflows/           # Static workflow YAML
 │   │   ├── agent_providers/    # One YAML per agent “template” (dynamic catalog)
 │   │   └── mcp_providers/      # MCP server catalog (refs, streamable_http, env substitution)
-│   ├── orchestration/          # Runner, dynamic planner, sessions, learning, KB, …
+│   ├── deploy/k8s/             # Coordinator, warm pool, delegation broker, run-store PVC
+│   ├── docker/                 # Coordinator + worker images
+│   ├── orchestration/          # Runner, dynamic planner, sessions, learning, KB, K8s backends
 │   └── main.py
 ├── agentic-orchestration-web/  # Node WebSocket UI (spawns Python tool)
 │   ├── server.mjs
@@ -142,6 +145,32 @@ Host/port are read from `AGENTIC_WEB_HOST` / `AGENTIC_WEB_PORT` in that folder�
 
 **Security:** the web server runs local Python with user-supplied text. Do not expose it to the internet without authentication and hardening. Details: **[`agentic-orchestration-web/README.md`](agentic-orchestration-web/README.md)**.
 
+Chat answers are **prose by default** (not raw JSON): the web server sets `AGENTIC_WEB_PROSE_DELIVERABLE=1` for orchestrator runs, and the UI unwraps any JSON-shaped agent output before rendering.
+
+### 3) Kubernetes (local kind or edge device)
+
+Run the full stack in-cluster: **coordinator** (web UI), **warm pool** workers, **delegation broker**, shared **run-store** PVC, and optional MCP gateways.
+
+**Local kind (Windows):**
+
+```powershell
+cd agentic-orchestration-tool
+powershell -File scripts/k8s-apply-full-stack.ps1
+kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
+# Open http://127.0.0.1:3847
+```
+
+**Jetson / single-node k3s** — pull from GitHub on the device, then:
+
+```bash
+sudo bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
+# Web UI on host port 80 (or NodePort 30487)
+```
+
+Set `AGENTIC_EXECUTION_BACKEND=kubernetes` and `AGENTIC_RUN_STORE_PATH` on the coordinator (see **`agentic-orchestration-tool/.env.example`**). Manifests, logging, and ops notes: **[`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md)**.
+
+**How work maps to pods:** one **workflow step** → one worker execution (warm-pool pod reuse or a one-shot Job). Crew agents for that step run **in-process** inside the worker—not one pod per agent. Watch activity with `kubectl get pods,jobs -n agentic-orchestration -w` and `kubectl logs -f -l app.kubernetes.io/name=agentic-coordinator`.
+
 ---
 
 ## Environment variables
@@ -164,7 +193,8 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 | **Learning & KB** | `AGENTIC_LEARNING`, `AGENTIC_LEARNING_EVAL`, `AGENTIC_EVAL_MODEL`, `AGENTIC_KB`, `AGENTIC_KB_MAX_HITS`, … |
 | **Answer cache** | `AGENTIC_ANSWER_CACHE` |
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, `AGENTIC_ITERATIVE_CONTROLLER_*` (and CLI flags) |
-| **Web server** | `AGENTIC_WEB_HOST`, `AGENTIC_WEB_PORT`, `AGENTIC_TOOL_ROOT`, `AGENTIC_PYTHON` — in **`agentic-orchestration-web/.env`** |
+| **Execution backends** | `AGENTIC_EXECUTION_BACKEND` (`inprocess`, `subprocess`, `kubernetes`), `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_K8S_*`, warm pool, delegation |
+| **Web server** | `AGENTIC_WEB_HOST`, `AGENTIC_WEB_PORT`, `AGENTIC_TOOL_ROOT`, `AGENTIC_PYTHON`, `AGENTIC_WEB_PROSE_DELIVERABLE` — in **`agentic-orchestration-web/.env`** |
 
 ## Key features (orchestration tool)
 
@@ -179,6 +209,9 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 - **Learning loop** — Structured eval + optional user ratings → stats fed back into planner context.
 - **Knowledge base** — SQLite FTS of past outputs for planner retrieval.
 - **Answer cache** — Repeat exact question in-session → instant replay + “reply no to re-run”.
+- **Execution backends** — `inprocess` (default), `subprocess` (per-step workers on laptop), `kubernetes` (coordinator + warm pool / Jobs on a cluster).
+- **Kubernetes stack** — Coordinator Deployment, warm pool, delegation broker, run-store PVC, structured JSON logs, kind e2e in CI, Jetson deploy script.
+- **Web chat UX** — Markdown rendering, verbose crew mode, prose-first answers (no JSON blobs in the UI).
 
 ## TPU capabilities
 
