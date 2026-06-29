@@ -76,9 +76,20 @@ kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
 
 See `deploy/k8s/coordinator/README.md` and `docker/README.coordinator.md`.
 
+## K5 operational polish
+
+| Item | Path |
+|------|------|
+| Warm pool | `deploy/k8s/warm-pool.yaml`, `AGENTIC_K8S_WARM_POOL_ENABLED=1` |
+| Structured logging | `deploy/k8s/LOGGING.md`, `AGENTIC_LOG_FORMAT=json` |
+| CrewAI pin / upgrade | `requirements.txt` (`crewai==…`), `docker/CREWAI_UPGRADE.md` |
+| Load test | `scripts/k8s-load-test.ps1` (stub worker, p50/p95 wall time) |
+
 ## Other manifests
 
 - `deploy/k8s/coordinator/` — **K3.7** coordinator Deployment, Service, RBAC (web UI + in-cluster Job dispatch)
+- `deploy/k8s/warm-pool.yaml` — **K5.1** warm pool Deployment (`AGENTIC_K8S_WARM_POOL_ENABLED=1`)
+- `deploy/k8s/LOGGING.md` — **K5.2** JSON log contract for Loki/Datadog
 - `deploy/k8s/kind/cluster.yaml` — templated kind config (`__RUN_STORE_HOST_PATH__`)
 - `deploy/k8s/run-store/probe-pod.yaml` — PVC mount smoke test
 - `deploy/k8s/mcp-sidecars/` — K4 MCP sidecars and HTTP gateways

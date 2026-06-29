@@ -1,4 +1,4 @@
-crewai
+crewai==1.12.2
 litellm
 python-dotenv
 pyyaml

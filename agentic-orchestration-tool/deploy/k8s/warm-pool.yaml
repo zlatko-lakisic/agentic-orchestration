@@ -1,0 +1,47 @@
+# Warm pool: idle worker pods dequeue steps from the run-store PVC (K5.1).
+# Enable on coordinator: AGENTIC_K8S_WARM_POOL_ENABLED=1
+# Steps with in-pod MCP sidecars still use one-shot Jobs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-warm-pool
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-warm-pool
+    app.kubernetes.io/component: warm-pool
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-warm-pool
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-warm-pool
+        app.kubernetes.io/component: warm-pool
+    spec:
+      containers:
+        - name: worker
+          image: agentic-orchestrator-worker:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "main.py", "--warm-pool-worker"]
+          env:
+            - name: AGENTIC_RUN_STORE_PATH
+              value: /run/store
+            - name: AGENTIC_LOG_FORMAT
+              value: json
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+                optional: true
+          volumeMounts:
+            - name: run-store
+              mountPath: /run/store
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store

@@ -2,26 +2,12 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
 from typing import Any
 
 from orchestration.backends.k8s_settings import K8sSettings
 from orchestration.backends.k8s_worker_pod import build_worker_job_pod_spec
-
-
-@dataclass(frozen=True)
-class K8sJobRecord:
-    job_name: str
-    namespace: str
-    pod_name: str | None = None
-
-
-@dataclass(frozen=True)
-class K8sJobWaitResult:
-    succeeded: bool
-    failed: bool
-    pod_name: str | None
-    message: str | None
+from orchestration.backends.kubernetes_types import K8sJobRecord, K8sJobWaitResult
+from orchestration.structured_logging import emit_log
 
 
 def sanitize_k8s_name(raw: str, *, max_len: int = 63) -> str:
@@ -78,6 +64,22 @@ class KubernetesJobRunner:
         sidecar_mcp_ids: list[str] | None = None,
     ) -> tuple[K8sJobRecord, K8sJobWaitResult]:
         settings = self._settings
+        from orchestration.backends.kubernetes_warm_pool import (
+            dispatch_step_via_warm_pool,
+            warm_pool_enabled_from_env,
+        )
+
+        if warm_pool_enabled_from_env() and not sidecar_mcp_ids:
+            return dispatch_step_via_warm_pool(
+                namespace=settings.namespace,
+                run_store_mount=settings.run_store_mount,
+                run_id=run_id,
+                step_id=step_id,
+                spec_container_path=spec_container_path,
+                agent_provider_id=agent_provider_id,
+                timeout_seconds=settings.job_timeout_seconds,
+            )
+
         job_name = job_name_for_step(run_id=run_id, step_id=step_id)
         labels = {
             "app.kubernetes.io/name": "agentic-orchestrator-worker",
@@ -112,6 +114,13 @@ class KubernetesJobRunner:
         }
 
         self._batch.create_namespaced_job(namespace=settings.namespace, body=job_body)
+        emit_log(
+            f"created Job {job_name}",
+            run_id=run_id,
+            step_id=step_id,
+            component="coordinator",
+            extra={"namespace": settings.namespace},
+        )
         wait = self._wait_for_job(job_name=job_name)
         pod_name = wait.pod_name or self._find_pod_name(job_name=job_name)
         record = K8sJobRecord(job_name=job_name, namespace=settings.namespace, pod_name=pod_name)
@@ -126,6 +135,10 @@ class KubernetesJobRunner:
             )
             status = job.status
             if status and status.succeeded:
+                emit_log(
+                    f"Job {job_name} succeeded",
+                    component="coordinator",
+                )
                 return K8sJobWaitResult(
                     succeeded=True,
                     failed=False,

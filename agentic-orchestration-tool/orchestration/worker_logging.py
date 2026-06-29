@@ -68,6 +68,11 @@ def worker_log_context(
 
 def worker_log(message: str, *, run_id: str, step_id: str, file: TextIO | None = None) -> None:
     """Write one prefixed line (uses raw stream to avoid double prefix)."""
+    from orchestration.structured_logging import emit_log, log_format_from_env
+
+    if log_format_from_env() == "json":
+        emit_log(message, run_id=run_id, step_id=step_id, component="worker", file=file)
+        return
     target = file or sys.stderr
     target.write(f"{worker_log_prefix(run_id=run_id, step_id=step_id)}{message.rstrip()}\n")
     target.flush()

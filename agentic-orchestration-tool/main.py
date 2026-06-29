@@ -701,6 +701,11 @@ def parse_args() -> argparse.Namespace:
         help="Worker mode: run one step from a StepSpec JSON file and exit (subprocess/K8s workers).",
     )
     parser.add_argument(
+        "--warm-pool-worker",
+        action="store_true",
+        help="K8s warm pool mode: poll run-store queue and execute steps until terminated.",
+    )
+    parser.add_argument(
         "--orchestrator-session-reset",
         action="store_true",
         help="With --dynamic: delete the resolved session JSON before this run "
@@ -718,6 +723,20 @@ def _cli_output_dir(raw: str | None) -> Path | None:
 def main() -> None:
     args = parse_args()
     tool_root = Path(__file__).resolve().parent
+
+    if getattr(args, "warm_pool_worker", False):
+        from orchestration.backends.kubernetes_warm_pool import run_warm_pool_worker_loop
+        from orchestration.run_store import run_store_base_from_env
+
+        mount = run_store_base_from_env()
+        if not mount:
+            print(
+                "error: AGENTIC_RUN_STORE_PATH required for --warm-pool-worker",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        run_warm_pool_worker_loop(run_store_mount=mount)
+        sys.exit(0)
 
     if getattr(args, "execute_step", None):
         from orchestration.execute_step import execute_step_from_spec_file
