@@ -17,6 +17,8 @@ main:
 docs:
   - title: "Getting Started"
     children:
+      - title: "Features"
+        url: /features/
       - title: "Quick Start"
         url: /quick-start/
       - title: "Architecture"

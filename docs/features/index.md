@@ -1,69 +1,93 @@
 ---
-title: "Features"
 layout: single
+title: "Features"
+permalink: /features/
+toc: true
+toc_label: "On this page"
+toc_icon: "list"
 sidebar:
   nav: "docs"
-toc: true
-toc_sticky: true
 ---
 
-Agentic Orchestration is a YAML-driven multi-agent engine on CrewAI. This page groups capabilities by how you use them.
+Agentic Orchestration is a YAML-driven multi-agent engine on CrewAI. This page summarizes what the tool can do end to end — from dynamic planning through catalogs, execution backends, memory, and the web UI.
 
-## Orchestration modes
+## Dynamic Planning
 
-### Static workflows
+State a goal in plain language and let the LLM planner (LiteLLM, configurable via `AGENTIC_PLANNER_MODEL`) build a multi-step JSON execution plan automatically.
 
-Run a fixed sequence of agents defined in `config/workflows/*.yaml`. Best when the crew structure is known upfront.
+### Single-pass `--dynamic`
 
-```bash
-python main.py --batch --config config/workflows/workflow_brainstorm.yaml
-```
-
-### Router mode
-
-Pass a natural-language task; Ollama selects the best workflow from the catalog and runs it with your topic.
-
-```bash
-python main.py "Draft release notes for a CLI tool"
-```
-
-### Dynamic (`--dynamic`)
-
-The planner (LiteLLM) reads your goal, agent catalog, and MCP catalog, then emits a JSON plan and executes steps sequentially.
+The planner reads the agent catalog, MCP catalog, session history, and knowledge-base snippets, then emits a JSON plan: workflow name, steps, agent provider IDs, MCP IDs, and per-step task descriptions. The coordinator runs each step in order via the active execution backend.
 
 ```bash
 python main.py --dynamic "Compare three observability stacks for Kubernetes"
 ```
 
-### Dynamic iterative (`--dynamic-iterative`)
+### Iterative `--dynamic-iterative`
 
-One step per round with re-planning between rounds. Optional auto-controller stops early or continues up to a cap.
+One step per round. After each step completes, the planner sees prior outputs and may change agents, MCPs, or task wording before the next round.
 
 ```bash
 python main.py --dynamic-iterative --dynamic-iterative-auto \
   "Investigate market entry options for a medtech device"
 ```
 
----
+Use `--dynamic-iterative-auto` for controller-driven early stop or continuation (up to `--dynamic-iterative-max-rounds`).
 
-## Model support
+### Domain-aware provider suppression
 
-| Type | Description |
-|---|---|
-| `ollama` | Local inference via Ollama. Optional bootstrap mode installs Ollama and pulls the model automatically. |
-| `openai` | OpenAI-compatible APIs including Azure (`OPENAI_BASE_URL`). |
-| `anthropic` | Anthropic Claude models. |
-| `huggingface` | Hugging Face Inference API with runtime fallback support. |
-| `vllm` | vLLM OpenAI-compatible endpoint (GPU/TPU). |
-| `jetstream` | JetStream TPU serving endpoint. |
+When goal text lexically matches specialist `planner_hint` or `good_for` fields, general-purpose agents (`general_purpose: true`) are suppressed so domain specialists win. Tune with `AGENTIC_DOMAIN_PROVIDER_MATCH_MIN` or disable via `AGENTIC_DISABLE_DOMAIN_PROVIDER_SUPPRESSION`.
 
-Add custom provider classes via `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` without modifying the repo.
+See [Dynamic Planning](/dynamic-planning/) for sessions, attachments, and answer cache.
 
----
+## 182-Provider Agent Catalog
 
-## Hardware-aware routing
+Agent templates live as one YAML file per provider under `config/agent_providers/`. The dynamic planner selects from this catalog; constrain choices with `--dynamic-agent-provider-ids ID1,ID2`.
 
-Agent provider YAML can declare hardware constraints. The dynamic planner filters the catalog before planning.
+**182 shipped templates** across six provider types: `openai`, `anthropic`, `ollama`, `huggingface`, `vllm`, and `jetstream`.
+
+Each YAML declares:
+
+- `id` — used in plans and CLI filters
+- `type` and `model`
+- `role`, `goal`, `backstory`
+- `planner_hint` / `good_for` — steering text for the planner
+- `hardware.architecture` and optional `min_vram_gb`
+
+Extend the catalog without forking via `AGENTIC_EXTRA_AGENT_PROVIDERS_CATALOG_DIRS` (YAML directories) or `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (Python provider classes).
+
+| Provider | Example IDs | Notes |
+|---|---|---|
+| openai | `gpt_research`, `gpt_write`, `gpt_reason` | Requires `OPENAI_API_KEY` |
+| anthropic | `claude_research`, `claude_write`, `claude_reason` | Requires `ANTHROPIC_API_KEY` |
+| ollama | `ollama_llama3`, `ollama_qwen2_5`, `ollama_llama3_2_vision` | Local via `OLLAMA_HOST` |
+| huggingface | `hf_meta_llama_3_1_8b`, `hf_meta_llama_3_1_70b` | Requires `HF_TOKEN` |
+| vllm | `vllm_tpu_meta_llama_llama_3_1_8b_instruct` | Requires `VLLM_BASE_URL` |
+| jetstream | `jetstream_tpu_meta_llama_meta_llama_3_70b_instruct` | Requires `JETSTREAM_BASE_URL` |
+
+Full listing: [Agent Catalog](/agent-catalog/).
+
+## 7 MCP Integrations
+
+MCP tool definitions live under `config/mcp_providers/`. The planner attaches MCPs per step based on goal text, available credentials, and (for Kubernetes) transport compatibility.
+
+| MCP | Transport | Good for |
+|---|---|---|
+| `search_brave` | streamable_http | Web search, timely facts |
+| `search_tavily` | streamable_http | RAG-optimized research excerpts |
+| `search_exa` | stdio (npx) | Semantic search, code examples |
+| `home_assistant` | streamable_http | Smart home control |
+| `fetch_url` | stdio (python) | Fetch and parse any URL |
+| `filesystem_local` | stdio (npx) | Scoped file read/write |
+| `memory_knowledge_graph` | stdio (npx) | Persistent entity memory |
+
+Credential-gated entries stay hidden until required env vars are set. Merge custom YAML via `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`.
+
+Details: [MCP Catalog](/mcp-catalog/).
+
+## Hardware-Aware Routing
+
+Before planning, the runtime filters the agent catalog by detected hardware. Each provider YAML may declare `architecture` (`cpu`, `gpu`, `tpu`) and optional `min_vram_gb`. Detection uses `nvidia-smi` when available; Ollama models can use built-in VRAM heuristics.
 
 ```yaml
 hardware:
@@ -71,75 +95,88 @@ hardware:
 min_vram_gb: 8
 ```
 
-Detection uses `nvidia-smi` when available. Override manually:
-
 | Variable | Purpose |
 |---|---|
-| `AGENTIC_AVAILABLE_ARCHITECTURES` | Comma-separated `cpu,gpu,tpu` |
 | `AGENTIC_ASSUME_GPU` | Force GPU as available |
 | `AGENTIC_ASSUME_TPU` | Force TPU as available |
 | `AGENTIC_ASSUME_VRAM_GB` | Override detected VRAM |
-| `AGENTIC_DISABLE_HARDWARE_FILTER` | Never drop catalog entries by VRAM |
+| `AGENTIC_AVAILABLE_ARCHITECTURES` | Manual `cpu,gpu,tpu` override |
+| `AGENTIC_DISABLE_HARDWARE_FILTER` | Never drop providers by VRAM |
 
----
+## Three Execution Backends
 
-## MCP tool integration
+The pluggable `ExecutionBackend` protocol runs the same planner output and step contracts three ways:
 
-- **Transports:** `streamable_http` (remote MCP servers) and `stdio` (subprocess MCP servers).
-- **Credential gating:** Catalog entries hide until required env vars are set.
-- **Planner hints:** `planner_hint`, `good_for`, and `user_goal_keywords` steer attachment.
-- **Per-step assignment:** Each planned step gets the MCP subset it needs.
+| Backend | Env value | How steps run | Best for |
+|---|---|---|---|
+| CrewAI in-process | `inprocess` (default) | Whole crew in one Python process | Local dev |
+| Subprocess | `subprocess` | One worker per step via `--execute-step` | Step isolation |
+| Kubernetes | `kubernetes` | K8s Job per step, PVC run store | Production |
 
-See the full [MCP Catalog](/mcp-catalog/).
-
----
-
-## Execution backends
-
-| Backend | Selection | How steps run |
-|---|---|---|
-| CrewAI in-process | `AGENTIC_EXECUTION_BACKEND=inprocess` (default) | Whole crew in one Python process |
-| Subprocess | `AGENTIC_SUBPROCESS_WORKERS=1` | `python main.py --execute-step` per step |
-| Kubernetes | `AGENTIC_EXECUTION_BACKEND=kubernetes` | One K8s Job per step, shared PVC run store |
+Planner JSON, YAML catalogs, session/KB/learning hooks, and post-run QA are identical across backends — only step isolation changes.
 
 Details: [Execution Backends](/execution-backends/).
 
----
+## Sessions, Learning, and Knowledge Base
 
-## Memory, learning, and knowledge base
+### Sessions
 
-| Feature | Storage | Purpose |
+Planner turn history is persisted as JSON under `__orchestrator_sessions__/<slug>.json`. Name a session with `--orchestrator-session` or `AGENTIC_ORCHESTRATOR_SESSION`. Reset with `--orchestrator-session-reset`.
+
+### Knowledge base
+
+When `AGENTIC_KB=1`, finalized outputs are indexed in SQLite FTS (`__orchestrator_kb__/kb.sqlite3`) and injected into future planner prompts as snippets.
+
+### Learning loop
+
+`AGENTIC_LEARNING=1` records per-provider success/failure stats and decision traces under `__orchestrator_learning__/`. Optional evaluator model via `AGENTIC_LEARNING_EVAL=1`. A learning summary feeds the planner on each run; web UI ratings are consumed on the next planner call.
+
+### Answer cache
+
+With `AGENTIC_ANSWER_CACHE=1`, asking the same goal in the same session returns the last finalized answer immediately and prompts to confirm a re-run.
+
+## Domain Verticals
+
+Vertical overlays bundle domain orchestrator context, optional extra agent YAML, optional MCP YAML, and web start scripts — without forking core code. Load with `--example <id>`.
+
+| Vertical | CLI | Web UI port |
 |---|---|---|
-| **Sessions** | `__orchestrator_sessions__/*.json` | Planner history + crew excerpts per session slug |
-| **Learning loop** | `__orchestrator_learning__/` | Traces, per-provider stats, web UI ratings |
-| **Knowledge base** | `__orchestrator_kb__/kb.sqlite3` | FTS index of finalized answers for planner context |
-| **Answer cache** | Session JSON | Same goal in same session returns cached answer |
+| **Healthcare** | `--example healthcare` | `npm run start:healthcare` → **3850** |
+| **Logistics** | `--example logistics` | `npm run start:logistics` → **3851** |
 
-Enable with `AGENTIC_KB=1`, `AGENTIC_LEARNING=1`, `AGENTIC_ANSWER_CACHE=1`.
+- **Healthcare** — medtech evidence research, commercial brief generation, specialist agent templates.
+- **Logistics** — warehousing, WMS/ERP integration, labor planning, simulated WMS/ERP MCP fixtures.
 
----
+Custom verticals: create `examples/verticals/<id>/` with optional `orchestrator-context.md`, `agent_providers/`, and `mcp_providers/`. See [Verticals](/verticals/).
 
-## Quality assurance
+## WebSocket Web UI
 
-After `--dynamic` or iterative synthesis, an optional faithfulness pass checks for hallucinations and unsupported claims. Output goes to stderr (visible in the web UI activity log).
-
-| Variable | Default |
-|---|---|
-| `AGENTIC_FINAL_QA` | off |
-| `AGENTIC_QA_MODEL` | falls back to planner / eval model |
-
----
-
-## Web UI
-
-The Node.js WebSocket server (`agentic-orchestration-web`) provides:
-
-- Real-time chat and progress streaming
-- File upload support (`--dynamic-attachments`)
-- Run ratings that feed the learning loop
+The `agentic-orchestration-web` Node.js package streams run output over WebSocket, supports file uploads (attachment manifests for `--dynamic-attachments`), and exposes ratings that feed the learning loop.
 
 ```bash
-cd agentic-orchestration-web && npm install && npm start
+cd agentic-orchestration-web
+npm install
+npm start
+# http://127.0.0.1:3847
 ```
 
-Default URL: `http://127.0.0.1:3847`
+Vertical entry points: `npm run start:healthcare`, `npm run start:logistics`.
+
+## Static Workflows
+
+For repeatable crews without LLM planning, define workflows under `config/workflows/*.yaml`.
+
+```bash
+# One-shot fixed workflow
+python main.py --batch --config config/workflows/workflow_brainstorm.yaml
+
+# Interactive loop on a fixed file
+python main.py -i --config config/workflows/workflow_brainstorm.yaml
+
+# Router: natural-language task → matching workflow
+python main.py "Brainstorm taglines for a developer CLI"
+```
+
+**Shipped workflows:** default (`workflow.yaml`), brainstorm, web dev, healthcare commercial brief (router), MCP fetch/filesystem smoke tests.
+
+Details: [Workflows](/workflows/).
