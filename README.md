@@ -8,11 +8,11 @@
   </a>
 </p>
 
-**A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**. It turns natural-language goals and YAML configuration into coordinated multi-agent workflows: planners choose steps and backends, agents execute with clear roles, and optional **Model Context Protocol (MCP)** servers plus **agent skills** (procedural playbooks) extend each step with tools and how-to instructions.
+**A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**.
 
-You are not locked to one vendor or one model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, plus TPU endpoint providers (**vLLM** and **JetStream**)—picked per task from a catalog, filtered by credentials and hardware capability (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics), with a LiteLLM-backed planner so planning can use the same breadth of backends as execution.
+You state a goal in natural language; a planner turns it into a multi-step workflow, agents execute each step with defined roles, and optional **Model Context Protocol (MCP)** servers and **agent skills** (procedural playbooks) attach real tools and how-to instructions per step.
 
-**Why YAML and agnostic wiring?** So teams can **adopt this on top of what they already have**: fine-tuned or self-hosted models, **MCP** servers and in-house tools, and existing credentials—then **blend** those with generic, off-the-shelf agents from Ollama, OpenAI, Anthropic, and Hugging Face when that is faster or good enough. The aim is a **short path to a proof of concept** driven by catalogs and environment variables, without building planners, crews, or tool glue from scratch.
+You are not locked to one vendor or model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, and TPU endpoint providers (**vLLM**, **JetStream**)—picked per task from a catalog, filtered by credentials and hardware (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics). A LiteLLM-backed planner can use the same breadth of backends for planning as for execution.
 
 ---
 
@@ -60,7 +60,18 @@ This stack is an **orchestration layer**, not a replacement for any one LLM:
 4. **Adaptation** — Iterative dynamic mode re-plans between steps; a small controller can stop early or suggest refined goals; step output can flow into the next task for continuity.
 5. **Memory & aggregation** — Sessions persist planner turns and excerpts; an optional local **knowledge base** (SQLite + FTS) stores finalized outputs for reuse in future plans; an optional **learning** loop scores runs and nudges provider choice over time.
 
-The design goal is **swap models and providers without rewriting orchestration logic**—only YAML catalogs and environment variables change. Practically, that means **your stack + this orchestration layer**: plug in trained models and MCPs you trust, use commodity cloud APIs where they help, and still get multi-step planning, execution, and optional web UI **as configuration**, not a new greenfield build.
+Configuration drives the stack: YAML catalogs for agents, MCPs, skills, and workflows, plus environment variables for credentials and toggles. Teams can plug in fine-tuned or self-hosted models, in-house **MCP** servers, and existing API keys, then blend those with commodity cloud agents when that is faster or good enough. **Swap models and providers without rewriting orchestration logic**—only catalogs and env vars change. The aim is a short path to a proof of concept, not a greenfield planner or crew build.
+
+---
+
+## Who this is for
+
+This repo is **well-suited for** teams evaluating orchestration before committing to a single model vendor or a bespoke agent framework:
+
+- **Mixed-model environments** — combine proprietary, self-hosted, or fine-tuned models with commodity APIs (OpenAI, Anthropic, Ollama, Hugging Face) in one workflow, routed per step from YAML catalogs rather than per-model glue code.
+- **Regulated or audit-heavy settings** — government, defense, and financial services often need (a) procurement-friendly LLM agnosticism, (b) sovereign or air-gapped deployment via the **Kubernetes** execution backend (`AGENTIC_EXECUTION_BACKEND=kubernetes`), and (c) execution audit trails, session history, and human checkpoints that matter as much as raw model capability. This stack supports those constraints as architecture, not as a bolt-on.
+
+That is the substance behind the **production-style orchestration** row in the table above: YAML workflows, dynamic planning, MCP, sessions, learning, and KB—not a claim of existing production case studies. If you only need a single-model chat UI, a thinner tool may suffice; if you need multi-step plans, tool use, and backend choice as configuration, start with [`agentic-orchestration-tool/`](agentic-orchestration-tool/).
 
 ---
 
@@ -72,10 +83,13 @@ agentic-orchestration/
 │   ├── config/
 │   │   ├── workflows/           # Static workflow YAML
 │   │   ├── agent_providers/    # One YAML per agent “template” (dynamic catalog)
-│   │   └── mcp_providers/      # MCP server catalog (refs, streamable_http, env substitution)
+│   │   ├── mcp_providers/      # MCP server catalog (refs, streamable_http, env substitution)
+│   │   ├── agent_skills/        # Procedural skill catalog (release_process, pr_review, etc.)
+│   │   └── agent_harnesses/     # Platform-owned catalog verification profiles (L0–L3 tiers)
 │   ├── deploy/k8s/             # Coordinator, warm pool, delegation broker, run-store PVC
 │   ├── docker/                 # Coordinator + worker images
 │   ├── orchestration/          # Runner, dynamic planner, sessions, learning, KB, K8s backends
+│   │   └── backends/           # Pluggable execution: inprocess (default) / subprocess / kubernetes
 │   └── main.py
 ├── agentic-orchestration-web/  # Node WebSocket UI (spawns Python tool)
 │   ├── server.mjs
@@ -84,7 +98,7 @@ agentic-orchestration/
 │   └── start-web-bg.ps1 / .sh   # Background (detached) starters
 ├── examples/
 │   └── verticals/               # Domain overlays (tool + web); see README in that folder
-│       ├── healthcare/        # orchestrator context + extra catalogs + optional web scripts
+│       ├── healthcare/        # orchestrator context + extra catalogs + harness packs + web scripts
 │       └── logistics/         # warehousing: ERP/WMS MCP templates + simulated MCP + web scripts
 └── (optional helper scripts at root)
 ```
