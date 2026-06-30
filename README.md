@@ -10,9 +10,9 @@
 
 **A model-agnostic, agent-based orchestration engine** built on **[CrewAI](https://github.com/crewAIInc/crewAI)**.
 
-You state a goal in natural language; a planner turns it into a multi-step workflow, agents execute each step with defined roles, and optional **Model Context Protocol (MCP)** servers and **agent skills** (procedural playbooks) attach real tools and how-to instructions per step.
+Most AI systems are good at narrow tasks. This project asks a different question: can you get closer to general task processing not by making one model smarter, but by modeling the *process* a capable person uses— a coordinator that replans based on what was just tried, a working record of phases and steps, knowledge that should carry from one task to the next, and an impartial step that scores the outcome before it is considered done? That loop is the thesis; the code here is an experiment in building it.
 
-You are not locked to one vendor or model. The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, and TPU endpoint providers (**vLLM**, **JetStream**)—picked per task from a catalog, filtered by credentials and hardware (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics). A LiteLLM-backed planner can use the same breadth of backends for planning as for execution.
+The model-agnostic catalog system exists so the loop is not locked to any one vendor's model being "the smart one." The same orchestrator can mix **Ollama** (local), **OpenAI-compatible** APIs, **Anthropic Claude**, **Hugging Face**, and TPU endpoint providers (**vLLM**, **JetStream**)—picked per task from YAML catalogs, filtered by credentials and hardware (`cpu`/`gpu`/`tpu`, plus optional VRAM heuristics). A LiteLLM-backed planner can use the same breadth of backends for planning as for execution. Catalogs, MCP integrations, and pluggable execution backends are the engineering substrate, not the headline.
 
 ---
 
@@ -52,26 +52,27 @@ Verticals live under **[`examples/verticals/`](examples/verticals/)** at the **m
 
 ![Vision — agentic orchestration overview](vision.png)
 
-This stack is an **orchestration layer**, not a replacement for any one LLM:
+This stack is an **orchestration layer**, not a replacement for any one LLM. The shipped components map onto a four-part process loop the project is testing:
 
-1. **Planner** — Interprets the user goal (and session history) and emits a structured plan: steps, agent provider IDs, optional MCP IDs.
-2. **Runner** — Builds a CrewAI `Crew` with agents and tasks, resolves MCP configs per task, and executes sequentially (or as configured). With **`AGENTIC_EXECUTION_BACKEND=kubernetes`**, each workflow **step** runs in a worker pod (warm pool or one-shot Job); the coordinator only plans and dispatches.
-3. **Tools (MCP)** — When relevant, agents get MCP servers attached so they can call real APIs instead of inventing facts.
-4. **Adaptation** — Iterative dynamic mode re-plans between steps; a small controller can stop early or suggest refined goals; step output can flow into the next task for continuity.
-5. **Memory & aggregation** — Sessions persist planner turns and excerpts; an optional local **knowledge base** (SQLite + FTS) stores finalized outputs for reuse in future plans; an optional **learning** loop scores runs and nudges provider choice over time.
+1. **Coordinator that reevaluates** (`Planner`) — Interprets the goal and session history, then emits or revises a structured plan: steps, agent provider IDs, optional MCP and skill IDs. **Initial planning is only half of it:** `--dynamic-iterative` runs one step per round and re-plans after each result; the auto-controller can stop early or suggest a refined goal. That mid-run reevaluation—not "plan once, execute"—is the core behavior.
+2. **Execution with steps as a working record** (`Runner` + `Tools`) — Builds a CrewAI `Crew` per step, resolves MCP configs and agent skills, and executes sequentially (or as configured). Prior step output flows into the next task (`AGENTIC_STEP_CONTEXT_INJECT`). With **`AGENTIC_EXECUTION_BACKEND=kubernetes`**, each workflow **step** runs in a worker pod; the coordinator only plans and dispatches. **Tools (MCP)** attach when relevant so agents call real APIs instead of inventing facts.
+3. **Reevaluation mid-run** (`Adaptation`) — Iterative dynamic mode is where the loop closes inside a single goal: what was attempted and what happened feeds the next planner turn. Step output, controller signals, and optional per-round streaming keep the coordinator working from a live record, not a frozen plan.
+4. **Knowledge transfer across tasks** (`Memory & aggregation`) — **Partial today.** Sessions persist planner turns and crew excerpts; an optional local **knowledge base** (SQLite + FTS) stores finalized outputs for retrieval in future plans; an optional **learning** loop scores runs and nudges provider choice. That is closer to caching and weighted hints than genuine "what I learned in task A changed my approach to task B." Do not read this as solved cross-task transfer yet.
 
-Configuration drives the stack: YAML catalogs for agents, MCPs, skills, and workflows, plus environment variables for credentials and toggles. Teams can plug in fine-tuned or self-hosted models, in-house **MCP** servers, and existing API keys, then blend those with commodity cloud agents when that is faster or good enough. **Swap models and providers without rewriting orchestration logic**—only catalogs and env vars change. The aim is a short path to a proof of concept, not a greenfield planner or crew build.
+**Impartial QA / outcome scoring** — **Fragmented today, not one unified step.** Three separate mechanisms exist: the learning-loop eval (`AGENTIC_LEARNING_EVAL`), platform harness L3 capability scoring (`--harness-tier capability`), and user-harness rubric scoring (`--harness-dir`). Each scores something useful; none is yet a single impartial QA gate before a deliverable is considered done. Unifying them is a natural next direction.
+
+Configuration drives the substrate: YAML catalogs for agents, MCPs, skills, and workflows, plus environment variables for credentials and toggles. Teams can plug in fine-tuned or self-hosted models, in-house **MCP** servers, and existing API keys, then blend those with commodity cloud agents when that is faster or good enough. **Swap models and providers without rewriting orchestration logic**—only catalogs and env vars change.
 
 ---
 
 ## Who this is for
 
-This repo is **well-suited for** teams evaluating orchestration before committing to a single model vendor or a bespoke agent framework:
+This repo is **well-suited for** teams that want to test or build on a **process-driven** approach to multi-step work—not a single chat model—without being locked to one LLM vendor:
 
-- **Mixed-model environments** — combine proprietary, self-hosted, or fine-tuned models with commodity APIs (OpenAI, Anthropic, Ollama, Hugging Face) in one workflow, routed per step from YAML catalogs rather than per-model glue code.
-- **Regulated or audit-heavy settings** — government, defense, and financial services often need (a) procurement-friendly LLM agnosticism, (b) sovereign or air-gapped deployment via the **Kubernetes** execution backend (`AGENTIC_EXECUTION_BACKEND=kubernetes`), and (c) execution audit trails, session history, and human checkpoints that matter as much as raw model capability. This stack supports those constraints as architecture, not as a bolt-on.
+- **Mixed-model environments** — bring fine-tuned, self-hosted, or proprietary models alongside commodity APIs (OpenAI, Anthropic, Ollama, Hugging Face). The coordinator loop and YAML catalogs stay the same; only which provider runs each step changes.
+- **Regulated or audit-heavy settings** — government, defense, and financial services often need (a) procurement-friendly LLM agnosticism, (b) sovereign or air-gapped deployment via the **Kubernetes** execution backend (`AGENTIC_EXECUTION_BACKEND=kubernetes`), and (c) execution audit trails, session history, and human checkpoints that matter as much as raw model capability. In financial services especially, traceability and approval gates often outweigh which model is picked.
 
-That is the substance behind the **production-style orchestration** row in the table above: YAML workflows, dynamic planning, MCP, sessions, learning, and KB—not a claim of existing production case studies. If you only need a single-model chat UI, a thinner tool may suffice; if you need multi-step plans, tool use, and backend choice as configuration, start with [`agentic-orchestration-tool/`](agentic-orchestration-tool/).
+That substantiates the **production-style orchestration** row in the table above: YAML workflows, iterative replanning, MCP, sessions, learning, and KB—not a claim of existing production case studies or a finished AGI loop. If you only need a single-model chat UI, a thinner tool may suffice; if you want to experiment with coordinator-driven task processing as configuration, start with [`agentic-orchestration-tool/`](agentic-orchestration-tool/).
 
 ---
 
