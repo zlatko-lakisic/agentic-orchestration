@@ -67,6 +67,8 @@ docs:
         url: /kubernetes-execution-upgrade/
       - title: "Agent Skills Roadmap"
         url: /agent-skills-roadmap/
+      - title: "Agent Societies Roadmap"
+        url: /Agent-societies-roadmap/
       - title: "Agent Harness (platform)"
         url: /Agent-harness-roadmap/
       - title: "User Agent Harnesses"

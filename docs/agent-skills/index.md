@@ -12,7 +12,7 @@ sidebar:
 
 The tool loads **procedural skill** templates from `agentic-orchestration-tool/config/agent_skills/` (one `*.yaml` per skill unless using a bundle file). Merge additional directories via `AGENTIC_EXTRA_AGENT_SKILLS_PATH` (`;` on Windows, `:` on Unix).
 
-Skills inject **markdown instructions** into task descriptions (default) or agent backstory. They do not add callable tools — use [MCP providers]({{ '/mcp-catalog/' | relative_url }}) for external tools.
+Skills inject **markdown instructions** into task descriptions (default) or agent backstory. They do not add callable tools — use [MCP providers]({{ '/mcp-catalog/' | relative_url }}) for that.
 
 Design history and phased rollout: [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}).
 

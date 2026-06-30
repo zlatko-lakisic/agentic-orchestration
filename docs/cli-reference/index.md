@@ -79,22 +79,36 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 | `--orchestrator-session NAME` | Session slug for `__orchestrator_sessions__/`. |
 | `--orchestrator-session-reset` | Delete session JSON before run. |
 
-## Platform agent harness
+## Platform agent harness (v1.4.0)
 
 | Flag | Meaning |
 |------|---------|
-| `--harness-agent ID` | Run harness for one catalog `agent_provider_id` and exit. |
-| `--harness-batch` | Run harness for all (or filtered) catalog agents and exit. |
-| `--harness-tier TIER` | `static` (L0), `connectivity` (L1), `smoke` (L2), `capability` (L3). Aliases: `l0`–`l3`. Default: env `AGENTIC_HARNESS_TIER` or `static`. |
-| `--harness-filter GLOB` | With `--harness-batch`: fnmatch on provider ids (e.g. `gpt_*`). |
+| `--harness-agent ID` | Run harness for one catalog agent and exit. |
+| `--harness-batch` | Run harness for all (or filtered) catalog agents. |
+| `--harness-tier TIER` | `static`, `connectivity`, `smoke`, `capability` (aliases `l0`–`l3`). |
+| `--harness-filter GLOB` | fnmatch on provider ids (e.g. `gpt_*`). |
 | `--harness-max-agents N` | Cap batch size. |
-| `--harness-profile PROFILE` | Force profile (`general`, `research`, `write`, `reason`, `coding`, `vision`). |
-| `--harness-backend NAME` | `inprocess` (default) or `subprocess` for L2/L3. |
-| `--harness-json` | Emit JSON report on stdout. |
-| `--harness-fail-fast` | Stop batch on first failure. |
-| `--harness-verbose` | Verbose CrewAI output during smoke runs. |
+| `--harness-profile PROFILE` | Force profile. |
+| `--harness-backend NAME` | `inprocess` or `subprocess`. |
+| `--harness-json` | JSON report on stdout. |
+| `--harness-fail-fast` | Stop on first failure. |
 
-Env: `AGENTIC_HARNESS_TIER`, `AGENTIC_HARNESS_EVAL`, `AGENTIC_HARNESS_EVAL_MODEL`, `AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT`, `AGENTIC_HARNESS_FEED_PLANNER`, `AGENTIC_HARNESS_RECORD_STATS`. See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
+Env: `AGENTIC_HARNESS_TIER`, `AGENTIC_HARNESS_EVAL`, `AGENTIC_HARNESS_SKIP_SELFCONTAINED_INIT`, `AGENTIC_HARNESS_FEED_PLANNER`. See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
+
+## User agent harness (v1.5.0)
+
+| Flag | Meaning |
+|------|---------|
+| `--harness-dir PATH` | User harness root(s); subdirs with `harness.yaml` are packs. Repeatable. |
+| `--harness-agent ID` | Run all scenarios for one catalog agent (platform or user pack). |
+| `--user-harness-run-all` | Run every user harness pack under merged harness dirs. |
+| `--harness-json` | JSON report on stdout. |
+| `--harness-fail-fast` | Stop on first scenario failure. |
+| `--harness-backend NAME` | `inprocess` or `subprocess` (manifest `defaults.execution_backend` overrides). |
+
+With `--example healthcare`, vertical `harnesses/` is merged into discovery (no separate `--harness-dir` required).
+
+Env: `AGENTIC_EXTRA_AGENT_HARNESS_DIRS`, `AGENTIC_USER_HARNESS_RECORD_STATS`, `AGENTIC_USER_HARNESS_FEED_PLANNER`. See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}).
 
 ## Related
 

@@ -68,9 +68,6 @@ Flags: `--config-dir`, `--router-model`, `--router-host`.
 | `workflow.yaml` | Research-style brief (with `meta` if routable) |
 | `workflow_brainstorm.yaml` | Brainstorming-oriented `meta` |
 | `workflow_web_dev.yaml` | Web-dev oriented; Ollama-centric analyst → architect → implementer pattern |
-| `workflow_agent_skills_smoke.yaml` | Agent skills catalog smoke — task/backstory injection without LLM-heavy steps |
-
-Skills attach via `workflow.skills` / `task.skills`; see [Agent skills]({{ '/agent-skills/' | relative_url }}).
 
 ## Related
 

@@ -96,6 +96,8 @@ python main.py --harness-dir ./my-harnesses --user-harness-run-all
 
 Healthcare ships a reference pack. Details: [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}).
 
+**v1.6.0 (Phase 4):** subprocess and Kubernetes backend parity, `inputs.matrix` variant runs, and optional planner feedback via `AGENTIC_USER_HARNESS_FEED_PLANNER`.
+
 ## 7 MCP Integrations
 
 MCP tool definitions live under `config/mcp_providers/`. The planner attaches MCPs per step based on goal text, available credentials, and (for Kubernetes) transport compatibility.

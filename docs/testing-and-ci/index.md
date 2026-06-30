@@ -23,26 +23,15 @@ How to run automated checks locally and on **GitHub** or **GitLab** for **agenti
 | **Unit** | Every commit / MR | No | ✅ Yes (default) |
 | **Import smoke** | Every commit / MR | No | ✅ Yes |
 | **Docker worker smoke** | Every commit / MR | No | ✅ Yes (K8s Phase 2.3) |
-| **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM; includes agent skills spec handoff) |
+| **kind Kubernetes e2e** | Every commit / MR | No | ✅ Yes (stub worker, no LLM) |
 | **Integration** | Manual / with `AGENTIC_KIND_E2E=1` locally | Sometimes | ❌ Excluded from default pytest |
 | **Live LLM** | Local only unless secrets configured | Yes | ❌ Never by default |
-| **Agent harness L0** (static catalog) | Every commit / MR | No | ✅ Yes (`agent-harness-static` job) |
-| **Agent harness L1** (connectivity) | Every commit / MR (credentialed subset) | Sometimes | ✅ Yes (`agent-harness-connectivity` job) |
-| **Agent harness L2+** (smoke / capability) | Nightly / manual | Yes | ❌ By default (weekly `agent-harness-smoke-nightly.yml`) |
+| **Agent harness L0** (static catalog) | Every commit / MR | No | ✅ Yes |
+| **Agent harness L1** (connectivity) | Every commit / MR (credentialed subset) | Sometimes | ✅ Yes |
+| **Agent harness L2+** (smoke / capability) | Nightly / manual | Yes | ❌ By default |
 | **Backend parity** (F2.7 / dual framework) | After refactor lands | No for resolution tests | ✅ Planned |
 
-Default CI command excludes `integration`, `live_llm`, and `agent_harness` markers (see `pytest.ini`).
-
-### Agent harness (local)
-
-```bash
-cd agentic-orchestration-tool
-python main.py --harness-batch --harness-tier static          # L0 full catalog
-python main.py --harness-agent gpt_research --harness-tier smoke
-pytest -m agent_harness -o addopts="-ra"
-powershell -File scripts/run-agent-harness.ps1 -Tier static -Filter "gpt_*"
-python scripts/harness-report.py
-```
+Default CI command excludes `integration` and `live_llm` markers (see `pytest.ini`).
 
 ---
 
@@ -85,7 +74,7 @@ Workflow: **`.github/workflows/ci.yml`** (on push to `main`/`master` and on pull
 | **python-unit** | `pip install` + `pytest` (unit tier) |
 | **python-smoke-import** | Install runtime deps; import `orchestration.*` and `main` |
 | **docker-worker-smoke** | Build `docker/Dockerfile.worker`; invalid spec → exit 2 (`scripts/docker-worker-smoke.sh`) |
-| **kind-kubernetes-e2e** | kind cluster + hostPath PVC + stub worker Jobs (`scripts/k8s-kind-e2e.sh`; `tests/test_kind_kubernetes_e2e.py`, including `test_agent_skills_smoke_kind_kubernetes_workflow`) |
+| **kind-kubernetes-e2e** | kind cluster + hostPath PVC + stub worker Jobs (`scripts/k8s-kind-e2e.sh`; `tests/test_kind_kubernetes_e2e.py`) |
 
 No repository secrets required for default CI.
 
@@ -222,23 +211,21 @@ Align with [Dual execution framework]({{ '/dual-execution-framework/' | relative
 
 ### Platform agent harness (shipped v1.4.0)
 
-See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}) for design.
+See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
 
 - [x] **T-H0** `@pytest.mark.agent_harness` — L0 static validation for full [Agent provider catalog]({{ '/agent-catalog/' | relative_url }})
 - [x] **T-H1** L1 connectivity for credentialed catalog subset in CI
-- [x] **T-H2** L2 smoke — nightly workflow (`agent-harness-smoke-nightly.yml`)
-- [x] `main.py --harness-agent` / `--harness-batch` CLI (platform tiers)
-- [x] `scripts/run-agent-harness.ps1` / `.sh` and `scripts/harness-report.py`
+- [x] **T-H2** L2 smoke — nightly workflow
+- [x] `main.py --harness-agent` / `--harness-batch` CLI
+- [x] `scripts/run-agent-harness.ps1` / `harness-report.py`
 
-### User agent harness packs (shipped v1.5.0)
+### User agent harness packs (planned)
 
-See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — domain scenario libraries (adopters maintain packs outside core; healthcare example in-repo).
+See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — adopters maintain scenario libraries outside core; not part of default repo CI.
 
-- [x] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
-- [x] **T-UH2** `@pytest.mark.user_harness` unit tests (mocked kickoff; harness CI job)
-- [x] Scenario YAML + deterministic assertions + optional rubric (`orchestration/user_agent_harness.py`)
-- [x] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/gpt_research/`
-- [x] `scripts/run-user-harness.ps1` / `.sh`; `--example` overlay merges vertical `harnesses/`
+- [ ] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
+- [ ] Scenario YAML + deterministic assertions + optional rubric
+- [ ] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/`
 
 ---
 

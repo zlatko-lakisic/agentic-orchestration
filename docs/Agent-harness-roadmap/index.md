@@ -8,96 +8,87 @@ toc_icon: "list"
 sidebar:
   nav: "docs"
 ---
+# Agent harness roadmap (platform / catalog verification)
 
-# Platform agent harness
+Living document for **platform-owned harness probes** on every entry in the [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}) — turning the catalog from a static registry into a **verified inventory** of agents that are configured, reachable, and minimally competent in the current environment.
 
-**Shipped in v1.4.0** — tiered probes that turn the [Agent catalog]({{ '/agent-catalog/' | relative_url }}) from a static registry into a **verified inventory** for your environment.
+**Status:** **Shipped** in repo v1.4.0 (2026-06-29).
 
-**Distinct from:** [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) (domain scenario packs you maintain separately).
+**Distinct from:** [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — domain scenario packs teams develop separately for the agents *they* deploy. This page covers generic tiers (L0–L3), shared profiles, and CI for the shipped catalog.
 
-## Why
+**Related:** [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}), [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [Testing and CI]({{ '/testing-and-ci/' | relative_url }}), [Architecture]({{ '/architecture/' | relative_url }}), [CLI reference]({{ '/cli-reference/' | relative_url }})
 
-| Without harness | With harness |
-|-----------------|--------------|
-| Broken model names fail at run time | L0/L1 catch config and connectivity in CI |
-| Manual smoke per agent | Shared profiles (`research`, `coding`, …) scale to 182 agents |
-| Hard to debug “which agent is broken?” | `python main.py --harness-agent ID --harness-tier smoke` isolates one id |
+---
 
-## Tiers
-
-| Tier | CLI value | Checks | When to run |
-|------|-----------|--------|-------------|
-| **L0** | `static` | YAML valid, credentials present | Every PR (CI); locally before adding YAML |
-| **L1** | `connectivity` | `validate_config` → `initialize` → `health_check` | After env/credential changes |
-| **L2** | `smoke` | One-task kickoff + deterministic assertions | Before promoting model swaps |
-| **L3** | `capability` | L2 + LLM rubric (`evaluate_run_quality`) | Release gate / manual QA |
-
-## Quick commands
+## Quick start
 
 ```bash
 cd agentic-orchestration-tool
-
-# Full catalog — no API keys
 python main.py --harness-batch --harness-tier static
-
-# Cloud subset
-python main.py --harness-batch --harness-tier connectivity --harness-filter "gpt_*"
-
-# Single agent smoke (needs credentials)
 python main.py --harness-agent gpt_research --harness-tier smoke
-
-# JSON report for automation
-python main.py --harness-batch --harness-tier static --harness-json
-
-# Helpers
-powershell -File scripts/run-agent-harness.ps1 -Tier static -Filter "gpt_*"
+powershell -File scripts/run-agent-harness.ps1 -Tier connectivity -Filter "gpt_*"
 python scripts/harness-report.py
 ```
 
-## Profiles and per-agent YAML
+---
 
-Shared templates live in `config/agent_harnesses/`:
+## Design principle: tiered harness
 
-| Profile | Typical agents |
-|---------|----------------|
-| `general` | Default, `general_purpose: true` |
-| `research` | Research Analyst roles |
-| `write` | Technical Writer roles |
-| `reason` | Staff Engineer roles |
-| `coding` | `*_coder_*` ids |
-| `vision` | VLM / vision entries |
+| Tier | Name | What it checks | CI default |
+|------|------|----------------|------------|
+| **L0** | Static | YAML schema, required fields, credential presence | Every PR |
+| **L1** | Connectivity | `validate_config` → `initialize` → `health_check` | Every PR (credentialed subset) |
+| **L2** | Smoke | Single-task kickoff + deterministic assertions | Nightly / manual |
+| **L3** | Capability | L2 + profile rubric / LLM judge | Manual |
 
-Optional fields on agent provider YAML:
+---
 
-```yaml
-harness_profile: research
-harness:
-  skip_live: true              # skip L2/L3 in batch (e.g. huge local models)
-  smoke_override:
-    description: "..."         # rare per-agent prompt override
-```
+## Phased implementation
 
-The **Harness** column in the [Agent catalog]({{ '/agent-catalog/' | relative_url }}) shows inferred or explicit profiles.
+### Phase 1 — Foundation
 
-## Execution and reports
+- [x] `config/agent_harnesses/{general,research,write,reason,coding,vision}.yaml`
+- [x] `orchestration/agent_harness.py` (L0–L2)
+- [x] CLI `--harness-agent` / `--harness-batch`
+- [x] Unit tests with mocked kickoff
+- [x] L0 in CI for entire catalog
 
-- Uses the same `build_workflow` / `execute_step` paths as production (no second runner).
-- L2/L3 support `--harness-backend subprocess` for worker-image regression.
-- Reports written to `harness_runs/` (gitignored); aggregate with `scripts/harness-report.py`.
-- Pass/fail stats optionally recorded in `__orchestrator_learning__/stats.json` and fed to the planner when `AGENTIC_HARNESS_FEED_PLANNER=1`.
+### Phase 2 — Catalog metadata
 
-## CI
+- [x] Optional `harness_profile` / `harness.skip_live` on reference agents (`gpt_*`, `claude_*`, `ollama_llama3`)
+- [x] Profile inference helper
+- [x] Agent catalog generator **Harness** column
 
-| Job | Tier |
-|-----|------|
-| `agent-harness-static` | L0 — full catalog every PR |
-| `agent-harness-connectivity` | L1 — `gpt_*` + unit tests |
-| `agent-harness-smoke-nightly` | L2 — weekly (optional secrets) |
+### Phase 3 — L3 capability + reporting
 
-Details: [Testing and CI]({{ '/testing-and-ci/' | relative_url }}).
+- [x] Rubric-aware eval per profile (`capability` block + `evaluate_run_quality`)
+- [x] `scripts/harness-report.py` aggregation
+- [x] Nightly GitHub Actions workflow (`agent-harness-smoke-nightly.yml`)
 
-## Related
+### Phase 4 — Operational polish
 
-- [CLI reference]({{ '/cli-reference/' | relative_url }}) — all `--harness-*` flags
-- [Configuration]({{ '/configuration/' | relative_url }}) — `AGENTIC_HARNESS_*` env vars
-- [Features]({{ '/features/' | relative_url }}) — product overview
+- [x] Subprocess backend for smoke/capability (`--harness-backend subprocess`)
+- [x] Harness stats in planner / learning context (`harness_performance_summary`)
+- [x] Optional `AgentProvider.run_harness_probe()` hook
+
+---
+
+## CI integration
+
+| Job | Scope | Tier |
+|-----|-------|------|
+| `agent-harness-static` | Full catalog | L0 |
+| `agent-harness-connectivity` | `gpt_*` + harness unit tests | L1 |
+| `agent-harness-smoke-nightly` | Cloud subset (weekly) | L2 |
+
+See [Testing and CI]({{ '/testing-and-ci/' | relative_url }}) for local commands and markers.
+
+---
+
+## Wiki maintenance
+
+- [CLI reference]({{ '/cli-reference/' | relative_url }}) — harness flags
+- [Configuration]({{ '/configuration/' | relative_url }}) — `AGENTIC_HARNESS_*` env vars in `.env.example`
+- [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}) — `harness_profile` field
+
+For full design history (problem statement, mermaid diagram, anti-patterns), see git history of this page or the v1.4.0 docs on GitHub Pages.
