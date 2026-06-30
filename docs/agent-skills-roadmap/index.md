@@ -11,13 +11,13 @@ mermaid: true
 ---
 # Agent skills roadmap (procedural knowledge catalog)
 
-Living document for adding **YAML-defined, agent-agnostic procedural skills** — release workflows, review checklists, domain playbooks, and similar **how-to** instructions — parallel to the existing [MCP providers]({{ '/mcp-catalog/' | relative_url }}) and planned [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}) catalogs.
+Living document for adding **YAML-defined, agent-agnostic procedural skills** — release workflows, review checklists, domain playbooks, and similar **how-to** instructions — parallel to the existing [MCP providers]({{ '/mcp-catalog/' | relative_url }}) catalog.
 
 **Status:** **Shipped (S1–S4)** — catalog loader, static/dynamic attachment, runner/materializer/worker injection, CLI, `release_process` / `pr_review` skills, smoke workflow (2026-06).
 
-**Chosen approach:** Skills are a **fourth catalog** (`config/agent_skills/`). Catalog entries supply markdown instructions injected into **task descriptions** (default) or optionally **agent backstory**. Skills do not add callable tools; they compose with MCP and in-process agent tools.
+**Chosen approach:** Skills are a **third composable catalog** alongside agent providers and MCP (`config/agent_skills/`). Catalog entries supply markdown instructions injected into **task descriptions** (default) or optionally **agent backstory**. Skills do not add callable tools; they compose with MCP.
 
-**Related:** [Architecture]({{ '/architecture/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}), [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }})
+**Related:** [Architecture]({{ '/architecture/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }})
 
 ---
 
@@ -33,28 +33,26 @@ Today procedural knowledge is scattered across mechanisms that do not support �
 | Retrieval context | [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}) KB snippets in planner prompt | Fuzzy past-run excerpts — not versioned playbooks on agent tasks |
 | Planner domain rules | Hardcoded blocks in `dynamic_planner.py` | Not catalog-driven or attachable per step |
 
-[MCP providers]({{ '/mcp-catalog/' | relative_url }}) answers “wire an external tool.” [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}) answers “wire an in-process callable tool.” This roadmap answers “wire **procedural instructions** any agent can follow on a given step.”
+[MCP providers]({{ '/mcp-catalog/' | relative_url }}) answers “wire an external tool.” This roadmap answers “wire **procedural instructions** any agent can follow on a given step.”
 
 ---
 
-## Four catalogs, one attachment model
+## Three catalogs, one attachment model
 
 ```
 agentic-orchestration-tool/config/
 ├── agent_providers/    # WHO runs (LLM backend, role, goal)
 ├── agent_skills/       # Procedural skills — HOW ([Agent skills]({{ '/agent-skills/' | relative_url }}))
-├── mcp_providers/      # EXTERNAL tools via MCP protocol
-└── agent_tools/        # IN-PROCESS CrewAI tools (planned)
+└── mcp_providers/      # EXTERNAL tools via MCP protocol
 ```
 
 | Catalog | Runtime effect | Best for |
 |---------|----------------|----------|
 | `agent_providers` | CrewAI `Agent` identity | Model/backend selection, role semantics |
 | `agent_skills` | Injected markdown into `Task.description` (or backstory) | Release process, PR review, schema-query playbooks |
-| `mcp_providers` | External MCP server connections | Community servers, search APIs, Home Assistant |
-| `agent_tools` (planned) | In-process `crewai.tools.BaseTool` | Artifacts, media, orchestrator sandbox |
+| `mcp_providers` | External MCP server connections | Community servers, search APIs, filesystem, media, Home Assistant |
 
-A single task can attach **skills + MCP ids + agent-tool ids** independently.
+A single task can attach **skills + MCP ids** independently.
 
 ```mermaid
 flowchart TB
@@ -62,18 +60,16 @@ flowchart TB
         AP[agent_providers — WHO]
         SK[agent_skills — HOW]
         MCP[mcp_providers — external WHAT]
-        AT[agent_tools — in-process WHAT]
     end
   subgraph runtime [CrewAI runtime]
         Agent[Agent role/goal/backstory]
         Task[Task description]
-        Tools[tools + mcps]
+        Tools[mcps]
     end
     AP --> Agent
     SK -->|inject| Task
     SK -.->|optional| Agent
     MCP --> Tools
-    AT --> Tools
     Tools --> Agent
 ```
 
@@ -326,7 +322,7 @@ Update [CLI reference]({{ '/cli-reference/' | relative_url }}) and [Configuratio
 
 ## Key design decisions
 
-1. **Skills inject context, not tools** — callable capabilities stay in [MCP providers]({{ '/mcp-catalog/' | relative_url }}) and [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}); skills may *reference* those tools in prose.
+1. **Skills inject context, not tools** — callable capabilities stay in [MCP providers]({{ '/mcp-catalog/' | relative_url }}); skills may *reference* those tools in prose.
 2. **Default injection is task-level** — step-specific procedures without changing agent cache keys.
 3. **Attachment semantics match MCP** — `workflow.skills`, `task.skills`, planner `skill_ids`, `[]` to force none.
 4. **Token budget is explicit** — per-entry `inject.max_chars` plus global `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`; optional `content.summary` for planner-only hints when bodies are large.
@@ -338,7 +334,7 @@ Update [CLI reference]({{ '/cli-reference/' | relative_url }}) and [Configuratio
 ## Out of scope for v1
 
 - Inline skill bodies in workflow YAML (catalog ids only)
-- Skills that execute code or spawn subprocesses (use MCP / agent tools)
+- Skills that execute code or spawn subprocesses (use MCP)
 - Auto-discovery of markdown files without catalog YAML
 - Skills replacing the dynamic planner system prompt
 
@@ -357,7 +353,6 @@ Update [CLI reference]({{ '/cli-reference/' | relative_url }}) and [Configuratio
 ## See also
 
 - [Agent skills]({{ '/agent-skills/' | relative_url }}) — shipped catalog reference (inventory, env vars)
-- [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}) — in-process callable tools (complementary catalog)
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — external tool integrations
 - [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}) — KB and learning (planner context, not per-task skills)
 - [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}) — agent identity templates

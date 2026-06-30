@@ -14,7 +14,7 @@ sidebar:
 
 ![Core architecture diagram](assets/2.png)
 
-1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id`, optional MCP ids, optional skill ids (see [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }})), and (when implemented) optional agent-tool ids — see [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}).
+1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id`, optional MCP ids, and optional skill ids (see [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }})).
 2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Agent skills load from `config/agent_skills/` plus `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. Entries without required credentials (or missing `required_files`) are filtered out before planning. **Platform agent harness** ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }})) verifies catalog entries per environment; user scenario packs are planned separately ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})).
 3. **Runner** — Selects execution backend (`AGENTIC_EXECUTION_BACKEND`, default in-process CrewAI). Builds CrewAI `Agent` / `Task` / `Crew` for in-process runs; distributed backends materialize `StepSpec` lists and coordinate per-step workers.
 4. **Post-run** — Optional artifact extraction, verification, session JSON updates, learning traces, KB append, web UI progress.
@@ -34,7 +34,6 @@ agentic-orchestration-tool/config/
 ├── agent_providers/    # One YAML per agent template (dynamic catalog)
 ├── agent_harnesses/    # Platform smoke/capability profiles ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}))
 ├── mcp_providers/      # One YAML per MCP template (streamable HTTP, stdio, refs, env gates)
-├── agent_tools/        # Planned — one YAML per in-process tool bundle ([Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}))
 └── agent_skills/       # One YAML per procedural skill ([Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}))
 ```
 
@@ -71,9 +70,8 @@ Under `agentic-orchestration-tool/orchestration/`:
 ## Extension points
 
 - **More agents:** add YAML under `config/agent_providers/` or `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH` (Python provider classes).
-- **More MCPs:** add YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Discover third-party servers via [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (see [MCP providers]({{ '/mcp-catalog/' | relative_url }}) for shipped examples).
-- **In-process agent tools (planned):** YAML catalog under `config/agent_tools/` — file write/read, image/video generation, vision tools attached per task via `agent_tools` / planner `agent_tool_ids`. Design: [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}).
+- **More MCPs:** add YAML under `config/mcp_providers/` or `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Discover third-party servers via [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (see [MCP providers]({{ '/mcp-catalog/' | relative_url }}) for shipped examples). File, media, vision, and generation capabilities are covered by MCP integrations (e.g. `filesystem_local`, community image/video servers).
 - **Agent skills:** YAML catalog under `config/agent_skills/` — see [Agent skills]({{ '/agent-skills/' | relative_url }}).
 - **Custom workflows:** add files under `config/workflows/`; optional `meta` for router inclusion.
 
-See also: [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}), [Agent skills]({{ '/agent-skills/' | relative_url }}), [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}) (Docker Compose, Ollama sidecar, volumes), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) (pluggable execution backends — F0–F3 shipped), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (cluster delivery — K3+ pending).
+See also: [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Agent skills]({{ '/agent-skills/' | relative_url }}), [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}) (Docker Compose, Ollama sidecar, volumes), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) (pluggable execution backends — F0–F3 shipped), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (cluster delivery — K3+ pending).

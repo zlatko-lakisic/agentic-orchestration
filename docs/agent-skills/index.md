@@ -89,5 +89,4 @@ See [Configuration]({{ '/configuration/' | relative_url }}) and `agentic-orchest
 
 - [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) — planner `skill_ids` contract
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — external tools (complementary)
-- [Agent tools roadmap]({{ '/Agent-tools-roadmap/' | relative_url }}) — in-process tools (planned)
 - [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) — `StepSpec` materialization
