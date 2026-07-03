@@ -148,6 +148,8 @@ function unwrapJsonLikeAssistantText(text) {
   const connStatus = document.getElementById("connStatus");
   const activityBar = document.getElementById("activityBar");
   const activityLabel = document.getElementById("activityLabel");
+  const crewLogPanel = document.getElementById("crewLogPanel");
+  const crewLogText = document.getElementById("crewLogText");
   const rateUpBtn = document.getElementById("rateUpBtn");
   const rateDownBtn = document.getElementById("rateDownBtn");
   const fileInputEl = document.getElementById("fileInput");
@@ -157,7 +159,6 @@ function unwrapJsonLikeAssistantText(text) {
   let runActive = false;
   let stdoutBuf = "";
   let stderrBuf = "";
-  let streamVerbose = false;
   let processingTimer = null;
   let statusHintTimer = null;
   let lastProgressText = "";
@@ -323,6 +324,22 @@ function unwrapJsonLikeAssistantText(text) {
     }
   }
 
+  function syncCrewLogVisibility() {
+    if (!crewLogPanel) return;
+    const show = Boolean(verboseCrewEl?.checked);
+    crewLogPanel.hidden = !show;
+  }
+
+  function clearCrewLog() {
+    if (crewLogText) crewLogText.textContent = "";
+  }
+
+  function appendCrewLog(text) {
+    if (!text || !crewLogText) return;
+    crewLogText.textContent += text;
+    crewLogText.scrollTop = crewLogText.scrollHeight;
+  }
+
   function stopProcessingUi() {
     if (processingTimer != null) {
       clearInterval(processingTimer);
@@ -375,17 +392,6 @@ function unwrapJsonLikeAssistantText(text) {
       hintIdx = (hintIdx + 1) % PROCESSING_HINTS.length;
       chatPinnedText.textContent = `Run in progress... ${PROCESSING_HINTS[hintIdx]}`;
     }, 4200);
-  }
-
-  function startVerboseActivityBar() {
-    stopProcessingUi();
-    showActivityBar();
-    if (activityLabel) {
-      activityLabel.textContent = "Run in progress—streaming crew output below…";
-    }
-    iterRoundLabel = "";
-    iterControllerReason = "";
-    if (chatPinned) chatPinned.hidden = true;
   }
 
   function proto() {
@@ -450,16 +456,18 @@ function unwrapJsonLikeAssistantText(text) {
         return;
       }
       if (data.type === "run_start") {
-        streamVerbose = Boolean(verboseCrewEl?.checked);
         stdoutBuf = "";
         stderrBuf = "";
+        clearCrewLog();
+        syncCrewLogVisibility();
         assistantBubble = appendBubble("assistant", "");
-        if (streamVerbose) {
-          startVerboseActivityBar();
-          appendMeta(`Run: ${(data.args || []).join(" ")}`);
-        } else {
-          startProcessingUi(assistantBubble);
+        startProcessingUi(assistantBubble);
+        showActivityBar();
+        if (activityLabel) {
+          activityLabel.textContent = "Run in progress—crew log streaming in the background…";
         }
+        iterRoundLabel = "";
+        iterControllerReason = "";
         runActive = true;
         sendBtn.disabled = true;
         if (rateUpBtn) rateUpBtn.disabled = true;
@@ -471,17 +479,12 @@ function unwrapJsonLikeAssistantText(text) {
         const line = data.text || "";
         applyIterativeStatusFromText(line);
         if (!assistantBubble) assistantBubble = appendBubble("assistant", "");
-        if (streamVerbose) {
-          assistantBubble.textContent += line;
-          if (data.stream === "stderr") {
-            assistantBubble.classList.add("stderr");
-            applyRatingMetaFromText(line);
-          }
-        } else if (data.stream === "stdout") {
+        if (data.stream === "stdout") {
           stdoutBuf += line;
           applyProgressFromText(line);
         } else {
           stderrBuf += line;
+          appendCrewLog(line);
           applyProgressFromText(line);
           applyRatingMetaFromText(line);
         }
@@ -503,10 +506,10 @@ function unwrapJsonLikeAssistantText(text) {
         if (assistantBubble) {
           assistantBubble.classList.remove("processing", "typing");
         }
-        if (!streamVerbose && assistantBubble) {
+        if (assistantBubble) {
           const out = unwrapJsonLikeAssistantText(stdoutBuf.trim());
           const err = stderrBuf.trim();
-          if (data.code !== 0 && err) {
+          if (data.code !== 0 && err && !out) {
             applyAssistantPlain(assistantBubble, err);
             assistantBubble.classList.add("stderr");
           } else if (out) {
@@ -519,22 +522,12 @@ function unwrapJsonLikeAssistantText(text) {
           } else if (data.code !== 0) {
             applyAssistantPlain(
               assistantBubble,
-              "Something went wrong (no details on stdout). Check the terminal running the web server.",
+              "Something went wrong (no details on stdout). Check the crew log or server terminal.",
             );
             assistantBubble.classList.add("stderr");
           } else {
             applyAssistantPlain(assistantBubble, "(No output)");
             assistantBubble.classList.remove("stderr");
-          }
-        }
-        if (streamVerbose && assistantBubble) {
-          const out = unwrapJsonLikeAssistantText(stdoutBuf.trim());
-          if (out) {
-            try {
-              await applyAssistantMarkdown(assistantBubble, out);
-            } catch {
-              applyAssistantPlain(assistantBubble, out);
-            }
           }
         }
         appendMeta(`Exit code: ${data.code}${data.signal ? ` (${data.signal})` : ""}`);
@@ -904,7 +897,7 @@ function unwrapJsonLikeAssistantText(text) {
       noSynthesize: Boolean(noSynthesizeEl?.checked),
       sessionId,
       noVerify: true,
-      verboseCrew: Boolean(verboseCrewEl?.checked),
+      verboseCrew: true,
       selectedAgentProviderIds: Array.from(selectedAgentProviderIds),
       files: filesPayload,
     };
@@ -962,7 +955,10 @@ function unwrapJsonLikeAssistantText(text) {
     } else {
       chat.innerHTML = "";
     }
+    clearCrewLog();
   });
+  verboseCrewEl?.addEventListener("change", syncCrewLogVisibility);
+  syncCrewLogVisibility();
   agentPickerAddBtn?.addEventListener("click", () => {
     const pid = String(agentPickerSelectEl?.value || "").trim();
     if (!pid) return;

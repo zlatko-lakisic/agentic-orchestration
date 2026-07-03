@@ -9,6 +9,10 @@ concurrency:
   group: agent-harness-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   harness-smoke:
     name: Agent harness L2 smoke

@@ -38,6 +38,22 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
+/** Log full error server-side; never expose stack traces to clients. */
+function logServerError(context, err) {
+  if (err instanceof Error) {
+    console.error(context, err.stack || err.message);
+    return;
+  }
+  if (err != null) {
+    console.error(context, err);
+  }
+}
+
+function clientErrorMessage(err, fallback) {
+  logServerError(fallback, err);
+  return fallback;
+}
+
 /** `node server.mjs --example <id>` or env `AGENTIC_EXAMPLE=<id>` (npm: `npm run start:healthcare`, `start:logistics`, …). */
 function detectExampleFromArgv() {
   const i = process.argv.indexOf("--example");
@@ -767,7 +783,7 @@ async function handleOpenAiChatCompletions(req, res) {
     res.end(
       JSON.stringify({
         error: {
-          message: String(err && err.message ? err.message : err),
+          message: clientErrorMessage(err, "Request body too large"),
           type: "invalid_request_error",
           param: null,
           code: "request_too_large",
@@ -856,7 +872,7 @@ async function handleOpenAiChatCompletions(req, res) {
       res.end(
         JSON.stringify({
           error: {
-            message: String(err && err.message ? err.message : err),
+            message: clientErrorMessage(err, "Invalid attachment"),
             type: "invalid_request_error",
             param: "attachments",
             code: "invalid_attachment",
@@ -933,12 +949,11 @@ async function handleOpenAiChatCompletions(req, res) {
         disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
     } catch (err) {
-      const msg = String(err && err.message ? err.message : err);
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: msg,
+            message: clientErrorMessage(err, "Orchestration failed"),
             type: "agentic_run_error",
             param: null,
             code: "orchestration_failed",
@@ -1043,7 +1058,7 @@ async function handleOpenAiChatCompletions(req, res) {
     res.end(
       JSON.stringify({
         error: {
-          message: `Upstream request failed: ${String(err && err.message ? err.message : err)}`,
+          message: clientErrorMessage(err, "Upstream request failed"),
           type: "api_error",
           param: null,
           code: "upstream_unreachable",
@@ -1147,7 +1162,7 @@ async function handleOpenAiResponses(req, res) {
     res.end(
       JSON.stringify({
         error: {
-          message: String(err && err.message ? err.message : err),
+          message: clientErrorMessage(err, "Request body too large"),
           type: "invalid_request_error",
           param: null,
           code: "request_too_large",
@@ -1228,7 +1243,7 @@ async function handleOpenAiResponses(req, res) {
       res.end(
         JSON.stringify({
           error: {
-            message: String(err && err.message ? err.message : err),
+            message: clientErrorMessage(err, "Invalid attachment"),
             type: "invalid_request_error",
             param: "attachments",
             code: "invalid_attachment",
@@ -1306,12 +1321,11 @@ async function handleOpenAiResponses(req, res) {
         disableAnswerCache: openAiApiDisablesAnswerCache(),
       });
     } catch (err) {
-      const msg = String(err && err.message ? err.message : err);
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: msg,
+            message: clientErrorMessage(err, "Orchestration failed"),
             type: "agentic_run_error",
             param: null,
             code: "orchestration_failed",
@@ -1394,7 +1408,7 @@ async function handleOpenAiResponses(req, res) {
     res.end(
       JSON.stringify({
         error: {
-          message: `Upstream request failed: ${String(err && err.message ? err.message : err)}`,
+          message: clientErrorMessage(err, "Upstream request failed"),
           type: "api_error",
           param: null,
           code: "upstream_unreachable",
@@ -1453,7 +1467,7 @@ function sendAgentProvidersJson(res) {
     data = loadAgentProvidersForUi();
   } catch (err) {
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ error: String(err && err.message ? err.message : err) }));
+    res.end(JSON.stringify({ error: clientErrorMessage(err, "Failed to load agent providers") }));
     return;
   }
   res.writeHead(200, {
@@ -1469,14 +1483,13 @@ function handleHttp(req, res) {
   }
   if (isOpenAiChatCompletionsPath(req)) {
     handleOpenAiChatCompletions(req, res).catch((err) => {
-      console.error("[agentic-orchestration-web] /v1/chat/completions:", err);
       if (!res.headersSent) {
         const cors = chatCompletionsCorsHeaders();
         res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
         res.end(
           JSON.stringify({
             error: {
-              message: String(err && err.message ? err.message : err),
+              message: clientErrorMessage(err, "Internal server error"),
               type: "api_error",
               param: null,
               code: "internal_error",
@@ -1495,14 +1508,13 @@ function handleHttp(req, res) {
   }
   if (isOpenAiResponsesPath(req)) {
     handleOpenAiResponses(req, res).catch((err) => {
-      console.error("[agentic-orchestration-web] /v1/responses:", err);
       if (!res.headersSent) {
         const cors = chatCompletionsCorsHeaders();
         res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
         res.end(
           JSON.stringify({
             error: {
-              message: String(err && err.message ? err.message : err),
+              message: clientErrorMessage(err, "Internal server error"),
               type: "api_error",
               param: null,
               code: "internal_error",
@@ -2162,7 +2174,7 @@ function runDynamic(
   }
   proc.on("error", (err) => {
     maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
-    sendJson(ws, { type: "error", message: err.message });
+    sendJson(ws, { type: "error", message: clientErrorMessage(err, "Failed to start orchestration process") });
     ws._busy = false;
   });
   proc.on("close", (code, signal) => {
@@ -2239,7 +2251,7 @@ wss.on("connection", (ws) => {
       try {
         attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, msg.files);
       } catch (err) {
-        sendJson(ws, { type: "error", message: String(err && err.message ? err.message : err) });
+        sendJson(ws, { type: "error", message: clientErrorMessage(err, "Invalid attachment") });
         return;
       }
       if (!attachmentManifestPath) {

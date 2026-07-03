@@ -547,6 +547,48 @@ button.secondary {
   }
 }
 
+.crew-log-panel {
+  flex: 0 1 auto;
+  margin: 10px 18px 0;
+  max-height: min(38vh, 320px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--mono-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.crew-log-panel[hidden] {
+  display: none !important;
+}
+
+.crew-log-head {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.crew-log-text {
+  flex: 1;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #ffd89a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .feed-wrap {
   flex: 1;
   min-height: 0;
@@ -871,6 +913,11 @@ button.secondary {
   .run-status {
     margin: 10px 14px 0;
     font-size: 11px;
+  }
+
+  .crew-log-panel {
+    margin: 10px 14px 0;
+    max-height: min(32vh, 240px);
   }
 
   .feed {
