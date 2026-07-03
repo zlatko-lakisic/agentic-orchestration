@@ -24,6 +24,15 @@ log "Stop legacy systemd web service"
 systemctl stop agentic-orchestration-web.service 2>/dev/null || true
 systemctl disable agentic-orchestration-web.service 2>/dev/null || true
 
+log "Resolve duplicate Ollama systemd units"
+if systemctl is-active --quiet ollama.service 2>/dev/null; then
+  systemctl disable --now agentic-ollama.service 2>/dev/null || true
+elif systemctl is-enabled --quiet agentic-ollama.service 2>/dev/null; then
+  : # agentic-ollama only — leave enabled
+else
+  systemctl disable --now agentic-ollama.service 2>/dev/null || true
+fi
+
 log "Update repository from GitHub"
 cd "${PROJECT_ROOT}"
 git config --global --add safe.directory "${PROJECT_ROOT}" 2>/dev/null || true
@@ -50,6 +59,15 @@ if ! command -v k3s >/dev/null 2>&1; then
   curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --write-kubeconfig-mode 644" sh -
 fi
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+log "Patch k3s Traefik LoadBalancer → ClusterIP (avoids svclb iptables crash on Jetson)"
+if kubectl get svc traefik -n kube-system >/dev/null 2>&1; then
+  kubectl get svc traefik -n kube-system -o yaml \
+    | sed 's/type: LoadBalancer/type: ClusterIP/' \
+    | sed '/nodePort:/d' \
+    | sed '/externalTrafficPolicy:/d' \
+    | kubectl apply -f - >/dev/null 2>&1 || true
+fi
 
 log "Apply namespace + hostPath run-store (Jetson path ${RUN_STORE_HOST})"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/base/namespace.yaml"
@@ -128,10 +146,16 @@ docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
 
 log "Apply coordinator RBAC + deployment"
 kubectl apply -k "${TOOL_ROOT}/deploy/k8s/coordinator"
-# Strip stale hostPort patches (conflicts with k3s Traefik on :80).
-kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
-  -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "protocol": "TCP"}]}]' \
-  2>/dev/null || true
+if [[ "${WEB_PORT}" == "80" ]]; then
+  # CNI hostPort DNAT exposes the web UI on :80 (NodePort 30487 remains as fallback).
+  kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
+    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "hostPort": 80, "protocol": "TCP"}]}]' \
+    2>/dev/null || true
+else
+  kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
+    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "protocol": "TCP"}]}]' \
+    2>/dev/null || true
+fi
 kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
   AGENTIC_K8S_WARM_POOL_ENABLED=1 \
   AGENTIC_LOG_FORMAT=json \
@@ -139,15 +163,12 @@ kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
 kubectl set image deployment/agentic-coordinator -n agentic-orchestration \
   coordinator="${COORDINATOR_IMAGE}" 2>/dev/null || true
 
-log "Expose coordinator on host port ${WEB_PORT}"
+log "Expose coordinator on host port ${WEB_PORT} (NodePort 30487 + optional hostPort)"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/coordinator/service-nodeport.yaml"
-if [[ "${WEB_PORT}" == "80" ]]; then
-  if command -v iptables >/dev/null 2>&1; then
-    iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null \
-      || iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487
-    iptables -t nat -C OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null \
-      || iptables -t nat -A OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487
-  fi
+if [[ "${WEB_PORT}" == "80" ]] && command -v iptables >/dev/null 2>&1; then
+  # Legacy REDIRECT rules conflict with CNI hostPort; remove if a prior deploy added them.
+  while iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null; do :; done
+  while iptables -t nat -D OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null; do :; done
 fi
 
 log "Apply warm pool + delegation broker"

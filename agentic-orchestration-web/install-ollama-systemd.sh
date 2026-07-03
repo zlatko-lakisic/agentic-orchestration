@@ -26,6 +26,12 @@ if [[ "$EUID" -ne 0 ]]; then
   exit 1
 fi
 
+if systemctl is-active --quiet ollama.service 2>/dev/null; then
+  echo "[systemd] ollama.service is already running — skip $unit_name to avoid port 11434 conflicts."
+  echo "[systemd] To use only agentic-ollama instead: sudo systemctl disable --now ollama.service"
+  exit 0
+fi
+
 if ! command -v systemctl >/dev/null 2>&1; then
   echo "[systemd] systemctl not found. This script requires systemd." >&2
   exit 1
