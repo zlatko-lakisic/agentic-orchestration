@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Sequence
 
+from agent_providers.ollama_provider import litellm_api_base_for_ollama
+
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -85,13 +87,16 @@ def summarize_video_frames_litellm(
         content.append({"type": "image_url", "image_url": {"url": _jpeg_data_url(p)}})
 
     max_tokens = max(256, min(4096, _env_int("AGENTIC_VIDEO_VISION_MAX_TOKENS", 1200)))
+    litellm_kwargs: dict[str, object] = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0.2,
+        "max_tokens": max_tokens,
+    }
+    if model.lower().startswith("ollama/"):
+        litellm_kwargs["api_base"] = litellm_api_base_for_ollama()
     try:
-        resp_raw = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": content}],
-            temperature=0.2,
-            max_tokens=max_tokens,
-        )
+        resp_raw = litellm.completion(**litellm_kwargs)
         if hasattr(resp_raw, "model_dump"):
             resp = resp_raw.model_dump()
         elif hasattr(resp_raw, "dict"):

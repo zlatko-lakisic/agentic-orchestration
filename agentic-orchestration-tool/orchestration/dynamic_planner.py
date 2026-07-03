@@ -42,6 +42,7 @@ from orchestration.agent_providers_catalog import (
     deepcopy_agent_provider,
     load_agent_providers_catalog_merged,
 )
+from agent_providers.ollama_provider import litellm_api_base_for_ollama
 
 
 def _planner_llm_progress_log(*, resolved_model: str, messages: list[dict[str, str]]) -> None:
@@ -238,6 +239,8 @@ def _planner_chat_completion(
             "messages": messages,
             "temperature": 0.2,
         }
+        if clean_model.lower().startswith("ollama/"):
+            kwargs["api_base"] = litellm_api_base_for_ollama()
         json_mode = os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
             "0",
             "false",

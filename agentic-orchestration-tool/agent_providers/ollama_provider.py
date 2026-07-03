@@ -169,6 +169,19 @@ def normalize_ollama_host(raw_host: str) -> str:
     return f"http://{host.rstrip('/')}"
 
 
+def litellm_api_base_for_ollama() -> str:
+    """Base URL for LiteLLM ``api_base`` when the model id uses the ``ollama/`` prefix.
+
+    LiteLLM's Ollama integration honors ``OLLAMA_API_BASE``, not ``OLLAMA_HOST``.
+    """
+    raw = (
+        os.getenv("OLLAMA_API_BASE", "").strip()
+        or os.getenv("OLLAMA_HOST", "").strip()
+        or "http://127.0.0.1:11434"
+    )
+    return normalize_ollama_host(raw)
+
+
 def ollama_listen_addr(host: str) -> str:
     url = host if "://" in host else f"http://{host}"
     parsed = urlparse(url)
