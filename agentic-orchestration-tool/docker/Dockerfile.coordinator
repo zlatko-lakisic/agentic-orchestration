@@ -33,7 +33,7 @@ COPY agentic-orchestration-web/package.json agentic-orchestration-web/package-lo
 WORKDIR /app/web
 RUN npm ci --omit=dev
 
-COPY agentic-orchestration-web/server.mjs /app/web/
+COPY agentic-orchestration-web/server.mjs agentic-orchestration-web/host-metrics.mjs /app/web/
 COPY agentic-orchestration-web/public /app/web/public
 
 WORKDIR /app/web
