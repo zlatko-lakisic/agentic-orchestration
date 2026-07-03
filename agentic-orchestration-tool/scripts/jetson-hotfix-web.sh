@@ -9,7 +9,10 @@ NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
-  --from-file="${WEB_ROOT}/public" \
+  --from-file=app.js="${WEB_ROOT}/public/app.js" \
+  --from-file=index.html="${WEB_ROOT}/public/index.html" \
+  --from-file=styles.css="${WEB_ROOT}/public/styles.css" \
+  --from-file=host-metrics-ui.js="${WEB_ROOT}/public/host-metrics-ui.js" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create configmap agentic-web-hotfix-root -n "${NS}" \

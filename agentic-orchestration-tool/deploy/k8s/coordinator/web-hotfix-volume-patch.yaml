@@ -6,7 +6,17 @@ spec:
         - name: coordinator
           volumeMounts:
             - name: web-hotfix-public
-              mountPath: /app/web/public
+              mountPath: /app/web/public/app.js
+              subPath: app.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/index.html
+              subPath: index.html
+            - name: web-hotfix-public
+              mountPath: /app/web/public/styles.css
+              subPath: styles.css
+            - name: web-hotfix-public
+              mountPath: /app/web/public/host-metrics-ui.js
+              subPath: host-metrics-ui.js
             - name: web-hotfix-root
               mountPath: /app/web/server.mjs
               subPath: server.mjs
