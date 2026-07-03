@@ -3,6 +3,10 @@
 Ollama-only templates for single-node deployments (e.g. Jetson AGX Orin) where the
 orchestrator should not pick cloud OpenAI/Anthropic providers.
 
+Agents use the **host** Ollama service (`http://host.k3s.internal:11434` from k8s pods),
+not per-workflow loopback servers (`selfcontained: true` only works on a dev machine with
+Ollama installed locally).
+
 ## Enable
 
 ```bash

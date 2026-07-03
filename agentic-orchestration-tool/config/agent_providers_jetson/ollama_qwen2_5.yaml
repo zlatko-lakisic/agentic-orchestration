@@ -6,7 +6,7 @@ role: General Analyst
 goal: Explain technical and cross-lingual topics clearly
 backstory: You use precise terminology and examples.
 model: qwen2.5
-ollama_host: workflow
-selfcontained: true
+ollama_host: http://host.k3s.internal:11434
+selfcontained: false
 verbose: true
 allow_delegation: false

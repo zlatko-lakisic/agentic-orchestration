@@ -105,6 +105,28 @@ def wait_for_warm_pool_result(
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         if result_path.is_file():
+            try:
+                data = json.loads(result_path.read_text(encoding="utf-8"))
+                exit_code = int(data.get("exit_code", 1))
+                err = data.get("error")
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                exit_code = 1
+                err = f"invalid result at {result_path}"
+            if exit_code != 0:
+                emit_log(
+                    "warm pool step failed",
+                    level="error",
+                    run_id=run_id,
+                    step_id=step_id,
+                    component="coordinator",
+                    extra={"exit_code": exit_code, "error": err},
+                )
+                return K8sJobWaitResult(
+                    succeeded=False,
+                    failed=True,
+                    pod_name=None,
+                    message=str(err or f"step exit {exit_code}"),
+                )
             emit_log(
                 "warm pool step completed",
                 run_id=run_id,
