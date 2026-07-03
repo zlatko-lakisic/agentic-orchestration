@@ -39,4 +39,6 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
   upsert_env "${key}" "${val}"
 done < "${TEMPLATE}"
 
+sed -i 's/\r$//' "${ENV_FILE}"
+
 echo "Applied ${TEMPLATE} -> ${ENV_FILE}"

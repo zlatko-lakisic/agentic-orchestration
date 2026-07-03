@@ -41,10 +41,18 @@ AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local
 AGENTIC_MCP_FETCH_ENABLED=1
 FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace
 AGENTIC_LOG_FORMAT=json
-OLLAMA_HOST=http://host.k3s.internal:11434
-OLLAMA_API_BASE=http://host.k3s.internal:11434
 ENVEOF
-} | awk -F= '{key=$1; if (!(key in order)) order[++n]=key; vals[key]=$0} END{for (i=1;i<=n;i++) print vals[order[i]]}' > "${SECRET_TMP}"
+} | awk -F= '{
+  line=$0
+  sub(/\r$/, "", line)
+  if (line ~ /^[[:space:]]*#/ || line !~ /=/) next
+  key=line
+  sub(/=.*$/, "", key)
+  gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+  if (key == "") next
+  if (!(key in order)) order[++n]=key
+  vals[key]=line
+} END { for (i=1;i<=n;i++) print vals[order[i]] }' > "${SECRET_TMP}"
 
 kubectl create secret generic agentic-orchestrator-env \
   -n agentic-orchestration \
