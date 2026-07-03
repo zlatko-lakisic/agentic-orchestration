@@ -113,9 +113,23 @@ function unwrapJsonLikeAssistantText(text) {
   const chatScroll = document.getElementById("chatScroll");
   const chatPinned = document.getElementById("chatPinned");
   const chatPinnedText = document.getElementById("chatPinnedText");
-  const toolbar = document.getElementById("toolbar");
-  const toolbarBody = document.getElementById("toolbarBody");
-  const toolbarToggle = document.getElementById("toolbarToggle");
+  const rail = document.getElementById("rail");
+  const railToggle = document.getElementById("railToggle");
+  const railContentMount = document.getElementById("railContentMount");
+  const sheetMount = document.getElementById("sheetMount");
+  const runSettings = document.getElementById("runSettings");
+  const sheet = document.getElementById("sheet");
+  const sheetScrim = document.getElementById("sheetScrim");
+  const sheetOpen = document.getElementById("sheetOpen");
+  const sheetClose = document.getElementById("sheetClose");
+  const modePillLabel = document.getElementById("modePillLabel");
+  const attachBtn = document.getElementById("attachBtn");
+  const ricMode = document.getElementById("ricMode");
+  const ricRounds = document.getElementById("ricRounds");
+  const ricMax = document.getElementById("ricMax");
+  const ricAuto = document.getElementById("ricAuto");
+  const ricSession = document.getElementById("ricSession");
+  const ricAdvanced = document.getElementById("ricAdvanced");
   const input = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
   const clearBtn = document.getElementById("clearBtn");
@@ -383,15 +397,23 @@ function unwrapJsonLikeAssistantText(text) {
     ws = new WebSocket(url);
 
     ws.onopen = () => {
-      connStatus.textContent = "Connected";
-      connStatus.className = "status connected";
+      if (connStatus) {
+        connStatus.className = "status-pill connected";
+        const label = connStatus.querySelector(".status-label");
+        if (label) label.textContent = "Connected";
+        else connStatus.textContent = "Connected";
+      }
       sendBtn.disabled = runActive;
     };
 
     ws.onclose = () => {
       stopProcessingUi();
-      connStatus.textContent = "Disconnected";
-      connStatus.className = "status disconnected";
+      if (connStatus) {
+        connStatus.className = "status-pill disconnected";
+        const label = connStatus.querySelector(".status-label");
+        if (label) label.textContent = "Disconnected";
+        else connStatus.textContent = "Disconnected";
+      }
       sendBtn.disabled = true;
       assistantBubble = null;
       setTimeout(connect, 2000);
@@ -526,23 +548,21 @@ function unwrapJsonLikeAssistantText(text) {
     };
   }
 
-  function setToolbarCollapsed(collapsed) {
-    if (!toolbar) return;
+  function setRailCollapsed(collapsed) {
+    if (!rail) return;
     const want = Boolean(collapsed);
-    toolbar.classList.toggle("collapsed", want);
-    if (toolbarToggle) {
-      toolbarToggle.setAttribute("aria-expanded", want ? "false" : "true");
-      const chev = toolbarToggle.querySelector(".chev");
-      if (chev) chev.textContent = want ? "▸" : "▾";
-      const sr = toolbarToggle.querySelector(".sr-only");
-      if (sr) sr.textContent = want ? "Expand settings" : "Collapse settings";
+    rail.classList.toggle("collapsed", want);
+    const icons = document.getElementById("railIcons");
+    if (icons) icons.setAttribute("aria-hidden", want ? "false" : "true");
+    if (railToggle) {
+      railToggle.setAttribute("aria-expanded", want ? "false" : "true");
+      railToggle.title = want ? "Expand settings rail" : "Collapse settings rail";
     }
     try {
-      localStorage.setItem("agentic.toolbar.collapsed", want ? "1" : "0");
+      localStorage.setItem("agentic.rail.collapsed", want ? "1" : "0");
     } catch {
       // ignore
     }
-    // When expanding, keep layout stable by focusing the input again.
     if (!want && input) {
       try {
         input.focus();
@@ -552,19 +572,105 @@ function unwrapJsonLikeAssistantText(text) {
     }
   }
 
-  function initToolbarCollapse() {
-    if (!toolbar || !toolbarToggle) return;
+  function initRailCollapse() {
+    if (!rail || !railToggle) return;
     let collapsed = false;
     try {
-      collapsed = localStorage.getItem("agentic.toolbar.collapsed") === "1";
+      collapsed =
+        localStorage.getItem("agentic.rail.collapsed") === "1" ||
+        localStorage.getItem("agentic.toolbar.collapsed") === "1";
     } catch {
       collapsed = false;
     }
-    setToolbarCollapsed(collapsed);
-    toolbarToggle.addEventListener("click", () => {
-      const isCollapsed = toolbar.classList.contains("collapsed");
-      setToolbarCollapsed(!isCollapsed);
+    setRailCollapsed(collapsed);
+    railToggle.addEventListener("click", () => {
+      setRailCollapsed(!rail.classList.contains("collapsed"));
     });
+    for (const btn of [ricMode, ricRounds, ricMax, ricAuto, ricSession, ricAdvanced]) {
+      btn?.addEventListener("click", () => setRailCollapsed(false));
+    }
+  }
+
+  function isMobileLayout() {
+    return window.matchMedia("(max-width: 767px)").matches;
+  }
+
+  function relocateRunSettings() {
+    if (!runSettings) return;
+    runSettings.hidden = false;
+    const mobile = isMobileLayout();
+    const target = mobile ? sheetMount : railContentMount;
+    if (!target || runSettings.parentElement === target) return;
+    target.appendChild(runSettings);
+  }
+
+  function openMobileSheet() {
+    if (!sheet || !sheetScrim) return;
+    relocateRunSettings();
+    sheetScrim.hidden = false;
+    sheetScrim.classList.add("open");
+    sheet.classList.add("open");
+    sheet.setAttribute("aria-hidden", "false");
+  }
+
+  function closeMobileSheet() {
+    if (!sheet || !sheetScrim) return;
+    sheet.classList.remove("open");
+    sheetScrim.classList.remove("open");
+    sheet.setAttribute("aria-hidden", "true");
+    window.setTimeout(() => {
+      if (!sheet.classList.contains("open")) sheetScrim.hidden = true;
+    }, 260);
+  }
+
+  function initMobileSheet() {
+    // Settings panel is moved between rail mount (desktop) and sheet mount (mobile)
+    // instead of duplicating markup — closest equivalent to mockup's shared form.
+    sheetOpen?.addEventListener("click", openMobileSheet);
+    sheetClose?.addEventListener("click", closeMobileSheet);
+    sheetScrim?.addEventListener("click", closeMobileSheet);
+    window.addEventListener("resize", () => {
+      relocateRunSettings();
+      if (!isMobileLayout()) closeMobileSheet();
+    });
+    relocateRunSettings();
+  }
+
+  function syncModePill() {
+    if (!modePillLabel || !runModeEl) return;
+    const v = runModeEl.value === "dynamic-iterative" ? "Dynamic (iterative)" : "Dynamic";
+    modePillLabel.textContent = v;
+    if (ricMode) {
+      ricMode.title = `Mode: ${v}`;
+      ricMode.classList.toggle("on", runModeEl.value === "dynamic-iterative");
+    }
+  }
+
+  function syncRailIcons() {
+    if (ricRounds && iterRoundsEl) {
+      ricRounds.textContent = iterRoundsEl.value || "—";
+      ricRounds.title = `Iterative rounds: ${iterRoundsEl.value}`;
+    }
+    if (ricMax && iterMaxRoundsEl) {
+      ricMax.textContent = iterMaxRoundsEl.value || "—";
+      ricMax.title = `Max rounds: ${iterMaxRoundsEl.value}`;
+    }
+    if (ricAuto && autoIterEl) {
+      ricAuto.classList.toggle("on", autoIterEl.checked);
+      ricAuto.title = `Auto-adjust iterations: ${autoIterEl.checked ? "on" : "off"}`;
+    }
+    const sess = sessionIdEl?.value?.trim() || "default";
+    if (ricSession) ricSession.title = `Session: ${sess}`;
+  }
+
+  function initComposerGrow() {
+    if (!input) return;
+    const resize = () => {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    };
+    input.addEventListener("input", resize);
+    resize();
   }
 
   function chipLabelForProvider(p) {
@@ -702,7 +808,8 @@ function unwrapJsonLikeAssistantText(text) {
 
   function appendMeta(text) {
     const el = document.createElement("div");
-    el.className = "msg meta";
+    const t = String(text || "");
+    el.className = t.startsWith("Tool:") ? "msg meta tool-chip-line" : "msg meta";
     el.textContent = text;
     (chatScroll || chat).appendChild(el);
     if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
@@ -838,6 +945,8 @@ function unwrapJsonLikeAssistantText(text) {
     if (autoIterEl) autoIterEl.disabled = !iterative;
     if (iterMaxRoundsEl) iterMaxRoundsEl.disabled = !iterative || !auto;
     if (noSynthesizeEl) noSynthesizeEl.disabled = !iterative;
+    syncModePill();
+    syncRailIcons();
   }
 
   sendBtn.addEventListener("click", sendChat);
@@ -869,6 +978,10 @@ function unwrapJsonLikeAssistantText(text) {
 
   runModeEl?.addEventListener("change", syncIterativeUi);
   autoIterEl?.addEventListener("change", syncIterativeUi);
+  iterRoundsEl?.addEventListener("input", syncRailIcons);
+  iterMaxRoundsEl?.addEventListener("input", syncRailIcons);
+  sessionIdEl?.addEventListener("input", syncRailIcons);
+  attachBtn?.addEventListener("click", () => fileInputEl?.click());
   syncIterativeUi();
 
   // Rate the last run (stored by the orchestrator into a pending file; consumed on next plan).
@@ -876,6 +989,8 @@ function unwrapJsonLikeAssistantText(text) {
   rateDownBtn?.addEventListener("click", () => sendRating(-1));
 
   loadAgentProviderCatalog();
-  initToolbarCollapse();
+  initRailCollapse();
+  initMobileSheet();
+  initComposerGrow();
   connect();
 }

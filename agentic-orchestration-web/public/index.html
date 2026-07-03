@@ -5,92 +5,173 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agentic Orchestration</title>
     <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="header">
-      <div class="header-brand">
-        <img class="header-logo" src="/logo.png" alt="Agentic Orchestration" width="320" height="92" />
-        <div class="header-copy">
-          <h1>Agentic Orchestration</h1>
-          <p class="subtitle">
-            WebSocket → Python <code>--dynamic</code> / <code>--dynamic-iterative</code> (local only)
-          </p>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand-mark" src="/logo.png" alt="" width="26" height="26" />
+          <div class="brand-text">
+            <span class="brand-name">Agentic Orchestration</span>
+            <span class="brand-sub">WebSocket → Python</span>
+          </div>
         </div>
-      </div>
-    </header>
-
-    <section class="toolbar" id="toolbar">
-      <div class="toolbar-top">
-        <div class="toolbar-title">
-          <span class="toolbar-title-text">Run settings</span>
-          <span class="toolbar-title-sub">Mode, iterations, session, agents</span>
-        </div>
-        <div class="toolbar-top-right">
-          <span id="connStatus" class="status disconnected">Disconnected</span>
-          <button type="button" id="toolbarToggle" class="toolbar-toggle" aria-expanded="true">
+        <div class="topbar-center mobile-hide">
+          <span id="modePill" class="mode-pill" title="Change mode in Run settings">
+            <span id="modePillLabel">Dynamic (iterative)</span>
             <span class="chev" aria-hidden="true">▾</span>
-            <span class="sr-only">Collapse settings</span>
+          </span>
+        </div>
+        <div class="topbar-right">
+          <span id="connStatus" class="status-pill disconnected">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="status-label">Disconnected</span>
+          </span>
+          <button type="button" id="sheetOpen" class="icon-btn mobile-only" title="Run settings" aria-label="Run settings">
+            ⚙
           </button>
         </div>
+      </header>
+
+      <div class="body-grid">
+        <aside class="rail desktop-only" id="rail">
+          <div class="rail-header">
+            <span class="rail-title">Run settings</span>
+            <button type="button" id="railToggle" class="rail-collapse" aria-expanded="true" title="Collapse settings rail">
+              «
+            </button>
+          </div>
+          <div class="rail-content" id="railContentMount"></div>
+        </aside>
+
+        <div class="rail-icons desktop-only" id="railIcons" aria-hidden="true">
+          <button type="button" class="ric" id="ricMode" title="Mode">◆</button>
+          <button type="button" class="ric" id="ricRounds" title="Iterative rounds">4</button>
+          <button type="button" class="ric" id="ricMax" title="Max rounds">8</button>
+          <button type="button" class="ric on" id="ricAuto" title="Auto-adjust iterations">⇄</button>
+          <button type="button" class="ric" id="ricSession" title="Session">◎</button>
+          <button type="button" class="ric" id="ricAdvanced" title="Advanced · Agent selection">▾</button>
+        </div>
+
+        <main class="chat-column">
+          <div
+            id="chatPinned"
+            class="run-status"
+            role="status"
+            aria-live="polite"
+            hidden
+          >
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="chatPinnedText" class="run-status-text">Working…</span>
+          </div>
+
+          <div
+            id="activityBar"
+            class="run-status run-status-verbose"
+            role="status"
+            aria-live="polite"
+            aria-busy="false"
+            hidden
+          >
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="activityLabel" class="run-status-text">Agents working in the background…</span>
+          </div>
+
+          <div id="chat" class="feed-wrap" aria-live="polite">
+            <div id="chatScroll" class="feed"></div>
+          </div>
+
+          <footer class="composer">
+            <div class="composer-toolbar">
+              <button type="button" id="attachBtn" class="icon-btn attach" title="Attach files" aria-label="Attach files">
+                📎
+              </button>
+              <input type="file" id="fileInput" multiple class="sr-only" aria-hidden="true" tabindex="-1" />
+              <textarea
+                id="input"
+                rows="1"
+                placeholder="Describe what you want the crew to do…"
+                maxlength="32000"
+              ></textarea>
+              <button type="button" id="sendBtn" class="send-btn" disabled>Send</button>
+            </div>
+            <div class="composer-meta">
+              <button type="button" id="rateUpBtn" class="text-btn" disabled>Helpful</button>
+              <button type="button" id="rateDownBtn" class="text-btn" disabled>Not helpful</button>
+              <button type="button" id="clearBtn" class="text-btn">Clear log</button>
+            </div>
+          </footer>
+        </main>
       </div>
 
-      <div class="toolbar-body" id="toolbarBody">
-        <label class="field">
-        <span>Mode</span>
+      <div class="sheet-scrim" id="sheetScrim" hidden></div>
+      <div class="sheet" id="sheet" aria-hidden="true">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-head">
+          <span>Run settings</span>
+          <button type="button" id="sheetClose" class="sheet-close">Done</button>
+        </div>
+        <div class="sheet-body" id="sheetMount"></div>
+      </div>
+    </div>
+
+    <!-- Single settings form — relocated between rail (desktop) and sheet (mobile) by app.js -->
+    <div id="runSettings" class="settings-panel" hidden>
+      <label class="field">
+        <span class="field-label">Mode</span>
         <select id="runMode">
           <option value="dynamic">Dynamic</option>
           <option value="dynamic-iterative" selected>Dynamic (iterative)</option>
         </select>
       </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">Iterative rounds</span>
+          <input type="number" id="iterRounds" min="1" max="32" step="1" value="4" />
+        </label>
+        <label class="field">
+          <span class="field-label">Max rounds (auto)</span>
+          <input type="number" id="iterMaxRounds" min="1" max="32" step="1" value="8" placeholder="auto" />
+        </label>
+      </div>
       <label class="field">
-        <span>Iterative rounds</span>
-        <input
-          type="number"
-          id="iterRounds"
-          min="1"
-          max="32"
-          step="1"
-          value="4"
-        />
-      </label>
-      <label class="field checkbox">
-        <input type="checkbox" id="autoIter" checked />
-        <span>Auto-adjust iterations</span>
-      </label>
-      <label class="field">
-        <span>Max rounds (auto)</span>
-        <input type="number" id="iterMaxRounds" min="1" max="32" step="1" value="8" />
-      </label>
-      <label class="field checkbox">
-        <input type="checkbox" id="noSynthesize" />
-        <span>Skip final synthesis</span>
-      </label>
-      <label class="field">
-        <span>Session</span>
+        <span class="field-label">Session</span>
         <input
           type="text"
           id="sessionId"
-          placeholder="default (optional; enables planner memory)"
+          placeholder="default (optional)"
           autocomplete="off"
         />
       </label>
-      <label class="field checkbox">
-        <input type="checkbox" id="resetSession" />
-        <span>Reset session on next send</span>
-      </label>
-      <label class="field checkbox">
-        <input type="checkbox" id="verboseCrew" />
-        <span>Show crew log (verbose)</span>
-      </label>
-      <details class="field field-wide collapsible" id="advancedPanel">
-        <summary class="collapsible-summary">
-          <span>Advanced</span>
-          <span class="collapsible-sub">Agent selection (optional)</span>
-        </summary>
-        <div class="collapsible-body">
-          <div class="field" style="margin-top: 0.5rem;">
-            <span>Agents (optional explicit selection)</span>
+      <div class="toggle-list">
+        <label class="toggle">
+          <input type="checkbox" id="autoIter" checked />
+          <span>Auto-adjust iterations</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="noSynthesize" />
+          <span>Skip final synthesis</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="resetSession" />
+          <span>Reset session on next send</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="verboseCrew" />
+          <span>Show crew log (verbose)</span>
+        </label>
+      </div>
+      <details class="advanced" id="advancedPanel">
+        <summary>Advanced · Agent selection</summary>
+        <div class="advanced-body">
+          <div class="field" style="margin-top: 0.5rem">
+            <span class="field-label">Agents (optional)</span>
             <div class="agent-picker-row">
               <select id="agentPickerSelect"></select>
               <button type="button" id="agentPickerAddBtn" class="secondary">Add</button>
@@ -99,57 +180,12 @@
             <div id="agentPickerChips" class="chips" aria-live="polite"></div>
             <small class="hint">If no agents are selected, planner chooses automatically.</small>
           </div>
+          <small class="hint composer-hint">
+            Attachments: use 📎 in the composer. Files go under <code>_web_uploads/</code> for the run.
+          </small>
         </div>
       </details>
-      </div>
-    </section>
-
-    <div
-      id="activityBar"
-      class="activity-bar"
-      role="status"
-      aria-live="polite"
-      aria-busy="false"
-      hidden
-    >
-      <div class="activity-bar-inner">
-        <span class="activity-spinner" aria-hidden="true"></span>
-        <span id="activityLabel" class="activity-label">Agents working in the background…</span>
-      </div>
-      <div class="activity-bar-track" aria-hidden="true">
-        <div class="activity-bar-fill"></div>
-      </div>
     </div>
-
-    <main id="chat" class="chat" aria-live="polite">
-      <div id="chatPinned" class="chat-pinned" role="status" aria-live="polite" hidden>
-        <span class="chat-pinned-spinner" aria-hidden="true"></span>
-        <span id="chatPinnedText" class="chat-pinned-text">Working…</span>
-      </div>
-      <div id="chatScroll" class="chat-scroll"></div>
-    </main>
-
-    <footer class="composer">
-      <div class="composer-actions" style="gap: 8px; margin-bottom: 8px;">
-        <button type="button" id="rateUpBtn" class="secondary" disabled>Helpful</button>
-        <button type="button" id="rateDownBtn" class="secondary" disabled>Not helpful</button>
-      </div>
-      <label class="field field-wide composer-files">
-        <span>Attachments (optional)</span>
-        <input type="file" id="fileInput" multiple />
-        <small class="hint">Files go under the tool <code>_web_uploads/</code> for the run, then are removed by default (set <code>AGENTIC_WEB_PERSIST_UPLOADS=1</code> to keep them).</small>
-      </label>
-      <textarea
-        id="input"
-        rows="3"
-        placeholder="Describe what you want the crew to do…"
-        maxlength="32000"
-      ></textarea>
-      <div class="composer-actions">
-        <button type="button" id="sendBtn" disabled>Send</button>
-        <button type="button" id="clearBtn" class="secondary">Clear log</button>
-      </div>
-    </footer>
 
     <script type="module" src="/app.js"></script>
   </body>
