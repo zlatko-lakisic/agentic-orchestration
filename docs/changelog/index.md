@@ -19,6 +19,50 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-03
+
+### Added
+
+- **Host resource monitor** — header sparkline (CPU + memory) with click-through modal; `GET /api/host-metrics` samples `/proc` on Linux.
+- **Crew log timestamps** — each stderr line in the crew log panel is prefixed with local `[HH:MM:SS]`.
+- **Edge platform detection** — `AGENTIC_EDGE_PLATFORM` (`jetson` / `auto`) and startup logging of platform + Ollama runtime backend.
+- **Ollama runtime detection** — native vs `dustynv/ollama` container; `jetson-verify-ollama.sh`, `jetson-install-ollama.sh`.
+- **Jetson env template** — git-tracked `config/env.jetson` with UI defaults, iterative caps, and `jetson-apply-env.sh`.
+- **K8s host `/proc` mount** — optional `host-metrics-hostproc-patch.yaml` for node-level metrics from the coordinator pod.
+
+### Changed
+
+- **Jetson web hotfix** — `jetson-hotfix-web.sh` updates the coordinator UI via ConfigMap mounts (no docker rebuild).
+
+### Fixed
+
+- Jetson k8s secret creation deduplicates env keys and strips CRLF from `.env` lines.
+
+## [1.7.0] - 2026-07-03
+
+### Added
+
+- **Web UI app-shell redesign** — top bar, collapsible settings rail, mobile bottom sheet, composer auto-grow, and mode pill.
+- **Crew log panel** — verbose stderr is always collected; **Show crew log** toggles a dedicated panel without affecting the final answer bubble.
+- **Jetson local-LLM catalog** — `config/agent_providers_jetson/` with host Ollama agents for edge deployment.
+- **Jetson deploy scripts** — `jetson-local-llm-deploy.sh`, `jetson-fix-ollama-k8s.sh`, `jetson-sync-k8s-secret.sh`, `jetson-switch-llama3-2-3b.sh`, `jetson-patch-ollama-api-base.sh`.
+- **`litellm_api_base_for_ollama()`** — planner and vision paths honor `OLLAMA_API_BASE` (LiteLLM ignores `OLLAMA_HOST` alone).
+
+### Changed
+
+- Jetson agents use **host Ollama** (`selfcontained: false`, `http://host.k3s.internal:11434`) instead of in-container workflow Ollama.
+- Jetson reference catalog trimmed to **`llama3.2:3b`** (removed AgriLlama and Qwen 2.5 entries).
+- README and GitHub Pages reframed around the **process-loop** product thesis.
+
+### Fixed
+
+- Planner **Ollama connection refused** on k3s — bind Ollama on `0.0.0.0:11434`, CoreDNS `host.k3s.internal`, and k8s secret `OLLAMA_API_BASE`.
+- **k3s coordinator rollout** — Traefik vs `hostPort` 80 conflicts and deploy script reliability.
+- Warm pool treats non-zero **`exit_code`** in `result.json` as step failure.
+- Web server **error responses** no longer expose stack traces to HTTP/WebSocket clients.
+- **pytest** bumped to `>=9.0.3` (CVE-2025-71176).
+- CI workflows: explicit **`permissions`** for `GITHUB_TOKEN` (CodeQL).
+
 ## [1.6.0] - 2026-06-29
 
 ### Added

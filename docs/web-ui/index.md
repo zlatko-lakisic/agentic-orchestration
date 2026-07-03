@@ -23,6 +23,8 @@ Defaults in the UI favor **iterative** + **auto** where configured.
 
 Recent behavior updates:
 
+- **Host resource monitor** — header sparkline (CPU + memory) with a detail modal; polls `GET /api/host-metrics` every second.
+- **Crew log timestamps** — stderr lines in the crew log panel are prefixed with local `[HH:MM:SS]`.
 - Markdown answers render client-side with sanitized HTML (using bundled browser ESM vendor assets).
 - File uploads are supported in chat; server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Upload safety limits are enforced server-side (per-file, total bytes, max file count).
@@ -45,6 +47,7 @@ npm start
 Health endpoints and metadata:
 
 - `GET /api/ping` returns instance/pid metadata (useful to verify restarts and active process).
+- `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; set `AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc` when the coordinator mounts the node `/proc` for Jetson).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
 
 ## Scripts

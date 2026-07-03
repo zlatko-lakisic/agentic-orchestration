@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-03
+
 ### Added
 
 - **Host resource monitor** — header sparkline (CPU + memory) with click-through modal; `GET /api/host-metrics` samples `/proc` on Linux.
@@ -18,7 +20,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Changed
 
-- Jetson deploy applies host `/proc` patch automatically for accurate resource graphs on edge nodes.
+- **Jetson web hotfix** — `jetson-hotfix-web.sh` updates the coordinator UI via ConfigMap mounts (no docker rebuild).
 
 ### Fixed
 
