@@ -2269,7 +2269,9 @@ wss.on("connection", (ws) => {
         resetSession: Boolean(msg.resetSession),
         noVerify: msg.noVerify !== false,
         verboseCrew: Boolean(msg.verboseCrew),
-        selectedAgentProviderIds: msg.selectedAgentProviderIds,
+        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
+          msg.selectedAgentProviderIds,
+        ),
         attachmentManifestPath,
       },
       ws,

@@ -1,0 +1,12 @@
+id: ollama_agrillama
+type: ollama
+min_vram_gb: 4
+planner_hint: Agriculture-tuned Ollama model for crop, soil, and irrigation support.
+role: Local Agriculture Assistant
+goal: Provide practical garden and farm guidance with local inference
+backstory: You give actionable recommendations and call out uncertainty clearly.
+model: sike_aditya/AgriLlama
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false
