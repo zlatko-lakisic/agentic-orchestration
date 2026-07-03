@@ -83,6 +83,16 @@ function webUiDefaultsFromEnv() {
   };
 }
 
+function edgeRuntimeFromEnv() {
+  const platform = String(process.env.AGENTIC_EDGE_PLATFORM || "").trim();
+  const ollamaRuntime = String(process.env.AGENTIC_OLLAMA_RUNTIME || "").trim();
+  if (!platform && !ollamaRuntime) return null;
+  return {
+    platform: platform || "pc",
+    ollamaRuntime: ollamaRuntime || "auto",
+  };
+}
+
 /** `node server.mjs --example <id>` or env `AGENTIC_EXAMPLE=<id>` (npm: `npm run start:healthcare`, `start:logistics`, …). */
 function detectExampleFromArgv() {
   const i = process.argv.indexOf("--example");
@@ -2248,6 +2258,7 @@ wss.on("connection", (ws) => {
     toolRoot: TOOL_ROOT,
     python: PYTHON,
     uiDefaults: webUiDefaultsFromEnv(),
+    edgeRuntime: edgeRuntimeFromEnv(),
   });
 
   ws.on("message", (raw) => {

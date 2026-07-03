@@ -42,3 +42,11 @@ done < "${TEMPLATE}"
 sed -i 's/\r$//' "${ENV_FILE}"
 
 echo "Applied ${TEMPLATE} -> ${ENV_FILE}"
+
+VERIFY="${TOOL_ROOT}/scripts/jetson-verify-ollama.sh"
+if [[ -x "${VERIFY}" ]] || [[ -f "${VERIFY}" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    echo "--- edge / ollama runtime ---"
+    bash "${VERIFY}" 2>/dev/null || true
+  fi
+fi

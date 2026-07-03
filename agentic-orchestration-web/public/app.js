@@ -457,7 +457,13 @@ function unwrapJsonLikeAssistantText(text) {
 
       if (data.type === "hello") {
         applyUiDefaults(data.uiDefaults);
-        appendMeta(`Tool: ${data.toolRoot} · ${data.python}`);
+        const er = data.edgeRuntime;
+        const edgeMeta = er
+          ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
+          : "";
+        appendMeta(
+          [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
+        );
         return;
       }
       if (data.type === "preflight") {

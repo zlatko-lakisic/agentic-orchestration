@@ -833,6 +833,25 @@ def main() -> None:
     args = parse_args()
     tool_root = Path(__file__).resolve().parent
 
+    try:
+        from orchestration.edge_platform import apply_edge_platform_env_defaults
+        from orchestration.ollama_runtime import (
+            apply_ollama_runtime_env_defaults,
+            format_ollama_runtime_log_line,
+        )
+
+        apply_edge_platform_env_defaults()
+        apply_ollama_runtime_env_defaults()
+        if os.getenv("AGENTIC_EDGE_PLATFORM_LOG", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            print(format_ollama_runtime_log_line(), file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        pass
+
     if getattr(args, "warm_pool_worker", False):
         from orchestration.backends.kubernetes_warm_pool import run_warm_pool_worker_loop
         from orchestration.run_store import run_store_base_from_env

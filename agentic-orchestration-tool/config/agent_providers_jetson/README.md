@@ -19,7 +19,36 @@ bash agentic-orchestration-tool/scripts/jetson-apply-env.sh
 Key settings (also in `config/env.jetson`):
 
 ```bash
+AGENTIC_EDGE_PLATFORM=jetson
+AGENTIC_OLLAMA_RUNTIME=auto   # native upstream binary, or jetson-container if dustynv/ollama is running
 AGENTIC_AGENT_PROVIDERS_CATALOG=config/agent_providers_jetson
+```
+
+### Ollama on Jetson
+
+NVIDIA documents two approaches ([forum thread](https://forums.developer.nvidia.com/t/introducing-ollama-support-for-jetson-devices/289333)):
+
+| Runtime | What it is | Our default |
+|--------|------------|-------------|
+| **native** | `curl -fsSL https://ollama.com/install.sh \| sh` — ARM64 binary with CUDA | **Yes** (current box) |
+| **jetson-container** | `dustynv/ollama:r36.2.0` from [jetson-containers](https://github.com/dusty-nv/jetson-containers) | Optional upgrade |
+
+Check what is running:
+
+```bash
+bash agentic-orchestration-tool/scripts/jetson-verify-ollama.sh
+```
+
+Switch runtime (stops native service when using container):
+
+```bash
+sudo bash agentic-orchestration-tool/scripts/jetson-install-ollama.sh native
+sudo bash agentic-orchestration-tool/scripts/jetson-install-ollama.sh jetson-containers
+```
+
+Orchestrator logs `(agentic) platform=jetson; ollama_runtime=...` on startup and exposes `edgeRuntime` in the web UI hello message.
+
+```bash
 AGENTIC_PLANNER_MODEL=ollama/llama3.2:3b
 AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS=ollama_llama3_2_3b
 # Edge chat defaults: single-pass Dynamic, low iterative caps

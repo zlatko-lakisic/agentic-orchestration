@@ -198,6 +198,22 @@ def is_ollama_healthy(host: str) -> bool:
         return False
 
 
+def install_ollama_native_linux() -> None:
+    """Install upstream Ollama via ollama.com install.sh (ARM64 CUDA on Jetson when supported)."""
+    out, err = _ollama_subprocess_stdio()
+    try:
+        subprocess.run(
+            ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+            check=True,
+            stdout=out,
+            stderr=err,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            "Failed to install Ollama automatically. Install Ollama manually and retry."
+        ) from exc
+
+
 def install_ollama() -> None:
     system = platform.system().lower()
     out, err = _ollama_subprocess_stdio()
@@ -228,12 +244,11 @@ def install_ollama() -> None:
             )
             return
 
-        subprocess.run(
-            ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
-            check=True,
-            stdout=out,
-            stderr=err,
-        )
+        from orchestration.ollama_runtime import install_ollama_for_platform
+
+        install_ollama_for_platform()
+    except RuntimeError:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             "Failed to install Ollama automatically. Install Ollama manually and retry."
