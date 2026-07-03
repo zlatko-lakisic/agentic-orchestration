@@ -8,6 +8,11 @@ COORDINATOR_IMAGE=agentic-orchestrator-coordinator:local
 ENV_FILE="${TOOL_ROOT}/.env"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
+APPLY_ENV="${TOOL_ROOT}/scripts/jetson-apply-env.sh"
+if [[ -f "${APPLY_ENV}" ]]; then
+  bash "${APPLY_ENV}"
+fi
+
 FIX_SCRIPT="${TOOL_ROOT}/scripts/jetson-fix-ollama-k8s.sh"
 if [[ -f "${FIX_SCRIPT}" ]]; then
   if [[ "$(id -u)" -eq 0 ]]; then

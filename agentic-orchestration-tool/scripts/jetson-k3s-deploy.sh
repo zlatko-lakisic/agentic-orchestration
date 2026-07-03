@@ -109,6 +109,10 @@ EOF
 
 log "Sync K8s secret from tool .env"
 ENV_FILE="${TOOL_ROOT}/.env"
+APPLY_ENV="${TOOL_ROOT}/scripts/jetson-apply-env.sh"
+if [[ -f "${APPLY_ENV}" ]]; then
+  bash "${APPLY_ENV}"
+fi
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}" >&2
   exit 1

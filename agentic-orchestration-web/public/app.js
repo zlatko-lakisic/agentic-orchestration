@@ -394,6 +394,23 @@ function unwrapJsonLikeAssistantText(text) {
     }, 4200);
   }
 
+  function applyUiDefaults(defaults) {
+    if (!defaults || typeof defaults !== "object") return;
+    if (runModeEl && defaults.runMode) {
+      runModeEl.value = defaults.runMode === "dynamic-iterative" ? "dynamic-iterative" : "dynamic";
+    }
+    if (autoIterEl && typeof defaults.autoIter === "boolean") {
+      autoIterEl.checked = defaults.autoIter;
+    }
+    if (iterRoundsEl && defaults.iterativeRounds != null) {
+      iterRoundsEl.value = String(defaults.iterativeRounds);
+    }
+    if (iterMaxRoundsEl && defaults.iterativeMaxRounds != null) {
+      iterMaxRoundsEl.value = String(defaults.iterativeMaxRounds);
+    }
+    syncIterativeUi();
+  }
+
   function proto() {
     return window.location.protocol === "https:" ? "wss:" : "ws:";
   }
@@ -439,6 +456,7 @@ function unwrapJsonLikeAssistantText(text) {
       }
 
       if (data.type === "hello") {
+        applyUiDefaults(data.uiDefaults);
         appendMeta(`Tool: ${data.toolRoot} · ${data.python}`);
         return;
       }

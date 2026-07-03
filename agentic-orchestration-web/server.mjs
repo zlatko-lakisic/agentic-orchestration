@@ -54,6 +54,35 @@ function clientErrorMessage(err, fallback) {
   return fallback;
 }
 
+function envTruthy(name) {
+  const v = String(process.env[name] || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+}
+
+function envInt(name, fallback, min, max) {
+  const raw = String(process.env[name] ?? "").trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+/** When AGENTIC_WEB_DEFAULT_RUN_MODE is set (e.g. edge Jetson), seed the web UI from env. */
+function webUiDefaultsFromEnv() {
+  const modeRaw = String(process.env.AGENTIC_WEB_DEFAULT_RUN_MODE || "").trim();
+  if (!modeRaw) return null;
+  const runMode = modeRaw === "dynamic-iterative" ? "dynamic-iterative" : "dynamic";
+  const autoIter = process.env.AGENTIC_WEB_DEFAULT_AUTO_ITER
+    ? envTruthy("AGENTIC_WEB_DEFAULT_AUTO_ITER")
+    : false;
+  return {
+    runMode,
+    autoIter,
+    iterativeRounds: envInt("AGENTIC_WEB_DEFAULT_ITERATIVE_ROUNDS", 2, 1, 32),
+    iterativeMaxRounds: envInt("AGENTIC_WEB_DEFAULT_ITERATIVE_MAX_ROUNDS", 3, 1, 32),
+  };
+}
+
 /** `node server.mjs --example <id>` or env `AGENTIC_EXAMPLE=<id>` (npm: `npm run start:healthcare`, `start:logistics`, …). */
 function detectExampleFromArgv() {
   const i = process.argv.indexOf("--example");
@@ -1995,12 +2024,16 @@ function buildDynamicSpawnArgs(text, opts) {
   }
   if (mode === "dynamic-iterative") {
     args.push("--dynamic-iterative", text);
+    const envDefaultRounds = envInt("AGENTIC_DYNAMIC_ITERATIVE_ROUNDS", 4, 1, 32);
+    const envMaxRounds = envInt("AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS", 8, 1, 32);
     if (autoIter) {
+      const uiMax = Math.max(1, Math.min(32, Number(iterativeMaxRounds || envMaxRounds)));
+      const maxRounds = Math.min(uiMax, envMaxRounds);
       args.push("--dynamic-iterative-auto");
-      const maxRounds = Math.max(1, Math.min(32, Number(iterativeMaxRounds || 8)));
       args.push("--dynamic-iterative-max-rounds", String(maxRounds));
     } else {
-      const rounds = Math.max(1, Math.min(32, Number(iterativeRounds || 4)));
+      const uiRounds = Math.max(1, Math.min(32, Number(iterativeRounds || envDefaultRounds)));
+      const rounds = Math.min(uiRounds, envMaxRounds);
       args.push("--dynamic-iterative-rounds", String(rounds));
     }
     if (noSynthesize) args.push("--dynamic-iterative-no-synthesize");
@@ -2210,7 +2243,12 @@ wss.on("error", logListenError);
 
 wss.on("connection", (ws) => {
   ws._busy = false;
-  sendJson(ws, { type: "hello", toolRoot: TOOL_ROOT, python: PYTHON });
+  sendJson(ws, {
+    type: "hello",
+    toolRoot: TOOL_ROOT,
+    python: PYTHON,
+    uiDefaults: webUiDefaultsFromEnv(),
+  });
 
   ws.on("message", (raw) => {
     let msg;

@@ -5,6 +5,9 @@ RUN_STORE_HOST=/var/lib/agentic/run-store
 WORKER_IMAGE=agentic-orchestrator-worker:local
 ENV_FILE="${TOOL_ROOT}/.env"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+if [[ -f "${TOOL_ROOT}/scripts/jetson-apply-env.sh" ]]; then
+  bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
+fi
 SECRET_TMP="$(mktemp)"
 {
   grep -v '^#' "${ENV_FILE}" | grep '=' || true
