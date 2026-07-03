@@ -8,6 +8,15 @@ COORDINATOR_IMAGE=agentic-orchestrator-coordinator:local
 ENV_FILE="${TOOL_ROOT}/.env"
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
+FIX_SCRIPT="${TOOL_ROOT}/scripts/jetson-fix-ollama-k8s.sh"
+if [[ -f "${FIX_SCRIPT}" ]]; then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    bash "${FIX_SCRIPT}"
+  else
+    echo "Hint: run sudo bash ${FIX_SCRIPT} if planner gets Ollama connection refused" >&2
+  fi
+fi
+
 SECRET_TMP="$(mktemp)"
 {
   grep -v '^#' "${ENV_FILE}" | grep '=' || true

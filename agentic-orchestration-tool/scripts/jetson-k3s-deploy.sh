@@ -69,6 +69,9 @@ if kubectl get svc traefik -n kube-system >/dev/null 2>&1; then
     | kubectl apply -f - >/dev/null 2>&1 || true
 fi
 
+log "Ollama reachable from pods (0.0.0.0:11434 + host.k3s.internal in CoreDNS)"
+bash "${TOOL_ROOT}/scripts/jetson-fix-ollama-k8s.sh"
+
 log "Apply namespace + hostPath run-store (Jetson path ${RUN_STORE_HOST})"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/base/namespace.yaml"
 kubectl apply -f - <<EOF
