@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Host resource monitor** — header sparkline (CPU + memory) with click-through modal; `GET /api/host-metrics` samples `/proc` on Linux.
+- **Crew log timestamps** — each stderr line in the crew log panel is prefixed with local `[HH:MM:SS]`.
+- **Edge platform detection** — `AGENTIC_EDGE_PLATFORM` (`jetson` / `auto`) and startup logging of platform + Ollama runtime backend.
+- **Ollama runtime detection** — native vs `dustynv/ollama` container; `jetson-verify-ollama.sh`, `jetson-install-ollama.sh`.
+- **Jetson env template** — git-tracked `config/env.jetson` with UI defaults, iterative caps, and `jetson-apply-env.sh`.
+- **K8s host `/proc` mount** — optional `host-metrics-hostproc-patch.yaml` for node-level metrics from the coordinator pod.
+
+### Changed
+
+- Jetson deploy applies host `/proc` patch automatically for accurate resource graphs on edge nodes.
+
+### Fixed
+
+- Jetson k8s secret creation deduplicates env keys and strips CRLF from `.env` lines.
+
 ## [1.7.0] - 2026-07-03
 
 ### Added

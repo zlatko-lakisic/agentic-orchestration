@@ -1,0 +1,20 @@
+# Optional (Jetson / single-node): read node /proc for host-level CPU & memory in the web UI.
+# Apply with hostport-80-patch.yaml, e.g.:
+#   kubectl patch deployment agentic-coordinator -n agentic-orchestration --patch-file deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          env:
+            - name: AGENTIC_HOST_METRICS_PROC_ROOT
+              value: /host/proc
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory

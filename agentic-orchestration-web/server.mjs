@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
+import { sampleHostMetrics } from "./host-metrics.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -409,6 +410,22 @@ function isAgentProvidersApi(req) {
   const pl = path.toLowerCase();
   if (pl === "/api/agent-providers" || pl.endsWith("/api/agent-providers")) return true;
   return false;
+}
+
+function isApiHostMetrics(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  for (const c of [head, decoded]) {
+    if (/\/api\/host-metrics\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/api/host-metrics" || pl.endsWith("/api/host-metrics");
 }
 
 function isApiPing(req) {
@@ -1583,6 +1600,25 @@ function handleHttp(req, res) {
         instance: WEB_INSTANCE_ID,
       }),
     );
+    return;
+  }
+  if (isApiHostMetrics(req)) {
+    sampleHostMetrics()
+      .then((metrics) => {
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify(metrics));
+      })
+      .catch((err) => {
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(
+          JSON.stringify({
+            error: clientErrorMessage(err, "Failed to read host metrics"),
+          }),
+        );
+      });
     return;
   }
   if (isAgentProvidersApi(req)) {

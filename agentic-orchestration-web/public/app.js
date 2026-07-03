@@ -1,3 +1,5 @@
+import { initHostMetricsUi } from "./host-metrics-ui.js";
+
 let markdownLibPromise = null;
 
 function loadMarkdownLibs() {
@@ -183,6 +185,7 @@ function unwrapJsonLikeAssistantText(text) {
 
   let iterRoundLabel = "";
   let iterControllerReason = "";
+  let crewLogLineBuf = "";
 
   function formatProgressLine(msg) {
     const raw = String(msg || "").trim();
@@ -331,13 +334,38 @@ function unwrapJsonLikeAssistantText(text) {
   }
 
   function clearCrewLog() {
+    crewLogLineBuf = "";
     if (crewLogText) crewLogText.textContent = "";
+  }
+
+  function formatCrewLogTimestamp() {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `[${hh}:${mm}:${ss}] `;
+  }
+
+  function appendCrewLogLine(line) {
+    if (!crewLogText) return;
+    crewLogText.textContent += formatCrewLogTimestamp() + line + "\n";
+    crewLogText.scrollTop = crewLogText.scrollHeight;
   }
 
   function appendCrewLog(text) {
     if (!text || !crewLogText) return;
-    crewLogText.textContent += text;
-    crewLogText.scrollTop = crewLogText.scrollHeight;
+    crewLogLineBuf += text;
+    const parts = crewLogLineBuf.split(/\r?\n/);
+    crewLogLineBuf = parts.pop() ?? "";
+    for (const part of parts) {
+      appendCrewLogLine(part);
+    }
+  }
+
+  function flushCrewLogBuffer() {
+    const rest = crewLogLineBuf;
+    crewLogLineBuf = "";
+    if (rest) appendCrewLogLine(rest);
   }
 
   function stopProcessingUi() {
@@ -516,6 +544,7 @@ function unwrapJsonLikeAssistantText(text) {
         return;
       }
       if (data.type === "error") {
+        flushCrewLogBuffer();
         stopProcessingUi();
         if (assistantBubble) {
           assistantBubble.classList.remove("processing", "typing");
@@ -526,6 +555,7 @@ function unwrapJsonLikeAssistantText(text) {
         return;
       }
       if (data.type === "run_end") {
+        flushCrewLogBuffer();
         stopProcessingUi();
         if (assistantBubble) {
           assistantBubble.classList.remove("processing", "typing");
@@ -1012,5 +1042,6 @@ function unwrapJsonLikeAssistantText(text) {
   initRailCollapse();
   initMobileSheet();
   initComposerGrow();
+  initHostMetricsUi();
   connect();
 }

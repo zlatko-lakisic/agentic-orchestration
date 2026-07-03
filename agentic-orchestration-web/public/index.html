@@ -29,6 +29,15 @@
           </span>
         </div>
         <div class="topbar-right">
+          <button
+            type="button"
+            id="hostMetricsBtn"
+            class="host-metrics-btn"
+            title="Host CPU &amp; memory"
+            aria-label="Host resources"
+          >
+            <canvas id="hostMetricsSpark" width="92" height="30" aria-hidden="true"></canvas>
+          </button>
           <span id="connStatus" class="status-pill disconnected">
             <span class="dot" aria-hidden="true"></span>
             <span class="status-label">Disconnected</span>
@@ -190,6 +199,60 @@
           </small>
         </div>
       </details>
+    </div>
+
+    <div id="hostMetricsScrim" class="host-metrics-scrim" hidden></div>
+    <div
+      id="hostMetricsModal"
+      class="host-metrics-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="hostMetricsTitle"
+      aria-hidden="true"
+      hidden
+    >
+      <div class="host-metrics-dialog">
+        <div class="host-metrics-head">
+          <div>
+            <h2 id="hostMetricsTitle">Host resources</h2>
+            <p class="host-metrics-sub">
+              <span id="hostMetricsScope">—</span>
+              <span class="dot-sep" aria-hidden="true">·</span>
+              <span id="hostMetricsHost">—</span>
+            </p>
+          </div>
+          <button type="button" id="hostMetricsClose" class="host-metrics-close" aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div class="host-metrics-body">
+          <div class="host-metrics-chart-wrap">
+            <canvas id="hostMetricsChart" width="640" height="220" aria-label="CPU and memory history"></canvas>
+            <p class="host-metrics-updated">Updated <span id="hostMetricsUpdated">—</span></p>
+          </div>
+          <div class="host-metrics-cards">
+            <div class="host-metrics-card">
+              <span class="host-metrics-card-label cpu">CPU</span>
+              <span id="hostMetricsCpuNow" class="host-metrics-card-value">—</span>
+              <span id="hostMetricsCpuStats" class="host-metrics-card-meta">—</span>
+            </div>
+            <div class="host-metrics-card">
+              <span class="host-metrics-card-label mem">Memory</span>
+              <span id="hostMetricsMemNow" class="host-metrics-card-value">—</span>
+              <span id="hostMetricsMemStats" class="host-metrics-card-meta">—</span>
+              <span id="hostMetricsMemDetail" class="host-metrics-card-detail">—</span>
+            </div>
+            <div class="host-metrics-card compact">
+              <span class="host-metrics-card-label">Load avg</span>
+              <span id="hostMetricsLoad" class="host-metrics-card-value sm">—</span>
+            </div>
+            <div class="host-metrics-card compact">
+              <span class="host-metrics-card-label">Uptime</span>
+              <span id="hostMetricsUptime" class="host-metrics-card-value sm">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/app.js"></script>

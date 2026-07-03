@@ -68,6 +68,12 @@ echo "Building worker image..."
 docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
   -t "${WORKER_IMAGE}" "${TOOL_ROOT}"
 
+HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
+if [[ -f "${HOSTPROC_PATCH}" ]]; then
+  echo "Applying host /proc mount for web UI resource metrics..."
+  kubectl patch deployment agentic-coordinator -n agentic-orchestration --patch-file "${HOSTPROC_PATCH}"
+fi
+
 kubectl rollout restart deployment/agentic-coordinator -n agentic-orchestration
 kubectl rollout restart deployment/agentic-warm-pool -n agentic-orchestration
 kubectl rollout restart deployment/agentic-delegation-broker -n agentic-orchestration
