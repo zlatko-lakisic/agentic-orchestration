@@ -1,0 +1,22 @@
+# Mount git-synced web UI assets over the coordinator image (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: web-hotfix-public
+              mountPath: /app/web/public
+            - name: web-hotfix-root
+              mountPath: /app/web/server.mjs
+              subPath: server.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/host-metrics.mjs
+              subPath: host-metrics.mjs
+      volumes:
+        - name: web-hotfix-public
+          configMap:
+            name: agentic-web-hotfix-public
+        - name: web-hotfix-root
+          configMap:
+            name: agentic-web-hotfix-root
