@@ -4,7 +4,6 @@ import { extractUserFacingStdout } from "./chat-output.js";
 import { stripWrappingQuotes } from "./text-normalize.js";
 import { sanitizeUserDisplayName } from "./user-context.js";
 import { CrewLogSequenceDiagram } from "./crew-log-sequence.js";
-import { initWarpgateSessionUi } from "./warpgate-session-ui.js";
 
 let markdownLibPromise = null;
 
@@ -1166,6 +1165,5 @@ function unwrapJsonLikeAssistantText(text) {
   initMobileSheet();
   initComposerGrow();
   initHostMetricsUi();
-  initWarpgateSessionUi();
   loadSessionUserName().finally(() => connect());
 }

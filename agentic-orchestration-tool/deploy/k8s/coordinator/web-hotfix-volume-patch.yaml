@@ -32,9 +32,6 @@ spec:
             - name: web-hotfix-public
               mountPath: /app/web/public/user-context.js
               subPath: user-context.js
-            - name: web-hotfix-public
-              mountPath: /app/web/public/warpgate-session-ui.js
-              subPath: warpgate-session-ui.js
             - name: web-hotfix-root
               mountPath: /app/web/server.mjs
               subPath: server.mjs

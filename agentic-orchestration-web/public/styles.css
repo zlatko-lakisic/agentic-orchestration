@@ -641,55 +641,6 @@ body {
   padding: 10px 2px 0 15px;
 }
 
-.warpgate-session {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-
-#warpgateSessionMount {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-}
-
-#warpgateSessionMount #warpgate-embedded-ui {
-  position: static !important;
-}
-
-#warpgateSessionMount .embedded-ui {
-  position: relative !important;
-  inset: auto !important;
-  transform: none !important;
-  z-index: 1 !important;
-}
-
-#warpgateSessionMount .embedded-ui img.menu-toggle {
-  width: 28px !important;
-  height: 28px !important;
-  filter: brightness(0) invert(0.82);
-}
-
-#warpgateSessionMount .embedded-ui .menu {
-  left: 0;
-  bottom: auto;
-  top: calc(100% + 6px);
-  min-width: 160px;
-  background: var(--elevated);
-  border: 1px solid var(--border-strong);
-  backdrop-filter: none;
-}
-
-#warpgateSessionMount .embedded-ui .menu > button {
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-#warpgateSessionMount .embedded-ui .menu > button:hover {
-  color: var(--text);
-  background: var(--mono-bg);
-}
-
 .hint {
   color: var(--text-faint);
   font-size: 11px;
