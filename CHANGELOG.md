@@ -7,6 +7,29 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-05
+
+### Added
+
+- **Web session persistence** — stable `web-*` session IDs and chat transcript restore from `localStorage`; auto-reconnect on tab resume with `client_hello` so the planner greeting is skipped when resuming.
+- **PWA install** — `manifest.webmanifest`, service worker, and install banner for Android home-screen install.
+- **Planner greeting** — LLM-generated welcome on first connect (`AGENTIC_WEB_PLANNER_GREET`); proxy user display name via `X-Agentic-User-Name` / `X-User-Name`.
+- **Simple chat path** — short prompts bypass delegation for faster k8s-native replies on Jetson.
+- **Crew log sequence diagram** — visual timeline of crew stderr in the web UI.
+- **Jetson GPU metrics** — jtop-based GPU stats in host metrics; warm-pool Ollama keep-alive tuning.
+- **Edge performance options** — UI toggles for simple-chat latency on edge deployments.
+- **Git-only Jetson deploy** — `jetson-deploy.sh` workflow rule; never SCP tracked files to the device.
+
+### Changed
+
+- **Cleaner web output** — strip `(progress)` noise, workflow headers, and exit-code footers; failed runs styled in red.
+- **Ollama keep-alive** — coordinator sets keep-alive on connect for edge chat responsiveness.
+
+### Fixed
+
+- **jtop metrics JSON** — serialize non-JSON-native values with `default=str`.
+- **Single-agent edge plans** — planner no longer invents hallucinated provider IDs when only one agent is selected.
+
 ## [1.8.0] - 2026-07-03
 
 ### Added
