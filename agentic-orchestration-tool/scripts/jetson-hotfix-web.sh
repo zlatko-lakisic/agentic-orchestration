@@ -18,6 +18,10 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=chat-output.js="${WEB_ROOT}/public/chat-output.js" \
   --from-file=text-normalize.js="${WEB_ROOT}/public/text-normalize.js" \
   --from-file=user-context.js="${WEB_ROOT}/public/user-context.js" \
+  --from-file=install-prompt.js="${WEB_ROOT}/public/install-prompt.js" \
+  --from-file=chat-session.js="${WEB_ROOT}/public/chat-session.js" \
+  --from-file=manifest.webmanifest="${WEB_ROOT}/public/manifest.webmanifest" \
+  --from-file=sw.js="${WEB_ROOT}/public/sw.js" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create configmap agentic-web-hotfix-root -n "${NS}" \

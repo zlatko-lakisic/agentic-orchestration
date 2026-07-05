@@ -258,6 +258,8 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".ico": "image/x-icon",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webmanifest": "application/manifest+json",
 };
 
 function sendJson(ws, obj) {
@@ -2472,7 +2474,6 @@ wss.on("connection", (ws, req) => {
     userName: ws._userName,
     welcomeMessage: plannerGreet ? null : webWelcomeMessage(),
   });
-  runPlannerGreet(ws);
 
   ws.on("message", (raw) => {
     let msg;
@@ -2484,6 +2485,22 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "ping") {
       sendJson(ws, { type: "pong" });
+      return;
+    }
+    if (msg.type === "client_hello") {
+      const resume = Boolean(msg.resume);
+      if (!resume && webPlannerGreetEnabled()) {
+        runPlannerGreet(ws);
+      } else if (!resume) {
+        const fallback = webWelcomeMessage();
+        if (fallback) {
+          sendJson(ws, {
+            type: "welcome_message",
+            text: stripWrappingQuotes(fallback),
+            fallback: true,
+          });
+        }
+      }
       return;
     }
     if (msg.type === "rate") {

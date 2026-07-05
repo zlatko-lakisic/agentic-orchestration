@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0d13" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Agentic" />
     <title>Agentic Orchestration</title>
     <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       rel="stylesheet"
@@ -329,6 +335,15 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div id="pwaInstallBanner" class="pwa-install-banner hidden" role="region" aria-label="Install app" aria-hidden="true">
+      <img class="pwa-install-icon" src="/logo.png" alt="" width="40" height="40" />
+      <p id="pwaInstallMessage" class="pwa-install-message"></p>
+      <div class="pwa-install-actions">
+        <button type="button" id="pwaInstallBtn" class="pwa-install-btn">Install</button>
+        <button type="button" id="pwaInstallDismiss" class="pwa-install-dismiss" aria-label="Dismiss">×</button>
       </div>
     </div>
 

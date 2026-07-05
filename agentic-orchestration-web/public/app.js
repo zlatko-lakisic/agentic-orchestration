@@ -1,4 +1,12 @@
 import { initHostMetricsUi } from "./host-metrics-ui.js";
+import { initPwaInstall } from "./install-prompt.js";
+import {
+  clearChatTranscript,
+  getOrCreateBrowserSessionId,
+  loadChatTranscript,
+  saveChatTranscript,
+  transcriptHasConversation,
+} from "./chat-session.js";
 import { isSimpleChatPrompt } from "./perf-options.js";
 import { extractUserFacingStdout } from "./chat-output.js";
 import { stripWrappingQuotes } from "./text-normalize.js";
@@ -181,6 +189,13 @@ function unwrapJsonLikeAssistantText(text) {
   let lastRunRatingPayload = null;
   let availableAgentProviders = [];
   const selectedAgentProviderIds = new Set();
+
+  let browserSessionId = getOrCreateBrowserSessionId();
+  let chatTranscript = [];
+  let chatRestoredFromStorage = false;
+  let hadConnectedOnce = false;
+  let pendingReconnectNotice = false;
+  let reconnectTimer = null;
 
   const PROCESSING_HINTS = [
     "Agents are working in the background…",
@@ -504,7 +519,76 @@ function unwrapJsonLikeAssistantText(text) {
     }
   }
 
+  function persistTranscript() {
+    saveChatTranscript(browserSessionId, chatTranscript);
+  }
+
+  function recordTranscriptEntry(entry) {
+    chatTranscript.push(entry);
+    persistTranscript();
+  }
+
+  async function restoreChatFromTranscript() {
+    for (const entry of chatTranscript) {
+      const kind = String(entry.kind || "meta");
+      const text = String(entry.text || "");
+      if (!text) continue;
+      if (kind === "meta") {
+        appendMeta(text, { persist: false });
+        continue;
+      }
+      if (kind === "error") {
+        const el = appendBubble("error", text, { persist: false });
+        if (entry.extraClasses?.length) el?.classList.add(...entry.extraClasses);
+        continue;
+      }
+      const el = appendBubble(kind, text, { persist: false });
+      if (!el) continue;
+      if (entry.markdown) {
+        try {
+          await applyAssistantMarkdown(el, text);
+        } catch {
+          applyAssistantPlain(el, text);
+        }
+      }
+      if (entry.extraClasses?.length) el.classList.add(...entry.extraClasses);
+    }
+  }
+
+  function sendClientHello() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const resume = chatHasUserOrAssistantMessages();
+    const sessionId = sessionIdEl?.value?.trim() || browserSessionId;
+    ws.send(
+      JSON.stringify({
+        type: "client_hello",
+        resume,
+        sessionId,
+      }),
+    );
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer != null) return;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 2000);
+  }
+
   function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    if (ws) {
+      try {
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+    }
     welcomeBubble = null;
     const url = `${proto()}//${window.location.host}`;
     ws = new WebSocket(url);
@@ -517,6 +601,8 @@ function unwrapJsonLikeAssistantText(text) {
         else connStatus.textContent = "Connected";
       }
       sendBtn.disabled = runActive;
+      sendClientHello();
+      hadConnectedOnce = true;
     };
 
     ws.onclose = () => {
@@ -530,7 +616,12 @@ function unwrapJsonLikeAssistantText(text) {
       }
       sendBtn.disabled = true;
       assistantBubble = null;
-      setTimeout(connect, 2000);
+      if (runActive) {
+        runActive = false;
+        appendMeta("Connection lost. Your orchestrator session is unchanged — resend if the last reply is missing.");
+      }
+      if (hadConnectedOnce) pendingReconnectNotice = true;
+      scheduleReconnect();
     };
 
     ws.onerror = () => {
@@ -552,13 +643,18 @@ function unwrapJsonLikeAssistantText(text) {
         if (!data.plannerGreet) {
           showWelcomeMessage(stripWrappingQuotes(data.welcomeMessage));
         }
-        const er = data.edgeRuntime;
-        const edgeMeta = er
-          ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
-          : "";
-        appendMeta(
-          [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
-        );
+        if (pendingReconnectNotice) {
+          appendMeta("Reconnected.");
+          pendingReconnectNotice = false;
+        } else if (!chatHasUserOrAssistantMessages()) {
+          const er = data.edgeRuntime;
+          const edgeMeta = er
+            ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
+            : "";
+          appendMeta(
+            [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
+          );
+        }
         return;
       }
       if (data.type === "welcome_start") {
@@ -659,6 +755,7 @@ function unwrapJsonLikeAssistantText(text) {
           const out = rawOut;
           const err = stderrBuf.trim();
           const failed = data.code !== 0;
+          let usedMarkdown = false;
           if (failed && err && !out) {
             applyAssistantPlain(assistantBubble, err);
             assistantBubble.classList.add("run-failed");
@@ -666,6 +763,7 @@ function unwrapJsonLikeAssistantText(text) {
           } else if (out) {
             try {
               await applyAssistantMarkdown(assistantBubble, out);
+              usedMarkdown = true;
             } catch {
               applyAssistantPlain(assistantBubble, out);
             }
@@ -683,6 +781,15 @@ function unwrapJsonLikeAssistantText(text) {
             applyAssistantPlain(assistantBubble, "(No output)");
             assistantBubble.classList.remove("run-failed", "stderr");
           }
+          const extraClasses = [];
+          if (assistantBubble.classList.contains("run-failed")) extraClasses.push("run-failed");
+          if (assistantBubble.classList.contains("stderr")) extraClasses.push("stderr");
+          recordTranscriptEntry({
+            kind: "assistant",
+            text: assistantBubble.textContent || out || err || "(No output)",
+            markdown: usedMarkdown,
+            extraClasses,
+          });
         }
         assistantBubble = null;
         runActive = false;
@@ -957,22 +1064,28 @@ function unwrapJsonLikeAssistantText(text) {
     if (el) el.classList.add("welcome");
   }
 
-  function appendBubble(kind, text) {
+  function appendBubble(kind, text, opts = {}) {
     const el = document.createElement("div");
     el.className = `msg ${kind}`;
     el.textContent = text;
     (chatScroll || chat).appendChild(el);
     if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+    if (opts.persist !== false) {
+      recordTranscriptEntry({ kind, text: String(text || "") });
+    }
     return el;
   }
 
-  function appendMeta(text) {
+  function appendMeta(text, opts = {}) {
     const el = document.createElement("div");
     const t = String(text || "");
     el.className = t.startsWith("Tool:") ? "msg meta tool-chip-line" : "msg meta";
     el.textContent = text;
     (chatScroll || chat).appendChild(el);
     if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+    if (opts.persist !== false) {
+      recordTranscriptEntry({ kind: "meta", text: t });
+    }
   }
 
   function fileToBase64(file) {
@@ -1128,6 +1241,8 @@ function unwrapJsonLikeAssistantText(text) {
     } else {
       chat.innerHTML = "";
     }
+    chatTranscript = [];
+    clearChatTranscript(browserSessionId);
     clearCrewLog();
   });
   verboseCrewEl?.addEventListener("change", syncCrewLogVisibility);
@@ -1165,5 +1280,29 @@ function unwrapJsonLikeAssistantText(text) {
   initMobileSheet();
   initComposerGrow();
   initHostMetricsUi();
-  loadSessionUserName().finally(() => connect());
+  initPwaInstall();
+  if (sessionIdEl && !sessionIdEl.value.trim()) {
+    sessionIdEl.value = browserSessionId;
+  }
+  chatTranscript = loadChatTranscript(browserSessionId);
+  if (transcriptHasConversation(chatTranscript)) {
+    chatRestoredFromStorage = true;
+    restoreChatFromTranscript().finally(() => {
+      loadSessionUserName().finally(() => connect());
+    });
+  } else {
+    loadSessionUserName().finally(() => connect());
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (!ws || ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) return;
+    scheduleReconnect();
+  });
+
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted && (!ws || ws.readyState !== WebSocket.OPEN)) {
+      scheduleReconnect();
+    }
+  });
 }

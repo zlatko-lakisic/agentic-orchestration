@@ -32,6 +32,18 @@ spec:
             - name: web-hotfix-public
               mountPath: /app/web/public/user-context.js
               subPath: user-context.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/install-prompt.js
+              subPath: install-prompt.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/chat-session.js
+              subPath: chat-session.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/manifest.webmanifest
+              subPath: manifest.webmanifest
+            - name: web-hotfix-public
+              mountPath: /app/web/public/sw.js
+              subPath: sw.js
             - name: web-hotfix-root
               mountPath: /app/web/server.mjs
               subPath: server.mjs
