@@ -3,6 +3,7 @@ const POLL_MS = 1000;
 const COLORS = {
   cpu: "#f59e0b",
   mem: "#60a5fa",
+  gpu: "#c084fc",
   grid: "rgba(148, 163, 184, 0.12)",
   axis: "rgba(148, 163, 184, 0.35)",
 };
@@ -92,12 +93,16 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
 
   drawSeries("cpu", COLORS.cpu);
   drawSeries("mem", COLORS.mem);
+  drawSeries("gpu", COLORS.gpu);
 
   if (showLegend) {
     const items = [
       ["CPU", COLORS.cpu],
       ["Memory", COLORS.mem],
     ];
+    if (history.some((h) => Number.isFinite(h.gpu))) {
+      items.push(["GPU", COLORS.gpu]);
+    }
     let lx = plotX;
     const ly = 8;
     ctx.font = "11px Inter, sans-serif";
@@ -129,6 +134,10 @@ export function initHostMetricsUi() {
   const loadEl = document.getElementById("hostMetricsLoad");
   const uptimeEl = document.getElementById("hostMetricsUptime");
   const memDetailEl = document.getElementById("hostMetricsMemDetail");
+  const gpuNowEl = document.getElementById("hostMetricsGpuNow");
+  const gpuStatsEl = document.getElementById("hostMetricsGpuStats");
+  const gpuDetailEl = document.getElementById("hostMetricsGpuDetail");
+  const jetsonPowerEl = document.getElementById("hostMetricsJetsonPower");
 
   if (!btn || !spark) return;
 
@@ -143,6 +152,7 @@ export function initHostMetricsUi() {
       t: Date.now(),
       cpu: sample.cpu.percent,
       mem: sample.memory?.usedPercent ?? null,
+      gpu: sample.jetson?.gpu?.percent ?? null,
     });
     if (history.length > HISTORY_MAX) history.shift();
   }
@@ -151,12 +161,15 @@ export function initHostMetricsUi() {
     drawLineChart(spark, history, { width: 92, height: 30, pad: 2, showGrid: false });
     const cpu = lastSample?.cpu?.percent;
     const mem = lastSample?.memory?.usedPercent;
+    const gpu = lastSample?.jetson?.gpu?.percent;
     const parts = [];
     if (Number.isFinite(cpu)) parts.push(`CPU ${cpu.toFixed(0)}%`);
     if (Number.isFinite(mem)) parts.push(`RAM ${mem.toFixed(0)}%`);
+    if (Number.isFinite(gpu)) parts.push(`GPU ${gpu.toFixed(0)}%`);
+    const scopeHint = lastSample?.scope === "jetson" ? " (jtop)" : "";
     btn.title = parts.length
-      ? `Host resources — ${parts.join(" · ")} (click for details)`
-      : "Host resources (warming up…)";
+      ? `Host resources${scopeHint} — ${parts.join(" · ")} (click for details)`
+      : `Host resources${scopeHint} (warming up…)`;
     btn.setAttribute("aria-label", btn.title);
   }
 
@@ -171,14 +184,17 @@ export function initHostMetricsUi() {
     });
     const cpuS = statSeries(history, "cpu");
     const memS = statSeries(history, "mem");
+    const gpuS = statSeries(history, "gpu");
     if (scopeEl) {
       const scope = lastSample.scope || "runtime";
       scopeEl.textContent =
-        scope === "host"
-          ? "Node host (/proc)"
-          : scope === "container"
-            ? "Coordinator container"
-            : "Server runtime";
+        scope === "jetson"
+          ? "Jetson host (jtop)"
+          : scope === "host"
+            ? "Node host (/proc)"
+            : scope === "container"
+              ? "Coordinator container"
+              : "Server runtime";
     }
     if (hostEl) {
       hostEl.textContent = `${lastSample.hostname || "—"} · ${lastSample.platform || ""}/${lastSample.arch || ""}`;
@@ -211,6 +227,28 @@ export function initHostMetricsUi() {
     if (memDetailEl && lastSample.memory) {
       const m = lastSample.memory;
       memDetailEl.textContent = `${formatBytes(m.usedBytes)} used · ${formatBytes(m.availableBytes)} available · ${formatBytes(m.totalBytes)} total`;
+    }
+    if (gpuNowEl) {
+      gpuNowEl.textContent = formatPercent(lastSample.jetson?.gpu?.percent);
+    }
+    if (gpuStatsEl) {
+      gpuStatsEl.textContent = `min ${formatPercent(gpuS.min)} · avg ${formatPercent(gpuS.avg)} · max ${formatPercent(gpuS.max)}`;
+    }
+    if (gpuDetailEl && lastSample.jetson?.gpu) {
+      const g = lastSample.jetson.gpu;
+      const bits = [];
+      if (Number.isFinite(g.freqMhz)) bits.push(`${g.freqMhz} MHz`);
+      const temps = lastSample.jetson.temperature;
+      if (temps && typeof temps === "object") {
+        const gpuTemp = temps.gpu ?? temps.GPU ?? temps.gr3d;
+        if (Number.isFinite(gpuTemp)) bits.push(`${gpuTemp.toFixed(1)} °C`);
+      }
+      if (lastSample.jetson.ramText) bits.push(lastSample.jetson.ramText);
+      gpuDetailEl.textContent = bits.length ? bits.join(" · ") : "—";
+    }
+    if (jetsonPowerEl) {
+      const pw = lastSample.jetson?.powerW;
+      jetsonPowerEl.textContent = Number.isFinite(pw) ? `${pw.toFixed(2)} W` : "—";
     }
   }
 

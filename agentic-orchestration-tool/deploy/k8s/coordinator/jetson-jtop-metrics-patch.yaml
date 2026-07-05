@@ -1,0 +1,18 @@
+# Mount host jtop metrics JSON (written by agentic-jtop-metrics.service on Jetson).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          env:
+            - name: AGENTIC_JETSON_JTOP_METRICS_PATH
+              value: /host/agentic-metrics/jtop-metrics.json
+          volumeMounts:
+            - name: host-agentic-metrics
+              mountPath: /host/agentic-metrics
+              readOnly: true
+      volumes:
+        - name: host-agentic-metrics
+          hostPath:
+            path: /var/run/agentic
+            type: DirectoryOrCreate

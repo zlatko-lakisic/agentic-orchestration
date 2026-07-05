@@ -8,6 +8,7 @@ import path from "node:path";
 
 const PROC_ROOT = String(process.env.AGENTIC_HOST_METRICS_PROC_ROOT || "/proc").trim() || "/proc";
 const HOST_SCOPE = PROC_ROOT !== "/proc";
+const JTOP_METRICS_PATH = String(process.env.AGENTIC_JETSON_JTOP_METRICS_PATH || "").trim();
 
 let _prevCpu = null;
 
@@ -94,9 +95,46 @@ function sampleMemory() {
 }
 
 function metricsScope() {
+  if (JTOP_METRICS_PATH) return "jetson";
   if (HOST_SCOPE) return "host";
   if (process.platform === "linux" && fs.existsSync("/.dockerenv")) return "container";
   return "runtime";
+}
+
+function readJetsonJtopSnapshot() {
+  if (!JTOP_METRICS_PATH) return null;
+  try {
+    const raw = JSON.parse(readTextSync(JTOP_METRICS_PATH));
+    if (!raw || typeof raw !== "object") return null;
+    const ts = raw.ts ? Date.parse(String(raw.ts)) : NaN;
+    const ageMs = Number.isFinite(ts) ? Date.now() - ts : null;
+    return { ...raw, ageMs };
+  } catch {
+    return null;
+  }
+}
+
+export function mergeJetsonIntoMetrics(base, jtop) {
+  if (!jtop) return base;
+  const gpu = jtop.gpu && typeof jtop.gpu === "object" ? jtop.gpu : {};
+  const temp =
+    jtop.temperature && typeof jtop.temperature === "object" ? jtop.temperature : {};
+  const jetson = {
+    source: "jtop",
+    ageMs: jtop.ageMs ?? null,
+    gpu: {
+      percent: typeof gpu.percent === "number" ? gpu.percent : null,
+      freqMhz: typeof gpu.freqMhz === "number" ? gpu.freqMhz : null,
+    },
+    temperature: temp,
+    powerW: typeof jtop.powerW === "number" ? jtop.powerW : null,
+    ramText: jtop.ramText || null,
+  };
+  const out = { ...base, jetson, scope: "jetson" };
+  if (typeof jtop.cpu?.percent === "number" && jtop.cpu.percent >= 0) {
+    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source: "jtop" };
+  }
+  return out;
 }
 
 /** @returns {Promise<Record<string, unknown>>} */
@@ -104,7 +142,7 @@ export async function sampleHostMetrics() {
   const cpuPercent = sampleCpuPercent();
   const memory = sampleMemory();
   const loadAvg = os.loadavg();
-  return {
+  const base = {
     ts: new Date().toISOString(),
     hostname: os.hostname(),
     platform: process.platform,
@@ -118,4 +156,5 @@ export async function sampleHostMetrics() {
     },
     memory,
   };
+  return mergeJetsonIntoMetrics(base, readJetsonJtopSnapshot());
 }

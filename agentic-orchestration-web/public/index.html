@@ -33,7 +33,7 @@
             type="button"
             id="hostMetricsBtn"
             class="host-metrics-btn"
-            title="Host CPU &amp; memory"
+            title="Host CPU, memory &amp; GPU (jtop on Jetson)"
             aria-label="Host resources"
           >
             <canvas id="hostMetricsSpark" width="92" height="30" aria-hidden="true"></canvas>
@@ -93,8 +93,47 @@
           </div>
 
           <div id="crewLogPanel" class="crew-log-panel" hidden>
-            <div class="crew-log-head">Crew log</div>
-            <pre id="crewLogText" class="crew-log-text" aria-live="polite"></pre>
+            <div class="crew-log-head">
+              <span class="crew-log-title">Crew log</span>
+              <div class="crew-log-tabs" role="tablist" aria-label="Crew log view">
+                <button
+                  type="button"
+                  class="crew-log-tab is-active"
+                  role="tab"
+                  id="crewLogTabDiagram"
+                  aria-selected="true"
+                  aria-controls="crewLogDiagram"
+                  data-crew-log-tab="diagram"
+                >
+                  Diagram
+                </button>
+                <button
+                  type="button"
+                  class="crew-log-tab"
+                  role="tab"
+                  id="crewLogTabText"
+                  aria-selected="false"
+                  aria-controls="crewLogText"
+                  data-crew-log-tab="text"
+                >
+                  Text
+                </button>
+              </div>
+            </div>
+            <div
+              id="crewLogDiagram"
+              class="crew-log-diagram"
+              role="tabpanel"
+              aria-labelledby="crewLogTabDiagram"
+            ></div>
+            <pre
+              id="crewLogText"
+              class="crew-log-text"
+              role="tabpanel"
+              aria-labelledby="crewLogTabText"
+              aria-live="polite"
+              hidden
+            ></pre>
           </div>
 
           <div id="chat" class="feed-wrap" aria-live="polite">
@@ -270,9 +309,19 @@
               <span id="hostMetricsMemStats" class="host-metrics-card-meta">—</span>
               <span id="hostMetricsMemDetail" class="host-metrics-card-detail">—</span>
             </div>
+            <div class="host-metrics-card">
+              <span class="host-metrics-card-label gpu">GPU</span>
+              <span id="hostMetricsGpuNow" class="host-metrics-card-value">—</span>
+              <span id="hostMetricsGpuStats" class="host-metrics-card-meta">—</span>
+              <span id="hostMetricsGpuDetail" class="host-metrics-card-detail">—</span>
+            </div>
             <div class="host-metrics-card compact">
               <span class="host-metrics-card-label">Load avg</span>
               <span id="hostMetricsLoad" class="host-metrics-card-value sm">—</span>
+            </div>
+            <div class="host-metrics-card compact">
+              <span class="host-metrics-card-label">Power</span>
+              <span id="hostMetricsJetsonPower" class="host-metrics-card-value sm">—</span>
             </div>
             <div class="host-metrics-card compact">
               <span class="host-metrics-card-label">Uptime</span>

@@ -1,5 +1,6 @@
 import { initHostMetricsUi } from "./host-metrics-ui.js";
 import { isSimpleChatPrompt } from "./perf-options.js";
+import { CrewLogSequenceDiagram } from "./crew-log-sequence.js";
 
 let markdownLibPromise = null;
 
@@ -157,6 +158,10 @@ function unwrapJsonLikeAssistantText(text) {
   const activityLabel = document.getElementById("activityLabel");
   const crewLogPanel = document.getElementById("crewLogPanel");
   const crewLogText = document.getElementById("crewLogText");
+  const crewLogDiagram = document.getElementById("crewLogDiagram");
+  const crewLogTabDiagram = document.getElementById("crewLogTabDiagram");
+  const crewLogTabText = document.getElementById("crewLogTabText");
+  const crewLogSequence = new CrewLogSequenceDiagram(crewLogDiagram);
   const rateUpBtn = document.getElementById("rateUpBtn");
   const rateDownBtn = document.getElementById("rateDownBtn");
   const fileInputEl = document.getElementById("fileInput");
@@ -338,9 +343,20 @@ function unwrapJsonLikeAssistantText(text) {
     crewLogPanel.hidden = !show;
   }
 
+  function setCrewLogTab(tab) {
+    const isDiagram = tab !== "text";
+    crewLogTabDiagram?.classList.toggle("is-active", isDiagram);
+    crewLogTabText?.classList.toggle("is-active", !isDiagram);
+    if (crewLogTabDiagram) crewLogTabDiagram.setAttribute("aria-selected", String(isDiagram));
+    if (crewLogTabText) crewLogTabText.setAttribute("aria-selected", String(!isDiagram));
+    if (crewLogDiagram) crewLogDiagram.hidden = !isDiagram;
+    if (crewLogText) crewLogText.hidden = isDiagram;
+  }
+
   function clearCrewLog() {
     crewLogLineBuf = "";
     if (crewLogText) crewLogText.textContent = "";
+    crewLogSequence.clear();
   }
 
   function formatCrewLogTimestamp() {
@@ -352,13 +368,14 @@ function unwrapJsonLikeAssistantText(text) {
   }
 
   function appendCrewLogLine(line) {
+    crewLogSequence.appendLine(line);
     if (!crewLogText) return;
     crewLogText.textContent += formatCrewLogTimestamp() + line + "\n";
     crewLogText.scrollTop = crewLogText.scrollHeight;
   }
 
   function appendCrewLog(text) {
-    if (!text || !crewLogText) return;
+    if (!text) return;
     crewLogLineBuf += text;
     const parts = crewLogLineBuf.split(/\r?\n/);
     crewLogLineBuf = parts.pop() ?? "";
@@ -1044,7 +1061,10 @@ function unwrapJsonLikeAssistantText(text) {
     clearCrewLog();
   });
   verboseCrewEl?.addEventListener("change", syncCrewLogVisibility);
+  crewLogTabDiagram?.addEventListener("click", () => setCrewLogTab("diagram"));
+  crewLogTabText?.addEventListener("click", () => setCrewLogTab("text"));
   syncCrewLogVisibility();
+  setCrewLogTab("diagram");
   agentPickerAddBtn?.addEventListener("click", () => {
     const pid = String(agentPickerSelectEl?.value || "").trim();
     if (!pid) return;

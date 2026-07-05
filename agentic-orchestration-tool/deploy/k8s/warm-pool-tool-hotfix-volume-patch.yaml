@@ -1,0 +1,17 @@
+# Mount git-synced orchestration Python over the warm-pool worker image (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          volumeMounts:
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/ollama_keepalive.py
+              subPath: ollama_keepalive.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
+              subPath: kubernetes_warm_pool.py
+      volumes:
+        - name: tool-hotfix-orchestration
+          configMap:
+            name: agentic-tool-hotfix-orchestration

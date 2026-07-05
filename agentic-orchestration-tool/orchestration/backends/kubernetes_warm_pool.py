@@ -202,8 +202,16 @@ def claim_next_warm_pool_request(run_store_mount: str) -> tuple[Path, WarmPoolRe
 def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.5) -> None:
     """Long-running loop: claim queue requests and execute step specs."""
     from orchestration.execute_step import execute_step_from_spec_file
+    from orchestration.ollama_keepalive import start_ollama_keepalive_loop
 
     mount = str(run_store_mount).rstrip("/") or "/run/store"
+    if os.getenv("AGENTIC_WARM_POOL_OLLAMA_PREWARM", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        start_ollama_keepalive_loop(log_prefix="(warm-pool) ollama keep-alive")
     emit_log(
         f"warm pool worker started (mount={mount})",
         component="warm-pool-worker",

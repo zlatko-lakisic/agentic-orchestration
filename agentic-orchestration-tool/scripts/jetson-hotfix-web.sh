@@ -14,6 +14,7 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=styles.css="${WEB_ROOT}/public/styles.css" \
   --from-file=host-metrics-ui.js="${WEB_ROOT}/public/host-metrics-ui.js" \
   --from-file=perf-options.js="${WEB_ROOT}/public/perf-options.js" \
+  --from-file=crew-log-sequence.js="${WEB_ROOT}/public/crew-log-sequence.js" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
@@ -27,19 +28,35 @@ ORCH_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/orchestration"
 kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
+  --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
+  --from-file=kubernetes_warm_pool.py="${ORCH_ROOT}/backends/kubernetes_warm_pool.py" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"
 TOOL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/tool-hotfix-volume-patch.yaml"
+WARM_POOL_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml"
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
+JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
 if [[ -f "${HOSTPROC_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${HOSTPROC_PATCH}"
 fi
+if [[ -f "${JTOP_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${JTOP_PATCH}"
+fi
+if [[ -f "${WARM_POOL_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_POOL_PATCH}"
+fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"
+if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
+  kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
+fi
 kubectl rollout status deployment/agentic-coordinator -n "${NS}" --timeout=600s
+if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
+  kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
+fi
 
 echo "Web hotfix applied. Verify: curl -s http://127.0.0.1/api/host-metrics | head -c 200"

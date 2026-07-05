@@ -357,6 +357,10 @@ body {
   color: #60a5fa;
 }
 
+.host-metrics-card-label.gpu {
+  color: #c084fc;
+}
+
 .host-metrics-card-value {
   display: block;
   font-family: var(--font-display);
@@ -759,6 +763,10 @@ button.secondary {
 
 .crew-log-head {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 6px 10px;
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -767,6 +775,109 @@ button.secondary {
   color: var(--text-faint);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.crew-log-title {
+  flex: 0 0 auto;
+}
+
+.crew-log-tabs {
+  display: flex;
+  gap: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.crew-log-tab {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.crew-log-tab:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+.crew-log-tab.is-active {
+  color: #ffd89a;
+  border-color: #b45309;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.crew-log-diagram {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #0f1419;
+}
+
+.crew-log-diagram[hidden] {
+  display: none !important;
+}
+
+.crew-seq-header {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(var(--seq-cols, 1), minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.crew-seq-lane {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #cbd5e1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crew-seq-body {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.crew-seq-svg {
+  display: block;
+  min-width: 100%;
+}
+
+.crew-seq-lifeline {
+  stroke: rgba(148, 163, 184, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.crew-seq-msg-label {
+  fill: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+
+.crew-seq-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  pointer-events: none;
 }
 
 .crew-log-text {
@@ -780,6 +891,10 @@ button.secondary {
   color: #ffd89a;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.crew-log-text[hidden] {
+  display: none !important;
 }
 
 .feed-wrap {

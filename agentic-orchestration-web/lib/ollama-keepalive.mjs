@@ -70,7 +70,7 @@ export async function pingOllamaKeepAlive(opts = {}) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: opts.signal,
+    signal: opts.signal ?? AbortSignal.timeout(120_000),
   });
   return res.ok;
 }

@@ -11,6 +11,12 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/provider_goal_match.py
               subPath: provider_goal_match.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/ollama_keepalive.py
+              subPath: ollama_keepalive.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
+              subPath: kubernetes_warm_pool.py
       volumes:
         - name: tool-hotfix-orchestration
           configMap:
