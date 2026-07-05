@@ -181,6 +181,34 @@
           <span>Show crew log</span>
         </label>
       </div>
+      <details class="advanced" id="perfPanel">
+        <summary>Performance</summary>
+        <div class="advanced-body">
+          <div class="toggle-list">
+            <label class="toggle">
+              <input type="checkbox" id="resetSessionSimple" />
+              <span>Reset session on simple chat</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="limitPlannerHistory" />
+              <span>Limit planner session context</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="skipFinalQa" />
+              <span>Skip faithfulness QA</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="skipLearningEval" />
+              <span>Skip learning quality eval</span>
+            </label>
+          </div>
+          <small class="hint">
+            Simple chat clears bloated <code>default</code> session history for short prompts like
+            “who are you?”. Limit context caps planner turns and prior crew excerpts. Skip QA/eval
+            avoids extra LLM calls after each run (~20s on edge).
+          </small>
+        </div>
+      </details>
       <details class="advanced" id="advancedPanel">
         <summary>Advanced · Agent selection</summary>
         <div class="advanced-body">

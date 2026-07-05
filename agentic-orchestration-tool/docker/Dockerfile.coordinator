@@ -34,6 +34,7 @@ WORKDIR /app/web
 RUN npm ci --omit=dev
 
 COPY agentic-orchestration-web/server.mjs agentic-orchestration-web/host-metrics.mjs /app/web/
+COPY agentic-orchestration-web/lib /app/web/lib
 COPY agentic-orchestration-web/public /app/web/public
 
 WORKDIR /app/web

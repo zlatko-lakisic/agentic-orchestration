@@ -11,6 +11,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
 import { sampleHostMetrics } from "./host-metrics.mjs";
+import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-options.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,12 +77,51 @@ function webUiDefaultsFromEnv() {
   const autoIter = process.env.AGENTIC_WEB_DEFAULT_AUTO_ITER
     ? envTruthy("AGENTIC_WEB_DEFAULT_AUTO_ITER")
     : false;
+  const perfDefaults = () => ({
+    resetSessionSimple: envTruthy("AGENTIC_WEB_DEFAULT_RESET_SESSION_SIMPLE"),
+    limitPlannerHistory: envTruthy("AGENTIC_WEB_DEFAULT_LIMIT_PLANNER_HISTORY"),
+    skipFinalQa: envTruthy("AGENTIC_WEB_DEFAULT_SKIP_FINAL_QA"),
+    skipLearningEval: envTruthy("AGENTIC_WEB_DEFAULT_SKIP_LEARNING_EVAL"),
+  });
   return {
     runMode,
     autoIter,
     iterativeRounds: envInt("AGENTIC_WEB_DEFAULT_ITERATIVE_ROUNDS", 2, 1, 32),
     iterativeMaxRounds: envInt("AGENTIC_WEB_DEFAULT_ITERATIVE_MAX_ROUNDS", 3, 1, 32),
+    ...perfDefaults(),
   };
+}
+
+function webPerformanceSpawnEnv(msg) {
+  const limitPlannerHistory = Boolean(msg.limitPlannerHistory);
+  const skipFinalQa = Boolean(msg.skipFinalQa);
+  const skipLearningEval = Boolean(msg.skipLearningEval);
+  if (!limitPlannerHistory && !skipFinalQa && !skipLearningEval) {
+    return {};
+  }
+  return performanceSpawnEnvOverrides({
+    limitPlannerHistory,
+    plannerMaxTurns: envInt(
+      "AGENTIC_WEB_PLANNER_MAX_TURNS",
+      envInt("AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS", 2, 1, 64),
+      1,
+      64,
+    ),
+    plannerExcerptChars: envInt(
+      "AGENTIC_WEB_PLANNER_EXCERPT_CHARS",
+      envInt("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", 4000, 500, 50000),
+      500,
+      50000,
+    ),
+    skipFinalQa,
+    skipLearningEval,
+  });
+}
+
+function effectiveResetSession(msg, text) {
+  if (msg.resetSession === true) return true;
+  if (msg.resetSessionSimple && isSimpleChatPrompt(text)) return true;
+  return false;
 }
 
 function edgeRuntimeFromEnv() {
@@ -2089,11 +2129,9 @@ function buildDynamicSpawnArgs(text, opts) {
   args.push("--no-save");
   if (!verboseCrew) args.push("--quiet");
   if (noVerify !== false) args.push("--no-verify");
+  if (resetSession) args.push("--orchestrator-session-reset");
   const sess = sessionId && String(sessionId).trim();
-  if (sess) {
-    args.push("--orchestrator-session", sess);
-    if (resetSession) args.push("--orchestrator-session-reset");
-  }
+  if (sess) args.push("--orchestrator-session", sess);
   const selectedIds = Array.isArray(selectedAgentProviderIds)
     ? selectedAgentProviderIds.map((x) => String(x || "").trim()).filter(Boolean)
     : [];
@@ -2119,6 +2157,7 @@ async function runDynamicAwait({
   verboseCrew,
   selectedAgentProviderIds,
   attachmentManifestPath,
+  performanceEnv = {},
   disableAnswerCache = false,
 }) {
   const noop = () => {};
@@ -2140,9 +2179,10 @@ async function runDynamicAwait({
     selectedAgentProviderIds,
     attachmentManifestPath,
   });
-  const env = webOrchestratorSpawnEnv(
-    disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {},
-  );
+  const env = webOrchestratorSpawnEnv({
+    ...(disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {}),
+    ...performanceEnv,
+  });
   return new Promise((resolve, reject) => {
     const proc = spawn(PYTHON, args, {
       cwd: TOOL_ROOT,
@@ -2200,6 +2240,7 @@ function runDynamic(
     verboseCrew,
     selectedAgentProviderIds,
     attachmentManifestPath,
+    performanceEnv = {},
   },
   ws,
 ) {
@@ -2233,7 +2274,7 @@ function runDynamic(
 
   sendJson(ws, { type: "run_start", args });
 
-  const env = webOrchestratorSpawnEnv();
+  const env = webOrchestratorSpawnEnv(performanceEnv);
 
   const proc = spawn(PYTHON, args, {
     cwd: TOOL_ROOT,
@@ -2354,6 +2395,7 @@ wss.on("connection", (ws) => {
       return;
     }
     ws._busy = true;
+    const performanceEnv = webPerformanceSpawnEnv(msg);
     runDynamic(
       {
         text,
@@ -2363,13 +2405,14 @@ wss.on("connection", (ws) => {
         iterativeMaxRounds: msg.iterativeMaxRounds,
         noSynthesize: Boolean(msg.noSynthesize),
         sessionId: msg.sessionId,
-        resetSession: Boolean(msg.resetSession),
+        resetSession: effectiveResetSession(msg, text),
         noVerify: msg.noVerify !== false,
         verboseCrew: Boolean(msg.verboseCrew),
         selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
           msg.selectedAgentProviderIds,
         ),
         attachmentManifestPath,
+        performanceEnv,
       },
       ws,
     );

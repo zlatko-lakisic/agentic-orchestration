@@ -1,4 +1,5 @@
 import { initHostMetricsUi } from "./host-metrics-ui.js";
+import { isSimpleChatPrompt } from "./perf-options.js";
 
 let markdownLibPromise = null;
 
@@ -142,6 +143,10 @@ function unwrapJsonLikeAssistantText(text) {
   const noSynthesizeEl = document.getElementById("noSynthesize");
   const sessionIdEl = document.getElementById("sessionId");
   const resetSessionEl = document.getElementById("resetSession");
+  const resetSessionSimpleEl = document.getElementById("resetSessionSimple");
+  const limitPlannerHistoryEl = document.getElementById("limitPlannerHistory");
+  const skipFinalQaEl = document.getElementById("skipFinalQa");
+  const skipLearningEvalEl = document.getElementById("skipLearningEval");
   const verboseCrewEl = document.getElementById("verboseCrew");
   const agentPickerSelectEl = document.getElementById("agentPickerSelect");
   const agentPickerAddBtn = document.getElementById("agentPickerAddBtn");
@@ -435,6 +440,18 @@ function unwrapJsonLikeAssistantText(text) {
     }
     if (iterMaxRoundsEl && defaults.iterativeMaxRounds != null) {
       iterMaxRoundsEl.value = String(defaults.iterativeMaxRounds);
+    }
+    if (resetSessionSimpleEl && typeof defaults.resetSessionSimple === "boolean") {
+      resetSessionSimpleEl.checked = defaults.resetSessionSimple;
+    }
+    if (limitPlannerHistoryEl && typeof defaults.limitPlannerHistory === "boolean") {
+      limitPlannerHistoryEl.checked = defaults.limitPlannerHistory;
+    }
+    if (skipFinalQaEl && typeof defaults.skipFinalQa === "boolean") {
+      skipFinalQaEl.checked = defaults.skipFinalQa;
+    }
+    if (skipLearningEvalEl && typeof defaults.skipLearningEval === "boolean") {
+      skipLearningEvalEl.checked = defaults.skipLearningEval;
     }
     syncIterativeUi();
   }
@@ -954,10 +971,15 @@ function unwrapJsonLikeAssistantText(text) {
       verboseCrew: true,
       selectedAgentProviderIds: Array.from(selectedAgentProviderIds),
       files: filesPayload,
+      resetSessionSimple: Boolean(resetSessionSimpleEl?.checked),
+      limitPlannerHistory: Boolean(limitPlannerHistoryEl?.checked),
+      skipFinalQa: Boolean(skipFinalQaEl?.checked),
+      skipLearningEval: Boolean(skipLearningEvalEl?.checked),
     };
-    if (resetSessionEl.checked && sessionId) {
-      payload.resetSession = true;
-    }
+    const shouldResetSession =
+      Boolean(resetSessionEl?.checked) ||
+      (Boolean(resetSessionSimpleEl?.checked) && !hasFiles && isSimpleChatPrompt(text));
+    if (shouldResetSession) payload.resetSession = true;
     ws.send(JSON.stringify(payload));
     resetSessionEl.checked = false;
     // Prepare rating envelope; provider/attachment fp filled from Python stderr meta.

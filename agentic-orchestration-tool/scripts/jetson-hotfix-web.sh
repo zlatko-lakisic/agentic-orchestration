@@ -13,11 +13,13 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=index.html="${WEB_ROOT}/public/index.html" \
   --from-file=styles.css="${WEB_ROOT}/public/styles.css" \
   --from-file=host-metrics-ui.js="${WEB_ROOT}/public/host-metrics-ui.js" \
+  --from-file=perf-options.js="${WEB_ROOT}/public/perf-options.js" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
   --from-file=server.mjs="${WEB_ROOT}/server.mjs" \
   --from-file=host-metrics.mjs="${WEB_ROOT}/host-metrics.mjs" \
+  --from-file=perf-options.mjs="${WEB_ROOT}/lib/perf-options.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"

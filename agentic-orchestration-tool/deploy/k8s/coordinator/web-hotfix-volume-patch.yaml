@@ -17,12 +17,18 @@ spec:
             - name: web-hotfix-public
               mountPath: /app/web/public/host-metrics-ui.js
               subPath: host-metrics-ui.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/perf-options.js
+              subPath: perf-options.js
             - name: web-hotfix-root
               mountPath: /app/web/server.mjs
               subPath: server.mjs
             - name: web-hotfix-root
               mountPath: /app/web/host-metrics.mjs
               subPath: host-metrics.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/perf-options.mjs
+              subPath: perf-options.mjs
       volumes:
         - name: web-hotfix-public
           configMap:
