@@ -990,6 +990,16 @@ button.secondary {
   color: #ffd89a;
 }
 
+.msg.assistant.run-failed {
+  border-color: var(--error);
+  background: #2d1818;
+  color: #ffb4b4;
+}
+
+.msg.assistant.run-failed.msg-md a {
+  color: #ffcccc;
+}
+
 .msg.error {
   border-color: var(--error);
   background: #2d1818;

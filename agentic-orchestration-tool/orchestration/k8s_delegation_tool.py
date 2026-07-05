@@ -85,6 +85,11 @@ def attach_k8s_delegation_tool(
     if parent_step_id.startswith("delegate-"):
         return
 
+    from orchestration.simple_chat import is_simple_chat_prompt
+
+    if is_simple_chat_prompt(topic):
+        return
+
     from pathlib import Path
 
     catalog_path = os.getenv("AGENTIC_AGENT_PROVIDERS_CATALOG", "config/agent_providers")

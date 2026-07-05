@@ -1,0 +1,53 @@
+---
+description: Jetson deploy must use git only — never SCP or manual file copy
+alwaysApply: true
+---
+
+# Jetson deploy (git only)
+
+When deploying to the Jetson edge device (`172.16.90.20`, repo at `/var/projects/agentic-orchestration`):
+
+## Required workflow
+
+1. **Commit and push** all changes to `main` on the `github` remote (local dev machine).
+2. **On the Jetson**, update only from git — never `scp`, never copy files by hand:
+   ```bash
+   cd /var/projects/agentic-orchestration
+   git fetch origin
+   git pull origin main
+   bash agentic-orchestration-tool/scripts/jetson-deploy.sh
+   ```
+   Or use the all-in-one script after pull:
+   ```bash
+   bash agentic-orchestration-tool/scripts/jetson-deploy.sh
+   ```
+   (`jetson-deploy.sh` runs `git pull` then env sync + hotfix.)
+
+3. If coordinator rollout stalls on hostPort 80, scale the **old** coordinator ReplicaSet to 0:
+   ```bash
+   export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+   kubectl get rs -n agentic-orchestration | grep coordinator
+   kubectl scale rs <old-rs-name> -n agentic-orchestration --replicas=0
+   kubectl rollout status deployment/agentic-coordinator -n agentic-orchestration --timeout=120s
+   ```
+
+## Forbidden
+
+- `scp` files to the Jetson
+- Editing tracked files on the Jetson without committing to git first
+- Deploying from uncommitted local-only changes
+
+## Jetson git remote
+
+The device uses remote **`origin`** (not `github`). Push from dev with `git push github main`; pull on Jetson with `git pull origin main`.
+
+## Scripts (run on Jetson after git pull)
+
+| Script | Purpose |
+|--------|---------|
+| `jetson-deploy.sh` | Routine deploy: pull + apply-env + sync-k8s-secret + hotfix-web |
+| `jetson-apply-env.sh` | Merge `config/env.jetson` → `.env` |
+| `jetson-sync-k8s-secret.sh` | Refresh k8s secret + restart coordinator/warm-pool |
+| `jetson-hotfix-web.sh` | ConfigMap hotfix for web + orchestration Python |
+
+Full stack rebuild (rare): `sudo bash scripts/jetson-k3s-deploy.sh` (also git-pulls first).

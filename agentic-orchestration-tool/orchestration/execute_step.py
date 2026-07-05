@@ -109,6 +109,15 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             task_sequence=[step_id],
         )
 
+        from orchestration.simple_chat import is_simple_chat_prompt
+
+        simple_chat = (
+            is_simple_chat_prompt(topic)
+            and str(agent_provider.get("type", "")).strip().lower() == "ollama"
+            and not mcp_resolved
+            and not skill_ids
+        )
+
         try:
             built = build_workflow(
                 cfg,
@@ -118,7 +127,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 agent_skills_catalog_path=catalog_for_build,
                 task_mcp_overrides={step_id: mcp_resolved} if mcp_resolved else None,
             )
-            if run_store:
+            if run_store and not simple_chat:
                 from orchestration.k8s_delegation_tool import attach_k8s_delegation_tool
 
                 attach_k8s_delegation_tool(
@@ -127,6 +136,13 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     parent_step_id=step_id,
                     run_store_mount=run_store,
                     topic=topic,
+                )
+            elif simple_chat:
+                for agent in built.crew.agents:
+                    agent.tools = []
+                print(
+                    "(execute-step) simple chat: k8s warm-pool crew without tools",
+                    file=sys.stderr,
                 )
             print("kickoff", file=sys.stderr)
             with crew_kickoff_context(built):

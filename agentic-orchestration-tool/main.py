@@ -724,6 +724,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--planner-greet",
+        action="store_true",
+        help="Call the planner LLM for a short web-chat greeting on stdout and exit.",
+    )
+    parser.add_argument(
         "--execute-step",
         default=None,
         metavar="SPEC.JSON",
@@ -851,6 +856,11 @@ def main() -> None:
             print(format_ollama_runtime_log_line(), file=sys.stderr)
     except Exception:  # noqa: BLE001
         pass
+
+    if getattr(args, "planner_greet", False):
+        from orchestration.planner_greeting import run_planner_greeting_cli
+
+        sys.exit(run_planner_greeting_cli(tool_root=tool_root, quiet=bool(args.quiet)))
 
     if getattr(args, "warm_pool_worker", False):
         from orchestration.backends.kubernetes_warm_pool import run_warm_pool_worker_loop

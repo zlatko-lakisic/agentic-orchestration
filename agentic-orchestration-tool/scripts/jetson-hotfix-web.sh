@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Hot-update web UI files in the coordinator pod without rebuilding the Docker image.
-# Requires kubectl access (no sudo). Re-run after git pull when web assets change.
+# Requires kubectl access (no sudo). Run via jetson-deploy.sh (git pull first — never SCP).
 set -eu
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
@@ -15,6 +15,9 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=host-metrics-ui.js="${WEB_ROOT}/public/host-metrics-ui.js" \
   --from-file=perf-options.js="${WEB_ROOT}/public/perf-options.js" \
   --from-file=crew-log-sequence.js="${WEB_ROOT}/public/crew-log-sequence.js" \
+  --from-file=chat-output.js="${WEB_ROOT}/public/chat-output.js" \
+  --from-file=text-normalize.js="${WEB_ROOT}/public/text-normalize.js" \
+  --from-file=user-context.js="${WEB_ROOT}/public/user-context.js" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
@@ -22,6 +25,9 @@ kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
   --from-file=host-metrics.mjs="${WEB_ROOT}/host-metrics.mjs" \
   --from-file=perf-options.mjs="${WEB_ROOT}/lib/perf-options.mjs" \
   --from-file=ollama-keepalive.mjs="${WEB_ROOT}/lib/ollama-keepalive.mjs" \
+  --from-file=chat-output.mjs="${WEB_ROOT}/lib/chat-output.mjs" \
+  --from-file=text-normalize.mjs="${WEB_ROOT}/lib/text-normalize.mjs" \
+  --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 ORCH_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/orchestration"
@@ -30,6 +36,11 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
   --from-file=kubernetes_warm_pool.py="${ORCH_ROOT}/backends/kubernetes_warm_pool.py" \
+  --from-file=execute_step.py="${ORCH_ROOT}/execute_step.py" \
+  --from-file=k8s_delegation_tool.py="${ORCH_ROOT}/k8s_delegation_tool.py" \
+  --from-file=simple_chat.py="${ORCH_ROOT}/simple_chat.py" \
+  --from-file=planner_greeting.py="${ORCH_ROOT}/planner_greeting.py" \
+  --from-file=text_normalize.py="${ORCH_ROOT}/text_normalize.py" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"

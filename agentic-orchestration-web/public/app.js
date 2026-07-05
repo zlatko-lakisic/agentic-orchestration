@@ -1,5 +1,8 @@
 import { initHostMetricsUi } from "./host-metrics-ui.js";
 import { isSimpleChatPrompt } from "./perf-options.js";
+import { extractUserFacingStdout } from "./chat-output.js";
+import { stripWrappingQuotes } from "./text-normalize.js";
+import { sanitizeUserDisplayName } from "./user-context.js";
 import { CrewLogSequenceDiagram } from "./crew-log-sequence.js";
 
 let markdownLibPromise = null;
@@ -477,7 +480,32 @@ function unwrapJsonLikeAssistantText(text) {
     return window.location.protocol === "https:" ? "wss:" : "ws:";
   }
 
+  let welcomeBubble = null;
+  let sessionUserName = null;
+
+  function applySessionUserName(raw) {
+    const name = sanitizeUserDisplayName(raw);
+    if (name) sessionUserName = name;
+    return sessionUserName;
+  }
+
+  function normalizeAssistantText(text) {
+    return stripWrappingQuotes(unwrapJsonLikeAssistantText(extractUserFacingStdout(text)));
+  }
+
+  async function loadSessionUserName() {
+    try {
+      const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return applySessionUserName(data.userName);
+    } catch {
+      return null;
+    }
+  }
+
   function connect() {
+    welcomeBubble = null;
     const url = `${proto()}//${window.location.host}`;
     ws = new WebSocket(url);
 
@@ -493,6 +521,7 @@ function unwrapJsonLikeAssistantText(text) {
 
     ws.onclose = () => {
       stopProcessingUi();
+      welcomeBubble = null;
       if (connStatus) {
         connStatus.className = "status-pill disconnected";
         const label = connStatus.querySelector(".status-label");
@@ -519,7 +548,10 @@ function unwrapJsonLikeAssistantText(text) {
 
       if (data.type === "hello") {
         applyUiDefaults(data.uiDefaults);
-        showWelcomeMessage(data.welcomeMessage);
+        applySessionUserName(data.userName);
+        if (!data.plannerGreet) {
+          showWelcomeMessage(stripWrappingQuotes(data.welcomeMessage));
+        }
         const er = data.edgeRuntime;
         const edgeMeta = er
           ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
@@ -527,6 +559,37 @@ function unwrapJsonLikeAssistantText(text) {
         appendMeta(
           [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
         );
+        return;
+      }
+      if (data.type === "welcome_start") {
+        if (!chatHasUserOrAssistantMessages()) {
+          welcomeBubble = appendBubble("assistant", "");
+          if (welcomeBubble) {
+            welcomeBubble.classList.add("welcome", "processing", "typing");
+            welcomeBubble.textContent = "…";
+          }
+        }
+        return;
+      }
+      if (data.type === "welcome_message") {
+        const msg = stripWrappingQuotes(String(data.text || "").trim());
+        if (!msg) return;
+        if (!welcomeBubble && chatHasUserOrAssistantMessages()) return;
+        if (welcomeBubble) {
+          welcomeBubble.classList.remove("processing", "typing");
+          applyAssistantPlain(welcomeBubble, msg);
+          welcomeBubble.classList.add("welcome");
+        } else {
+          showWelcomeMessage(msg);
+        }
+        welcomeBubble = null;
+        return;
+      }
+      if (data.type === "welcome_error") {
+        if (welcomeBubble) {
+          welcomeBubble.remove();
+          welcomeBubble = null;
+        }
         return;
       }
       if (data.type === "preflight") {
@@ -592,30 +655,35 @@ function unwrapJsonLikeAssistantText(text) {
           assistantBubble.classList.remove("processing", "typing");
         }
         if (assistantBubble) {
-          const out = unwrapJsonLikeAssistantText(stdoutBuf.trim());
+          const rawOut = normalizeAssistantText(stdoutBuf.trim());
+          const out = rawOut;
           const err = stderrBuf.trim();
-          if (data.code !== 0 && err && !out) {
+          const failed = data.code !== 0;
+          if (failed && err && !out) {
             applyAssistantPlain(assistantBubble, err);
-            assistantBubble.classList.add("stderr");
+            assistantBubble.classList.add("run-failed");
+            assistantBubble.classList.remove("stderr");
           } else if (out) {
             try {
               await applyAssistantMarkdown(assistantBubble, out);
             } catch {
               applyAssistantPlain(assistantBubble, out);
             }
+            assistantBubble.classList.toggle("run-failed", failed);
             assistantBubble.classList.remove("stderr");
-          } else if (data.code !== 0) {
+          } else if (failed) {
             applyAssistantPlain(
               assistantBubble,
-              "Something went wrong (no details on stdout). Check the crew log or server terminal.",
+              err ||
+                "Something went wrong (no details on stdout). Check the crew log or server terminal.",
             );
-            assistantBubble.classList.add("stderr");
+            assistantBubble.classList.add("run-failed");
+            assistantBubble.classList.remove("stderr");
           } else {
             applyAssistantPlain(assistantBubble, "(No output)");
-            assistantBubble.classList.remove("stderr");
+            assistantBubble.classList.remove("run-failed", "stderr");
           }
         }
-        appendMeta(`Exit code: ${data.code}${data.signal ? ` (${data.signal})` : ""}`);
         assistantBubble = null;
         runActive = false;
         sendBtn.disabled = false;
@@ -878,7 +946,8 @@ function unwrapJsonLikeAssistantText(text) {
   function chatHasUserOrAssistantMessages() {
     const root = chatScroll || chat;
     if (!root) return false;
-    return Boolean(root.querySelector(".msg.user, .msg.assistant"));
+    if (root.querySelector(".msg.user")) return true;
+    return Boolean(root.querySelector(".msg.assistant:not(.welcome)"));
   }
 
   function showWelcomeMessage(text) {
@@ -1007,6 +1076,7 @@ function unwrapJsonLikeAssistantText(text) {
       Boolean(resetSessionEl?.checked) ||
       (Boolean(resetSessionSimpleEl?.checked) && !hasFiles && isSimpleChatPrompt(text));
     if (shouldResetSession) payload.resetSession = true;
+    if (sessionUserName) payload.userName = sessionUserName;
     ws.send(JSON.stringify(payload));
     resetSessionEl.checked = false;
     // Prepare rating envelope; provider/attachment fp filled from Python stderr meta.
@@ -1095,5 +1165,5 @@ function unwrapJsonLikeAssistantText(text) {
   initMobileSheet();
   initComposerGrow();
   initHostMetricsUi();
-  connect();
+  loadSessionUserName().finally(() => connect());
 }

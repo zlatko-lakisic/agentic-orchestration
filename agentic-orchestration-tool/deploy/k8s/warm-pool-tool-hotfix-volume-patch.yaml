@@ -11,6 +11,15 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
               subPath: kubernetes_warm_pool.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/execute_step.py
+              subPath: execute_step.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/k8s_delegation_tool.py
+              subPath: k8s_delegation_tool.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/simple_chat.py
+              subPath: simple_chat.py
       volumes:
         - name: tool-hotfix-orchestration
           configMap:

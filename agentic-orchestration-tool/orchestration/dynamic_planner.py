@@ -183,6 +183,7 @@ def _planner_chat_completion(
     *,
     messages: list[dict[str, str]],
     model: str,
+    json_mode: bool | None = None,
 ) -> str:
     def _shrink_messages_for_tpm_limit(
         msgs: list[dict[str, str]],
@@ -241,12 +242,13 @@ def _planner_chat_completion(
         }
         if clean_model.lower().startswith("ollama/"):
             kwargs["api_base"] = litellm_api_base_for_ollama()
-        json_mode = os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
-        )
+        if json_mode is None:
+            json_mode = os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
+                "0",
+                "false",
+                "no",
+                "off",
+            )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
@@ -335,12 +337,14 @@ def _planner_chat_completion(
         "messages": messages,
         "temperature": 0.2,
     }
-    if os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    ):
+    if json_mode is None:
+        json_mode = os.getenv("AGENTIC_PLANNER_JSON_MODE", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+    if json_mode:
         body["response_format"] = {"type": "json_object"}
 
     _planner_llm_progress_log(resolved_model=str(body["model"]), messages=messages)
@@ -464,7 +468,18 @@ def _single_agent_skip_planner_llm() -> bool:
 
 def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any]:
     """Deterministic 1-step plan when the filtered catalog has exactly one agent."""
-    _ = user_prompt
+    from orchestration.simple_chat import is_simple_chat_prompt
+
+    if is_simple_chat_prompt(user_prompt):
+        description = (
+            "{topic}\n\n"
+            "Reply in plain natural language only. Do not call tools, delegate tasks, "
+            "or return JSON tool-call structures."
+        )
+        expected_output = "A short, direct natural-language answer."
+    else:
+        description = "{topic}\n\nAnswer the user's goal clearly, accurately, and concisely."
+        expected_output = "A clear, helpful response that satisfies the user's goal."
     return {
         "plan_summary": f"Single available agent `{agent_id}` answers the request in one step.",
         "mcp_provider_ids": [],
@@ -472,8 +487,8 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
         "steps": [
             {
                 "agent_provider_id": agent_id,
-                "description": "{topic}\n\nAnswer the user's goal clearly, accurately, and concisely.",
-                "expected_output": "A clear, helpful response that satisfies the user's goal.",
+                "description": description,
+                "expected_output": expected_output,
             }
         ],
     }
@@ -588,7 +603,18 @@ If no agent skill is relevant, set `"skill_ids": []` and omit per-step `skill_id
     system += orchestrator_vertical_context_section()
     if web_prose_deliverable_enabled():
         system += web_prose_planner_rules()
+    system += _web_user_display_name_section()
     return system
+
+
+def _web_user_display_name_section() -> str:
+    name = os.getenv("AGENTIC_WEB_USER_DISPLAY_NAME", "").strip()
+    if not name:
+        return ""
+    return (
+        f"\n- **Web user:** The signed-in user's display name is {name!r}. "
+        "Use it naturally when appropriate (greetings, addressing the user).\n"
+    )
 
 
 def _planner_user_turn(user_prompt: str) -> str:

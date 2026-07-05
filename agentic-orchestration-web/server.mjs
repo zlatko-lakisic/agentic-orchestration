@@ -12,6 +12,13 @@ import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
 import { sampleHostMetrics } from "./host-metrics.mjs";
 import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-options.mjs";
+import { extractUserFacingStdout } from "./lib/chat-output.mjs";
+import { stripWrappingQuotes } from "./lib/text-normalize.mjs";
+import {
+  sanitizeUserDisplayName,
+  userDisplayNameSpawnEnv,
+  userNameFromRequestHeaders,
+} from "./lib/user-context.mjs";
 import { startOllamaKeepAliveLoop } from "./lib/ollama-keepalive.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -133,6 +140,13 @@ function webWelcomeMessage() {
     return v;
   }
   return "Hello! How can I help you today?";
+}
+
+function webPlannerGreetEnabled() {
+  const raw = process.env.AGENTIC_WEB_PLANNER_GREET;
+  if (raw == null) return true;
+  const v = String(raw).trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
 }
 
 function edgeRuntimeFromEnv() {
@@ -258,6 +272,22 @@ function webOrchestratorSpawnEnv(extra = {}) {
     AGENTIC_WEB_PROSE_DELIVERABLE: "1",
     ...extra,
   };
+}
+
+function webOrchestratorSpawnEnvForWs(ws, extra = {}) {
+  return webOrchestratorSpawnEnv({
+    ...userDisplayNameSpawnEnv(ws?._userName),
+    ...extra,
+  });
+}
+
+function resolveWsUserName(ws, msgUserName) {
+  if (ws?._userName) return ws._userName;
+  return sanitizeUserDisplayName(msgUserName);
+}
+
+function normalizeUserFacingText(text) {
+  return stripWrappingQuotes(extractUserFacingStdout(text));
 }
 
 function _pythonCanImportDotenv() {
@@ -493,6 +523,22 @@ function isApiPing(req) {
   }
   const pl = getRequestPathname(req).toLowerCase();
   return pl === "/api/ping" || pl.endsWith("/api/ping");
+}
+
+function isApiSession(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  for (const c of [head, decoded]) {
+    if (/\/api\/session\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/api/session" || pl.endsWith("/api/session");
 }
 
 /** OpenAI-compatible chat completions (proxy). Matches `/v1/chat/completions` with resilient path parsing. */
@@ -759,18 +805,7 @@ function buildResponsesSuccessPayload(model, content) {
  * - exclude stderr diagnostics by default
  */
 function normalizeOrchestratedApiContent(stdout) {
-  const raw = String(stdout || "");
-  const lines = raw.split(/\r?\n/);
-  const cleaned = lines.filter((line) => {
-    const t = line.trim();
-    if (!t) return false;
-    if (t === "[user]") return false;
-    if (t.startsWith("(progress)")) return false;
-    if (t.includes("Is this the answer you wanted? Reply `no` to re-run.")) return false;
-    return true;
-  });
-  const text = cleaned.join("\n").trim();
-  return text || raw.trim();
+  return normalizeUserFacingText(stdout);
 }
 
 function openAiApiDisablesAnswerCache() {
@@ -1054,6 +1089,7 @@ async function handleOpenAiChatCompletions(req, res) {
         selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
+        userName: userNameFromRequestHeaders(req.headers),
       });
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
@@ -1426,6 +1462,7 @@ async function handleOpenAiResponses(req, res) {
         selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
+        userName: userNameFromRequestHeaders(req.headers),
       });
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
@@ -1651,6 +1688,15 @@ function handleHttp(req, res) {
         instance: WEB_INSTANCE_ID,
       }),
     );
+    return;
+  }
+  if (isApiSession(req)) {
+    const userName = userNameFromRequestHeaders(req.headers);
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(JSON.stringify({ userName }));
     return;
   }
   if (isApiHostMetrics(req)) {
@@ -2170,6 +2216,7 @@ async function runDynamicAwait({
   attachmentManifestPath,
   performanceEnv = {},
   disableAnswerCache = false,
+  userName = null,
 }) {
   const noop = () => {};
   if (!ensurePythonDepsForWebRuns(noop)) {
@@ -2192,6 +2239,7 @@ async function runDynamicAwait({
   });
   const env = webOrchestratorSpawnEnv({
     ...(disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {}),
+    ...userDisplayNameSpawnEnv(userName),
     ...performanceEnv,
   });
   return new Promise((resolve, reject) => {
@@ -2285,7 +2333,7 @@ function runDynamic(
 
   sendJson(ws, { type: "run_start", args });
 
-  const env = webOrchestratorSpawnEnv(performanceEnv);
+  const env = webOrchestratorSpawnEnvForWs(ws, performanceEnv);
 
   const proc = spawn(PYTHON, args, {
     cwd: TOOL_ROOT,
@@ -2319,6 +2367,76 @@ function runDynamic(
   });
 }
 
+function runPlannerGreet(ws) {
+  if (!webPlannerGreetEnabled()) {
+    const fallback = webWelcomeMessage();
+    if (fallback) {
+      sendJson(ws, {
+        type: "welcome_message",
+        text: stripWrappingQuotes(fallback),
+        fallback: true,
+      });
+    }
+    return;
+  }
+  if (ws._greetBusy) return;
+  ws._greetBusy = true;
+  sendJson(ws, { type: "welcome_start" });
+
+  const proc = spawn(PYTHON, ["-m", "orchestration.planner_greeting", "--quiet"], {
+    cwd: TOOL_ROOT,
+    env: webOrchestratorSpawnEnvForWs(ws),
+    shell: false,
+  });
+  let stdout = "";
+  let stderr = "";
+  if (proc.stdout) {
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+  }
+  if (proc.stderr) {
+    proc.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+  }
+  proc.on("error", (err) => {
+    ws._greetBusy = false;
+    const fallback = webWelcomeMessage();
+    if (fallback) {
+      sendJson(ws, { type: "welcome_message", text: fallback, fallback: true });
+    } else {
+      sendJson(ws, {
+        type: "welcome_error",
+        message: clientErrorMessage(err, "Planner greeting failed"),
+      });
+    }
+  });
+  proc.on("close", (code) => {
+    ws._greetBusy = false;
+    const text = stripWrappingQuotes(stdout.trim());
+    if (code === 0 && text) {
+      sendJson(ws, { type: "welcome_message", text });
+      return;
+    }
+    const fallback = webWelcomeMessage();
+    if (fallback) {
+      sendJson(ws, {
+        type: "welcome_message",
+        text: stripWrappingQuotes(fallback),
+        fallback: true,
+      });
+      return;
+    }
+    sendJson(ws, {
+      type: "welcome_error",
+      message:
+        stderr.trim() ||
+        `Planner greeting exited with code ${typeof code === "number" ? code : "unknown"}`,
+    });
+  });
+}
+
 const server = http.createServer(handleHttp);
 const wss = new WebSocketServer({ server });
 
@@ -2339,16 +2457,22 @@ function logListenError(err) {
 server.on("error", logListenError);
 wss.on("error", logListenError);
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
   ws._busy = false;
+  ws._greetBusy = false;
+  ws._userName = userNameFromRequestHeaders(req?.headers || {});
+  const plannerGreet = webPlannerGreetEnabled();
   sendJson(ws, {
     type: "hello",
     toolRoot: TOOL_ROOT,
     python: PYTHON,
     uiDefaults: webUiDefaultsFromEnv(),
     edgeRuntime: edgeRuntimeFromEnv(),
-    welcomeMessage: webWelcomeMessage(),
+    plannerGreet,
+    userName: ws._userName,
+    welcomeMessage: plannerGreet ? null : webWelcomeMessage(),
   });
+  runPlannerGreet(ws);
 
   ws.on("message", (raw) => {
     let msg;
@@ -2408,6 +2532,10 @@ wss.on("connection", (ws) => {
     }
     ws._busy = true;
     const performanceEnv = webPerformanceSpawnEnv(msg);
+    const msgUserName = resolveWsUserName(ws, msg.userName);
+    if (msgUserName && !ws._userName) {
+      ws._userName = msgUserName;
+    }
     runDynamic(
       {
         text,
