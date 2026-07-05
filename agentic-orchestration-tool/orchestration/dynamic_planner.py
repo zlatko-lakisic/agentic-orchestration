@@ -452,6 +452,33 @@ def _planner_chat_completion(
     raise RuntimeError("Planner LLM request failed.")
 
 
+def _single_agent_skip_planner_llm() -> bool:
+    """When true, always call the planner LLM even if only one agent provider remains."""
+    return os.getenv("AGENTIC_PLANNER_SINGLE_AGENT_LLM", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any]:
+    """Deterministic 1-step plan when the filtered catalog has exactly one agent."""
+    _ = user_prompt
+    return {
+        "plan_summary": f"Single available agent `{agent_id}` answers the request in one step.",
+        "mcp_provider_ids": [],
+        "skill_ids": [],
+        "steps": [
+            {
+                "agent_provider_id": agent_id,
+                "description": "{topic}\n\nAnswer the user's goal clearly, accurately, and concisely.",
+                "expected_output": "A clear, helpful response that satisfies the user's goal.",
+            }
+        ],
+    }
+
+
 def _planner_system_prompt(
     *,
     catalog_doc: str,
@@ -1398,6 +1425,10 @@ def build_dynamic_workflow_config(
         planner_history=history,
         user_prompt=user_prompt,
     )
+    known_agent_ids = ", ".join(
+        sorted(str(e.get("id", "")).strip() for e in entries if str(e.get("id", "")).strip())
+    )
+
     def _repair_and_retry(reason: str) -> tuple[str, dict[str, Any], WorkflowConfig]:
         repair_msgs = list(messages)
         repair_msgs.append(
@@ -1406,6 +1437,7 @@ def build_dynamic_workflow_config(
                 "content": (
                     "Your previous response was invalid for this orchestrator.\n"
                     f"Problem: {reason}\n\n"
+                    f"Valid agent_provider_id values (use ONLY these): {known_agent_ids}.\n"
                     "Return a corrected JSON object that strictly matches the schema: "
                     "`plan_summary`, non-empty `steps` with `agent_provider_id` / `description` / `expected_output`, "
                     "optional `mcp_provider_ids` and `skill_ids`. "
@@ -1437,37 +1469,62 @@ def build_dynamic_workflow_config(
             raise
         return raw2, plan2, cfg2
 
-    raw_content = _planner_chat_completion(messages=messages, model=model)
-    plan = _extract_json_object(raw_content)
+    used_trivial_plan = False
+    if len(entries) == 1 and not _single_agent_skip_planner_llm():
+        sole_id = str(entries[0].get("id", "")).strip()
+        if sole_id:
+            used_trivial_plan = True
+            if not quiet:
+                print(
+                    f"(dynamic) single-agent catalog: trivial 1-step plan for {sole_id!r} "
+                    "(skip planner LLM; set AGENTIC_PLANNER_SINGLE_AGENT_LLM=1 to force planning)",
+                    file=sys.stderr,
+                )
+            plan = _single_agent_trivial_plan(user_prompt, sole_id)
+            raw_content = json.dumps(plan)
+            cfg = workflow_config_from_plan(
+                user_prompt=user_prompt,
+                plan=plan,
+                catalog_entries=entries,
+                instance_key=key,
+                max_steps=limit,
+                mcp_catalog_entries=mcp_entries,
+                skill_catalog_entries=skill_entries,
+                quiet=quiet,
+            )
 
-    try:
-        cfg = workflow_config_from_plan(
-            user_prompt=user_prompt,
-            plan=plan,
-            catalog_entries=entries,
-            instance_key=key,
-            max_steps=limit,
-            mcp_catalog_entries=mcp_entries,
-            skill_catalog_entries=skill_entries,
-            quiet=quiet,
-        )
-    except Exception as exc:  # noqa: BLE001
-        _planner_debug_dump(
-            "(dynamic)",
-            model=model,
-            raw_content=raw_content,
-            plan=plan,
-            exc=exc,
-        )
-        if os.getenv("AGENTIC_PLANNER_REPAIR_RETRY", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
-        ):
-            raw_content, plan, cfg = _repair_and_retry(str(exc))
-        else:
-            raise
+    if not used_trivial_plan:
+        raw_content = _planner_chat_completion(messages=messages, model=model)
+        plan = _extract_json_object(raw_content)
+
+        try:
+            cfg = workflow_config_from_plan(
+                user_prompt=user_prompt,
+                plan=plan,
+                catalog_entries=entries,
+                instance_key=key,
+                max_steps=limit,
+                mcp_catalog_entries=mcp_entries,
+                skill_catalog_entries=skill_entries,
+                quiet=quiet,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _planner_debug_dump(
+                "(dynamic)",
+                model=model,
+                raw_content=raw_content,
+                plan=plan,
+                exc=exc,
+            )
+            if os.getenv("AGENTIC_PLANNER_REPAIR_RETRY", "1").strip().lower() not in (
+                "0",
+                "false",
+                "no",
+                "off",
+            ):
+                raw_content, plan, cfg = _repair_and_retry(str(exc))
+            else:
+                raise
     cfg = _prune_irrelevant_mcp_from_user_goal(
         cfg,
         user_prompt=user_prompt,

@@ -6,6 +6,7 @@ from orchestration.provider_goal_match import (
     best_lexical_provider_id,
     extract_goal_terms,
     lexical_domain_score,
+    maybe_remap_planner_provider_missing_from_catalog,
 )
 
 
@@ -45,3 +46,17 @@ def test_best_lexical_provider_id_tiebreak() -> None:
     pid, score = best_lexical_provider_id(prompt, entries)
     assert score > 0
     assert pid == "a_special"
+
+
+@pytest.mark.unit
+def test_remap_unknown_id_when_sole_catalog() -> None:
+    sole = [{"id": "ollama_llama3_2_3b", "planner_hint": "edge generalist"}]
+    assert (
+        maybe_remap_planner_provider_missing_from_catalog(
+            "fetch_url",
+            user_prompt="who are you?",
+            catalog_entries=sole,
+            quiet=True,
+        )
+        == "ollama_llama3_2_3b"
+    )

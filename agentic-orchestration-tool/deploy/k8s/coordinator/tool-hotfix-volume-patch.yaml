@@ -1,0 +1,17 @@
+# Mount git-synced orchestration Python over the coordinator image (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/dynamic_planner.py
+              subPath: dynamic_planner.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/provider_goal_match.py
+              subPath: provider_goal_match.py
+      volumes:
+        - name: tool-hotfix-orchestration
+          configMap:
+            name: agentic-tool-hotfix-orchestration

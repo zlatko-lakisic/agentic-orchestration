@@ -115,6 +115,15 @@ def maybe_remap_planner_provider_missing_from_catalog(
     if pid in ids:
         return None
 
+    if len(ids) == 1:
+        sole = next(iter(ids))
+        if not quiet:
+            print(
+                f"(dynamic) planner provider remap (sole catalog): {pid!r} -> {sole!r}",
+                file=sys.stderr,
+            )
+        return sole
+
     if os.getenv("AGENTIC_PLANNER_STRICT_PROVIDER_IDS", "").strip().lower() in (
         "1",
         "true",
@@ -136,7 +145,9 @@ def maybe_remap_planner_provider_missing_from_catalog(
         return None
 
     best_id, best_score = best_lexical_provider_id(user_prompt, catalog_entries)
-    if not best_id or best_score <= 0:
+    if not best_id:
+        return None
+    if best_score <= 0 and not remap_any:
         return None
 
     if not quiet:

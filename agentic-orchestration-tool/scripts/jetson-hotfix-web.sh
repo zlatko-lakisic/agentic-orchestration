@@ -23,10 +23,18 @@ kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
   --from-file=ollama-keepalive.mjs="${WEB_ROOT}/lib/ollama-keepalive.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+ORCH_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/orchestration"
+kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
+  --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
+  --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"
+TOOL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/tool-hotfix-volume-patch.yaml"
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
+kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
 if [[ -f "${HOSTPROC_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${HOSTPROC_PATCH}"
 fi
