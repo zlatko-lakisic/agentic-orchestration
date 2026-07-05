@@ -20,6 +20,7 @@ kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
   --from-file=server.mjs="${WEB_ROOT}/server.mjs" \
   --from-file=host-metrics.mjs="${WEB_ROOT}/host-metrics.mjs" \
   --from-file=perf-options.mjs="${WEB_ROOT}/lib/perf-options.mjs" \
+  --from-file=ollama-keepalive.mjs="${WEB_ROOT}/lib/ollama-keepalive.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"

@@ -12,6 +12,7 @@ import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
 import { sampleHostMetrics } from "./host-metrics.mjs";
 import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-options.mjs";
+import { startOllamaKeepAliveLoop } from "./lib/ollama-keepalive.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -122,6 +123,16 @@ function effectiveResetSession(msg, text) {
   if (msg.resetSession === true) return true;
   if (msg.resetSessionSimple && isSimpleChatPrompt(text)) return true;
   return false;
+}
+
+function webWelcomeMessage() {
+  const raw = process.env.AGENTIC_WEB_WELCOME_MESSAGE;
+  if (raw != null) {
+    const v = String(raw).trim();
+    if (!v || ["0", "false", "no", "off"].includes(v.toLowerCase())) return null;
+    return v;
+  }
+  return "Hello! How can I help you today?";
 }
 
 function edgeRuntimeFromEnv() {
@@ -2336,6 +2347,7 @@ wss.on("connection", (ws) => {
     python: PYTHON,
     uiDefaults: webUiDefaultsFromEnv(),
     edgeRuntime: edgeRuntimeFromEnv(),
+    welcomeMessage: webWelcomeMessage(),
   });
 
   ws.on("message", (raw) => {
@@ -2431,4 +2443,5 @@ server.listen(PORT, HOST, () => {
       "  (set AGENTIC_PYTHON if this is wrong; install deps: pip install -r requirements.txt in AGENTIC_TOOL_ROOT)",
     );
   }
+  startOllamaKeepAliveLoop();
 });

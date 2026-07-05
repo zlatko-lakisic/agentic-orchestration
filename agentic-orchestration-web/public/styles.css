@@ -823,6 +823,11 @@ button.secondary {
   border-bottom-left-radius: 3px;
 }
 
+.msg.assistant.welcome {
+  border-color: rgba(91, 140, 255, 0.35);
+  color: var(--text);
+}
+
 .msg.meta {
   align-self: flex-start;
   max-width: 100%;

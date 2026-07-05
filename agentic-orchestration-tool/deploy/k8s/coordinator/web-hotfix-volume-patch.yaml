@@ -29,6 +29,9 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/perf-options.mjs
               subPath: perf-options.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/ollama-keepalive.mjs
+              subPath: ollama-keepalive.mjs
       volumes:
         - name: web-hotfix-public
           configMap:

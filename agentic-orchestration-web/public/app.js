@@ -502,6 +502,7 @@ function unwrapJsonLikeAssistantText(text) {
 
       if (data.type === "hello") {
         applyUiDefaults(data.uiDefaults);
+        showWelcomeMessage(data.welcomeMessage);
         const er = data.edgeRuntime;
         const edgeMeta = er
           ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
@@ -531,10 +532,6 @@ function unwrapJsonLikeAssistantText(text) {
         syncCrewLogVisibility();
         assistantBubble = appendBubble("assistant", "");
         startProcessingUi(assistantBubble);
-        showActivityBar();
-        if (activityLabel) {
-          activityLabel.textContent = "Run in progress—crew log streaming in the background…";
-        }
         iterRoundLabel = "";
         iterControllerReason = "";
         runActive = true;
@@ -859,6 +856,19 @@ function unwrapJsonLikeAssistantText(text) {
     } catch (err) {
       appendMeta(`Agent picker unavailable: ${String(err?.message || err)}`);
     }
+  }
+
+  function chatHasUserOrAssistantMessages() {
+    const root = chatScroll || chat;
+    if (!root) return false;
+    return Boolean(root.querySelector(".msg.user, .msg.assistant"));
+  }
+
+  function showWelcomeMessage(text) {
+    const msg = String(text || "").trim();
+    if (!msg || chatHasUserOrAssistantMessages()) return;
+    const el = appendBubble("assistant", msg);
+    if (el) el.classList.add("welcome");
   }
 
   function appendBubble(kind, text) {
