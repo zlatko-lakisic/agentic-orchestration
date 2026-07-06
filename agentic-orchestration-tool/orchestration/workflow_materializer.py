@@ -20,6 +20,7 @@ from orchestration.agent_skills_context import augment_backstory_for_skills, aug
 from orchestration.k8s_mcp_compat import apply_kubernetes_mcp_catalog_policy
 from orchestration.backends.base import StepSpec
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
+from orchestration.mcp_task_hints import augment_task_description_for_mcps, mcp_ids_from_raw_spec
 from orchestration.step_context import prepare_step_description
 
 
@@ -104,13 +105,17 @@ def build_step_specs(
             prior_output = prior.get(prev_id, "")
 
         task_entries, backstory_entries = partition_skill_entries(task_skills.get(task_id, []))
+        raw_mcps = raw_mcp_spec_for_task(task_def, config)
+        raw_skills = raw_skill_spec_for_task(task_def, config)
         description = augment_description_for_skills(
             task_def.description,
             resolve_skill_blocks(task_entries),
         )
+        description = augment_task_description_for_mcps(
+            description,
+            mcp_ids_from_raw_spec(raw_mcps),
+        )
         description = prepare_step_description(description, prior_output)
-        raw_mcps = raw_mcp_spec_for_task(task_def, config)
-        raw_skills = raw_skill_spec_for_task(task_def, config)
         mcp_resolved = task_mcps.get(task_id, [])
         mcp_payload: list[dict[str, Any]] = []
         for i, resolved_mcp in enumerate(mcp_resolved):

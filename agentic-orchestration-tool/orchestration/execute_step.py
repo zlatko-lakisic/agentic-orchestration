@@ -8,6 +8,12 @@ from typing import Any
 
 from orchestration.backends.base import StepResult
 from orchestration.config_loader import WorkflowConfig, TaskDefinition
+from orchestration.mcp_task_hints import (
+    augment_task_description_for_mcp_leak_retry,
+    augment_task_description_for_mcps,
+    looks_like_mcp_tool_call_leak,
+    mcp_ids_from_step_spec,
+)
 from orchestration.output_artifacts import workflow_result_to_extractable_text
 from orchestration.runner import build_workflow, crew_kickoff_context
 from orchestration.worker_logging import worker_log_context
@@ -63,6 +69,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
 
         tool_root = _tool_root()
         mcp_resolved = _resolved_mcps_from_spec(data)
+        mcp_ids = mcp_ids_from_step_spec(data)
         skill_ids = skill_ids_from_step_spec(data)
         skills_catalog_path = resolve_agent_skills_catalog_path_for_worker(
             data,
@@ -87,6 +94,8 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             task_skill_ids = None
             workflow_skill_ids = []
             catalog_for_build = None
+
+        task_description = augment_task_description_for_mcps(task_description, mcp_ids)
 
         cfg = WorkflowConfig(
             name=str(data.get("workflow_name", "execute-step")),
@@ -148,6 +157,17 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             with crew_kickoff_context(built):
                 workflow_result = built.crew.kickoff(inputs={"topic": topic})
             text = workflow_result_to_extractable_text(workflow_result)
+            if looks_like_mcp_tool_call_leak(text) and mcp_resolved:
+                retry_desc = augment_task_description_for_mcp_leak_retry(task_description, mcp_ids)
+                for crew_task in built.crew.tasks:
+                    crew_task.description = retry_desc
+                print(
+                    "(execute-step) detected MCP tool-call text; retrying with stronger MCP hints",
+                    file=sys.stderr,
+                )
+                with crew_kickoff_context(built):
+                    workflow_result = built.crew.kickoff(inputs={"topic": topic})
+                text = workflow_result_to_extractable_text(workflow_result)
             step_result = StepResult(
                 run_id=run_id,
                 step_id=step_id,

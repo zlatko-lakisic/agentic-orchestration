@@ -18,6 +18,11 @@ from crewai import Agent
 
 from agent_providers.base import AgentProvider, resolve_agent_backstory
 
+try:
+    from crewai import LLM
+except ImportError:  # pragma: no cover
+    from crewai.llm import LLM  # type: ignore[attr-defined,no-redef]
+
 # Skip redundant `ollama pull` when multiple providers share the same model and host.
 _ollama_pull_done: set[str] = set()
 
@@ -525,6 +530,12 @@ class OllamaProvider(AgentProvider):
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
         model = f"ollama/{model_without_prefix}"
+        os.environ.setdefault("OLLAMA_API_BASE", litellm_api_base_for_ollama())
+
+        if mcps:
+            llm = LLM(model=model, api_base=litellm_api_base_for_ollama())
+        else:
+            llm = model
 
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),
@@ -534,7 +545,7 @@ class OllamaProvider(AgentProvider):
                 mcps=mcps,
                 skill_backstory_blocks=skill_backstory_blocks,
             ),
-            llm=model,
+            llm=llm,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
         )

@@ -31,6 +31,7 @@ from orchestration.agent_skills_catalog import (
     skills_list_fingerprint,
 )
 from orchestration.agent_skills_context import augment_description_for_skills
+from orchestration.mcp_task_hints import augment_task_description_for_mcps, mcp_ids_from_raw_spec
 from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
 from orchestration.step_context import prepare_step_description
 
@@ -378,9 +379,12 @@ def build_workflow(
             )
 
         tasks_by_id[task_def.id] = Task(
-            description=augment_description_for_skills(
-                task_def.description,
-                task_skill_blocks[task_def.id],
+            description=augment_task_description_for_mcps(
+                augment_description_for_skills(
+                    task_def.description,
+                    task_skill_blocks[task_def.id],
+                ),
+                mcp_ids_from_raw_spec(raw_mcp_spec_for_task(task_def, config)),
             ),
             expected_output=task_def.expected_output,
             agent=agent,

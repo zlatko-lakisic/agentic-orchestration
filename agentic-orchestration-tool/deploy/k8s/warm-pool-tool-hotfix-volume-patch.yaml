@@ -20,7 +20,19 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/simple_chat.py
               subPath: simple_chat.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/mcp_task_hints.py
+              subPath: mcp_task_hints.py
+            - name: tool-hotfix-agent-providers
+              mountPath: /app/agent_providers/base.py
+              subPath: base.py
+            - name: tool-hotfix-agent-providers
+              mountPath: /app/agent_providers/ollama_provider.py
+              subPath: ollama_provider.py
       volumes:
         - name: tool-hotfix-orchestration
           configMap:
             name: agentic-tool-hotfix-orchestration
+        - name: tool-hotfix-agent-providers
+          configMap:
+            name: agentic-tool-hotfix-agent-providers

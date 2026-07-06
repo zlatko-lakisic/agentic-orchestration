@@ -49,6 +49,14 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=simple_chat.py="${ORCH_ROOT}/simple_chat.py" \
   --from-file=planner_greeting.py="${ORCH_ROOT}/planner_greeting.py" \
   --from-file=text_normalize.py="${ORCH_ROOT}/text_normalize.py" \
+  --from-file=mcp_task_hints.py="${ORCH_ROOT}/mcp_task_hints.py" \
+  --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
+kubectl create configmap agentic-tool-hotfix-agent-providers -n "${NS}" \
+  --from-file=base.py="${PROV_ROOT}/base.py" \
+  --from-file=ollama_provider.py="${PROV_ROOT}/ollama_provider.py" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"

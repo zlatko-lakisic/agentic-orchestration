@@ -12,10 +12,14 @@ from crewai import Agent
 _MCP_TOOL_HINT_MARKER = "[agentic: MCP tool arguments]"
 
 _MCP_TOOL_CALLING_HINT = (
-    f"{_MCP_TOOL_HINT_MARKER} Use only each tool schema's parameter names as top-level "
-    "fields (e.g. `question`, optional `version`). Do not nest under `parameters` or add "
-    '`tool_name`. Wrong: {"tool_name": "...", "parameters": {"question": "..."}}. '
-    'Right: {"question": "...", "version": "latest"}. '
+    f"{_MCP_TOOL_HINT_MARKER} MCP tools are wired into this agent — invoke them through "
+    "the framework, read tool results, then write your final answer in plain natural language. "
+    "Never paste tool metadata or invocation stubs as the final answer (e.g. lines starting "
+    "with `name:` / `parameters:`, `python_m_mcp_server_fetch`, or JSON tool envelopes). "
+    "Use only each tool schema's parameter names as top-level fields (e.g. `url` for fetch, "
+    "`question` for search). Do not nest under `parameters` or add `tool_name`. "
+    "Wrong final answer: `name: fetch` / `parameters: {\"url\": \"...\"}`. "
+    "Right: call the tool, then summarize the fetched content for the user. "
     "If a tool call fails (validation/network/server error), continue the task without it: "
     "produce a best-effort answer and clearly state what could not be verified."
 )
