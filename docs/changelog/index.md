@@ -19,6 +19,51 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-06
+
+### Added
+
+- **Warpgate session headers** — orchestrator session ID from `X-Agentic-Session-Id` or `X-Warpgate-Session-Id` (configurable via `AGENTIC_WEB_SESSION_ID_HEADER`); auto-generated `web-*` fallback. Session field removed from the settings UI.
+- **Host metrics over WebSocket** — subscribe with `host_metrics_subscribe`; server pushes samples every 2s (override with `AGENTIC_WEB_HOST_METRICS_PUSH_MS`) instead of polling `GET /api/host-metrics`.
+- **Welcome message persistence** — planner greeting is saved in the tab transcript (`extraClasses: welcome`) and restored on refresh.
+- **`jetson_irrigation` agent skill** — Home Assistant zone runtime prompts for edge irrigation control.
+
+### Changed
+
+- **Tab-scoped web sessions** — chat transcript and session ID use `sessionStorage` (cleared when the tab closes); legacy `localStorage` keys purged.
+- **Composer UX** — prompt textarea, send, and attach controls disabled while the welcome message loads or an orchestrator run is in progress.
+- **Jetson networking** — coordinator exposes NodePort `30487` only (no `hostPort: 80`); `Recreate` rollout strategy for single-node k3s.
+- **WebSocket singleton** — browser patches the `WebSocket` constructor to prevent duplicate connections through Warpgate/Traefik.
+
+### Fixed
+
+- **Warpgate edge compatibility** — WebSocket keepalive pings, reconnect UX, credentialed PWA manifest fetch (`pwa-manifest-link.js`).
+- **Coordinator rollout deadlocks** on single-node k3s (`Recreate` vs `hostPort` + `RollingUpdate`).
+- **Empty PWA manifest** behind Warpgate auth redirect (307 login page).
+
+## [1.9.0] - 2026-07-05
+
+### Added
+
+- **Web session persistence** — stable `web-*` session IDs and chat transcript restore from `localStorage`; auto-reconnect on tab resume with `client_hello` so the planner greeting is skipped when resuming.
+- **PWA install** — `manifest.webmanifest`, service worker, and install banner for Android home-screen install.
+- **Planner greeting** — LLM-generated welcome on first connect (`AGENTIC_WEB_PLANNER_GREET`); proxy user display name via `X-Agentic-User-Name` / `X-User-Name`.
+- **Simple chat path** — short prompts bypass delegation for faster k8s-native replies on Jetson.
+- **Crew log sequence diagram** — visual timeline of crew stderr in the web UI.
+- **Jetson GPU metrics** — jtop-based GPU stats in host metrics; warm-pool Ollama keep-alive tuning.
+- **Edge performance options** — UI toggles for simple-chat latency on edge deployments.
+- **Git-only Jetson deploy** — `jetson-deploy.sh` workflow rule; never SCP tracked files to the device.
+
+### Changed
+
+- **Cleaner web output** — strip `(progress)` noise, workflow headers, and exit-code footers; failed runs styled in red.
+- **Ollama keep-alive** — coordinator sets keep-alive on connect for edge chat responsiveness.
+
+### Fixed
+
+- **jtop metrics JSON** — serialize non-JSON-native values with `default=str`.
+- **Single-agent edge plans** — planner no longer invents hallucinated provider IDs when only one agent is selected.
+
 ## [1.8.0] - 2026-07-03
 
 ### Added

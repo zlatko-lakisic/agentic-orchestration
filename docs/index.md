@@ -18,7 +18,7 @@ excerpt: >
   depend on one vendor's LLM.
   Dynamic planning, 182 agent templates, 7 MCP integrations,
   agent skills playbooks, platform agent harness, and three execution backends — from local Ollama to Kubernetes.
-  Latest release: v1.6.0.
+  Latest release: v1.10.0.
 feature_row:
   - title: "Dynamic Planning"
     excerpt: "State a goal in plain language. The LLM planner selects agents, attaches MCP tools, and builds a multi-step execution plan automatically."

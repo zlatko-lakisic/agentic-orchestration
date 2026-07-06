@@ -23,11 +23,14 @@ Defaults in the UI favor **iterative** + **auto** where configured.
 
 Recent behavior updates:
 
-- **Host resource monitor** — header sparkline (CPU + memory) with a detail modal; polls `GET /api/host-metrics` every second.
+- **Warpgate session ID** — proxy headers `X-Agentic-Session-Id` / `X-Warpgate-Session-Id` (no session field in the UI); tab-scoped transcript in `sessionStorage`.
+- **Host resource monitor** — header sparkline pushed over the chat WebSocket (`host_metrics_subscribe`); `GET /api/host-metrics` remains for debugging.
+- **Planner greeting** — LLM welcome on first connect; persisted in the tab transcript and restored on refresh; composer locked while loading.
 - **Crew log timestamps** — stderr lines in the crew log panel are prefixed with local `[HH:MM:SS]`.
 - Markdown answers render client-side with sanitized HTML (using bundled browser ESM vendor assets).
 - File uploads are supported in chat; server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Upload safety limits are enforced server-side (per-file, total bytes, max file count).
+- **Warpgate / reverse-proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
 
 ## Setup
 
@@ -47,7 +50,8 @@ npm start
 Health endpoints and metadata:
 
 - `GET /api/ping` returns instance/pid metadata (useful to verify restarts and active process).
-- `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; set `AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc` when the coordinator mounts the node `/proc` for Jetson).
+- `GET /api/session` returns `{ userName, sessionId }` from proxy headers (Warpgate) or generated `web-*` id.
+- `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; also pushed over WebSocket).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
 
 ## Scripts

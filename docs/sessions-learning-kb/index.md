@@ -23,6 +23,14 @@ sidebar:
 - CLI: `--orchestrator-session NAME`, `--orchestrator-session-reset`
 - Env: `AGENTIC_ORCHESTRATOR_SESSION`, `AGENTIC_ORCHESTRATOR_DEFAULT_SESSION`, `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS`, `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS`, task description/output char limits (see `.env.example`)
 
+### Web UI session (browser)
+
+The web chat does **not** expose a session field. The Node server resolves an orchestrator session slug from proxy headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id`) or generates a `web-*` id. That slug is passed to `main.py` as `--orchestrator-session`.
+
+**Tab transcript:** user/assistant/meta messages (including the planner welcome) are stored in `sessionStorage` per tab and restored on refresh. Closing the tab clears the browser-side transcript; server-side `__orchestrator_sessions__/` persists planner history for the slug across visits when the proxy supplies a stable session id.
+
+**Env (web):** `AGENTIC_WEB_SESSION_ID_HEADER`, `AGENTIC_WEB_USER_NAME_HEADER` — see `agentic-orchestration-web/.env.example`.
+
 ## Learning loop
 
 **Path:** `__orchestrator_learning__/` (gitignored)

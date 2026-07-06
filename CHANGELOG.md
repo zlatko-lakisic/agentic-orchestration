@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-06
+
 ### Added
 
 - **Warpgate session headers** — orchestrator session ID from `X-Agentic-Session-Id` or `X-Warpgate-Session-Id` (configurable via `AGENTIC_WEB_SESSION_ID_HEADER`); auto-generated `web-*` fallback. Session field removed from the settings UI.

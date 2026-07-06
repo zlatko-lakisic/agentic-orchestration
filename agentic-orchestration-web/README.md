@@ -53,6 +53,16 @@ On `npm start`, **`agentic-orchestration-web/.env`** is read by the server (simp
 | `AGENTIC_PYTHON` | `python` | Python executable |
 | `AGENTIC_WEB_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` = all interfaces) |
 | `AGENTIC_WEB_PORT` | `3847` | HTTP + WebSocket port |
+| `AGENTIC_WEB_SESSION_ID_HEADER` | `X-Agentic-Session-Id,X-Warpgate-Session-Id` | Proxy-injected orchestrator session slug |
+| `AGENTIC_WEB_USER_NAME_HEADER` | `X-Agentic-User-Name,X-User-Name` | Proxy-injected display name for planner greet |
+| `AGENTIC_WEB_HOST_METRICS_PUSH_MS` | `2000` | WebSocket host-metrics push interval |
+| `AGENTIC_WEB_PLANNER_GREET` | `1` | LLM welcome on first connect (`0` = static message only) |
+
+## Behavior notes
+
+- **Session ID** is not shown in the UI. The server reads proxy headers or generates a `web-*` id; chat transcript (including the welcome message) is stored in `sessionStorage` per tab.
+- **Host metrics** are pushed on the chat WebSocket after `host_metrics_subscribe` (HTTP `GET /api/host-metrics` remains for debugging).
+- The composer (prompt, send, attach) is disabled while the welcome message loads or a run is in progress.
 
 ## Security
 

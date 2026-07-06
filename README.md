@@ -162,6 +162,8 @@ Host/port are read from `AGENTIC_WEB_HOST` / `AGENTIC_WEB_PORT` in that folderâ€
 
 Chat answers are **prose by default** (not raw JSON): the web server sets `AGENTIC_WEB_PROSE_DELIVERABLE=1` for orchestrator runs, and the UI unwraps any JSON-shaped agent output before rendering.
 
+Behind **Warpgate** or another reverse proxy, configure session and user headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id`, `X-Agentic-User-Name`). The UI uses a single WebSocket with keepalive for edge stability; host CPU/RAM metrics stream on that socket instead of HTTP polling.
+
 ### 3) Kubernetes (local kind or edge device)
 
 Run the full stack in-cluster: **coordinator** (web UI), **warm pool** workers, **delegation broker**, shared **run-store** PVC, and optional MCP gateways.
@@ -178,8 +180,8 @@ kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
 **Jetson / single-node k3s** â€” pull from GitHub on the device, then:
 
 ```bash
-sudo bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
-# Web UI on host port 80 (or NodePort 30487)
+bash agentic-orchestration-tool/scripts/jetson-deploy.sh
+# Web UI via NodePort 30487 (Traefik/Warpgate upstream)
 ```
 
 Set `AGENTIC_EXECUTION_BACKEND=kubernetes` and `AGENTIC_RUN_STORE_PATH` on the coordinator (see **`agentic-orchestration-tool/.env.example`**). Manifests, logging, and ops notes: **[`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md)**.
