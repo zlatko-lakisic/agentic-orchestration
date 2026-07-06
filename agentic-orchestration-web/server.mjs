@@ -2442,23 +2442,6 @@ function runPlannerGreet(ws) {
 const server = http.createServer(handleHttp);
 const wss = new WebSocketServer({ server, perMessageDeflate: false });
 
-const WS_PING_INTERVAL_MS = 30000;
-const wsPingTimer = setInterval(() => {
-  for (const client of wss.clients) {
-    if (client.isAlive === false) {
-      client.terminate();
-      continue;
-    }
-    client.isAlive = false;
-    try {
-      client.ping();
-    } catch {
-      /* ignore */
-    }
-  }
-}, WS_PING_INTERVAL_MS);
-if (typeof wsPingTimer.unref === "function") wsPingTimer.unref();
-
 let _listenErrorLogged = false;
 function logListenError(err) {
   if (_listenErrorLogged) return;
@@ -2477,10 +2460,6 @@ server.on("error", logListenError);
 wss.on("error", logListenError);
 
 wss.on("connection", (ws, req) => {
-  ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
   ws._busy = false;
   ws._greetBusy = false;
   ws._userName = userNameFromRequestHeaders(req?.headers || {});
@@ -2594,6 +2573,13 @@ wss.on("connection", (ws, req) => {
       },
       ws,
     );
+  });
+
+  ws.on("close", (code, reason) => {
+    const r = reason?.toString?.() || "";
+    if (code !== 1000 && code !== 1001) {
+      console.error(`[agentic-orchestration-web] ws close code=${code} reason=${r.slice(0, 120)}`);
+    }
   });
 });
 

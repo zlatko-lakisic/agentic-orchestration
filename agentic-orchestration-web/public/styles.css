@@ -170,6 +170,14 @@ body {
   color: var(--error);
   background: rgba(232, 93, 93, 0.1);
   border-color: rgba(232, 93, 93, 0.3);
+  cursor: pointer;
+}
+
+.status-pill.reconnecting {
+  color: var(--warn);
+  background: rgba(245, 166, 35, 0.1);
+  border-color: rgba(245, 166, 35, 0.28);
+  cursor: pointer;
 }
 
 .status-pill .dot {
@@ -185,6 +193,11 @@ body {
 
 .status-pill.disconnected .dot {
   background: var(--error);
+}
+
+.status-pill.reconnecting .dot {
+  background: var(--warn);
+  animation: pulse 1.2s infinite;
 }
 
 .host-metrics-btn {
