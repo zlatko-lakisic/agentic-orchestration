@@ -1,13 +1,15 @@
 import "./ws-singleton.js";
 import { closeActiveWebSocket, getActiveWebSocket, isActiveWebSocket } from "./ws-singleton.js";
-import { initHostMetricsUi } from "./host-metrics-ui.js";
+import { initHostMetricsUi, handleHostMetricsMessage, subscribeHostMetrics } from "./host-metrics-ui.js";
 import { initPwaInstall } from "./install-prompt.js";
 import {
   clearChatTranscript,
   getOrCreateBrowserSessionId,
   loadChatTranscript,
   saveChatTranscript,
+  setBrowserSessionId,
   transcriptHasConversation,
+  transcriptHasWelcome,
 } from "./chat-session.js";
 import { isSimpleChatPrompt } from "./perf-options.js";
 import { extractUserFacingStdout } from "./chat-output.js";
@@ -151,7 +153,6 @@ if (globalThis.__agenticOrchestratorUiInit) {
   const ricRounds = document.getElementById("ricRounds");
   const ricMax = document.getElementById("ricMax");
   const ricAuto = document.getElementById("ricAuto");
-  const ricSession = document.getElementById("ricSession");
   const ricAdvanced = document.getElementById("ricAdvanced");
   const input = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
@@ -161,7 +162,6 @@ if (globalThis.__agenticOrchestratorUiInit) {
   const autoIterEl = document.getElementById("autoIter");
   const iterMaxRoundsEl = document.getElementById("iterMaxRounds");
   const noSynthesizeEl = document.getElementById("noSynthesize");
-  const sessionIdEl = document.getElementById("sessionId");
   const resetSessionEl = document.getElementById("resetSession");
   const resetSessionSimpleEl = document.getElementById("resetSessionSimple");
   const limitPlannerHistoryEl = document.getElementById("limitPlannerHistory");
@@ -188,6 +188,8 @@ if (globalThis.__agenticOrchestratorUiInit) {
   let ws = null;
   let assistantBubble = null;
   let runActive = false;
+  let welcomeLoading = false;
+  let lastClientHelloResume = false;
   let stdoutBuf = "";
   let stderrBuf = "";
   let processingTimer = null;
@@ -198,7 +200,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
   let availableAgentProviders = [];
   const selectedAgentProviderIds = new Set();
 
-  let browserSessionId = getOrCreateBrowserSessionId();
+  let browserSessionId = "";
   let chatTranscript = [];
   let chatRestoredFromStorage = false;
   let hadConnectedOnce = false;
@@ -244,6 +246,14 @@ if (globalThis.__agenticOrchestratorUiInit) {
     const labelEl = connStatus.querySelector(".status-label");
     if (labelEl) labelEl.textContent = label;
     else connStatus.textContent = label;
+  }
+
+  function syncComposerAvailability() {
+    const connected = Boolean(ws && ws.readyState === WebSocket.OPEN);
+    const busy = runActive || welcomeLoading;
+    if (sendBtn) sendBtn.disabled = !connected || busy;
+    if (input) input.disabled = !connected || busy;
+    if (attachBtn) attachBtn.disabled = !connected || busy;
   }
 
   async function ensureEdgeSessionReady() {
@@ -320,7 +330,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
         const meta = JSON.parse(jsonPart);
         if (!lastRunRatingPayload) {
           lastRunRatingPayload = {
-            sessionId: sessionId || "",
+            sessionId: browserSessionId || "",
             providerId: "",
             attachmentFingerprint: "none",
             mcpFingerprint: "none",
@@ -571,15 +581,44 @@ if (globalThis.__agenticOrchestratorUiInit) {
     return stripWrappingQuotes(unwrapJsonLikeAssistantText(extractUserFacingStdout(text)));
   }
 
-  async function loadSessionUserName() {
+  function applySessionId(raw) {
+    const id = String(raw || "").trim();
+    if (!id) return browserSessionId;
+    browserSessionId = setBrowserSessionId(id);
+    return browserSessionId;
+  }
+
+  async function loadSessionContext() {
     try {
       const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) return null;
       const data = await res.json();
-      return applySessionUserName(data.userName);
+      applySessionUserName(data.userName);
+      if (data.sessionId) applySessionId(data.sessionId);
+      return data;
     } catch {
       return null;
+    } finally {
+      if (!browserSessionId) {
+        browserSessionId = getOrCreateBrowserSessionId();
+      }
     }
+  }
+
+  function recordWelcomeMessage(text) {
+    const msg = String(text || "").trim();
+    if (!msg) return;
+    if (transcriptHasWelcome(chatTranscript)) {
+      const idx = chatTranscript.findIndex(
+        (e) => e.kind === "assistant" && e.extraClasses?.includes("welcome"),
+      );
+      if (idx >= 0 && chatTranscript[idx].text !== msg) {
+        chatTranscript[idx] = { kind: "assistant", text: msg, extraClasses: ["welcome"] };
+        persistTranscript();
+      }
+      return;
+    }
+    recordTranscriptEntry({ kind: "assistant", text: msg, extraClasses: ["welcome"] });
   }
 
   function persistTranscript() {
@@ -624,7 +663,8 @@ if (globalThis.__agenticOrchestratorUiInit) {
       sessionEstablished ||
       chatRestoredFromStorage ||
       chatHasUserOrAssistantMessages();
-    const sessionId = sessionIdEl?.value?.trim() || browserSessionId;
+    lastClientHelloResume = resume;
+    const sessionId = browserSessionId || undefined;
     ws.send(
       JSON.stringify({
         type: "client_hello",
@@ -691,7 +731,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
         appendMeta("Could not verify Warpgate session. Refresh after signing in.");
         return;
       }
-      await loadSessionUserName();
+      await loadSessionContext();
 
       const live = getActiveWebSocket();
       if (live && (live.readyState === WebSocket.OPEN || live.readyState === WebSocket.CONNECTING)) {
@@ -725,8 +765,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
         reconnectDelayMs = 2000;
         clearReconnectTimer();
         setConnStatus("connected", "Connected");
-        sendBtn.disabled = runActive;
+        syncComposerAvailability();
         sendClientHello();
+        subscribeHostMetrics(socket);
         startHeartbeat();
         hadConnectedOnce = true;
         stableConnectionTimer = window.setTimeout(() => {
@@ -744,12 +785,13 @@ if (globalThis.__agenticOrchestratorUiInit) {
         }
         stopProcessingUi();
         welcomeBubble = null;
+        welcomeLoading = false;
         assistantBubble = null;
-        sendBtn.disabled = true;
         if (runActive) {
           runActive = false;
           appendMeta("Connection lost. Your orchestrator session is unchanged — resend if the last reply is missing.");
         }
+        syncComposerAvailability();
         if (intentionalDisconnect) {
           setConnStatus("disconnected", "Disconnected");
           return;
@@ -785,6 +827,11 @@ if (globalThis.__agenticOrchestratorUiInit) {
       if (data.type === "hello") {
         applyUiDefaults(data.uiDefaults);
         applySessionUserName(data.userName);
+        if (data.sessionId) applySessionId(data.sessionId);
+        if (data.plannerGreet && !lastClientHelloResume) {
+          welcomeLoading = true;
+          syncComposerAvailability();
+        }
         if (!data.plannerGreet) {
           showWelcomeMessage(stripWrappingQuotes(data.welcomeMessage));
         }
@@ -805,9 +852,15 @@ if (globalThis.__agenticOrchestratorUiInit) {
       if (data.type === "pong") {
         return;
       }
+      if (data.type === "host_metrics") {
+        handleHostMetricsMessage(data);
+        return;
+      }
       if (data.type === "welcome_start") {
-        if (!chatHasUserOrAssistantMessages()) {
-          welcomeBubble = appendBubble("assistant", "");
+        welcomeLoading = true;
+        syncComposerAvailability();
+        if (!chatHasUserOrAssistantMessages() && !transcriptHasWelcome(chatTranscript)) {
+          welcomeBubble = appendBubble("assistant", "", { persist: false });
           if (welcomeBubble) {
             welcomeBubble.classList.add("welcome", "processing", "typing");
             welcomeBubble.textContent = "…";
@@ -817,16 +870,25 @@ if (globalThis.__agenticOrchestratorUiInit) {
       }
       if (data.type === "welcome_message") {
         const msg = stripWrappingQuotes(String(data.text || "").trim());
-        if (!msg) return;
-        if (!welcomeBubble && chatHasUserOrAssistantMessages()) return;
+        welcomeLoading = false;
+        if (!msg) {
+          syncComposerAvailability();
+          return;
+        }
+        if (!welcomeBubble && (chatHasUserOrAssistantMessages() || transcriptHasWelcome(chatTranscript))) {
+          syncComposerAvailability();
+          return;
+        }
         if (welcomeBubble) {
           welcomeBubble.classList.remove("processing", "typing");
           applyAssistantPlain(welcomeBubble, msg);
           welcomeBubble.classList.add("welcome");
+          recordWelcomeMessage(msg);
         } else {
           showWelcomeMessage(msg);
         }
         welcomeBubble = null;
+        syncComposerAvailability();
         return;
       }
       if (data.type === "welcome_error") {
@@ -834,6 +896,8 @@ if (globalThis.__agenticOrchestratorUiInit) {
           welcomeBubble.remove();
           welcomeBubble = null;
         }
+        welcomeLoading = false;
+        syncComposerAvailability();
         return;
       }
       if (data.type === "preflight") {
@@ -859,7 +923,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
         iterRoundLabel = "";
         iterControllerReason = "";
         runActive = true;
-        sendBtn.disabled = true;
+        syncComposerAvailability();
         if (rateUpBtn) rateUpBtn.disabled = true;
         if (rateDownBtn) rateDownBtn.disabled = true;
         lastRunRatingPayload = null;
@@ -889,7 +953,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
         }
         appendBubble("error", data.message || "Error");
         runActive = false;
-        sendBtn.disabled = false;
+        syncComposerAvailability();
         return;
       }
       if (data.type === "run_end") {
@@ -941,7 +1005,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
         }
         assistantBubble = null;
         runActive = false;
-        sendBtn.disabled = false;
+        syncComposerAvailability();
         if (rateUpBtn) rateUpBtn.disabled = !lastRunRatingPayload;
         if (rateDownBtn) rateDownBtn.disabled = !lastRunRatingPayload;
         return;
@@ -987,7 +1051,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
     railToggle.addEventListener("click", () => {
       setRailCollapsed(!rail.classList.contains("collapsed"));
     });
-    for (const btn of [ricMode, ricRounds, ricMax, ricAuto, ricSession, ricAdvanced]) {
+    for (const btn of [ricMode, ricRounds, ricMax, ricAuto, ricAdvanced]) {
       btn?.addEventListener("click", () => setRailCollapsed(false));
     }
   }
@@ -1060,8 +1124,6 @@ if (globalThis.__agenticOrchestratorUiInit) {
       ricAuto.classList.toggle("on", autoIterEl.checked);
       ricAuto.title = `Auto-adjust iterations: ${autoIterEl.checked ? "on" : "off"}`;
     }
-    const sess = sessionIdEl?.value?.trim() || "default";
-    if (ricSession) ricSession.title = `Session: ${sess}`;
   }
 
   function initComposerGrow() {
@@ -1207,9 +1269,10 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   function showWelcomeMessage(text) {
     const msg = String(text || "").trim();
-    if (!msg || chatHasUserOrAssistantMessages()) return;
-    const el = appendBubble("assistant", msg);
+    if (!msg || chatHasUserOrAssistantMessages() || transcriptHasWelcome(chatTranscript)) return;
+    const el = appendBubble("assistant", msg, { persist: false });
     if (el) el.classList.add("welcome");
+    recordWelcomeMessage(msg);
   }
 
   function appendBubble(kind, text, opts = {}) {
@@ -1267,7 +1330,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
   async function sendChat() {
     const text = input.value.trim();
     const hasFiles = Boolean(fileInputEl && fileInputEl.files && fileInputEl.files.length > 0);
-    if ((!text && !hasFiles) || !ws || ws.readyState !== WebSocket.OPEN || runActive) return;
+    if ((!text && !hasFiles) || !ws || ws.readyState !== WebSocket.OPEN || runActive || welcomeLoading) return;
 
     const modeRaw = (runModeEl?.value || "dynamic").trim();
     const runMode =
@@ -1285,8 +1348,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       if (Number.isFinite(parsed)) iterMaxRounds = Math.max(1, Math.min(32, parsed));
     }
 
-    const sessionRaw = sessionIdEl.value.trim();
-    const sessionId = sessionRaw || undefined;
+    const sessionId = browserSessionId || undefined;
 
     function inferTaskTag(t) {
       const s = String(t || "").toLowerCase();
@@ -1415,9 +1477,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
   autoIterEl?.addEventListener("change", syncIterativeUi);
   iterRoundsEl?.addEventListener("input", syncRailIcons);
   iterMaxRoundsEl?.addEventListener("input", syncRailIcons);
-  sessionIdEl?.addEventListener("input", syncRailIcons);
   attachBtn?.addEventListener("click", () => fileInputEl?.click());
   syncIterativeUi();
+  syncComposerAvailability();
 
   // Rate the last run (stored by the orchestrator into a pending file; consumed on next plan).
   rateUpBtn?.addEventListener("click", () => sendRating(1));
@@ -1429,24 +1491,23 @@ if (globalThis.__agenticOrchestratorUiInit) {
   initComposerGrow();
   initHostMetricsUi();
   initPwaInstall();
-  if (sessionIdEl && !sessionIdEl.value.trim()) {
-    sessionIdEl.value = browserSessionId;
-  }
   function bootWebSocket() {
     if (globalThis.__agenticWsConnectBooted) return;
     globalThis.__agenticWsConnectBooted = true;
     ensureConnected();
   }
 
-  chatTranscript = loadChatTranscript(browserSessionId);
-  if (transcriptHasConversation(chatTranscript)) {
-    chatRestoredFromStorage = true;
-    restoreChatFromTranscript().finally(() => {
-      bootWebSocket();
-    });
-  } else {
+  async function bootApp() {
+    await loadSessionContext();
+    chatTranscript = loadChatTranscript(browserSessionId);
+    if (transcriptHasConversation(chatTranscript)) {
+      chatRestoredFromStorage = true;
+      await restoreChatFromTranscript();
+    }
     bootWebSocket();
   }
+
+  bootApp();
 
   connStatus?.addEventListener("click", () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {

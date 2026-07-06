@@ -1116,6 +1116,17 @@ button.secondary {
   color: var(--text-faint);
 }
 
+.composer textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .send-btn {
   background: var(--accent);
   color: #06090f;

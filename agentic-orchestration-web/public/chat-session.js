@@ -28,6 +28,20 @@ export function purgeLegacyLocalSessionStorage() {
   }
 }
 
+/** @param {string} id */
+export function setBrowserSessionId(id) {
+  const t = String(id || "").trim();
+  if (!t) return getOrCreateBrowserSessionId();
+  purgeLegacyLocalSessionStorage();
+  const store = tabStorage();
+  try {
+    store?.setItem(SESSION_ID_KEY, t);
+  } catch {
+    /* private mode */
+  }
+  return t;
+}
+
 /** @returns {string} */
 export function getOrCreateBrowserSessionId() {
   purgeLegacyLocalSessionStorage();
@@ -91,7 +105,20 @@ export function clearChatTranscript(sessionId) {
   }
 }
 
+/** @param {Array<{ kind: string, text: string, extraClasses?: string[] }>} entries */
+export function transcriptHasWelcome(entries) {
+  return entries.some(
+    (e) =>
+      e.kind === "assistant" &&
+      Array.isArray(e.extraClasses) &&
+      e.extraClasses.includes("welcome") &&
+      String(e.text || "").trim(),
+  );
+}
+
 /** @param {Array<{ kind: string, text: string }>} entries */
 export function transcriptHasConversation(entries) {
-  return entries.some((e) => e.kind === "user" || e.kind === "assistant");
+  return (
+    entries.some((e) => e.kind === "user" || e.kind === "assistant") || transcriptHasWelcome(entries)
+  );
 }

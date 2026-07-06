@@ -15,6 +15,7 @@ import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-opt
 import { extractUserFacingStdout } from "./lib/chat-output.mjs";
 import { stripWrappingQuotes } from "./lib/text-normalize.mjs";
 import {
+  resolveSessionIdFromHeaders,
   sanitizeUserDisplayName,
   userDisplayNameSpawnEnv,
   userNameFromRequestHeaders,
@@ -264,6 +265,39 @@ const MIME = {
 
 function sendJson(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+const HOST_METRICS_PUSH_MS = Math.max(
+  1000,
+  Number(process.env.AGENTIC_WEB_HOST_METRICS_PUSH_MS) || 2000,
+);
+
+function stopHostMetricsPush(ws) {
+  if (ws._hostMetricsTimer) {
+    clearInterval(ws._hostMetricsTimer);
+    ws._hostMetricsTimer = null;
+  }
+}
+
+async function pushHostMetricsOnce(ws) {
+  if (ws.readyState !== 1) return;
+  try {
+    const metrics = await sampleHostMetrics();
+    sendJson(ws, { type: "host_metrics", ...metrics });
+  } catch {
+    /* ignore sampler errors */
+  }
+}
+
+function startHostMetricsPush(ws) {
+  if (ws._hostMetricsTimer) return;
+  pushHostMetricsOnce(ws);
+  ws._hostMetricsTimer = setInterval(() => {
+    pushHostMetricsOnce(ws);
+  }, HOST_METRICS_PUSH_MS);
+  if (typeof ws._hostMetricsTimer.unref === "function") {
+    ws._hostMetricsTimer.unref();
+  }
 }
 
 /** Env for Python orchestrator runs started from the web UI (chat expects prose, not JSON). */
@@ -1694,11 +1728,12 @@ function handleHttp(req, res) {
   }
   if (isApiSession(req)) {
     const userName = userNameFromRequestHeaders(req.headers);
+    const sessionId = resolveSessionIdFromHeaders(req.headers);
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    res.end(JSON.stringify({ userName }));
+    res.end(JSON.stringify({ userName, sessionId }));
     return;
   }
   if (isApiHostMetrics(req)) {
@@ -2463,6 +2498,7 @@ wss.on("connection", (ws, req) => {
   ws._busy = false;
   ws._greetBusy = false;
   ws._userName = userNameFromRequestHeaders(req?.headers || {});
+  ws._sessionId = resolveSessionIdFromHeaders(req?.headers || {});
   const plannerGreet = webPlannerGreetEnabled();
   sendJson(ws, {
     type: "hello",
@@ -2472,6 +2508,7 @@ wss.on("connection", (ws, req) => {
     edgeRuntime: edgeRuntimeFromEnv(),
     plannerGreet,
     userName: ws._userName,
+    sessionId: ws._sessionId,
     welcomeMessage: plannerGreet ? null : webWelcomeMessage(),
   });
 
@@ -2485,6 +2522,10 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "ping") {
       sendJson(ws, { type: "pong" });
+      return;
+    }
+    if (msg.type === "host_metrics_subscribe") {
+      startHostMetricsPush(ws);
       return;
     }
     if (msg.type === "client_hello") {
@@ -2506,7 +2547,7 @@ wss.on("connection", (ws, req) => {
     if (msg.type === "rate") {
       const fp = (msg.attachmentFingerprint || msg.mcpFingerprint || "none").trim() || "none";
       appendPendingRating({
-        session_slug: msg.sessionId || "",
+        session_slug: msg.sessionId || ws._sessionId || "",
         provider_id: msg.providerId || "",
         attachment_fingerprint: fp,
         mcp_fingerprint: fp,
@@ -2561,7 +2602,7 @@ wss.on("connection", (ws, req) => {
         autoIter: Boolean(msg.autoIter),
         iterativeMaxRounds: msg.iterativeMaxRounds,
         noSynthesize: Boolean(msg.noSynthesize),
-        sessionId: msg.sessionId,
+        sessionId: msg.sessionId || ws._sessionId,
         resetSession: effectiveResetSession(msg, text),
         noVerify: msg.noVerify !== false,
         verboseCrew: Boolean(msg.verboseCrew),
@@ -2576,6 +2617,7 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("close", (code, reason) => {
+    stopHostMetricsPush(ws);
     const r = reason?.toString?.() || "";
     if (code !== 1000 && code !== 1001) {
       console.error(`[agentic-orchestration-web] ws close code=${code} reason=${r.slice(0, 120)}`);

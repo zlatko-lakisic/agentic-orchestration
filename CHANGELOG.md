@@ -7,6 +7,26 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Warpgate session headers** — orchestrator session ID from `X-Agentic-Session-Id` or `X-Warpgate-Session-Id` (configurable via `AGENTIC_WEB_SESSION_ID_HEADER`); auto-generated `web-*` fallback. Session field removed from the settings UI.
+- **Host metrics over WebSocket** — subscribe with `host_metrics_subscribe`; server pushes samples every 2s (override with `AGENTIC_WEB_HOST_METRICS_PUSH_MS`) instead of polling `GET /api/host-metrics`.
+- **Welcome message persistence** — planner greeting is saved in the tab transcript (`extraClasses: welcome`) and restored on refresh.
+- **`jetson_irrigation` agent skill** — Home Assistant zone runtime prompts for edge irrigation control.
+
+### Changed
+
+- **Tab-scoped web sessions** — chat transcript and session ID use `sessionStorage` (cleared when the tab closes); legacy `localStorage` keys purged.
+- **Composer UX** — prompt textarea, send, and attach controls disabled while the welcome message loads or an orchestrator run is in progress.
+- **Jetson networking** — coordinator exposes NodePort `30487` only (no `hostPort: 80`); `Recreate` rollout strategy for single-node k3s.
+- **WebSocket singleton** — browser patches the `WebSocket` constructor to prevent duplicate connections through Warpgate/Traefik.
+
+### Fixed
+
+- **Warpgate edge compatibility** — WebSocket keepalive pings, reconnect UX, credentialed PWA manifest fetch (`pwa-manifest-link.js`).
+- **Coordinator rollout deadlocks** on single-node k3s (`Recreate` vs `hostPort` + `RollingUpdate`).
+- **Empty PWA manifest** behind Warpgate auth redirect (307 login page).
+
 ## [1.9.0] - 2026-07-05
 
 ### Added

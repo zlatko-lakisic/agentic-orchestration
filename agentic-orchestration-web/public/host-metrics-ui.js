@@ -1,5 +1,4 @@
 const HISTORY_MAX = 180;
-const POLL_MS = 1000;
 const COLORS = {
   cpu: "#f59e0b",
   mem: "#60a5fa",
@@ -7,6 +6,8 @@ const COLORS = {
   grid: "rgba(148, 163, 184, 0.12)",
   axis: "rgba(148, 163, 184, 0.35)",
 };
+
+let applyHostMetricsSample = null;
 
 function formatBytes(n) {
   const v = Number(n);
@@ -117,6 +118,23 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
   }
 }
 
+/** @param {Record<string, unknown>} data */
+export function handleHostMetricsMessage(data) {
+  if (!data || data.type !== "host_metrics") return;
+  const { type: _type, ...sample } = data;
+  applyHostMetricsSample?.(sample);
+}
+
+/** @param {WebSocket | null | undefined} ws */
+export function subscribeHostMetrics(ws) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    ws.send(JSON.stringify({ type: "host_metrics_subscribe" }));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function initHostMetricsUi() {
   const btn = document.getElementById("hostMetricsBtn");
   const spark = document.getElementById("hostMetricsSpark");
@@ -144,7 +162,6 @@ export function initHostMetricsUi() {
   const history = [];
   let modalOpen = false;
   let lastSample = null;
-  let pollTimer = null;
 
   function pushHistory(sample) {
     if (sample?.cpu?.percent == null) return;
@@ -252,20 +269,15 @@ export function initHostMetricsUi() {
     }
   }
 
-  async function poll() {
-    try {
-      const res = await fetch("/api/host-metrics", { cache: "no-store" });
-      if (!res.ok) return;
-      const sample = await res.json();
-      lastSample = sample;
-      pushHistory(sample);
-      btn.classList.remove("stale");
-      updateHeader();
-      updateModal();
-    } catch {
-      btn.classList.add("stale");
-    }
+  function applySample(sample) {
+    lastSample = sample;
+    pushHistory(sample);
+    btn.classList.remove("stale");
+    updateHeader();
+    updateModal();
   }
+
+  applyHostMetricsSample = applySample;
 
   function openModal() {
     if (!modal || !scrim) return;
@@ -299,11 +311,5 @@ export function initHostMetricsUi() {
   scrim?.addEventListener("click", closeModal);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modalOpen) closeModal();
-  });
-
-  poll();
-  pollTimer = window.setInterval(poll, POLL_MS);
-  window.addEventListener("beforeunload", () => {
-    if (pollTimer != null) clearInterval(pollTimer);
   });
 }
