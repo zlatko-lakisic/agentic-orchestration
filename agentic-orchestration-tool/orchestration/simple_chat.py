@@ -13,6 +13,7 @@ def strip_web_prose_delivery_suffix(text: str) -> str:
     suffix = WEB_PROSE_GOAL_SUFFIX.strip()
     if suffix and t.endswith(suffix):
         return t[: -len(suffix)].strip()
+    t = re.sub(r"\[Delivery format:[^\]]*\]", "", t, flags=re.IGNORECASE).strip()
     return t
 
 

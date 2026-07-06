@@ -27,3 +27,8 @@ test("sanitizeUserFacingProse unwraps boxed final answer", () => {
     "The final answer is $\\boxed{Short plain summary.}$";
   assert.equal(sanitizeUserFacingProse(raw), "Short plain summary.");
 });
+
+test("sanitizeUserFacingProse strips format instruction echo", () => {
+  const echoed = "Please provide your answer using only plain text (short paragraphs or bullet lists).";
+  assert.equal(sanitizeUserFacingProse(echoed), "");
+});

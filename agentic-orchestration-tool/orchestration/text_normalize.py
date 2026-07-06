@@ -23,6 +23,10 @@ _INSTRUCTION_ECHO_CUES = (
     "requirements",
     "delivery format",
     "plain natural language",
+    "plain text",
+    "please provide your answer",
+    "short paragraphs",
+    "bullet lists",
     "according to all that was provided",
     "simply use plain text",
     "the final answer is",
@@ -31,6 +35,38 @@ _INSTRUCTION_ECHO_CUES = (
     "no meta-commentary",
     "[agentic:",
 )
+
+
+def looks_like_format_instruction_only(text: str) -> bool:
+    """True when the model echoed formatting rules instead of answering."""
+    t = str(text or "").strip().lower()
+    if not t or len(t) > 320:
+        return False
+    format_cues = (
+        "please provide your answer",
+        "plain text",
+        "short paragraphs",
+        "bullet lists",
+        "delivery format",
+        "natural language",
+        "do not use json",
+        "formatting rules",
+    )
+    hits = sum(1 for cue in format_cues if cue in t)
+    if hits < 2:
+        return False
+    substance = (
+        "crewai",
+        "orchestration",
+        "github",
+        "yaml",
+        "mcp",
+        "agent",
+        "repository",
+        "project",
+        "multi-agent",
+    )
+    return not any(word in t for word in substance)
 
 
 def strip_wrapping_quotes(text: str) -> str:
@@ -103,5 +139,7 @@ def sanitize_user_facing_prose(text: str) -> str:
     from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
 
     if looks_like_mcp_tool_call_leak(t):
+        return ""
+    if looks_like_format_instruction_only(t):
         return ""
     return t

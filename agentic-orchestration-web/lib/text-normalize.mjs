@@ -25,7 +25,10 @@ const INSTRUCTION_ECHO_CUES = [
   "delivery format",
   "plain natural language",
   "according to all that was provided",
-  "simply use plain text",
+  "please provide your answer",
+  "plain text",
+  "short paragraphs",
+  "bullet lists",
   "the final answer is",
   "write the user-facing",
   "do not use json",
@@ -59,6 +62,28 @@ function stripLeadingInstructionParagraphs(text) {
 }
 
 /** @param {string} text */
+export function looksLikeFormatInstructionOnly(text) {
+  const t = String(text ?? "").trim().toLowerCase();
+  if (!t || t.length > 320) return false;
+  const formatCues = [
+    "please provide your answer",
+    "plain text",
+    "short paragraphs",
+    "bullet lists",
+    "delivery format",
+    "natural language",
+    "do not use json",
+  ];
+  let hits = 0;
+  for (const cue of formatCues) {
+    if (t.includes(cue)) hits += 1;
+  }
+  if (hits < 2) return false;
+  const substance = ["crewai", "orchestration", "github", "yaml", "mcp", "agent", "repository", "project"];
+  return !substance.some((word) => t.includes(word));
+}
+
+/** @param {string} text */
 export function sanitizeUserFacingProse(text) {
   let t = String(text ?? "").trim();
   if (!t) return t;
@@ -85,5 +110,7 @@ export function sanitizeUserFacingProse(text) {
   t = t.replace(/^(?:the\s+)?final answer\s+is\s*:?\s*/gim, "");
   t = stripLeadingInstructionParagraphs(t);
   t = t.replace(/\n{3,}/g, "\n\n").trim();
-  return stripWrappingQuotes(t);
+  t = stripWrappingQuotes(t);
+  if (looksLikeFormatInstructionOnly(t)) return "";
+  return t;
 }

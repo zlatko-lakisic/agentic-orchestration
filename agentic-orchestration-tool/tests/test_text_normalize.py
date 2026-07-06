@@ -35,3 +35,11 @@ def test_sanitize_user_facing_prose_keeps_plain_prose() -> None:
 def test_sanitize_user_facing_prose_strips_tool_call_leak() -> None:
     leaked = 'name: analyze\nparameters: {"url":"https://example.com"}'
     assert sanitize_user_facing_prose(leaked) == ""
+
+
+def test_sanitize_user_facing_prose_strips_format_instruction_echo() -> None:
+    from orchestration.text_normalize import looks_like_format_instruction_only
+
+    echoed = "Please provide your answer using only plain text (short paragraphs or bullet lists)."
+    assert looks_like_format_instruction_only(echoed)
+    assert sanitize_user_facing_prose(echoed) == ""

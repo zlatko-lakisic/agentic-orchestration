@@ -92,6 +92,27 @@ def extract_url_from_leak_or_topic(leaked_text: str, topic: str) -> str | None:
 _FETCHED_MARKER = "[agentic: fetched page content]"
 
 
+def _user_question_from_topic(topic: str) -> str:
+    from orchestration.simple_chat import strip_web_prose_delivery_suffix
+
+    return strip_web_prose_delivery_suffix(topic).strip()
+
+
+def _summarize_task_description(user_question: str, fetched_block: str, *, minimal: bool = False) -> str:
+    if minimal:
+        return (
+            "Repository / page text:\n"
+            f"{fetched_block[:5000]}\n\n"
+            "In 3-4 sentences, what is this software project or page about?"
+        )
+    return (
+        f"Question: {user_question}\n\n"
+        f"{_FETCHED_MARKER}\n{fetched_block}\n\n"
+        "Answer the question directly using the page text above (2-5 sentences). "
+        "Do not repeat formatting instructions."
+    )
+
+
 def run_ollama_fetch_summarize_step(
     *,
     built: Any,
@@ -106,27 +127,37 @@ def run_ollama_fetch_summarize_step(
     """
     from orchestration.output_artifacts import workflow_result_to_extractable_text
     from orchestration.runner import crew_kickoff_context
-    from orchestration.text_normalize import sanitize_user_facing_prose
+    from orchestration.text_normalize import (
+        looks_like_format_instruction_only,
+        sanitize_user_facing_prose,
+    )
 
     blocks: list[str] = []
     for url in urls[:3]:
         body = FetchUrlTool()._run(url, max_length=5000)
         blocks.append(f"### {url}\n{body}")
     fetched_block = "\n\n".join(blocks).strip()
+    user_question = _user_question_from_topic(topic)
+    text = ""
 
-    summarize_desc = (
-        f"{task_description.rstrip()}\n\n"
-        f"{_FETCHED_MARKER}\n{fetched_block}\n\n"
-        "Using only the fetched page text above, answer the user's question in clear plain prose. "
-        "Do not output tool names, parameters, JSON, or `name:` / `parameters:` lines."
-    )
-    for crew_task in built.crew.tasks:
-        crew_task.description = summarize_desc
-    for agent in built.crew.agents:
-        agent.tools = []
-    with crew_kickoff_context(built):
-        workflow_result = built.crew.kickoff(inputs={"topic": topic})
-    return sanitize_user_facing_prose(workflow_result_to_extractable_text(workflow_result))
+    for minimal in (False, True):
+        summarize_desc = _summarize_task_description(
+            user_question,
+            fetched_block,
+            minimal=minimal,
+        )
+        for crew_task in built.crew.tasks:
+            crew_task.description = summarize_desc
+            crew_task.expected_output = "A short plain-language summary."
+        for agent in built.crew.agents:
+            agent.tools = []
+        with crew_kickoff_context(built):
+            workflow_result = built.crew.kickoff(inputs={"topic": user_question})
+        text = sanitize_user_facing_prose(workflow_result_to_extractable_text(workflow_result))
+        if text and not looks_like_format_instruction_only(text):
+            return text
+
+    return text if text else "Could not summarize the page content."
 
 
 def recover_fetch_url_after_tool_leak(
