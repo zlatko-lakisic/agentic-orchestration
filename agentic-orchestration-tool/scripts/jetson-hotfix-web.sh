@@ -20,6 +20,7 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=user-context.js="${WEB_ROOT}/public/user-context.js" \
   --from-file=install-prompt.js="${WEB_ROOT}/public/install-prompt.js" \
   --from-file=proxy-context.js="${WEB_ROOT}/public/proxy-context.js" \
+  --from-file=ws-singleton.js="${WEB_ROOT}/public/ws-singleton.js" \
   --from-file=pwa-manifest-data.js="${WEB_ROOT}/public/pwa-manifest-data.js" \
   --from-file=pwa-manifest-link.js="${WEB_ROOT}/public/pwa-manifest-link.js" \
   --from-file=chat-session.js="${WEB_ROOT}/public/chat-session.js" \

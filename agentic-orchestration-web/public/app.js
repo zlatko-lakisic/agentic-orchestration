@@ -1,3 +1,5 @@
+import "./ws-singleton.js";
+import { closeActiveWebSocket, getActiveWebSocket, isActiveWebSocket } from "./ws-singleton.js";
 import { initHostMetricsUi } from "./host-metrics-ui.js";
 import { initPwaInstall } from "./install-prompt.js";
 import {
@@ -657,7 +659,13 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   function scheduleReconnect() {
     if (reconnectTimer != null) return;
+    if (connectPromise) return;
     if (document.visibilityState === "hidden") return;
+    const active = getActiveWebSocket();
+    if (active && (active.readyState === WebSocket.OPEN || active.readyState === WebSocket.CONNECTING)) {
+      ws = active;
+      return;
+    }
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       ensureConnected();
@@ -666,6 +674,11 @@ if (globalThis.__agenticOrchestratorUiInit) {
   }
 
   async function ensureConnected() {
+    const active = getActiveWebSocket();
+    if (active && (active.readyState === WebSocket.OPEN || active.readyState === WebSocket.CONNECTING)) {
+      ws = active;
+      return;
+    }
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -680,6 +693,11 @@ if (globalThis.__agenticOrchestratorUiInit) {
       }
       await loadSessionUserName();
 
+      const live = getActiveWebSocket();
+      if (live && (live.readyState === WebSocket.OPEN || live.readyState === WebSocket.CONNECTING)) {
+        ws = live;
+        return;
+      }
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;
       }
@@ -687,6 +705,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       clearReconnectTimer();
       const gen = ++wsGeneration;
       intentionalDisconnect = false;
+      closeActiveWebSocket();
       detachSocket(ws);
       ws = null;
       stopHeartbeat();
@@ -702,7 +721,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       ws = socket;
 
       socket.onopen = () => {
-        if (gen !== wsGeneration || ws !== socket) return;
+        if (gen !== wsGeneration || !isActiveWebSocket(socket)) return;
         reconnectDelayMs = 2000;
         clearReconnectTimer();
         setConnStatus("connected", "Connected");
@@ -716,7 +735,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       };
 
       socket.onclose = () => {
-        if (gen !== wsGeneration || ws !== socket) return;
+        if (gen !== wsGeneration) return;
         ws = null;
         stopHeartbeat();
         if (stableConnectionTimer != null) {
@@ -754,7 +773,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   function attachSocketMessageHandler(socket, gen) {
     socket.onmessage = async (ev) => {
-      if (gen !== wsGeneration || ws !== socket) return;
+      if (gen !== wsGeneration || !isActiveWebSocket(socket)) return;
       let data;
       try {
         data = JSON.parse(ev.data);
@@ -1413,37 +1432,33 @@ if (globalThis.__agenticOrchestratorUiInit) {
   if (sessionIdEl && !sessionIdEl.value.trim()) {
     sessionIdEl.value = browserSessionId;
   }
+  function bootWebSocket() {
+    if (globalThis.__agenticWsConnectBooted) return;
+    globalThis.__agenticWsConnectBooted = true;
+    ensureConnected();
+  }
+
   chatTranscript = loadChatTranscript(browserSessionId);
   if (transcriptHasConversation(chatTranscript)) {
     chatRestoredFromStorage = true;
     restoreChatFromTranscript().finally(() => {
-      ensureConnected();
+      bootWebSocket();
     });
   } else {
-    ensureConnected();
+    bootWebSocket();
   }
 
   connStatus?.addEventListener("click", () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       reconnectDelayMs = 2000;
       wsGeneration += 1;
+      closeActiveWebSocket();
       detachSocket(ws);
       ws = null;
+      connectPromise = null;
       clearReconnectTimer();
+      globalThis.__agenticWsConnectBooted = true;
       ensureConnected();
-    }
-  });
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    reconnectDelayMs = 2000;
-    scheduleReconnect();
-  });
-
-  window.addEventListener("pageshow", (event) => {
-    if (event.persisted && (!ws || ws.readyState !== WebSocket.OPEN)) {
-      scheduleReconnect();
     }
   });
 }
