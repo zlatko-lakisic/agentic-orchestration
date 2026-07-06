@@ -13,35 +13,73 @@ const {
   saveChatTranscript,
   clearChatTranscript,
   transcriptHasConversation,
+  purgeLegacyLocalSessionStorage,
 } = await import(libUrl);
 
-const store = new Map();
-
-test("browser session id is stable in localStorage", () => {
+function mockStores() {
+  const session = new Map();
+  const local = new Map();
+  globalThis.sessionStorage = {
+    getItem: (k) => session.get(k) ?? null,
+    setItem: (k, v) => session.set(k, String(v)),
+    removeItem: (k) => session.delete(k),
+    get length() {
+      return session.size;
+    },
+    key: (i) => [...session.keys()][i] ?? null,
+  };
   globalThis.localStorage = {
-    getItem: (k) => store.get(k) ?? null,
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k),
+    getItem: (k) => local.get(k) ?? null,
+    setItem: (k, v) => local.set(k, String(v)),
+    removeItem: (k) => local.delete(k),
+    get length() {
+      return local.size;
+    },
+    key: (i) => [...local.keys()][i] ?? null,
   };
   Object.defineProperty(globalThis, "crypto", {
     value: { randomUUID: () => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" },
     configurable: true,
     writable: true,
   });
-  store.clear();
+  return { session, local };
+}
+
+test("browser session id is stable for the tab (sessionStorage)", () => {
+  const { session } = mockStores();
+  session.clear();
   const a = getOrCreateBrowserSessionId();
   const b = getOrCreateBrowserSessionId();
   assert.equal(a, b);
   assert.match(a, /^web-/);
 });
 
-test("chat transcript round-trip", () => {
-  globalThis.localStorage = {
-    getItem: (k) => store.get(k) ?? null,
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k),
-  };
-  store.clear();
+test("new tab gets a new session id after sessionStorage is cleared", () => {
+  const { session } = mockStores();
+  session.clear();
+  const first = getOrCreateBrowserSessionId();
+  session.clear();
+  Object.defineProperty(globalThis, "crypto", {
+    value: { randomUUID: () => "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee" },
+    configurable: true,
+    writable: true,
+  });
+  const second = getOrCreateBrowserSessionId();
+  assert.notEqual(first, second);
+});
+
+test("purgeLegacyLocalSessionStorage removes old localStorage session keys", () => {
+  const { local } = mockStores();
+  local.set("agentic.orchestrator.sessionId", "web-oldsticky");
+  local.set("agentic.chat.transcript.web-oldsticky", "[]");
+  purgeLegacyLocalSessionStorage();
+  assert.equal(local.has("agentic.orchestrator.sessionId"), false);
+  assert.equal(local.has("agentic.chat.transcript.web-oldsticky"), false);
+});
+
+test("chat transcript round-trip in sessionStorage", () => {
+  const { session } = mockStores();
+  session.clear();
   const sid = "test-session";
   saveChatTranscript(sid, [{ kind: "user", text: "hello" }]);
   const loaded = loadChatTranscript(sid);
