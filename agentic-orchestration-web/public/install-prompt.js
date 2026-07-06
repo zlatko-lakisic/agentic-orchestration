@@ -1,5 +1,3 @@
-import { isWarpgateFronted } from "./proxy-context.js";
-
 const DISMISS_KEY = "agentic_pwa_install_dismissed_v1";
 const MANIFEST_HREF = "/manifest.webmanifest";
 
@@ -27,16 +25,11 @@ function isDismissed() {
 }
 
 function registerServiceWorker() {
-  if (isWarpgateFronted()) return;
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
 
 function ensureManifestLink() {
-  if (isWarpgateFronted()) {
-    document.querySelector('link[rel="manifest"]')?.remove();
-    return;
-  }
   if (document.querySelector('link[rel="manifest"]')) return;
   const link = document.createElement("link");
   link.rel = "manifest";
@@ -50,7 +43,6 @@ function ensureManifestLink() {
  */
 export function initPwaInstall() {
   ensureManifestLink();
-  if (isWarpgateFronted()) return;
   if (isStandalone() || isDismissed()) return;
 
   registerServiceWorker();

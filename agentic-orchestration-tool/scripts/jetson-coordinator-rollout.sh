@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Jetson coordinator rollout helpers — Recreate strategy, no hostPort, stale-RS cleanup.
+# Jetson coordinator rollout helpers — Recreate strategy + hostPort 80, stale-RS cleanup.
 set -eu
 PROJECT_ROOT="${PROJECT_ROOT:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
@@ -25,18 +25,23 @@ _apply_rollout_patch() {
     echo "coordinator deployment not found in ${NS}; skip rollout patch" >&2
     return 0
   fi
-  echo "=== coordinator rollout patch (Recreate, no hostPort) ==="
+  echo "=== coordinator rollout patch (Recreate + hostPort 80) ==="
   # JSON patch replaces strategy wholesale (strategic merge cannot drop rollingUpdate).
   kubectl patch deployment "${DEPLOY}" -n "${NS}" --type=json \
     -p='[{"op": "replace", "path": "/spec/strategy", "value": {"type": "Recreate"}}]'
   kubectl patch deployment "${DEPLOY}" -n "${NS}" --type=json \
-    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "protocol": "TCP"}]}]'
+    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "hostPort": 80, "protocol": "TCP"}]}]'
   if [[ -f "${ROLLPATCH}" ]]; then
-    # Best-effort strategic patch for any extra fields in the YAML file.
     kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${ROLLPATCH}" 2>/dev/null || true
   fi
   if [[ -f "${NODEPORT_SVC}" ]]; then
     kubectl apply -f "${NODEPORT_SVC}"
+  fi
+  local redirect="${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh"
+  if [[ -f "${redirect}" ]]; then
+    bash "${redirect}" disable 2>/dev/null \
+      || sudo bash "${redirect}" disable 2>/dev/null \
+      || true
   fi
 }
 

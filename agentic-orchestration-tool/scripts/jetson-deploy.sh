@@ -20,11 +20,6 @@ git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
 bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
-if [[ -f "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" ]]; then
-  bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" enable 2>/dev/null \
-    || sudo bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" enable 2>/dev/null \
-    || echo "note: port-80 redirect needs sudo once (or run jetson-k3s-deploy as root)" >&2
-fi
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
