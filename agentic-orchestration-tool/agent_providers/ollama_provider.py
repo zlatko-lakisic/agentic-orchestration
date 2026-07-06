@@ -527,12 +527,22 @@ class OllamaProvider(AgentProvider):
         skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
         role_suffix: str | None = None,
     ) -> Agent:
+        from orchestration.fetch_url_tool import (
+            attach_fetch_url_tool_to_agents,
+            partition_fetch_stdio_mcps,
+        )
+
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
         model = f"ollama/{model_without_prefix}"
         os.environ.setdefault("OLLAMA_API_BASE", litellm_api_base_for_ollama())
 
-        if mcps:
+        mcps_list = list(mcps) if mcps else []
+        other_mcps, fetch_stdio = partition_fetch_stdio_mcps(mcps_list)
+        fetch_tool_needed = bool(fetch_stdio)
+        effective_mcps = other_mcps or None
+
+        if effective_mcps or fetch_tool_needed:
             llm = LLM(model=model, api_base=litellm_api_base_for_ollama())
         else:
             llm = model
@@ -542,16 +552,19 @@ class OllamaProvider(AgentProvider):
             goal=self.config.goal,
             backstory=resolve_agent_backstory(
                 self.config.backstory,
-                mcps=mcps,
+                mcps=mcps_list if mcps_list else None,
                 skill_backstory_blocks=skill_backstory_blocks,
             ),
             llm=llm,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
         )
-        if mcps:
-            kwargs["mcps"] = list(mcps)
-        return Agent(**kwargs)
+        if effective_mcps:
+            kwargs["mcps"] = list(effective_mcps)
+        agent = Agent(**kwargs)
+        if fetch_tool_needed:
+            attach_fetch_url_tool_to_agents([agent])
+        return agent
 
     def recover_from_workflow_error(self, error: BaseException) -> bool:
         if not _looks_like_ollama_runner_crash(error):

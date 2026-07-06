@@ -36,6 +36,12 @@ spec:
               mountPath: /app/tool/orchestration/mcp_task_hints.py
               subPath: mcp_task_hints.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/fetch_url_tool.py
+              subPath: fetch_url_tool.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/mcp_providers_catalog.py
+              subPath: mcp_providers_catalog.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/workflow_materializer.py
               subPath: workflow_materializer.py
             - name: tool-hotfix-agent-providers

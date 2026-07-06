@@ -446,6 +446,9 @@ def _terms_from_mcp_catalog_entry(entry: dict[str, Any]) -> set[str]:
     return out
 
 
+_HTTP_URL_IN_GOAL_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+
+
 def suggest_mcp_ids_from_user_goal(
     user_text: str,
     entries: list[dict[str, Any]],
@@ -457,6 +460,16 @@ def suggest_mcp_ids_from_user_goal(
     u = user_text.strip().lower()
     if not u:
         return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    if _HTTP_URL_IN_GOAL_RE.search(user_text):
+        for e in entries:
+            eid = str(e.get("id", "")).strip()
+            if eid == "fetch_url" and mcp_entry_has_api_credentials(e):
+                out.append(eid)
+                seen.add(eid)
+                break
 
     def _is_wordish_match(term: str) -> bool:
         t = term.strip().lower()
@@ -491,8 +504,6 @@ def suggest_mcp_ids_from_user_goal(
         scored.append((hits, eid))
 
     scored.sort(key=lambda t: (-t[0], t[1].lower()))
-    out: list[str] = []
-    seen: set[str] = set()
     for _hits, eid in scored:
         if eid not in seen:
             seen.add(eid)

@@ -54,7 +54,7 @@ def looks_like_mcp_tool_call_leak(text: str) -> bool:
 def _fetch_url_hint() -> str:
     return (
         "**URL fetch (required):** When the user's goal includes HTTP(S) URLs, invoke the "
-        "fetch MCP tool for each relevant URL, read the returned page text, then answer in "
+        "`fetch` tool for each relevant URL, read the returned page text, then answer in "
         "plain natural language. Your final answer must be a human-readable summary — never "
         "output tool invocation stubs (`name:`, `parameters:`, JSON tool envelopes, or "
         "python_m_mcp_server_fetch lines)."
