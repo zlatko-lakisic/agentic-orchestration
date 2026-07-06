@@ -1,5 +1,6 @@
+import { isWarpgateFronted } from "./proxy-context.js";
+
 const DISMISS_KEY = "agentic_pwa_install_dismissed_v1";
-const MANIFEST_HREF = "/manifest.webmanifest";
 
 function isStandalone() {
   return (
@@ -25,24 +26,15 @@ function isDismissed() {
 }
 
 function registerServiceWorker() {
+  if (isWarpgateFronted()) return;
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
-}
-
-function ensureManifestLink() {
-  if (document.querySelector('link[rel="manifest"]')) return;
-  const link = document.createElement("link");
-  link.rel = "manifest";
-  link.href = MANIFEST_HREF;
-  link.type = "application/manifest+json";
-  document.head.appendChild(link);
 }
 
 /**
  * Show install UI on Android (and other Chromium) when the PWA is installable.
  */
 export function initPwaInstall() {
-  ensureManifestLink();
   if (isStandalone() || isDismissed()) return;
 
   registerServiceWorker();

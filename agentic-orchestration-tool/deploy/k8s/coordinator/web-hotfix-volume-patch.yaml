@@ -36,6 +36,15 @@ spec:
               mountPath: /app/web/public/install-prompt.js
               subPath: install-prompt.js
             - name: web-hotfix-public
+              mountPath: /app/web/public/proxy-context.js
+              subPath: proxy-context.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/pwa-manifest-data.js
+              subPath: pwa-manifest-data.js
+            - name: web-hotfix-public
+              mountPath: /app/web/public/pwa-manifest-link.js
+              subPath: pwa-manifest-link.js
+            - name: web-hotfix-public
               mountPath: /app/web/public/chat-session.js
               subPath: chat-session.js
             - name: web-hotfix-public
