@@ -124,6 +124,11 @@ function unwrapJsonLikeAssistantText(text) {
   return prose.trim() ? prose : text;
 }
 
+if (globalThis.__agenticOrchestratorUiInit) {
+  console.warn("[agentic] duplicate app.js load ignored");
+} else {
+  globalThis.__agenticOrchestratorUiInit = true;
+
 {
   const chat = document.getElementById("chat");
   const chatScroll = document.getElementById("chatScroll");
@@ -202,6 +207,30 @@ function unwrapJsonLikeAssistantText(text) {
   let heartbeatTimer = null;
   let stableConnectionTimer = null;
   let intentionalDisconnect = false;
+  let wsGeneration = 0;
+  let connectPromise = null;
+
+  function clearReconnectTimer() {
+    if (reconnectTimer != null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function detachSocket(socket) {
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
+    try {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close(1000, "replaced");
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   function heartbeatIntervalMs() {
     return isWarpgateFronted() ? 4000 : 20000;
@@ -631,80 +660,101 @@ function unwrapJsonLikeAssistantText(text) {
     if (document.visibilityState === "hidden") return;
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
-      connect();
+      ensureConnected();
     }, reconnectDelayMs);
     reconnectDelayMs = Math.min(Math.round(reconnectDelayMs * 1.5), 30000);
   }
 
-  function connect() {
-    if (
-      ws &&
-      (ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING ||
-        ws.readyState === WebSocket.CLOSING)
-    ) {
+  async function ensureConnected() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
-    intentionalDisconnect = false;
-    if (ws) {
-      try {
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-      } catch {
-        /* ignore */
+    if (connectPromise) return connectPromise;
+
+    connectPromise = (async () => {
+      const sessionReady = await ensureEdgeSessionReady();
+      if (!sessionReady) {
+        setConnStatus("disconnected", "Login required");
+        appendMeta("Could not verify Warpgate session. Refresh after signing in.");
+        return;
       }
-    }
-    stopHeartbeat();
-    if (stableConnectionTimer != null) {
-      window.clearTimeout(stableConnectionTimer);
-      stableConnectionTimer = null;
-    }
-    welcomeBubble = null;
-    setConnStatus("reconnecting", hadConnectedOnce ? "Reconnecting…" : "Connecting…");
-    const url = `${proto()}//${window.location.host}`;
-    ws = new WebSocket(url);
+      await loadSessionUserName();
 
-    ws.onopen = () => {
-      reconnectDelayMs = 2000;
-      setConnStatus("connected", "Connected");
-      sendBtn.disabled = runActive;
-      sendClientHello();
-      startHeartbeat();
-      hadConnectedOnce = true;
-      stableConnectionTimer = window.setTimeout(() => {
-        reconnectDelayMs = 2000;
-      }, 8000);
-    };
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
 
-    ws.onclose = () => {
+      clearReconnectTimer();
+      const gen = ++wsGeneration;
+      intentionalDisconnect = false;
+      detachSocket(ws);
+      ws = null;
       stopHeartbeat();
       if (stableConnectionTimer != null) {
         window.clearTimeout(stableConnectionTimer);
         stableConnectionTimer = null;
       }
-      stopProcessingUi();
       welcomeBubble = null;
-      assistantBubble = null;
-      sendBtn.disabled = true;
-      if (runActive) {
-        runActive = false;
-        appendMeta("Connection lost. Your orchestrator session is unchanged — resend if the last reply is missing.");
-      }
-      if (intentionalDisconnect) {
-        setConnStatus("disconnected", "Disconnected");
-        return;
-      }
-      if (hadConnectedOnce) pendingReconnectNotice = true;
-      setConnStatus("reconnecting", "Reconnecting…");
-      scheduleReconnect();
-    };
+      setConnStatus("reconnecting", hadConnectedOnce ? "Reconnecting…" : "Connecting…");
 
-    ws.onerror = () => {
-      /* onclose handles reconnect; avoid spamming meta on proxy flaps */
-    };
+      const url = `${proto()}//${window.location.host}`;
+      const socket = new WebSocket(url);
+      ws = socket;
 
-    ws.onmessage = async (ev) => {
+      socket.onopen = () => {
+        if (gen !== wsGeneration || ws !== socket) return;
+        reconnectDelayMs = 2000;
+        clearReconnectTimer();
+        setConnStatus("connected", "Connected");
+        sendBtn.disabled = runActive;
+        sendClientHello();
+        startHeartbeat();
+        hadConnectedOnce = true;
+        stableConnectionTimer = window.setTimeout(() => {
+          reconnectDelayMs = 2000;
+        }, 8000);
+      };
+
+      socket.onclose = () => {
+        if (gen !== wsGeneration || ws !== socket) return;
+        ws = null;
+        stopHeartbeat();
+        if (stableConnectionTimer != null) {
+          window.clearTimeout(stableConnectionTimer);
+          stableConnectionTimer = null;
+        }
+        stopProcessingUi();
+        welcomeBubble = null;
+        assistantBubble = null;
+        sendBtn.disabled = true;
+        if (runActive) {
+          runActive = false;
+          appendMeta("Connection lost. Your orchestrator session is unchanged — resend if the last reply is missing.");
+        }
+        if (intentionalDisconnect) {
+          setConnStatus("disconnected", "Disconnected");
+          return;
+        }
+        if (hadConnectedOnce) pendingReconnectNotice = true;
+        setConnStatus("reconnecting", "Reconnecting…");
+        scheduleReconnect();
+      };
+
+      socket.onerror = () => {
+        /* onclose handles reconnect */
+      };
+
+      attachSocketMessageHandler(socket, gen);
+    })().finally(() => {
+      connectPromise = null;
+    });
+
+    return connectPromise;
+  }
+
+  function attachSocketMessageHandler(socket, gen) {
+    socket.onmessage = async (ev) => {
+      if (gen !== wsGeneration || ws !== socket) return;
       let data;
       try {
         data = JSON.parse(ev.data);
@@ -1363,37 +1413,30 @@ function unwrapJsonLikeAssistantText(text) {
   if (sessionIdEl && !sessionIdEl.value.trim()) {
     sessionIdEl.value = browserSessionId;
   }
-  async function startSession() {
-    const sessionReady = await ensureEdgeSessionReady();
-    if (!sessionReady) {
-      setConnStatus("disconnected", "Login required");
-      appendMeta("Could not verify Warpgate session. Refresh after signing in.");
-      return;
-    }
-    await loadSessionUserName();
-    connect();
-  }
-
   chatTranscript = loadChatTranscript(browserSessionId);
   if (transcriptHasConversation(chatTranscript)) {
     chatRestoredFromStorage = true;
     restoreChatFromTranscript().finally(() => {
-      startSession();
+      ensureConnected();
     });
   } else {
-    startSession();
+    ensureConnected();
   }
 
   connStatus?.addEventListener("click", () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       reconnectDelayMs = 2000;
-      startSession();
+      wsGeneration += 1;
+      detachSocket(ws);
+      ws = null;
+      clearReconnectTimer();
+      ensureConnected();
     }
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
-    if (!ws || ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     reconnectDelayMs = 2000;
     scheduleReconnect();
   });
@@ -1404,3 +1447,4 @@ function unwrapJsonLikeAssistantText(text) {
     }
   });
 }
+} // __agenticOrchestratorUiInit
