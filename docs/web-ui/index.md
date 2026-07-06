@@ -50,7 +50,7 @@ npm start
 Health endpoints and metadata:
 
 - `GET /api/ping` returns instance/pid metadata (useful to verify restarts and active process).
-- `GET /api/session` returns `{ userName, sessionId }` from proxy headers (Warpgate) or generated `web-*` id.
+- `GET /api/session` returns a JSON object with `userName` and `sessionId` from proxy headers (Warpgate) or a generated `web-*` id.
 - `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; also pushed over WebSocket).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
 
