@@ -2,6 +2,8 @@
 
 from orchestration.fetch_url_tool import (
     FetchUrlTool,
+    extract_http_urls_from_text,
+    extract_url_from_leak_or_topic,
     is_fetch_stdio_mcp_entry,
     partition_fetch_stdio_mcps,
 )
@@ -23,3 +25,19 @@ def test_partition_fetch_stdio_mcps() -> None:
 def test_fetch_url_tool_name() -> None:
     tool = FetchUrlTool()
     assert tool.name == "fetch"
+
+
+def test_extract_http_urls_from_text() -> None:
+    urls = extract_http_urls_from_text(
+        "what is https://github.com/zlatko-lakisic/agentic-orchestration about?"
+    )
+    assert urls == ["https://github.com/zlatko-lakisic/agentic-orchestration"]
+
+
+def test_extract_url_from_leak_or_topic() -> None:
+    leaked = (
+        'name: analyze\nparameters: {"max_length":5000,'
+        '"url":"https://github.com/zlatko-lakisic/agentic-orchestration"}'
+    )
+    url = extract_url_from_leak_or_topic(leaked, "summarize the repo")
+    assert url == "https://github.com/zlatko-lakisic/agentic-orchestration"

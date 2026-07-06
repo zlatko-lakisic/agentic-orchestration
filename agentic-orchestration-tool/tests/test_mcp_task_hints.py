@@ -16,6 +16,15 @@ def test_looks_like_mcp_tool_call_leak_detects_fetch_parameters() -> None:
     assert looks_like_mcp_tool_call_leak(leaked)
 
 
+def test_looks_like_mcp_tool_call_leak_detects_analyze_name() -> None:
+    leaked = (
+        "name: analyze\n"
+        'parameters: {"max_length":5000,'
+        '"url":"https://github.com/zlatko-lakisic/agentic-orchestration"}'
+    )
+    assert looks_like_mcp_tool_call_leak(leaked)
+
+
 def test_looks_like_mcp_tool_call_leak_ignores_normal_prose() -> None:
     assert not looks_like_mcp_tool_call_leak(
         "This repo is about agentic AI orchestration with CrewAI and MCP."

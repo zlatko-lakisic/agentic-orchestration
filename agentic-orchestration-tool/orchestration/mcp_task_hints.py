@@ -46,7 +46,9 @@ def looks_like_mcp_tool_call_leak(text: str) -> bool:
     if _TOOL_LEAK_RE.search(t):
         return True
     lower = t.lower()
-    if "parameters:" in lower and '"url"' in lower and "max_length" in lower:
+    if "parameters:" in lower and '"url"' in lower:
+        return True
+    if lower.startswith("name:") and "parameters:" in lower:
         return True
     return False
 

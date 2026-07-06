@@ -8,15 +8,19 @@ from typing import Any
 
 from orchestration.backends.base import StepResult
 from orchestration.config_loader import WorkflowConfig, TaskDefinition
+from orchestration.fetch_url_tool import (
+    extract_http_urls_from_text,
+    recover_fetch_url_after_tool_leak,
+    run_ollama_fetch_summarize_step,
+)
 from orchestration.mcp_task_hints import (
-    augment_task_description_for_mcp_leak_retry,
     augment_task_description_for_mcps,
     looks_like_mcp_tool_call_leak,
     mcp_ids_from_step_spec,
 )
 from orchestration.output_artifacts import workflow_result_to_extractable_text
-from orchestration.text_normalize import sanitize_user_facing_prose
 from orchestration.runner import build_workflow, crew_kickoff_context
+from orchestration.text_normalize import sanitize_user_facing_prose
 from orchestration.worker_logging import worker_log_context
 from orchestration.worker_step_skills import (
     prepare_worker_agent_provider_for_skills,
@@ -44,6 +48,10 @@ def _resolved_mcps_from_spec(data: dict[str, Any]) -> list[Any]:
 def _write_step_result(path: Path, result: StepResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+
+
+def _is_ollama_provider(agent_provider: dict[str, Any]) -> bool:
+    return str(agent_provider.get("type", "")).strip().lower() == "ollama"
 
 
 def execute_step_from_spec_file(spec_path: Path) -> int:
@@ -123,7 +131,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
 
         simple_chat = (
             is_simple_chat_prompt(topic)
-            and str(agent_provider.get("type", "")).strip().lower() == "ollama"
+            and _is_ollama_provider(agent_provider)
             and not mcp_resolved
             and not skill_ids
         )
@@ -154,25 +162,46 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     "(execute-step) simple chat: k8s warm-pool crew without tools",
                     file=sys.stderr,
                 )
-            print("kickoff", file=sys.stderr)
-            with crew_kickoff_context(built):
-                workflow_result = built.crew.kickoff(inputs={"topic": topic})
-            text = sanitize_user_facing_prose(
-                workflow_result_to_extractable_text(workflow_result)
+
+            goal_urls = extract_http_urls_from_text(topic)
+            ollama_fetch_direct = (
+                _is_ollama_provider(agent_provider)
+                and "fetch_url" in mcp_ids
+                and bool(goal_urls)
             )
-            if looks_like_mcp_tool_call_leak(text) and mcp_resolved:
-                retry_desc = augment_task_description_for_mcp_leak_retry(task_description, mcp_ids)
-                for crew_task in built.crew.tasks:
-                    crew_task.description = retry_desc
+
+            if ollama_fetch_direct:
                 print(
-                    "(execute-step) detected MCP tool-call text; retrying with stronger MCP hints",
+                    "(execute-step) ollama+fetch_url: direct fetch then summarize",
                     file=sys.stderr,
                 )
+                text = run_ollama_fetch_summarize_step(
+                    built=built,
+                    topic=topic,
+                    task_description=task_description,
+                    urls=goal_urls,
+                )
+            else:
+                print("kickoff", file=sys.stderr)
                 with crew_kickoff_context(built):
                     workflow_result = built.crew.kickoff(inputs={"topic": topic})
                 text = sanitize_user_facing_prose(
-                workflow_result_to_extractable_text(workflow_result)
-            )
+                    workflow_result_to_extractable_text(workflow_result)
+                )
+                if looks_like_mcp_tool_call_leak(text) and "fetch_url" in mcp_ids:
+                    print(
+                        "(execute-step) tool-call leak; fetch URL and summarize",
+                        file=sys.stderr,
+                    )
+                    recovered = recover_fetch_url_after_tool_leak(
+                        built=built,
+                        topic=topic,
+                        task_description=task_description,
+                        leaked_text=text,
+                    )
+                    if recovered:
+                        text = recovered
+
             step_result = StepResult(
                 run_id=run_id,
                 step_id=step_id,

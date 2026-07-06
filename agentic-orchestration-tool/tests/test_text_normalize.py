@@ -30,3 +30,8 @@ def test_sanitize_user_facing_prose_unwraps_boxed_final_answer() -> None:
 def test_sanitize_user_facing_prose_keeps_plain_prose() -> None:
     text = "This repo orchestrates CrewAI agents with YAML catalogs."
     assert sanitize_user_facing_prose(text) == text
+
+
+def test_sanitize_user_facing_prose_strips_tool_call_leak() -> None:
+    leaked = 'name: analyze\nparameters: {"url":"https://example.com"}'
+    assert sanitize_user_facing_prose(leaked) == ""

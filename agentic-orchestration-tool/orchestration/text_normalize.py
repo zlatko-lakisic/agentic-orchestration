@@ -99,4 +99,9 @@ def sanitize_user_facing_prose(text: str) -> str:
     t = _FINAL_ANSWER_PREFIX_RE.sub("", t)
     t = _strip_leading_instruction_paragraphs(t)
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
-    return strip_wrapping_quotes(t)
+    t = strip_wrapping_quotes(t)
+    from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
+
+    if looks_like_mcp_tool_call_leak(t):
+        return ""
+    return t

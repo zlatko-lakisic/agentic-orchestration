@@ -67,6 +67,87 @@ def fetch_url_text(url: str, *, max_chars: int | None = None) -> str:
     return text[:cap]
 
 
+def extract_http_urls_from_text(text: str) -> list[str]:
+    from orchestration.simple_chat import strip_web_prose_delivery_suffix
+
+    raw = strip_web_prose_delivery_suffix(text)
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _URL_RE.finditer(raw):
+        url = match.group(0).rstrip(".,);]")
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def extract_url_from_leak_or_topic(leaked_text: str, topic: str) -> str | None:
+    params = parse_leaked_fetch_parameters(leaked_text)
+    if params and params.get("url"):
+        return str(params["url"]).strip()
+    urls = extract_http_urls_from_text(topic)
+    return urls[0] if urls else None
+
+
+_FETCHED_MARKER = "[agentic: fetched page content]"
+
+
+def run_ollama_fetch_summarize_step(
+    *,
+    built: Any,
+    topic: str,
+    task_description: str,
+    urls: list[str],
+) -> str:
+    """
+    Fetch URL(s) deterministically, then one summarize-only crew kickoff (tools disabled).
+
+    Used for small Ollama models that print tool-call syntax instead of invoking CrewAI tools.
+    """
+    from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.runner import crew_kickoff_context
+    from orchestration.text_normalize import sanitize_user_facing_prose
+
+    blocks: list[str] = []
+    for url in urls[:3]:
+        body = FetchUrlTool()._run(url, max_length=5000)
+        blocks.append(f"### {url}\n{body}")
+    fetched_block = "\n\n".join(blocks).strip()
+
+    summarize_desc = (
+        f"{task_description.rstrip()}\n\n"
+        f"{_FETCHED_MARKER}\n{fetched_block}\n\n"
+        "Using only the fetched page text above, answer the user's question in clear plain prose. "
+        "Do not output tool names, parameters, JSON, or `name:` / `parameters:` lines."
+    )
+    for crew_task in built.crew.tasks:
+        crew_task.description = summarize_desc
+    for agent in built.crew.agents:
+        agent.tools = []
+    with crew_kickoff_context(built):
+        workflow_result = built.crew.kickoff(inputs={"topic": topic})
+    return sanitize_user_facing_prose(workflow_result_to_extractable_text(workflow_result))
+
+
+def recover_fetch_url_after_tool_leak(
+    *,
+    built: Any,
+    topic: str,
+    task_description: str,
+    leaked_text: str,
+) -> str | None:
+    """When kickoff returned tool-call syntax, fetch the URL and run summarize-only kickoff."""
+    url = extract_url_from_leak_or_topic(leaked_text, topic)
+    if not url:
+        return None
+    return run_ollama_fetch_summarize_step(
+        built=built,
+        topic=topic,
+        task_description=task_description,
+        urls=[url],
+    )
+
+
 class FetchUrlTool(BaseTool):
     name: str = "fetch"
     description: str = (
