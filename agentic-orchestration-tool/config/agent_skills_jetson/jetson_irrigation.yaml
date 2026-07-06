@@ -1,0 +1,45 @@
+id: jetson_irrigation
+description: >-
+  Lawn and garden irrigation planning for edge Jetson deployments — zone runtimes,
+  schedules, rain skip, and Home Assistant sprinkler control when MCP is available.
+capabilities: >-
+  Home Assistant zone runtime (integer-only 0 or 2-25 minutes per zone) from baseline,
+  soil probes, heat, and rain; plus conversational schedules when not in HA integer mode.
+good_for: >-
+  irrigation schedule, sprinkler zones, watering minutes, lawn watering, valve runtime,
+  soil moisture watering, homeassistant zone profile, baseline minutes, integer only
+planner_hint: >-
+  Attach for irrigation, sprinklers, zone runtimes, valve.* entities, Home Assistant watering
+  automations, or prompts that require a single integer minute (0 or 2-25). Pair with
+  `home_assistant` MCP when credentials are configured.
+user_goal_keywords:
+  - irrigation
+  - sprinkler
+  - watering
+  - water the lawn
+  - water the garden
+  - zone runtime
+  - zone minutes
+  - rain skip
+  - soil moisture
+  - turf
+  - lawn
+  - drip
+  - valve
+  - schedule watering
+  - baseline minutes
+  - integer only
+  - valve.flower
+  - zone profile
+  - homeassistant
+
+content:
+  summary: >-
+    HA integer-only mode: one line 0 or 2-25 from baseline, probes, rain, heat (75F+);
+    else conversational irrigation advice.
+  file: jetson_irrigation/instructions.md
+
+inject:
+  target: task_description
+  heading: "## Irrigation optimization (Jetson skill)"
+  max_chars: 10000

@@ -52,6 +52,8 @@ TOOL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/tool-hotfix-volume-patch.yaml"
 WARM_POOL_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml"
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
 JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
+SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-patch.yaml"
+WARM_SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
@@ -61,8 +63,14 @@ fi
 if [[ -f "${JTOP_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${JTOP_PATCH}"
 fi
+if [[ -f "${SKILLS_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${SKILLS_PATCH}"
+fi
 if [[ -f "${WARM_POOL_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_POOL_PATCH}"
+fi
+if [[ -f "${WARM_SKILLS_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_SKILLS_PATCH}"
 fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"

@@ -22,6 +22,7 @@ Key settings (also in `config/env.jetson`):
 AGENTIC_EDGE_PLATFORM=jetson
 AGENTIC_OLLAMA_RUNTIME=auto   # native upstream binary, or jetson-container if dustynv/ollama is running
 AGENTIC_AGENT_PROVIDERS_CATALOG=config/agent_providers_jetson
+AGENTIC_EXTRA_AGENT_SKILLS_PATH=config/agent_skills_jetson   # jetson_irrigation skill, etc.
 ```
 
 ### Ollama on Jetson

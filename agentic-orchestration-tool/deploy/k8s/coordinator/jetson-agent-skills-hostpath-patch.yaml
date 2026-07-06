@@ -1,0 +1,15 @@
+# Mount git-synced Jetson-only agent skills into the coordinator (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: jetson-agent-skills
+              mountPath: /app/tool/config/agent_skills_jetson
+              readOnly: true
+      volumes:
+        - name: jetson-agent-skills
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/config/agent_skills_jetson
+            type: DirectoryOrCreate
