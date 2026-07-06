@@ -1,5 +1,5 @@
-# Jetson: hostPort 80 with Recreate strategy (see jetson-coordinator-rollout-patch.yaml).
-# Do not use RollingUpdate with hostPort on single-node k3s — rollout deadlock.
+# DEPRECATED for Jetson: hostPort 80 causes RollingUpdate deadlock on single-node k3s.
+# Use jetson-coordinator-rollout-patch.yaml (Recreate, no hostPort) + service-nodeport.yaml.
 spec:
   template:
     spec:
@@ -8,5 +8,4 @@ spec:
           ports:
             - name: http
               containerPort: 3847
-              hostPort: 80
               protocol: TCP

@@ -1,6 +1,6 @@
-# Jetson / single-node: reliable coordinator rollouts with hostPort 80.
-# - Recreate: terminate old pod before starting new (avoids hostPort deadlock).
-# - hostPort 80: Traefik / Warpgate upstream expects direct host binding (WebSocket-safe).
+# Jetson / single-node: reliable coordinator rollouts (no hostPort).
+# - Recreate: terminate old pod before starting new (required when hostPort was used).
+# - NodePort 30487: Traefik / Warpgate upstream (no hostPort, no iptables :80 redirect).
 spec:
   strategy:
     type: Recreate
@@ -11,5 +11,4 @@ spec:
           ports:
             - name: http
               containerPort: 3847
-              hostPort: 80
               protocol: TCP

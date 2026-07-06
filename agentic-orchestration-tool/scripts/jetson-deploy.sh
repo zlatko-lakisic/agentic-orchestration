@@ -23,8 +23,8 @@ bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
-PING_URL="http://127.0.0.1/api/ping"
+PING_URL="http://127.0.0.1:30487/api/ping"
 if ! curl -sf "${PING_URL}" >/dev/null 2>&1; then
-  PING_URL="http://127.0.0.1:30487/api/ping"
+  PING_URL="http://127.0.0.1/api/ping"
 fi
 echo "Deploy complete. Verify: curl -s ${PING_URL}"

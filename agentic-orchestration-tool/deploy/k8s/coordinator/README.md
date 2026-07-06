@@ -53,9 +53,8 @@ Open `http://127.0.0.1:3847`.
 
 ### Jetson (single-node k3s)
 
-- **Port 80** — `hostPort: 80` on the coordinator pod (Traefik / Warpgate upstream).
-- **NodePort** `30487` — fallback / direct access: `http://<host>:30487`
-- **Rollouts** — `strategy: Recreate` + `hostPort` (avoids RollingUpdate deadlock on single-node).
+- **NodePort** `30487` — Traefik / Warpgate upstream: `http://<jetson>:30487`
+- **Rollouts** — `strategy: Recreate`, no `hostPort` (avoids single-node port deadlock)
 
 ## Customize image / worker
 

@@ -170,9 +170,9 @@ kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
 kubectl set image deployment/agentic-coordinator -n agentic-orchestration \
   coordinator="${COORDINATOR_IMAGE}" 2>/dev/null || true
 
-log "Expose coordinator (hostPort 80 via rollout patch; disable iptables redirect)"
+log "Expose coordinator (NodePort 30487; Traefik upstream)"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/coordinator/service-nodeport.yaml"
-if [[ "${WEB_PORT}" == "80" ]]; then
+if [[ -f "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" ]]; then
   bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" disable 2>/dev/null || true
 fi
 
