@@ -26,7 +26,14 @@ function isDismissed() {
 }
 
 function registerServiceWorker() {
-  if (isWarpgateFronted()) return;
+  if (isWarpgateFronted()) {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        for (const reg of regs) reg.unregister();
+      }).catch(() => {});
+    }
+    return;
+  }
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }

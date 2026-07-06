@@ -1,6 +1,12 @@
 import { isWarpgateFronted } from "./proxy-context.js";
 import { PWA_MANIFEST } from "./pwa-manifest-data.js";
 
+if (isWarpgateFronted() && "serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) reg.unregister();
+  }).catch(() => {});
+}
+
 const MANIFEST_HREF = "/manifest.webmanifest";
 
 function linkFromBlob(manifest) {

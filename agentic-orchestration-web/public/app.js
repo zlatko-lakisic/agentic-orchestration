@@ -194,8 +194,11 @@ function unwrapJsonLikeAssistantText(text) {
   let chatTranscript = [];
   let chatRestoredFromStorage = false;
   let hadConnectedOnce = false;
+  let sessionEstablished = false;
   let pendingReconnectNotice = false;
   let reconnectTimer = null;
+  let reconnectDelayMs = 2000;
+  let heartbeatTimer = null;
 
   const PROCESSING_HINTS = [
     "Agents are working in the background…",
@@ -557,7 +560,10 @@ function unwrapJsonLikeAssistantText(text) {
 
   function sendClientHello() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const resume = chatHasUserOrAssistantMessages();
+    const resume =
+      sessionEstablished ||
+      chatRestoredFromStorage ||
+      chatHasUserOrAssistantMessages();
     const sessionId = sessionIdEl?.value?.trim() || browserSessionId;
     ws.send(
       JSON.stringify({
@@ -566,18 +572,45 @@ function unwrapJsonLikeAssistantText(text) {
         sessionId,
       }),
     );
+    sessionEstablished = true;
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer != null) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatTimer = window.setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        ws.send(JSON.stringify({ type: "ping" }));
+      } catch {
+        /* ignore */
+      }
+    }, 25000);
   }
 
   function scheduleReconnect() {
     if (reconnectTimer != null) return;
+    if (document.visibilityState === "hidden") return;
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       connect();
-    }, 2000);
+    }, reconnectDelayMs);
+    reconnectDelayMs = Math.min(Math.round(reconnectDelayMs * 1.5), 30000);
   }
 
   function connect() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      ws &&
+      (ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING ||
+        ws.readyState === WebSocket.CLOSING)
+    ) {
       return;
     }
     if (ws) {
@@ -589,11 +622,13 @@ function unwrapJsonLikeAssistantText(text) {
         /* ignore */
       }
     }
+    stopHeartbeat();
     welcomeBubble = null;
     const url = `${proto()}//${window.location.host}`;
     ws = new WebSocket(url);
 
     ws.onopen = () => {
+      reconnectDelayMs = 2000;
       if (connStatus) {
         connStatus.className = "status-pill connected";
         const label = connStatus.querySelector(".status-label");
@@ -602,10 +637,12 @@ function unwrapJsonLikeAssistantText(text) {
       }
       sendBtn.disabled = runActive;
       sendClientHello();
+      startHeartbeat();
       hadConnectedOnce = true;
     };
 
     ws.onclose = () => {
+      stopHeartbeat();
       stopProcessingUi();
       welcomeBubble = null;
       if (connStatus) {
@@ -655,6 +692,9 @@ function unwrapJsonLikeAssistantText(text) {
             [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
           );
         }
+        return;
+      }
+      if (data.type === "pong") {
         return;
       }
       if (data.type === "welcome_start") {
@@ -1297,6 +1337,7 @@ function unwrapJsonLikeAssistantText(text) {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
     if (!ws || ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) return;
+    reconnectDelayMs = 2000;
     scheduleReconnect();
   });
 
