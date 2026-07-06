@@ -1,4 +1,6 @@
-# Jetson / single-node: expose coordinator on host port 80 (replaces legacy systemd web).
+# DEPRECATED for Jetson: hostPort 80 causes RollingUpdate deadlock on single-node k3s.
+# Use jetson-coordinator-rollout-patch.yaml (Recreate, no hostPort) +
+# service-nodeport.yaml + scripts/jetson-web-port-redirect.sh instead.
 spec:
   template:
     spec:

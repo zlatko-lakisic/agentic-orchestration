@@ -77,9 +77,13 @@ kubectl rollout restart deployment/agentic-coordinator -n "${NS}"
 if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
   kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
 fi
-kubectl rollout status deployment/agentic-coordinator -n "${NS}" --timeout=600s
+PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" wait 600
 if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
   kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
 fi
 
-echo "Web hotfix applied. Verify: curl -s http://127.0.0.1/api/host-metrics | head -c 200"
+PING_URL="http://127.0.0.1/api/host-metrics"
+if ! curl -sf "${PING_URL}" >/dev/null 2>&1; then
+  PING_URL="http://127.0.0.1:30487/api/host-metrics"
+fi
+echo "Web hotfix applied. Verify: curl -s ${PING_URL} | head -c 200"

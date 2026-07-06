@@ -162,16 +162,7 @@ docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
 
 log "Apply coordinator RBAC + deployment"
 kubectl apply -k "${TOOL_ROOT}/deploy/k8s/coordinator"
-if [[ "${WEB_PORT}" == "80" ]]; then
-  # CNI hostPort DNAT exposes the web UI on :80 (NodePort 30487 remains as fallback).
-  kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
-    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "hostPort": 80, "protocol": "TCP"}]}]' \
-    2>/dev/null || true
-else
-  kubectl patch deployment agentic-coordinator -n agentic-orchestration --type=json \
-    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/ports", "value": [{"name": "http", "containerPort": 3847, "protocol": "TCP"}]}]' \
-    2>/dev/null || true
-fi
+bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
 kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
   AGENTIC_K8S_WARM_POOL_ENABLED=1 \
   AGENTIC_LOG_FORMAT=json \
@@ -179,12 +170,10 @@ kubectl set env deployment/agentic-coordinator -n agentic-orchestration \
 kubectl set image deployment/agentic-coordinator -n agentic-orchestration \
   coordinator="${COORDINATOR_IMAGE}" 2>/dev/null || true
 
-log "Expose coordinator on host port ${WEB_PORT} (NodePort 30487 + optional hostPort)"
+log "Expose coordinator (NodePort 30487; optional iptables :80 redirect)"
 kubectl apply -f "${TOOL_ROOT}/deploy/k8s/coordinator/service-nodeport.yaml"
-if [[ "${WEB_PORT}" == "80" ]] && command -v iptables >/dev/null 2>&1; then
-  # Legacy REDIRECT rules conflict with CNI hostPort; remove if a prior deploy added them.
-  while iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null; do :; done
-  while iptables -t nat -D OUTPUT -p tcp --dport 80 -j REDIRECT --to-ports 30487 2>/dev/null; do :; done
+if [[ "${WEB_PORT}" == "80" ]]; then
+  bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" enable
 fi
 
 log "Apply warm pool + delegation broker"
@@ -196,7 +185,7 @@ kubectl set image deployment/agentic-delegation-broker -n agentic-orchestration 
   broker="${WORKER_IMAGE}" 2>/dev/null || true
 
 log "Wait for rollouts"
-kubectl rollout status deployment/agentic-coordinator -n agentic-orchestration --timeout=600s
+bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" wait 600
 kubectl rollout status deployment/agentic-warm-pool -n agentic-orchestration --timeout=300s
 kubectl rollout status deployment/agentic-delegation-broker -n agentic-orchestration --timeout=300s
 

@@ -43,5 +43,8 @@ kubectl create secret generic agentic-orchestrator-env \
   --from-env-file="${SECRET_TMP}" \
   --dry-run=client -o yaml | kubectl apply -f -
 rm -f "${SECRET_TMP}"
-kubectl rollout restart deployment/agentic-coordinator deployment/agentic-warm-pool deployment/agentic-delegation-broker -n agentic-orchestration
-kubectl rollout status deployment/agentic-coordinator -n agentic-orchestration --timeout=300s
+kubectl rollout restart deployment/agentic-warm-pool deployment/agentic-delegation-broker -n agentic-orchestration
+# Coordinator restart is deferred to jetson-hotfix-web.sh (single rollout per deploy).
+if kubectl get deployment agentic-warm-pool -n agentic-orchestration >/dev/null 2>&1; then
+  kubectl rollout status deployment/agentic-warm-pool -n agentic-orchestration --timeout=300s
+fi

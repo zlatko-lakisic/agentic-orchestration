@@ -1,0 +1,14 @@
+# Jetson / single-node: reliable coordinator rollouts (no hostPort deadlock).
+# - Recreate: terminate old pod before starting new (required when hostPort was used).
+# - No hostPort: use NodePort 30487 + scripts/jetson-web-port-redirect.sh for :80.
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          ports:
+            - name: http
+              containerPort: 3847
+              protocol: TCP

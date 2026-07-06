@@ -23,13 +23,20 @@ When deploying to the Jetson edge device (`172.16.90.20`, repo at `/var/projects
    ```
    (`jetson-deploy.sh` runs `git pull` then env sync + hotfix.)
 
-3. If coordinator rollout stalls on hostPort 80, scale the **old** coordinator ReplicaSet to 0:
-   ```bash
-   export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-   kubectl get rs -n agentic-orchestration | grep coordinator
-   kubectl scale rs <old-rs-name> -n agentic-orchestration --replicas=0
-   kubectl rollout status deployment/agentic-coordinator -n agentic-orchestration --timeout=120s
-   ```
+## Coordinator rollouts (fixed)
+
+Routine deploys apply `jetson-coordinator-rollout-patch.yaml`:
+
+- **`strategy: Recreate`** — old pod terminates before the new one starts.
+- **No `hostPort: 80`** — avoids single-node port deadlock during RollingUpdate.
+- **Web UI on :80** — iptables redirect to NodePort `30487` via `jetson-web-port-redirect.sh` (needs sudo once; `jetson-k3s-deploy.sh` runs as root).
+
+If a rollout still stalls, `jetson-coordinator-rollout.sh wait` auto-scales stale ReplicaSets. Manual fix (rare):
+
+```bash
+bash agentic-orchestration-tool/scripts/jetson-coordinator-rollout.sh unblock
+bash agentic-orchestration-tool/scripts/jetson-coordinator-rollout.sh wait 120
+```
 
 ## Forbidden
 
@@ -46,8 +53,10 @@ The device uses remote **`origin`** (not `github`). Push from dev with `git push
 | Script | Purpose |
 |--------|---------|
 | `jetson-deploy.sh` | Routine deploy: pull + apply-env + sync-k8s-secret + hotfix-web |
+| `jetson-coordinator-rollout.sh` | Apply Recreate/no-hostPort patch; wait/unblock rollouts |
+| `jetson-web-port-redirect.sh` | iptables `:80` → NodePort `30487` (sudo) |
 | `jetson-apply-env.sh` | Merge `config/env.jetson` → `.env` |
-| `jetson-sync-k8s-secret.sh` | Refresh k8s secret + restart coordinator/warm-pool |
+| `jetson-sync-k8s-secret.sh` | Refresh k8s secret + restart warm-pool/broker |
 | `jetson-hotfix-web.sh` | ConfigMap hotfix for web + orchestration Python |
 
 Full stack rebuild (rare): `sudo bash scripts/jetson-k3s-deploy.sh` (also git-pulls first).

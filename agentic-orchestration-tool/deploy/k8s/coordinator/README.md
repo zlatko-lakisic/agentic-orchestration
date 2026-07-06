@@ -51,6 +51,12 @@ kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
 
 Open `http://127.0.0.1:3847`.
 
+### Jetson (single-node k3s)
+
+- **NodePort** `30487` — always available: `http://<host>:30487`
+- **Port 80** — iptables redirect to NodePort (`scripts/jetson-web-port-redirect.sh`); no `hostPort` on the pod.
+- **Rollouts** — `jetson-coordinator-rollout-patch.yaml` sets `strategy: Recreate` to avoid hostPort deadlock.
+
 ## Customize image / worker
 
 Edit `deployment.yaml` or patch after apply:

@@ -19,7 +19,17 @@ echo "=== git pull ${GIT_REMOTE} ${GIT_BRANCH} ==="
 git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
+bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
+if [[ -f "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" ]]; then
+  bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" enable 2>/dev/null \
+    || sudo bash "${TOOL_ROOT}/scripts/jetson-web-port-redirect.sh" enable 2>/dev/null \
+    || echo "note: port-80 redirect needs sudo once (or run jetson-k3s-deploy as root)" >&2
+fi
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
-echo "Deploy complete. Verify: curl -s http://127.0.0.1/api/ping"
+PING_URL="http://127.0.0.1/api/ping"
+if ! curl -sf "${PING_URL}" >/dev/null 2>&1; then
+  PING_URL="http://127.0.0.1:30487/api/ping"
+fi
+echo "Deploy complete. Verify: curl -s ${PING_URL}"
