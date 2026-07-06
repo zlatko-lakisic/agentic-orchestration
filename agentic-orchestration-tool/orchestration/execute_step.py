@@ -15,6 +15,7 @@ from orchestration.mcp_task_hints import (
     mcp_ids_from_step_spec,
 )
 from orchestration.output_artifacts import workflow_result_to_extractable_text
+from orchestration.text_normalize import sanitize_user_facing_prose
 from orchestration.runner import build_workflow, crew_kickoff_context
 from orchestration.worker_logging import worker_log_context
 from orchestration.worker_step_skills import (
@@ -156,7 +157,9 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             print("kickoff", file=sys.stderr)
             with crew_kickoff_context(built):
                 workflow_result = built.crew.kickoff(inputs={"topic": topic})
-            text = workflow_result_to_extractable_text(workflow_result)
+            text = sanitize_user_facing_prose(
+                workflow_result_to_extractable_text(workflow_result)
+            )
             if looks_like_mcp_tool_call_leak(text) and mcp_resolved:
                 retry_desc = augment_task_description_for_mcp_leak_retry(task_description, mcp_ids)
                 for crew_task in built.crew.tasks:
@@ -167,7 +170,9 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 )
                 with crew_kickoff_context(built):
                     workflow_result = built.crew.kickoff(inputs={"topic": topic})
-                text = workflow_result_to_extractable_text(workflow_result)
+                text = sanitize_user_facing_prose(
+                workflow_result_to_extractable_text(workflow_result)
+            )
             step_result = StepResult(
                 run_id=run_id,
                 step_id=step_id,

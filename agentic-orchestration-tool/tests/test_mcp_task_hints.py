@@ -25,7 +25,7 @@ def test_looks_like_mcp_tool_call_leak_ignores_normal_prose() -> None:
 def test_augment_task_description_for_fetch_url() -> None:
     out = augment_task_description_for_mcps("Summarize the repo.", ["fetch_url"])
     assert "fetch" in out
-    assert "`fetch` tool" in out or "fetch" in out
+    assert "short plain prose" in out
     assert "fetch_url" not in out.split("[agentic: MCP task instructions]")[0]
 
 

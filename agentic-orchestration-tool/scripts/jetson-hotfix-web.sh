@@ -51,6 +51,8 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=text_normalize.py="${ORCH_ROOT}/text_normalize.py" \
   --from-file=mcp_task_hints.py="${ORCH_ROOT}/mcp_task_hints.py" \
   --from-file=fetch_url_tool.py="${ORCH_ROOT}/fetch_url_tool.py" \
+  --from-file=goal_format_hints.py="${ORCH_ROOT}/goal_format_hints.py" \
+  --from-file=output_artifacts.py="${ORCH_ROOT}/output_artifacts.py" \
   --from-file=mcp_providers_catalog.py="${ORCH_ROOT}/mcp_providers_catalog.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --dry-run=client -o yaml | kubectl apply -f -

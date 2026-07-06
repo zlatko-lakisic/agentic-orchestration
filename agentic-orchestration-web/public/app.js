@@ -13,7 +13,7 @@ import {
 } from "./chat-session.js";
 import { isSimpleChatPrompt } from "./perf-options.js";
 import { extractUserFacingStdout } from "./chat-output.js";
-import { stripWrappingQuotes } from "./text-normalize.js";
+import { sanitizeUserFacingProse, stripWrappingQuotes } from "./text-normalize.js";
 import { sanitizeUserDisplayName } from "./user-context.js";
 import { isWarpgateFronted } from "./proxy-context.js";
 import { CrewLogSequenceDiagram } from "./crew-log-sequence.js";
@@ -578,7 +578,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
   }
 
   function normalizeAssistantText(text) {
-    return stripWrappingQuotes(unwrapJsonLikeAssistantText(extractUserFacingStdout(text)));
+    return sanitizeUserFacingProse(
+      stripWrappingQuotes(unwrapJsonLikeAssistantText(extractUserFacingStdout(text))),
+    );
   }
 
   function applySessionId(raw) {

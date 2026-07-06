@@ -479,7 +479,13 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
         expected_output = "A short, direct natural-language answer."
     else:
         description = "{topic}\n\nAnswer the user's goal clearly, accurately, and concisely."
-        expected_output = "A clear, helpful response that satisfies the user's goal."
+        if web_prose_deliverable_enabled():
+            expected_output = (
+                "A direct plain-language answer (one or two short paragraphs). "
+                "No LaTeX, no $\\boxed{}$, and no commentary about instructions or format."
+            )
+        else:
+            expected_output = "A clear, helpful response that satisfies the user's goal."
     return {
         "plan_summary": f"Single available agent `{agent_id}` answers the request in one step.",
         "mcp_provider_ids": [],

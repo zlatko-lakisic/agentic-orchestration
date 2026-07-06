@@ -24,6 +24,9 @@ spec:
               mountPath: /app/orchestration/mcp_task_hints.py
               subPath: mcp_task_hints.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/text_normalize.py
+              subPath: text_normalize.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/fetch_url_tool.py
               subPath: fetch_url_tool.py
             - name: tool-hotfix-agent-providers

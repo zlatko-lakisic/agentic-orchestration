@@ -6,8 +6,8 @@ import os
 
 WEB_PROSE_GOAL_SUFFIX = (
     "\n\n[Delivery format: Write the user-facing answer in clear, natural language "
-    "(short paragraphs or bullet lists). Do not use JSON, raw object dumps, or keys "
-    'like "Final Answer" unless the user explicitly asked for JSON or a data export.]'
+    "(short paragraphs or bullet lists). Do not use JSON, raw object dumps, LaTeX, "
+    r"$\boxed{}$ wrappers, or meta-commentary about these rules — just answer the question.]"
 )
 
 

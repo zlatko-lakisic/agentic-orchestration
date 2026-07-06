@@ -13,7 +13,7 @@ import { WebSocketServer } from "ws";
 import { sampleHostMetrics } from "./host-metrics.mjs";
 import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-options.mjs";
 import { extractUserFacingStdout } from "./lib/chat-output.mjs";
-import { stripWrappingQuotes } from "./lib/text-normalize.mjs";
+import { sanitizeUserFacingProse, stripWrappingQuotes } from "./lib/text-normalize.mjs";
 import {
   resolveSessionIdFromHeaders,
   sanitizeUserDisplayName,
@@ -323,7 +323,7 @@ function resolveWsUserName(ws, msgUserName) {
 }
 
 function normalizeUserFacingText(text) {
-  return stripWrappingQuotes(extractUserFacingStdout(text));
+  return sanitizeUserFacingProse(stripWrappingQuotes(extractUserFacingStdout(text)));
 }
 
 function _pythonCanImportDotenv() {

@@ -115,7 +115,9 @@ def workflow_result_display_text(result: Any) -> str:
         if r is not None and str(r).strip():
             last_raw = str(r).strip()
     if last_raw:
-        return last_raw
+        from orchestration.text_normalize import sanitize_user_facing_prose
+
+        return sanitize_user_facing_prose(last_raw)
 
     top = getattr(result, "raw", None)
     if top is not None and str(top).strip():
