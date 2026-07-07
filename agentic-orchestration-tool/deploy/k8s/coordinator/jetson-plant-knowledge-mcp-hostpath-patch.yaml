@@ -1,0 +1,15 @@
+# Mount git-synced plant-knowledge MCP catalog into the coordinator (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: jetson-plant-knowledge-mcp
+              mountPath: /app/tool/extras/plant-knowledge-mcp/config
+              readOnly: true
+      volumes:
+        - name: jetson-plant-knowledge-mcp
+          hostPath:
+            path: /var/projects/agentic-orchestration/extras/plant-knowledge-mcp/config
+            type: DirectoryOrCreate
