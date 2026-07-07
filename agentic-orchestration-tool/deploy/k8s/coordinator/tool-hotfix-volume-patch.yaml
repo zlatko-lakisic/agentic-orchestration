@@ -48,6 +48,9 @@ spec:
               mountPath: /app/tool/orchestration/mcp_providers_catalog.py
               subPath: mcp_providers_catalog.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/k8s_mcp_compat.py
+              subPath: k8s_mcp_compat.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/workflow_materializer.py
               subPath: workflow_materializer.py
             - name: tool-hotfix-agent-providers

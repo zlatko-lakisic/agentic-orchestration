@@ -69,6 +69,15 @@ def test_filter_mcp_ids_allows_stdio_with_gateway_url(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.unit
+def test_filter_mcp_ids_allows_extra_http_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_EXTRA_HTTP_MCPS", "plant_knowledge")
+    allowed, excluded = filter_mcp_ids_for_kubernetes(["plant_knowledge", "unknown_mcp"])
+    assert allowed == ["plant_knowledge"]
+    assert excluded == ["unknown_mcp"]
+
+
+@pytest.mark.unit
 def test_adapt_catalog_entry_rewrites_stdio_to_http(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_K8S_MCP_FETCH_URL", "http://fetch:8080/mcp")
     entry = {
