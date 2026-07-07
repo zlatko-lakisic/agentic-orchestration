@@ -57,14 +57,11 @@ spec:
             - containerPort: 8080
           env:
             - name: DATA_DIR
-              value: /data
+              value: /app/data
             - name: HOST
               value: "0.0.0.0"
             - name: PORT
               value: "8080"
-          volumeMounts:
-            - name: plant-data
-              mountPath: /data
           livenessProbe:
             httpGet:
               path: /healthz
@@ -77,8 +74,6 @@ spec:
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 10
-      volumes:
-        - name: plant-data
-          configMap:
-            name: plant-knowledge-data
-            optional: true
+      # Optional: mount CSV overrides from plant-knowledge-data ConfigMap keys
+      # (plant_water_needs.csv, etc.) at /data/overrides and set DATA_DIR=/data/overrides
+      # when you expand beyond the image-bundled seed set.

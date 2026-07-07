@@ -32,15 +32,34 @@ _REQUIRED_CSVS = (
 
 
 def _resolve_data_dir() -> Path:
-    data_dir = Path(os.getenv("DATA_DIR", str(_DEFAULT_DATA_DIR))).resolve()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    if not all((data_dir / name).is_file() for name in _REQUIRED_CSVS):
-        for name in _REQUIRED_CSVS:
-            src = _DEFAULT_DATA_DIR / name
-            dst = data_dir / name
-            if src.is_file() and not dst.is_file():
+    configured = Path(os.getenv("DATA_DIR", str(_DEFAULT_DATA_DIR))).resolve()
+    if configured == _DEFAULT_DATA_DIR:
+        return configured
+
+    configured.mkdir(parents=True, exist_ok=True)
+    if all((configured / name).is_file() for name in _REQUIRED_CSVS):
+        return configured
+
+    copied_any = False
+    for name in _REQUIRED_CSVS:
+        src = _DEFAULT_DATA_DIR / name
+        dst = configured / name
+        if src.is_file() and not dst.is_file():
+            try:
                 shutil.copy2(src, dst)
-    return data_dir
+                copied_any = True
+            except OSError:
+                break
+    else:
+        if all((configured / name).is_file() for name in _REQUIRED_CSVS):
+            return configured
+
+    if all((_DEFAULT_DATA_DIR / name).is_file() for name in _REQUIRED_CSVS):
+        return _DEFAULT_DATA_DIR
+
+    raise FileNotFoundError(
+        f"DATA_DIR {configured} is missing required CSVs and bundled defaults are unavailable"
+    )
 
 
 _DATA_DIR = _resolve_data_dir()
