@@ -1,0 +1,46 @@
+# Optional MCP catalog entry for agentic-orchestration (not shipped in core).
+# Merge via AGENTIC_EXTRA_MCP_PROVIDERS_PATH, e.g.:
+#   AGENTIC_EXTRA_MCP_PROVIDERS_PATH=../extras/plant-knowledge-mcp/config
+#
+# Local:
+#   PLANT_KNOWLEDGE_MCP_URL=http://127.0.0.1:8080/mcp
+#
+# Kubernetes (standalone deploy in extras/plant-knowledge-mcp/k8s/):
+#   PLANT_KNOWLEDGE_MCP_URL=http://plant-knowledge-mcp.plant-knowledge.svc.cluster.local:8080/mcp
+id: plant_knowledge
+description: >-
+  Deterministic plant watering reference for irrigation decisions — WUCOLS water-use
+  classes, USDA hardiness zones, and ET0-based weekly need (mm). The plant list is a
+  curated seed set, NOT the complete ~4,100-taxa WUCOLS export. Pair with a weather
+  or live-ET0 source for production scheduling.
+capabilities: >-
+  get_plant_profile, search_plants, get_water_requirement_mm (plant_factor × ET0),
+  USDA zone lookup, representative reference ET0 by climate_setting, dataset provenance.
+good_for: >-
+  Lawn and garden irrigation planning, plant water needs in mm/week, WUCOLS ratings,
+  USDA zone viability, ET0-based scheduling when live ET0 or a climate_setting is known.
+planner_hint: >-
+  Attach for irrigation, plant water requirements, turf/grass watering depth, WUCOLS,
+  USDA zone checks, or when the agent should compute mm/week from plant factor and ET0.
+  Pair with home_assistant for valve control and a weather MCP for live ET0 when available.
+
+user_goal_keywords:
+  - plant water
+  - water requirement
+  - wucols
+  - plant factor
+  - et0
+  - evapotranspiration
+  - usda zone
+  - hardiness zone
+  - irrigation mm
+  - turf water
+  - lawn water need
+
+required_env:
+  - PLANT_KNOWLEDGE_MCP_URL
+
+streamable_http:
+  url: "${PLANT_KNOWLEDGE_MCP_URL}"
+  headers:
+    Accept: "application/json, text/event-stream"

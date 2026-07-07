@@ -1,0 +1,84 @@
+# Standalone plant-knowledge MCP — deploy outside the agentic-orchestration stack.
+# PLANT_KNOWLEDGE_MCP_URL=http://plant-knowledge-mcp.plant-knowledge.svc.cluster.local:8080/mcp
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: plant-knowledge
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plant-knowledge-data
+  namespace: plant-knowledge
+  labels:
+    app.kubernetes.io/name: plant-knowledge-mcp
+data:
+  README: |
+    Add CSV keys here (e.g. plant_water_needs.csv) to override image defaults.
+    Then POST /reload on the service or send SIGHUP.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plant-knowledge-mcp
+  namespace: plant-knowledge
+  labels:
+    app.kubernetes.io/name: plant-knowledge-mcp
+spec:
+  selector:
+    app.kubernetes.io/name: plant-knowledge-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plant-knowledge-mcp
+  namespace: plant-knowledge
+  labels:
+    app.kubernetes.io/name: plant-knowledge-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: plant-knowledge-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: plant-knowledge-mcp
+    spec:
+      containers:
+        - name: plant-knowledge
+          image: plant-knowledge-mcp:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8080"
+          volumeMounts:
+            - name: plant-data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: plant-data
+          configMap:
+            name: plant-knowledge-data
+            optional: true

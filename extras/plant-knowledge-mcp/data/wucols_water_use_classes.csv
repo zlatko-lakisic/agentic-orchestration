@@ -1,0 +1,7 @@
+code,name,plant_factor_range,percent_et0_range,plant_factor_midpoint
+VL,Very Low,< 0.10,< 10,0.09
+LO,Low,0.10-0.30,10-30,0.2
+M,Moderate,0.40-0.60,40-60,0.5
+H,High,0.70-0.90,70-90,0.8
+U,Unknown,N/A,N/A,
+NA,Not Appropriate for this Region,N/A,N/A,

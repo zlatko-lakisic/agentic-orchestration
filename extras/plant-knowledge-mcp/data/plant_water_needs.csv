@@ -1,0 +1,54 @@
+scientific_name,common_name,plant_type_code,usda_zone_low,usda_zone_high,wucols_water_use,plant_factor_midpoint,notes
+Festuca arundinacea,Tall fescue,G,4a,9b,M,0.5,"Cool-season turf, Kc~0.8; deep infrequent watering; root depth 15-30cm"
+Poa pratensis,Kentucky bluegrass,G,3a,8a,M,0.5,"Cool-season turf, Kc~0.8; shallower roots, less drought tolerant than fescue"
+Lolium perenne,Perennial ryegrass,G,4a,8b,M,0.5,"Cool-season turf, Kc~0.8; fast establish, high water"
+Festuca rubra,Fine fescue,G,3a,8a,LO,0.2,"Cool-season turf, low-water, shade tolerant"
+Cynodon dactylon,Bermudagrass,G,7a,11b,LO,0.2,"Warm-season turf, Kc~0.6; drought tolerant, goes dormant"
+Zoysia japonica,Zoysiagrass,G,6a,11a,LO,0.2,"Warm-season turf, Kc~0.6; slow, dense, drought tolerant"
+Stenotaphrum secundatum,St. Augustinegrass,G,8a,11b,M,0.5,"Warm-season turf, Kc~0.6-0.7; higher water for warm-season"
+Buchloe dactyloides,Buffalograss,G,4a,9b,VL,0.09,"Warm-season native, very low water once established"
+Quercus agrifolia,Coast live oak,T,9a,10b,VL,0.09,"CA native, very low water when established; avoid summer water near trunk"
+Acer rubrum,Red maple,T,3a,9a,M,0.5,"Moderate water, prefers moist soils"
+Lagerstroemia indica,Crape myrtle,T,6b,9b,LO,0.2,"Low water, heat/drought tolerant"
+Platanus racemosa,California sycamore,T,7a,10b,M,0.5,"Riparian, moderate-high near water"
+Pinus edulis,Pinyon pine,T,5a,8b,VL,0.09,"Very low water, arid adapted"
+Cercis occidentalis,Western redbud,T,7a,9b,LO,0.2,"CA native, low water"
+Betula nigra,River birch,T,4a,9b,H,0.8,"High water, tolerates wet soils"
+Ginkgo biloba,Ginkgo,T,3a,8b,M,0.5,"Moderate, very adaptable"
+Olea europaea,Olive,T,8a,11a,LO,0.2,"Mediterranean, low water"
+Prunus cerasifera,Cherry plum,T,5a,8b,M,0.5,Moderate water ornamental
+Arctostaphylos densiflora,Manzanita,S,7a,10b,VL,0.09,"CA native, very low; summer water can kill"
+Salvia mellifera,Black sage,S,8a,10b,VL,0.09,"CA native, very low water"
+Rosa hybrida,Hybrid rose,S,5a,9b,H,0.8,"High water, regular irrigation for bloom"
+Buxus sempervirens,Boxwood,S,5a,8b,M,0.5,"Moderate, even moisture"
+Nerium oleander,Oleander,S,8a,11a,LO,0.2,"Low water, heat tolerant"
+Hydrangea macrophylla,Bigleaf hydrangea,S,6a,9a,H,0.8,"High water, wilts quickly when dry"
+Ceanothus thyrsiflorus,Blueblossom,S,8a,10b,VL,0.09,"CA native, very low summer water"
+Rhododendron spp.,Azalea/Rhododendron,S,5a,9a,H,0.8,"High water, acidic moist soil"
+Lavandula angustifolia,English lavender,S,5a,9a,LO,0.2,"Low water, Mediterranean, sharp drainage"
+Rhamnus californica,Coffeeberry,S,7a,10b,LO,0.2,"CA native, low water"
+Echinacea purpurea,Purple coneflower,P,3a,9a,LO,0.2,Low water prairie native
+Hosta spp.,Hosta,P,3a,9a,H,0.8,"High water, shade, consistent moisture"
+Salvia nemorosa,Wood sage,P,4a,8b,LO,0.2,Low water perennial salvia
+Hemerocallis spp.,Daylily,P,3a,9b,M,0.5,"Moderate, tolerant of range"
+Rudbeckia hirta,Black-eyed Susan,P,3a,9b,LO,0.2,Low water native
+Astilbe spp.,Astilbe,P,4a,8b,H,0.8,"High water, moist shade"
+Achillea millefolium,Yarrow,P,3a,9b,VL,0.09,Very low water once established
+Heuchera spp.,Coral bells,P,4a,9a,M,0.5,"Moderate, part shade"
+Arctostaphylos uva-ursi,Bearberry / Kinnikinnick,Gc,2a,7b,LO,0.2,Low water evergreen groundcover
+Vinca minor,Periwinkle,Gc,4a,9a,M,0.5,"Moderate, shade groundcover"
+Festuca glauca,Blue fescue,G,4a,8b,LO,0.2,Low water ornamental grass
+Muhlenbergia rigens,Deergrass,G,7a,10b,LO,0.2,"CA native grass, low water"
+Wisteria sinensis,Chinese wisteria,V,5a,9a,M,0.5,Moderate water vine
+Parthenocissus quinquefolia,Virginia creeper,V,3a,9b,LO,0.2,"Low water, very adaptable vine"
+Agave americana,Century plant,Su,8a,11b,VL,0.09,Very low water succulent
+Sedum spectabile,Showy stonecrop,Su,3a,9b,VL,0.09,Very low water perennial succulent
+Aloe vera,Aloe,Su,9a,11b,VL,0.09,Very low water succulent
+Solanum lycopersicum,Tomato,P,2a,11b,H,0.8,"Annual veg, Kc rises to ~1.15 at peak; high water"
+Cucurbita pepo,Zucchini/Squash,P,2a,11b,H,0.8,"Annual veg, high water"
+Lactuca sativa,Lettuce,P,2a,11b,H,0.8,"Annual veg, shallow roots, frequent water"
+Capsicum annuum,Pepper,P,3a,11b,M,0.5,"Annual veg, moderate-high"
+Ocimum basilicum,Basil,P,4a,11b,M,0.5,"Herb, moderate, even moisture"
+Rosmarinus officinalis,Rosemary,S,7a,11a,LO,0.2,"Herb, low water, Mediterranean"
+Fragaria x ananassa,Strawberry,Gc,3a,10b,H,0.8,"High water, shallow roots"
+Vitis vinifera,Wine grape,V,6a,10b,LO,0.2,"Deep roots, low-moderate; deficit irrigation common"

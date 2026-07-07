@@ -1,0 +1,8 @@
+climate_setting,example_locations,peak_et0_mm_per_day,peak_et0_mm_per_week
+coastal_cool,"N-Central/South Coast CA, Pacific NW",3.5,24.5
+temperate_humid,US Northeast/Mid-Atlantic/Southeast,4.5,31.5
+continental,US Midwest/Plains,5.5,38.5
+central_valley,CA Central Valley,6.5,45.5
+semi_arid_inland,Inland South/Intermountain West,7.0,49.0
+high_desert,High & Intermediate Desert,7.5,52.5
+low_desert,Low Desert (Palm Springs/Phoenix),8.5,59.5

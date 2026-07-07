@@ -83,6 +83,14 @@ def k8s_pod_sidecar_mcp_ids_from_env() -> frozenset[str]:
     return frozenset(ids & K8S_SIDECAR_MCP_IDS)
 
 
+def k8s_extra_http_mcp_ids_from_env() -> frozenset[str]:
+    """Non-shipped streamable-HTTP MCP ids allowed in kubernetes mode (extras catalog)."""
+    raw = os.getenv("AGENTIC_K8S_EXTRA_HTTP_MCPS", "").strip()
+    if not raw:
+        return frozenset()
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
 def k8s_worker_stdio_mcp_ids_from_env() -> frozenset[str]:
     """MCP ids allowed as stdio subprocesses inside the worker container (not sidecar)."""
     raw = os.getenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "fetch_url").strip()
@@ -139,10 +147,13 @@ def filter_mcp_ids_for_kubernetes(
         allow_stdio = k8s_allow_stdio_mcps_from_env()
     sidecar_ids = k8s_pod_sidecar_mcp_ids_from_env()
     worker_stdio_ids = k8s_worker_stdio_mcp_ids_from_env()
+    extra_http_ids = k8s_extra_http_mcp_ids_from_env()
     allowed: list[str] = []
     excluded: list[str] = []
     for mcp_id in mcp_ids:
         if is_k8s_native_mcp(mcp_id):
+            allowed.append(mcp_id)
+        elif mcp_id in extra_http_ids:
             allowed.append(mcp_id)
         elif mcp_has_k8s_gateway(mcp_id):
             allowed.append(mcp_id)
