@@ -9,7 +9,9 @@ _MARKER = "[agentic: MCP task instructions]"
 _RETRY_MARKER = "[agentic: MCP retry]"
 
 _TOOL_LEAK_RE = re.compile(
-    r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|^\s*parameters:\s*\{)",
+    r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|"
+    r"plant_knowledge_mcp|^\s*parameters:\s*\{|"
+    r'"name"\s*:\s*"[^"]*plant_knowledge[^"]*")',
     re.IGNORECASE | re.MULTILINE,
 )
 

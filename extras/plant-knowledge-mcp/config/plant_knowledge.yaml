@@ -20,8 +20,9 @@ good_for: >-
   Lawn and garden irrigation planning, plant water needs in mm/week, WUCOLS ratings,
   USDA zone viability, ET0-based scheduling when live ET0 or a climate_setting is known.
 planner_hint: >-
-  Attach for irrigation, plant water requirements, turf/grass watering depth, WUCOLS,
-  USDA zone checks, or when the agent should compute mm/week from plant factor and ET0.
+  Attach only when the agent must look up WUCOLS plant factor, USDA hardiness, or compute
+  water need in mm/week from ET0 (get_water_requirement_mm). Do NOT attach for Home Assistant
+  chat-completions that already require a final MINUTES: line — those clients have no tool loop.
   Pair with home_assistant for valve control and a weather MCP for live ET0 when available.
 
 user_goal_keywords:
@@ -34,8 +35,12 @@ user_goal_keywords:
   - usda zone
   - hardiness zone
   - irrigation mm
-  - turf water
-  - lawn water need
+  - get_water_requirement_mm
+  - plant knowledge mcp
+
+# Avoid matching id phrase "plant knowledge" inside HA system prompts that say
+# "Use plant knowledge you already have" (no tool loop on that client).
+match_keywords_only: true
 
 required_env:
   - PLANT_KNOWLEDGE_MCP_URL

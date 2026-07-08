@@ -21,6 +21,7 @@ from orchestration.config_loader import (
     raw_skill_spec_for_task,
 )
 from orchestration.goal_format_hints import (
+    goal_requests_irrigation_minutes_line,
     goal_requires_machine_readable_only,
     web_prose_deliverable_enabled,
     web_prose_planner_rules,
@@ -470,7 +471,18 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
     """Deterministic 1-step plan when the filtered catalog has exactly one agent."""
     from orchestration.simple_chat import is_simple_chat_prompt
 
-    if is_simple_chat_prompt(user_prompt):
+    if goal_requests_irrigation_minutes_line(user_prompt):
+        description = (
+            "{topic}\n\n"
+            "Decide watering minutes for this zone from the provided facts only. "
+            "Do not call tools, emit tool JSON, or invent MCP invocations. "
+            "Write brief reasoning (≤120 words), then end with exactly one line: MINUTES: <0-25>."
+        )
+        expected_output = (
+            "Brief reasoning ending with a final line exactly like MINUTES: 0 or MINUTES: 12 "
+            "(integer 0-25). No tool-call JSON."
+        )
+    elif is_simple_chat_prompt(user_prompt):
         description = (
             "{topic}\n\n"
             "Reply in plain natural language only. Do not call tools, delegate tasks, "
@@ -1116,6 +1128,15 @@ def _prune_irrelevant_mcp_from_user_goal(
         return cfg
     if not cfg.mcp_providers:
         return cfg
+    if goal_requests_irrigation_minutes_line(user_prompt):
+        if not quiet:
+            print(
+                f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
+                "(HA MINUTES: contract — no tool loop on client)",
+                file=sys.stderr,
+            )
+        return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
+
     suggested = set(suggest_mcp_ids_from_user_goal(user_prompt, mcp_catalog))
     if not suggested:
         # No MCP appears relevant by heuristic; drop planner-selected defaults.
@@ -1144,7 +1165,19 @@ def _prune_irrelevant_mcp_from_user_goal(
             f"(dynamic) mcp relevance: dropped {dropped!r}; kept {kept!r}",
             file=sys.stderr,
         )
+    if not dropped:
+        return cfg
     return replace(cfg, mcp_providers=kept)
+
+
+def _tasks_without_mcp(tasks: list[Any]) -> list[Any]:
+    out: list[Any] = []
+    for t in tasks:
+        if getattr(t, "mcp_providers", None):
+            out.append(replace(t, mcp_providers=[]))
+        else:
+            out.append(t)
+    return out
 
 
 def _prune_irrelevant_skills_from_user_goal(

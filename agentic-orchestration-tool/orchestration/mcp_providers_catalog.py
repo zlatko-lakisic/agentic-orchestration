@@ -423,12 +423,14 @@ _MCP_GOAL_MATCH_BLOCKLIST = frozenset({
 def _terms_from_mcp_catalog_entry(entry: dict[str, Any]) -> set[str]:
     out: set[str] = set()
     eid = str(entry.get("id", "")).strip().lower()
-    if eid:
-        out.add(eid)
-        out.add(eid.replace("_", " "))
-        for p in eid.split("_"):
-            if len(p) >= 5 and p not in _MCP_GOAL_MATCH_BLOCKLIST:
-                out.add(p)
+    keywords_only = bool(entry.get("match_keywords_only") or entry.get("strict_user_goal_keywords"))
+    if not keywords_only:
+        if eid:
+            out.add(eid)
+            out.add(eid.replace("_", " "))
+            for p in eid.split("_"):
+                if len(p) >= 5 and p not in _MCP_GOAL_MATCH_BLOCKLIST:
+                    out.add(p)
     for key in ("user_goal_keywords", "match_keywords"):
         raw = entry.get(key)
         if isinstance(raw, list):
@@ -436,6 +438,8 @@ def _terms_from_mcp_catalog_entry(entry: dict[str, Any]) -> set[str]:
                 s = str(x).strip().lower()
                 if s:
                     out.add(s)
+    if keywords_only:
+        return out
     hint = str(entry.get("planner_hint", "")).lower()
     # Web-search MCP planner_hints often contain broad words ("weather", "research", …) that falsely
     # match irrigation/forecast JSON pasted into goals. Keywords + id tokens are enough for those ids.

@@ -4,6 +4,7 @@ import pytest
 
 from orchestration.goal_format_hints import (
     apply_web_prose_goal_if_enabled,
+    goal_requests_irrigation_minutes_line,
     goal_requires_machine_readable_only,
     web_prose_deliverable_enabled,
 )
@@ -17,10 +18,25 @@ from orchestration.goal_format_hints import (
         ('Respond with only a single json object. No explanation.', True),
         ("Summarize this topic for executives.", False),
         ("", False),
+        (
+            "You are the irrigation decision-maker.\n"
+            "Output format: your reasoning then a final line exactly:\n"
+            "MINUTES: <integer 0-25>\n"
+            "Zone plant_profile: Tall fescue lawn grass",
+            True,
+        ),
     ],
 )
 def test_goal_requires_machine_readable_only(text: str, expected: bool) -> None:
     assert goal_requires_machine_readable_only(text) is expected
+
+
+@pytest.mark.unit
+def test_goal_requests_irrigation_minutes_line() -> None:
+    assert goal_requests_irrigation_minutes_line(
+        "final line exactly:\nMINUTES: <integer 0-25>"
+    )
+    assert not goal_requests_irrigation_minutes_line("How many minutes should I water?")
 
 
 @pytest.mark.unit

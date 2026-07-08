@@ -35,7 +35,7 @@ user_goal_keywords:
 
 content:
   summary: >-
-    HA integer-only mode: one line 0 or 2-25 from baseline, probes, rain, heat (75F+);
+    HA minutes mode: end with MINUTES: 0-25 (or legacy integer-only); no MCP tool JSON;
     else conversational irrigation advice.
   file: jetson_irrigation/instructions.md
 
