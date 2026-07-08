@@ -39,3 +39,6 @@ required_env:
 stdio:
   command: python
   args: ["-m", "mcp_servers.media_understand"]
+  # Coordinator image: /app/tool ; warm-pool worker: /app
+  env:
+    PYTHONPATH: "/app/tool:/app:${PYTHONPATH}"
