@@ -22,8 +22,9 @@ AGENTIC_K8S_RUN_STORE_PVC=agentic-run-store
 AGENTIC_K8S_RUN_STORE_MOUNT=/run/store
 AGENTIC_K8S_ENV_SECRET=agentic-orchestrator-env
 AGENTIC_K8S_WARM_POOL_ENABLED=1
-AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local
+AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local,media_understand,media_audio_transcribe,media_video_analyze
 AGENTIC_MCP_FETCH_ENABLED=1
+AGENTIC_MCP_MEDIA_ENABLED=1
 FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace
 AGENTIC_LOG_FORMAT=json
 ENVEOF
@@ -35,7 +36,10 @@ ENVEOF
   sub(/=.*$/, "", key)
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
   if (key == "") next
-  if (!(key in order)) order[++n]=key
+  if (!(key in seen)) {
+    seen[key]=1
+    order[++n]=key
+  }
   vals[key]=line
 } END { for (i=1;i<=n;i++) print vals[order[i]] }' > "${SECRET_TMP}"
 kubectl create secret generic agentic-orchestrator-env \
