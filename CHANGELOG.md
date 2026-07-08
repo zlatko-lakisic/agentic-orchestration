@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-08
+
 ### Added
 
 - **Upload preview UI** — drag & drop or paperclip attach with pending preview chips (image/video/audio or icon fallback) and per-file cancel before send.
