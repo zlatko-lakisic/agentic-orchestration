@@ -78,19 +78,28 @@ function formatChartTime(ts) {
   return Number.isFinite(d.getTime()) ? d.toLocaleTimeString() : "—";
 }
 
-function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = false, showLegend = false, hoverIndex = null }) {
+function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = false, showLegend = false, hoverIndex = null, lockCssWidthPct = false }) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  const cssW = Math.max(1, Math.floor(width));
+  const cssH = Math.max(1, Math.floor(height));
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
+  // Keep CSS width as % for fluid layouts. Setting absolute px from clientWidth causes a
+  // shrink feedback loop (scrollbar / layout churn on hover redraws).
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  if (lockCssWidthPct) {
+    canvas.style.width = "100%";
+    canvas.style.height = `${cssH}px`;
+  } else {
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+  }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
+  ctx.clearRect(0, 0, cssW, cssH);
 
-  const layout = chartLayout(width, height, pad);
+  const layout = chartLayout(cssW, cssH, pad);
   const { plotX, plotY, plotW, plotH } = layout;
 
   if (showGrid) {
@@ -243,13 +252,19 @@ export function initHostMetricsUi() {
   let chartHoverIndex = null;
 
   function chartOptions() {
+    // Measure the wrap, not the canvas — canvas style px from prior draws would feedback-shrink.
+    const width = Math.max(
+      1,
+      Math.floor(chartWrap?.clientWidth || chart?.parentElement?.clientWidth || 640),
+    );
     return {
-      width: chart?.clientWidth || 640,
+      width,
       height: 220,
       pad: 36,
       showGrid: true,
       showLegend: true,
       hoverIndex: chartHoverIndex,
+      lockCssWidthPct: true,
     };
   }
 

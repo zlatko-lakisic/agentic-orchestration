@@ -318,6 +318,7 @@ body {
 .host-metrics-chart-wrap {
   position: relative;
   margin-bottom: 14px;
+  overflow: hidden;
 }
 
 .host-metrics-chart-tooltip {
@@ -336,6 +337,8 @@ body {
   transform: translate(-50%, calc(-100% - 10px));
   opacity: 0;
   transition: opacity 0.12s ease;
+  /* Keep tooltip from expanding wrap/modal and causing chart width feedback. */
+  max-width: calc(100% - 16px);
 }
 
 .host-metrics-chart-tooltip.visible {
