@@ -8,6 +8,10 @@ from typing import Any
 _MARKER = "[agentic: MCP task instructions]"
 _RETRY_MARKER = "[agentic: MCP retry]"
 
+_MEDIA_MCP_IDS = frozenset(
+    {"media_understand", "media_audio_transcribe", "media_video_analyze"}
+)
+
 _TOOL_LEAK_RE = re.compile(
     r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|"
     r"plant_knowledge_mcp|^\s*parameters:\s*\{|"
@@ -59,6 +63,14 @@ def _fetch_url_hint() -> str:
     return "URLs in the goal: call the `fetch` tool, then answer in short plain prose."
 
 
+def _media_understand_hint() -> str:
+    return (
+        "Attached media files: call describe_image_file, transcribe_audio_file, or "
+        "analyze_video_file with the absolute paths from ## Attached files / media grounding evidence. "
+        "Ground answers in tool output — do not invent cinematic details."
+    )
+
+
 def augment_task_description_for_mcps(description: str, mcp_ids: list[str]) -> str:
     if not mcp_ids:
         return description
@@ -67,6 +79,8 @@ def augment_task_description_for_mcps(description: str, mcp_ids: list[str]) -> s
     blocks: list[str] = []
     if "fetch_url" in mcp_ids:
         blocks.append(_fetch_url_hint())
+    if any(mid in _MEDIA_MCP_IDS for mid in mcp_ids):
+        blocks.append(_media_understand_hint())
     if not blocks:
         return description
     return description.rstrip() + "\n\n" + _MARKER + "\n" + "\n".join(blocks)

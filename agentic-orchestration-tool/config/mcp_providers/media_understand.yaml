@@ -1,6 +1,8 @@
 # First-party media understanding MCP (stdio) — image / audio / video tools for agents.
 # Runs: python -m mcp_servers.media_understand
 # Opt-in: AGENTIC_MCP_MEDIA_ENABLED=1 (and preferably faster-whisper for audio).
+# Capability: deterministic ffmpeg/ffprobe metadata + optional vision/transcription via LiteLLM.
+# Not full video understanding — sampled frames and technical facts only; harness gates when unavailable.
 id: media_understand
 description: >-
   Understand local uploaded media: describe images with a vision model, transcribe

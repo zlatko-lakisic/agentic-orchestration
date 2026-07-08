@@ -117,6 +117,58 @@ def _load_dynamic_attachment_block(args: argparse.Namespace, tool_root: Path) ->
         sys.exit(2)
 
 
+def _dynamic_manifest_path(args: argparse.Namespace, tool_root: Path) -> Path | None:
+    raw = getattr(args, "dynamic_attachments", None)
+    if not raw or not str(raw).strip():
+        return None
+    mp = resolve_manifest_path(str(raw).strip(), tool_root=tool_root)
+    return mp if mp.is_file() else None
+
+
+def _goal_with_media_grounding(
+    raw_task: str,
+    attachment_block: str,
+    *,
+    manifest_path: Path | None,
+    tool_root: Path,
+    mcp_catalog_path: Path,
+) -> tuple[str, Any, bool]:
+    """
+    Compose goal with attachments + harness media evidence.
+
+    Returns ``(goal, bundle, gated)``. When ``gated`` is True, ``goal`` is the fixed gate string.
+    """
+    from orchestration.media_grounding import MEDIA_GATE_RESPONSE, prepare_media_grounding
+    from orchestration.mcp_providers_catalog import load_mcp_providers_catalog_merged
+
+    goal = apply_web_prose_goal_if_enabled(
+        compose_goal_with_attachments(raw_task, attachment_block)
+    )
+    if manifest_path is None:
+        return goal, None, False
+    catalog = load_mcp_providers_catalog_merged(mcp_catalog_path)
+    bundle = prepare_media_grounding(
+        manifest_path=manifest_path,
+        tool_root=tool_root,
+        user_goal=goal,
+        mcp_catalog=catalog,
+    )
+    if bundle is None:
+        return goal, None, False
+    if bundle.gate:
+        return MEDIA_GATE_RESPONSE, bundle, True
+    if bundle.markdown_block:
+        goal = goal + "\n\n" + bundle.markdown_block
+    return goal, bundle, False
+
+
+def _finalize_dynamic_result_text(result_text: str | None, media_bundle: Any) -> str | None:
+    from orchestration.media_grounding import finalize_media_answer
+
+    text, _accepted = finalize_media_answer(result_text or "", media_bundle)
+    return text
+
+
 def _is_quit_command(text: str) -> bool:
     t = text.strip().lower()
     return t in frozenset({"quit", "exit", "q", ":q"})
@@ -981,6 +1033,8 @@ def main() -> None:
             )
 
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
+        dynamic_manifest = _dynamic_manifest_path(args, tool_root)
+        media_grounding_bundle = None
 
         def compose_goal(g: str) -> str:
             return apply_web_prose_goal_if_enabled(
@@ -1036,7 +1090,16 @@ def main() -> None:
                     print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
                     return
 
-        cache_goal = compose_goal(raw_task)
+        cache_goal, media_grounding_bundle, media_gated = _goal_with_media_grounding(
+            raw_task,
+            attachment_block,
+            manifest_path=dynamic_manifest,
+            tool_root=tool_root,
+            mcp_catalog_path=mcp_catalog_path,
+        )
+        if media_gated:
+            print(cache_goal)
+            return
 
         manual_rounds = max(1, int(args.dynamic_iterative_rounds))
         max_rounds = manual_rounds
@@ -1261,6 +1324,9 @@ def main() -> None:
             if not iterative_final_text:
                 sess_quick = load_session(orchestrator_session_path)
                 iterative_final_text = (sess_quick.last_crew_output_excerpt or "").strip()
+            iterative_final_text = _finalize_dynamic_result_text(
+                iterative_final_text, media_grounding_bundle
+            ) or ""
             if iterative_final_text:
                 print(iterative_final_text, flush=True)
 
@@ -1272,7 +1338,7 @@ def main() -> None:
             if web_prose_deliverable_enabled() and not strict_mr_goal:
                 prose_hdr = web_prose_synthesis_instructions()
             synth_prompt = (
-                f"{compose_goal(logical_goal)}\n\n"
+                f"{cache_goal}\n\n"
                 f"{prose_hdr}"
                 "Synthesize a final answer by combining the intermediate results below. "
                 "Resolve contradictions; if information is missing, explicitly list assumptions.\n\n"
@@ -1318,6 +1384,7 @@ def main() -> None:
             )
             if exit_code:
                 sys.exit(exit_code)
+            result_text = _finalize_dynamic_result_text(result_text, media_grounding_bundle)
             _update_session_after_crew(orchestrator_session_path, result_text)
             _update_session_after_final(
                 orchestrator_session_path, user_goal=cache_goal, result_text=result_text
@@ -1462,6 +1529,8 @@ def main() -> None:
             )
 
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
+        dynamic_manifest = _dynamic_manifest_path(args, tool_root)
+        media_grounding_bundle = None
 
         def compose_goal(g: str) -> str:
             return apply_web_prose_goal_if_enabled(
@@ -1510,7 +1579,16 @@ def main() -> None:
                     print(sess0.last_final_answer_excerpt.strip())
                     print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
                     return
-        cache_goal = compose_goal(raw_task)
+        cache_goal, media_grounding_bundle, media_gated = _goal_with_media_grounding(
+            raw_task,
+            attachment_block,
+            manifest_path=dynamic_manifest,
+            tool_root=tool_root,
+            mcp_catalog_path=mcp_catalog_path,
+        )
+        if media_gated:
+            print(cache_goal)
+            return
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=cache_goal,
@@ -1557,6 +1635,7 @@ def main() -> None:
         )
         if exit_code:
             sys.exit(exit_code)
+        result_text = _finalize_dynamic_result_text(result_text, media_grounding_bundle)
         _update_session_after_crew(orchestrator_session_path, result_text)
         _update_session_after_final(
             orchestrator_session_path, user_goal=cache_goal, result_text=result_text

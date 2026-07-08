@@ -59,6 +59,9 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/attachments.py
               subPath: attachments.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/media_grounding.py
+              subPath: media_grounding.py
             - name: tool-hotfix-agent-providers
               mountPath: /app/tool/agent_providers/base.py
               subPath: base.py

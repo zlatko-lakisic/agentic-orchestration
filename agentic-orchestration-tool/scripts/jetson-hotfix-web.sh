@@ -58,6 +58,7 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=k8s_mcp_compat.py="${ORCH_ROOT}/k8s_mcp_compat.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
+  --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"

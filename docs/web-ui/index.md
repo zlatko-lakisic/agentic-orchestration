@@ -31,6 +31,7 @@ Recent behavior updates:
 - File uploads are supported in chat; drag & drop or paperclip, with **pending preview chips** (image/video/audio preview or an icon) and per-file cancel before send.
 - Server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Images, audio, and video are first-class (separate byte caps); agents can use MCP `media_understand` tools when enabled.
+- **Media grounding** — before answering, the harness extracts ffmpeg/ffprobe facts (scene cuts, audio levels) and optional tool output; confabulated answers that contradict those facts are rejected with a fixed gate message. Skill verification tokens (`SKILL_ECHO_*`) are stripped from deliverables.
 - Upload safety limits are enforced server-side (per-file by MIME class, total bytes, max file count).
 - **Warpgate / reverse-proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
 

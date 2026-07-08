@@ -142,4 +142,6 @@ def sanitize_user_facing_prose(text: str) -> str:
         return ""
     if looks_like_format_instruction_only(t):
         return ""
-    return t
+    from orchestration.media_grounding import strip_skill_echo_tokens
+
+    return strip_skill_echo_tokens(t)

@@ -1602,6 +1602,13 @@ def build_dynamic_workflow_config(
         mcp_catalog=mcp_entries,
         quiet=quiet,
     )
+    from orchestration.media_grounding import augment_workflow_config_for_media_mcp
+
+    cfg = augment_workflow_config_for_media_mcp(
+        cfg,
+        user_prompt=user_prompt,
+        mcp_catalog=mcp_entries,
+    )
     cfg = _prune_irrelevant_skills_from_user_goal(
         cfg,
         user_prompt=user_prompt,
