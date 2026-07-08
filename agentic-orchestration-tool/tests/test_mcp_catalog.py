@@ -27,6 +27,22 @@ def test_load_mcp_catalog_has_known_ids(config_dir: Path) -> None:
 
 
 @pytest.mark.unit
+def test_xquik_mcp_catalog_entry_requires_api_key(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("XQUIK_API_KEY", raising=False)
+    entries = load_mcp_providers_catalog(config_dir / "mcp_providers")
+    xquik = next(e for e in entries if e.get("id") == "xquik")
+
+    assert not mcp_entry_has_api_credentials(xquik)
+
+    monkeypatch.setenv("XQUIK_API_KEY", "xq_test")
+
+    assert mcp_entry_has_api_credentials(xquik)
+
+
+@pytest.mark.unit
 def test_suggest_fetch_url_when_goal_has_http_url(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1,0 +1,35 @@
+# Xquik remote MCP (Streamable HTTP).
+# Docs: https://docs.xquik.com/mcp/overview
+#
+# Set in .env:
+#   XQUIK_API_KEY=<your Xquik API key>
+id: xquik
+description: >-
+  Remote X data MCP server for search, extraction, account monitoring, webhooks,
+  and posting workflows. Requires an Xquik API key and uses the hosted streamable
+  HTTP endpoint.
+capabilities: >-
+  X data search and extraction, account and keyword monitoring, webhook-driven
+  workflows, and X write actions through Xquik MCP tools.
+good_for: >-
+  Social data research, brand and account monitoring, giveaway or engagement
+  workflows, and X automation tasks where the user supplies Xquik API access.
+planner_hint: >-
+  Use when the goal explicitly needs X data, account monitoring, extraction,
+  webhooks, or X posting workflows through Xquik.
+user_goal_keywords:
+  - xquik
+  - x data
+  - twitter data
+  - x search
+  - tweet search
+  - social monitoring
+  - account monitoring
+
+required_env:
+  - XQUIK_API_KEY
+
+streamable_http:
+  url: "https://xquik.com/mcp"
+  headers:
+    Authorization: "Bearer ${XQUIK_API_KEY}"
