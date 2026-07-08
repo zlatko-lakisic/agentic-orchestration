@@ -1792,11 +1792,17 @@ function envAttachmentByteCap(name, fallback, hardMax) {
   return Math.min(hardMax, Math.floor(n));
 }
 
-/** Single image / non-video attachment cap (base64 decode size). */
+/** Single image / non-media attachment cap (base64 decode size). */
 const MAX_ATTACH_IMAGE_BYTES = envAttachmentByteCap(
   "AGENTIC_OPENAI_PROXY_MAX_IMAGE_BYTES",
   5 * 1024 * 1024,
   80 * 1024 * 1024,
+);
+/** Single audio attachment cap. */
+const MAX_ATTACH_AUDIO_BYTES = envAttachmentByteCap(
+  "AGENTIC_OPENAI_PROXY_MAX_AUDIO_BYTES",
+  40 * 1024 * 1024,
+  256 * 1024 * 1024,
 );
 /** Single video attachment cap (MP4/WebM fetch or data URL). */
 const MAX_ATTACH_VIDEO_BYTES = envAttachmentByteCap(
@@ -1804,7 +1810,7 @@ const MAX_ATTACH_VIDEO_BYTES = envAttachmentByteCap(
   80 * 1024 * 1024,
   512 * 1024 * 1024,
 );
-/** Sum of all files in one manifest (images + videos + agentic.files). */
+/** Sum of all files in one manifest (images + audio + videos + agentic.files). */
 const MAX_ATTACH_TOTAL_BYTES = envAttachmentByteCap(
   "AGENTIC_OPENAI_PROXY_MAX_ATTACHMENT_TOTAL_BYTES",
   200 * 1024 * 1024,
@@ -1817,6 +1823,7 @@ function attachmentMaxBytesForMime(mime) {
     .trim()
     .toLowerCase();
   if (m.startsWith("video/")) return MAX_ATTACH_VIDEO_BYTES;
+  if (m.startsWith("audio/")) return MAX_ATTACH_AUDIO_BYTES;
   return MAX_ATTACH_IMAGE_BYTES;
 }
 

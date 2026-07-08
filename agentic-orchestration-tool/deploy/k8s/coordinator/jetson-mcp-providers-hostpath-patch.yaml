@@ -1,0 +1,15 @@
+# Mount git-synced MCP provider YAML catalog into the coordinator (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: jetson-mcp-providers
+              mountPath: /app/tool/config/mcp_providers
+              readOnly: true
+      volumes:
+        - name: jetson-mcp-providers
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/config/mcp_providers
+            type: DirectoryOrCreate

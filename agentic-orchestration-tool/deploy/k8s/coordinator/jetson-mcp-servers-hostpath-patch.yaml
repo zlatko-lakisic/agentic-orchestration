@@ -1,0 +1,15 @@
+# Mount git-synced first-party MCP server packages into the coordinator (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: jetson-mcp-servers
+              mountPath: /app/tool/mcp_servers
+              readOnly: true
+      volumes:
+        - name: jetson-mcp-servers
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/mcp_servers
+            type: DirectoryOrCreate

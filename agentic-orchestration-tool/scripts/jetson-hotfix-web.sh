@@ -57,6 +57,7 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=output_artifacts.py="${ORCH_ROOT}/output_artifacts.py" \
   --from-file=k8s_mcp_compat.py="${ORCH_ROOT}/k8s_mcp_compat.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
+  --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
@@ -72,7 +73,10 @@ HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.
 JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
 SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-patch.yaml"
 PLANT_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-plant-knowledge-mcp-hostpath-patch.yaml"
+MCP_PROVIDERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-providers-hostpath-patch.yaml"
+MCP_SERVERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-servers-hostpath-patch.yaml"
 WARM_SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml"
+WARM_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
@@ -88,11 +92,20 @@ fi
 if [[ -f "${PLANT_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PLANT_MCP_PATCH}"
 fi
+if [[ -f "${MCP_PROVIDERS_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MCP_PROVIDERS_PATCH}"
+fi
+if [[ -f "${MCP_SERVERS_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MCP_SERVERS_PATCH}"
+fi
 if [[ -f "${WARM_POOL_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_POOL_PATCH}"
 fi
 if [[ -f "${WARM_SKILLS_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_SKILLS_PATCH}"
+fi
+if [[ -f "${WARM_MCP_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_MCP_PATCH}"
 fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"

@@ -256,6 +256,198 @@ if (globalThis.__agenticOrchestratorUiInit) {
     if (attachBtn) attachBtn.disabled = !connected || busy;
   }
 
+  const MAX_PENDING_ATTACH = 8;
+  const pendingAttachments = [];
+  let pendingIdSeq = 0;
+  const attachPreviewEl = document.getElementById("attachPreview");
+  const composerDropZone = document.getElementById("composerDropZone");
+
+  function formatBytes(n) {
+    const v = Number(n) || 0;
+    if (v < 1024) return `${v} B`;
+    if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+    return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function classifyAttachment(file) {
+    const mime = String(file?.type || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) {
+      return { kind: "image", icon: "🖼", label: "Image" };
+    }
+    if (mime.startsWith("video/") || /\.(mp4|webm|mov|mkv|avi|m4v)$/i.test(name)) {
+      return { kind: "video", icon: "🎬", label: "Video" };
+    }
+    if (mime.startsWith("audio/") || /\.(mp3|wav|m4a|ogg|flac|aac|wma|opus)$/i.test(name)) {
+      return { kind: "audio", icon: "🎙", label: "Audio" };
+    }
+    if (mime.includes("pdf") || name.endsWith(".pdf")) return { kind: "document", icon: "📄", label: "PDF" };
+    if (/\.(csv|tsv|xlsx?)$/i.test(name)) return { kind: "data", icon: "📊", label: "Data" };
+    if (/\.(py|js|ts|tsx|jsx|go|rs|java|cs|sql|html|css)$/i.test(name)) {
+      return { kind: "code", icon: "💻", label: "Code" };
+    }
+    if (/\.(txt|md|log|ya?ml|json|xml)$/i.test(name) || mime.startsWith("text/")) {
+      return { kind: "text", icon: "📝", label: "Text" };
+    }
+    return { kind: "file", icon: "📎", label: "File" };
+  }
+
+  function revokePendingPreview(entry) {
+    if (entry?.previewUrl) {
+      try {
+        URL.revokeObjectURL(entry.previewUrl);
+      } catch {
+        /* ignore */
+      }
+      entry.previewUrl = "";
+    }
+  }
+
+  function clearPendingAttachments() {
+    while (pendingAttachments.length) {
+      revokePendingPreview(pendingAttachments.pop());
+    }
+    renderAttachPreview();
+    if (fileInputEl) fileInputEl.value = "";
+  }
+
+  function removePendingAttachment(id) {
+    const idx = pendingAttachments.findIndex((e) => e.id === id);
+    if (idx < 0) return;
+    const [gone] = pendingAttachments.splice(idx, 1);
+    revokePendingPreview(gone);
+    renderAttachPreview();
+  }
+
+  function addPendingFiles(fileList) {
+    const incoming = Array.from(fileList || []).filter((f) => f && typeof f === "object");
+    if (!incoming.length) return;
+    const room = Math.max(0, MAX_PENDING_ATTACH - pendingAttachments.length);
+    if (room <= 0) {
+      appendMeta(`Attachment limit reached (max ${MAX_PENDING_ATTACH} files).`);
+      return;
+    }
+    const take = incoming.slice(0, room);
+    if (incoming.length > room) {
+      appendMeta(`Only ${room} more file(s) can be attached (max ${MAX_PENDING_ATTACH}).`);
+    }
+    for (const file of take) {
+      const meta = classifyAttachment(file);
+      let previewUrl = "";
+      if (meta.kind === "image" || meta.kind === "video" || meta.kind === "audio") {
+        try {
+          previewUrl = URL.createObjectURL(file);
+        } catch {
+          previewUrl = "";
+        }
+      }
+      pendingAttachments.push({
+        id: `att-${++pendingIdSeq}`,
+        file,
+        previewUrl,
+        kind: meta.kind,
+        icon: meta.icon,
+        label: meta.label,
+      });
+    }
+    renderAttachPreview();
+  }
+
+  function renderAttachPreview() {
+    if (!attachPreviewEl) return;
+    attachPreviewEl.innerHTML = "";
+    if (!pendingAttachments.length) {
+      attachPreviewEl.hidden = true;
+      return;
+    }
+    attachPreviewEl.hidden = false;
+    for (const entry of pendingAttachments) {
+      const chip = document.createElement("div");
+      chip.className = "attach-chip";
+      chip.dataset.id = entry.id;
+
+      const preview = document.createElement("div");
+      preview.className = "attach-chip-preview";
+      if (entry.kind === "image" && entry.previewUrl) {
+        const img = document.createElement("img");
+        img.src = entry.previewUrl;
+        img.alt = entry.file.name || "image";
+        preview.appendChild(img);
+      } else if (entry.kind === "video" && entry.previewUrl) {
+        const vid = document.createElement("video");
+        vid.src = entry.previewUrl;
+        vid.muted = true;
+        vid.playsInline = true;
+        vid.preload = "metadata";
+        preview.appendChild(vid);
+      } else if (entry.kind === "audio" && entry.previewUrl) {
+        const aud = document.createElement("audio");
+        aud.src = entry.previewUrl;
+        aud.controls = true;
+        aud.preload = "metadata";
+        preview.appendChild(aud);
+      } else {
+        const icon = document.createElement("span");
+        icon.className = "attach-chip-icon";
+        icon.textContent = entry.icon || "📎";
+        icon.setAttribute("aria-hidden", "true");
+        preview.appendChild(icon);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "attach-chip-meta";
+      const name = document.createElement("div");
+      name.className = "attach-chip-name";
+      name.textContent = entry.file.name || "file";
+      name.title = entry.file.name || "file";
+      const kind = document.createElement("div");
+      kind.className = "attach-chip-kind";
+      kind.textContent = `${entry.label} · ${formatBytes(entry.file.size)}`;
+      meta.appendChild(name);
+      meta.appendChild(kind);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "attach-chip-remove";
+      remove.title = "Remove attachment";
+      remove.setAttribute("aria-label", `Remove ${entry.file.name || "file"}`);
+      remove.textContent = "×";
+      remove.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removePendingAttachment(entry.id);
+      });
+
+      chip.appendChild(preview);
+      chip.appendChild(meta);
+      chip.appendChild(remove);
+      attachPreviewEl.appendChild(chip);
+    }
+  }
+
+  function initAttachDropZone() {
+    const zone = composerDropZone || document.querySelector(".composer");
+    if (!zone) return;
+    const prevent = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    ["dragenter", "dragover", "dragleave", "drop"].forEach((ev) => {
+      zone.addEventListener(ev, prevent);
+    });
+    zone.addEventListener("dragenter", () => zone.classList.add("drag-over"));
+    zone.addEventListener("dragover", () => zone.classList.add("drag-over"));
+    zone.addEventListener("dragleave", (e) => {
+      if (!zone.contains(e.relatedTarget)) zone.classList.remove("drag-over");
+    });
+    zone.addEventListener("drop", (e) => {
+      zone.classList.remove("drag-over");
+      if (attachBtn?.disabled) return;
+      const files = e.dataTransfer?.files;
+      if (files?.length) addPendingFiles(files);
+    });
+  }
+
   async function ensureEdgeSessionReady() {
     if (!isWarpgateFronted()) return true;
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -1331,7 +1523,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   async function sendChat() {
     const text = input.value.trim();
-    const hasFiles = Boolean(fileInputEl && fileInputEl.files && fileInputEl.files.length > 0);
+    const hasFiles = pendingAttachments.length > 0;
     if ((!text && !hasFiles) || !ws || ws.readyState !== WebSocket.OPEN || runActive || welcomeLoading) return;
 
     const modeRaw = (runModeEl?.value || "dynamic").trim();
@@ -1365,7 +1557,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
     let filesPayload = [];
     if (hasFiles) {
       try {
-        filesPayload = await buildFilesPayload(fileInputEl.files);
+        filesPayload = await buildFilesPayload(pendingAttachments.map((e) => e.file));
       } catch (err) {
         appendMeta(`Could not read attachments: ${String(err?.message || err)}`);
         return;
@@ -1377,7 +1569,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       .join("\n");
     appendBubble("user", userBubbleText || `[${filesPayload.length} attached file(s)]`);
     input.value = "";
-    if (fileInputEl) fileInputEl.value = "";
+    clearPendingAttachments();
 
     const payload = {
       type: "chat",
@@ -1480,6 +1672,13 @@ if (globalThis.__agenticOrchestratorUiInit) {
   iterRoundsEl?.addEventListener("input", syncRailIcons);
   iterMaxRoundsEl?.addEventListener("input", syncRailIcons);
   attachBtn?.addEventListener("click", () => fileInputEl?.click());
+  fileInputEl?.addEventListener("change", () => {
+    if (fileInputEl.files?.length) {
+      addPendingFiles(fileInputEl.files);
+      fileInputEl.value = "";
+    }
+  });
+  initAttachDropZone();
   syncIterativeUi();
   syncComposerAvailability();
 

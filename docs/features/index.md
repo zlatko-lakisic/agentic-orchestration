@@ -206,7 +206,7 @@ Custom verticals: create `examples/verticals/<id>/` with optional `orchestrator-
 
 ## WebSocket Web UI
 
-The `agentic-orchestration-web` Node.js package streams run output over WebSocket, supports file uploads (attachment manifests for `--dynamic-attachments`), exposes ratings that feed the learning loop, and shows a live **host CPU/memory** sparkline in the top bar (click for a detail graph via `GET /api/host-metrics`).
+The `agentic-orchestration-web` Node.js package streams run output over WebSocket, supports file uploads with drag-and-drop preview chips (images, audio, video, and documents via attachment manifests for `--dynamic-attachments`), optional media-understanding MCP tools, exposes ratings that feed the learning loop, and shows a live **host CPU/memory** sparkline in the top bar (click for a detail graph via `GET /api/host-metrics`).
 
 ```bash
 cd agentic-orchestration-web

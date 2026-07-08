@@ -26,6 +26,9 @@ K8S_STDIO_MCP_IDS: frozenset[str] = frozenset(
         "fetch_url",
         "filesystem_local",
         "memory_knowledge_graph",
+        "media_understand",
+        "media_audio_transcribe",
+        "media_video_analyze",
     }
 )
 

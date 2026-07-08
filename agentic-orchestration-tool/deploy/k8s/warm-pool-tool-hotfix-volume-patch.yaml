@@ -38,6 +38,9 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/k8s_mcp_compat.py
               subPath: k8s_mcp_compat.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/attachments.py
+              subPath: attachments.py
             - name: tool-hotfix-agent-providers
               mountPath: /app/agent_providers/base.py
               subPath: base.py

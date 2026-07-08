@@ -146,15 +146,24 @@
           </div>
 
           <footer class="composer">
-            <div class="composer-toolbar">
-              <button type="button" id="attachBtn" class="icon-btn attach" title="Attach files" aria-label="Attach files">
+            <div id="attachPreview" class="attach-preview" hidden aria-live="polite"></div>
+            <div class="composer-toolbar" id="composerDropZone">
+              <button type="button" id="attachBtn" class="icon-btn attach" title="Attach files (images, audio, video, documents)" aria-label="Attach files">
                 📎
               </button>
-              <input type="file" id="fileInput" multiple class="sr-only" aria-hidden="true" tabindex="-1" />
+              <input
+                type="file"
+                id="fileInput"
+                multiple
+                class="sr-only"
+                accept="image/*,audio/*,video/*,.pdf,.txt,.md,.csv,.json,.yaml,.yml,.log,.py,.js,.ts,.html,.css,.zip,.xlsx,.xls"
+                aria-hidden="true"
+                tabindex="-1"
+              />
               <textarea
                 id="input"
                 rows="1"
-                placeholder="Describe what you want the crew to do…"
+                placeholder="Describe what you want the crew to do… (or drop files here)"
                 maxlength="32000"
               ></textarea>
               <button type="button" id="sendBtn" class="send-btn" disabled>Send</button>
@@ -258,7 +267,8 @@
             <small class="hint">If no agents are selected, planner chooses automatically.</small>
           </div>
           <small class="hint composer-hint">
-            Attachments: use 📎 in the composer. Files go under <code>_web_uploads/</code> for the run.
+            Attachments: drag &amp; drop onto the composer or use 📎. Preview chips before send; images/audio/video
+            supported. Files go under <code>_web_uploads/</code> for the run.
           </small>
         </div>
       </details>

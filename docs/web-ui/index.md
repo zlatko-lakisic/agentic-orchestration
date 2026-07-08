@@ -28,8 +28,10 @@ Recent behavior updates:
 - **Planner greeting** — LLM welcome on first connect; persisted in the tab transcript and restored on refresh; composer locked while loading.
 - **Crew log timestamps** — stderr lines in the crew log panel are prefixed with local `[HH:MM:SS]`.
 - Markdown answers render client-side with sanitized HTML (using bundled browser ESM vendor assets).
-- File uploads are supported in chat; server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
-- Upload safety limits are enforced server-side (per-file, total bytes, max file count).
+- File uploads are supported in chat; drag & drop or paperclip, with **pending preview chips** (image/video/audio preview or an icon) and per-file cancel before send.
+- Server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
+- Images, audio, and video are first-class (separate byte caps); agents can use MCP `media_understand` tools when enabled.
+- Upload safety limits are enforced server-side (per-file by MIME class, total bytes, max file count).
 - **Warpgate / reverse-proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
 
 ## Setup

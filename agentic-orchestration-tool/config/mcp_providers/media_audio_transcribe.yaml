@@ -1,0 +1,32 @@
+# Convenience alias — same server as media_understand, biased keywords for speech.
+# Opt-in shares AGENTIC_MCP_MEDIA_ENABLED with media_understand.yaml.
+id: media_audio_transcribe
+description: >-
+  Transcribe local audio uploads (mp3/wav/m4a/ogg/flac…) via the media-understand MCP.
+  Prefer when the goal is clearly speech-to-text rather than general media analysis.
+capabilities: >-
+  Uses the same stdio server as media_understand (transcribe_audio_file primary tool).
+good_for: >-
+  Meeting notes from voice recordings, podcast snippets, HA voice clips, accessibility
+  transcription of attached audio.
+planner_hint: >-
+  Attach for audio-category attachments or when the user asks to transcribe / dictate
+  / speech-to-text. Requires AGENTIC_MCP_MEDIA_ENABLED=1 and faster-whisper (or OpenAI).
+
+user_goal_keywords:
+  - transcribe
+  - transcription
+  - speech to text
+  - voice recording
+  - voice memo
+  - audio file
+  - listen to this
+  - what did they say
+  - podcast clip
+
+required_env:
+  - AGENTIC_MCP_MEDIA_ENABLED
+
+stdio:
+  command: python
+  args: ["-m", "mcp_servers.media_understand"]

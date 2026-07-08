@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Upload preview UI** — drag & drop or paperclip attach with pending preview chips (image/video/audio or icon fallback) and per-file cancel before send.
+- **Audio uploads** — dedicated byte cap (`AGENTIC_OPENAI_PROXY_MAX_AUDIO_BYTES`) and `audio` attachment category for routing.
+- **Media understanding MCPs** — `media_understand`, `media_audio_transcribe`, and `media_video_analyze` (stdio; `python -m mcp_servers.media_understand`) for image describe, audio transcribe, and video frame analysis. Opt-in via `AGENTIC_MCP_MEDIA_ENABLED=1`.
+
+### Changed
+
+- Attachment planner block and dynamic planner hints document media MCP tools for deeper image/audio/video work.
+- Jetson deploy mounts MCP provider YAML + `mcp_servers/` via hostPath; env enables media MCPs for worker stdio.
+
 ## [1.10.0] - 2026-07-06
 
 ### Added

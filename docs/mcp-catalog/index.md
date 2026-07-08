@@ -50,6 +50,9 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `fetch_url` | Official **fetch** server (`python -m mcp_server_fetch`); PyPI `mcp-server-fetch`. | [modelcontextprotocol/server-fetch](https://github.com/modelcontextprotocol/servers) — **Search & data extraction** |
 | `memory_knowledge_graph` | Official **memory** server (`@modelcontextprotocol/server-memory`). | [modelcontextprotocol/server-memory](https://github.com/modelcontextprotocol/servers) — **Knowledge & Memory** |
 | `filesystem_local` | Official **filesystem** server (`@modelcontextprotocol/server-filesystem`) + one allowed path. | [modelcontextprotocol/server-filesystem](https://github.com/modelcontextprotocol/servers) — **File Systems** |
+| `media_understand` | First-party **media** server (`python -m mcp_servers.media_understand`): image describe, audio transcribe, video frames. | Community vision/audio servers on [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (Multimedia) |
+| `media_audio_transcribe` | Same server; keywords biased to speech-to-text. | (alias of `media_understand`) |
+| `media_video_analyze` | Same server; keywords biased to video synopsis. | (alias of `media_understand`) |
 
 ## Inventory (repository)
 
@@ -62,6 +65,9 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `fetch_url` | `stdio` | Fetch and normalize a **known** URL for the model. | `AGENTIC_MCP_FETCH_ENABLED` + `pip install mcp-server-fetch` |
 | `memory_knowledge_graph` | `stdio` | In-process knowledge graph memory tools. | `AGENTIC_MCP_MEMORY_MCP_ENABLED` (+ `npx` / Node) |
 | `filesystem_local` | `stdio` | Read/write under one allowed directory root. | `FILESYSTEM_MCP_ALLOWED_DIRECTORY` (absolute path) |
+| `media_understand` | `stdio` | Describe images, transcribe audio, analyze videos (local paths). | `AGENTIC_MCP_MEDIA_ENABLED` (+ `mcp` / optional `faster-whisper`, ffmpeg) |
+| `media_audio_transcribe` | `stdio` | Audio-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
+| `media_video_analyze` | `stdio` | Video-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
 
 ## Kubernetes compatibility (K0.6)
 
@@ -76,6 +82,7 @@ When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s pat
 | `fetch_url` | ✅ (with worker stdio) | Default: `AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url` + `mcp-server-fetch` in worker image |
 | `filesystem_local` | ✅ (with worker stdio + PVC) | `AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local` + `FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace`; seed `mcp-fs-workspace/` on PVC |
 | `memory_knowledge_graph` | ❌ | stdio — K4 sidecar |
+| `media_understand` / `media_audio_transcribe` / `media_video_analyze` | ✅ (with worker stdio) | Set `AGENTIC_MCP_MEDIA_ENABLED=1` and include ids in `AGENTIC_K8S_WORKER_STDIO_MCPS`; mount `mcp_servers/` into the image or hostPath |
 
 Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs in dynamic plans when targeting the kubernetes backend.
 
@@ -115,6 +122,13 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 
 - Set `FILESYSTEM_MCP_ALLOWED_DIRECTORY` to an **absolute** path. The model's file tools are scoped to that root only.
 - **Kubernetes:** use `/run/store/mcp-fs-workspace` on the run-store PVC (`AGENTIC_K8S_MCP_FILESYSTEM_DIR`). Worker image includes Node.js for `npx @modelcontextprotocol/server-filesystem`. Set `AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local`. Smoke: `config/workflows/workflow_filesystem_smoke.yaml`.
+
+#### `media_understand` (and audio/video aliases)
+
+- Opt-in: `AGENTIC_MCP_MEDIA_ENABLED=1`.
+- Run: `python -m mcp_servers.media_understand` (FastMCP stdio). Tools: `describe_image_file`, `transcribe_audio_file`, `analyze_video_file`.
+- Audio: install `faster-whisper` (or configure OpenAI transcription). Video: `ffmpeg` on PATH.
+- Aliases `media_audio_transcribe` / `media_video_analyze` share the same process; they exist so planners match speech vs clip goals more cleanly.
 
 ## Adding a new MCP
 

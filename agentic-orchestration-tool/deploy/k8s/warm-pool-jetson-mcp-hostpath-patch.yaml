@@ -1,0 +1,22 @@
+# Mount git-synced MCP provider YAML + server packages into warm-pool workers.
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          volumeMounts:
+            - name: jetson-mcp-providers
+              mountPath: /app/config/mcp_providers
+              readOnly: true
+            - name: jetson-mcp-servers
+              mountPath: /app/mcp_servers
+              readOnly: true
+      volumes:
+        - name: jetson-mcp-providers
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/config/mcp_providers
+            type: DirectoryOrCreate
+        - name: jetson-mcp-servers
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/mcp_servers
+            type: DirectoryOrCreate

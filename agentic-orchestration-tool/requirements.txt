@@ -5,3 +5,6 @@ pyyaml
 httpx
 kubernetes>=29.0
 mcp-server-fetch
+mcp>=1.2.0
+# Optional audio transcription for media_understand MCP:
+# faster-whisper

@@ -121,6 +121,14 @@ _EXT_CATEGORY: dict[str, tuple[str, str]] = {
     ".mkv": ("media", "Video (Matroska); JPEG frames are extracted for vision—see following frame attachments."),
     ".m4v": ("media", "Video (M4V); JPEG frames are extracted for vision—see following frame attachments."),
     ".avi": ("media", "Video (AVI); JPEG frames are extracted for vision—see following frame attachments."),
+    ".mp3": ("audio", "Audio (MP3); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".wav": ("audio", "Audio (WAV); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".m4a": ("audio", "Audio (M4A); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".ogg": ("audio", "Audio (OGG); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".flac": ("audio", "Audio (FLAC); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".aac": ("audio", "Audio (AAC); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".wma": ("audio", "Audio (WMA); prefer media_audio_transcribe / media_understand MCP for speech."),
+    ".opus": ("audio", "Audio (Opus); prefer media_audio_transcribe / media_understand MCP for speech."),
 }
 
 
@@ -152,7 +160,11 @@ def _category_for(path: Path, mime: str) -> tuple[str, str]:
             "Video; ffmpeg extracts evenly spaced JPEG frames—listed below as image attachments with an optional automated synopsis.",
         )
     if mt.startswith("audio/"):
-        return "media", "Audio; prefer transcription or media-oriented agents when speech matters."
+        return (
+            "audio",
+            "Audio; attach media_audio_transcribe or media_understand and call transcribe_audio_file "
+            "with this path when speech content matters.",
+        )
     if "pdf" in mt:
         return "document", "PDF-style document; prefer document-oriented agents."
     if "json" in mt or "yaml" in mt or "xml" in mt:
@@ -221,7 +233,10 @@ def build_attachment_block(
         "The planner MUST use these paths, MIME/types, and routing hints to pick `agent_provider_id` "
         "values whose `planner_hint`, `role`, and `goal` fit the file kinds (e.g. data vs code vs documents vs images). "
         "For videos, JPEG frames extracted via ffmpeg are listed below—route vision/multimodal agents to those paths; "
-        "plain-language synopsis text may also be present.",
+        "plain-language synopsis text may also be present. "
+        "For deeper media understanding, attach MCP `media_understand` (or `media_audio_transcribe` / "
+        "`media_video_analyze`) and call describe_image_file / transcribe_audio_file / analyze_video_file "
+        "with the absolute **Path** values below.",
         "Sequential steps may first extract/interpret files, then act on the results.",
         "",
     ]

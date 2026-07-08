@@ -56,6 +56,9 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/workflow_materializer.py
               subPath: workflow_materializer.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/attachments.py
+              subPath: attachments.py
             - name: tool-hotfix-agent-providers
               mountPath: /app/tool/agent_providers/base.py
               subPath: base.py

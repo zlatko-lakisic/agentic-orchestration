@@ -1,0 +1,32 @@
+# Convenience alias — same server as media_understand, biased keywords for video.
+id: media_video_analyze
+description: >-
+  Sample frames from local video uploads and produce a vision synopsis via the
+  media-understand MCP (ffmpeg + LiteLLM multimodal).
+capabilities: >-
+  Uses the same stdio server as media_understand (analyze_video_file primary tool).
+good_for: >-
+  Short clip summarization, “what happens in this video”, plant/garden walkaround clips,
+  security footage spot-checks when only local files are available.
+planner_hint: >-
+  Attach for video-category attachments when agents need an explicit tool call beyond
+  automatic ffmpeg frame extraction already inlined in the attachment block.
+  Requires AGENTIC_MCP_MEDIA_ENABLED=1 and ffmpeg on PATH.
+
+user_goal_keywords:
+  - analyze video
+  - summarize video
+  - what's in this video
+  - what happens in this clip
+  - video frames
+  - watch this video
+  - attached video
+  - mp4
+  - webm
+
+required_env:
+  - AGENTIC_MCP_MEDIA_ENABLED
+
+stdio:
+  command: python
+  args: ["-m", "mcp_servers.media_understand"]

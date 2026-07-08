@@ -1,0 +1,41 @@
+# First-party media understanding MCP (stdio) — image / audio / video tools for agents.
+# Runs: python -m mcp_servers.media_understand
+# Opt-in: AGENTIC_MCP_MEDIA_ENABLED=1 (and preferably faster-whisper for audio).
+id: media_understand
+description: >-
+  Understand local uploaded media: describe images with a vision model, transcribe
+  audio (faster-whisper or OpenAI whisper), and summarize videos via sampled frames.
+  Paths must be absolute local files (typically under `_web_uploads/`).
+capabilities: >-
+  describe_image_file, transcribe_audio_file, analyze_video_file — each returns JSON
+  with ok/error plus description, transcript, or synopsis + frame paths.
+good_for: >-
+  “What’s in this photo?”, “transcribe this voice memo”, “summarize this short video”,
+  OCR/screenshots, and any goal that references attached image/audio/video files.
+planner_hint: >-
+  Attach when the user message or ## Attached files lists image, audio, or video
+  categories and agents need tools beyond the automatic attachment block / frame synopsis.
+  Prefer this over inventing shell ffmpeg commands. Requires AGENTIC_MCP_MEDIA_ENABLED=1.
+
+user_goal_keywords:
+  - describe image
+  - describe photo
+  - what's in this image
+  - what is in this picture
+  - transcribe audio
+  - voice memo
+  - speech to text
+  - summarize video
+  - analyze video
+  - attached image
+  - attached video
+  - attached audio
+  - screenshot
+  - OCR
+
+required_env:
+  - AGENTIC_MCP_MEDIA_ENABLED
+
+stdio:
+  command: python
+  args: ["-m", "mcp_servers.media_understand"]
