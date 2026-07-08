@@ -39,7 +39,46 @@ function statSeries(history, key) {
   };
 }
 
-function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = false, showLegend = false }) {
+function chartLayout(width, height, pad = 12) {
+  return {
+    width,
+    height,
+    pad,
+    plotX: pad,
+    plotY: pad,
+    plotW: width - pad * 2,
+    plotH: height - pad * 2,
+  };
+}
+
+function xForHistoryIndex(index, count, layout) {
+  if (count <= 1) return layout.plotX + layout.plotW / 2;
+  return layout.plotX + (layout.plotW * index) / (count - 1);
+}
+
+function yForPercent(value, layout) {
+  const v = Math.min(100, Math.max(0, value));
+  return layout.plotY + layout.plotH - (v / 100) * layout.plotH;
+}
+
+function historyIndexAtCanvasX(canvas, layout, clientX, count) {
+  if (!canvas || count < 1) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width) return null;
+  const x = ((clientX - rect.left) / rect.width) * layout.width;
+  const { plotX, plotW } = layout;
+  if (x < plotX || x > plotX + plotW) return null;
+  if (count === 1) return 0;
+  const frac = (x - plotX) / plotW;
+  return Math.min(count - 1, Math.max(0, Math.round(frac * (count - 1))));
+}
+
+function formatChartTime(ts) {
+  const d = new Date(ts);
+  return Number.isFinite(d.getTime()) ? d.toLocaleTimeString() : "—";
+}
+
+function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = false, showLegend = false, hoverIndex = null }) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -51,10 +90,8 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const plotW = width - pad * 2;
-  const plotH = height - pad * 2;
-  const plotX = pad;
-  const plotY = pad;
+  const layout = chartLayout(width, height, pad);
+  const { plotX, plotY, plotW, plotH } = layout;
 
   if (showGrid) {
     ctx.strokeStyle = COLORS.grid;
@@ -77,24 +114,63 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
   }
 
   const drawSeries = (key, color) => {
-    const points = history.filter((h) => Number.isFinite(h[key]));
-    if (points.length < 2) return;
+    if (history.length < 2) return;
     ctx.strokeStyle = color;
     ctx.lineWidth = showGrid ? 2 : 1.5;
     ctx.lineJoin = "round";
-    ctx.beginPath();
-    points.forEach((pt, idx) => {
-      const x = plotX + (plotW * idx) / Math.max(1, points.length - 1);
-      const y = plotY + plotH - (Math.min(100, Math.max(0, pt[key])) / 100) * plotH;
-      if (idx === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    let started = false;
+    history.forEach((pt, idx) => {
+      if (!Number.isFinite(pt[key])) {
+        started = false;
+        return;
+      }
+      const x = xForHistoryIndex(idx, history.length, layout);
+      const y = yForPercent(pt[key], layout);
+      if (!started) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
     });
-    ctx.stroke();
+    if (started) ctx.stroke();
   };
 
   drawSeries("cpu", COLORS.cpu);
   drawSeries("mem", COLORS.mem);
   drawSeries("gpu", COLORS.gpu);
+
+  if (hoverIndex != null && history[hoverIndex]) {
+    const pt = history[hoverIndex];
+    const hx = xForHistoryIndex(hoverIndex, history.length, layout);
+
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(hx, plotY);
+    ctx.lineTo(hx, plotY + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const [key, color] of [
+      ["cpu", COLORS.cpu],
+      ["mem", COLORS.mem],
+      ["gpu", COLORS.gpu],
+    ]) {
+      const v = pt[key];
+      if (!Number.isFinite(v)) continue;
+      const hy = yForPercent(v, layout);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
 
   if (showLegend) {
     const items = [
@@ -142,6 +218,8 @@ export function initHostMetricsUi() {
   const scrim = document.getElementById("hostMetricsScrim");
   const closeBtn = document.getElementById("hostMetricsClose");
   const chart = document.getElementById("hostMetricsChart");
+  const chartWrap = chart?.closest(".host-metrics-chart-wrap");
+  const chartTooltip = document.getElementById("hostMetricsChartTooltip");
   const scopeEl = document.getElementById("hostMetricsScope");
   const hostEl = document.getElementById("hostMetricsHost");
   const updatedEl = document.getElementById("hostMetricsUpdated");
@@ -162,6 +240,115 @@ export function initHostMetricsUi() {
   const history = [];
   let modalOpen = false;
   let lastSample = null;
+  let chartHoverIndex = null;
+
+  function chartOptions() {
+    return {
+      width: chart?.clientWidth || 640,
+      height: 220,
+      pad: 36,
+      showGrid: true,
+      showLegend: true,
+      hoverIndex: chartHoverIndex,
+    };
+  }
+
+  function hideChartTooltip() {
+    chartHoverIndex = null;
+    if (!chartTooltip) return;
+    chartTooltip.hidden = true;
+    chartTooltip.classList.remove("visible");
+    chartTooltip.replaceChildren();
+  }
+
+  function tooltipRow(label, color, value) {
+    const row = document.createElement("div");
+    row.className = "host-metrics-chart-tooltip-row";
+    const labelEl = document.createElement("span");
+    labelEl.className = "host-metrics-chart-tooltip-label";
+    const swatch = document.createElement("span");
+    swatch.className = "host-metrics-chart-tooltip-swatch";
+    swatch.style.background = color;
+    labelEl.append(swatch, document.createTextNode(label));
+    const valueEl = document.createElement("span");
+    valueEl.className = "host-metrics-chart-tooltip-value";
+    valueEl.textContent = value;
+    row.append(labelEl, valueEl);
+    return row;
+  }
+
+  function showChartTooltip(index) {
+    if (!chart || !chartWrap || !chartTooltip || !history[index]) return;
+    const pt = history[index];
+    const options = chartOptions();
+    const layout = chartLayout(options.width, options.height, options.pad);
+    const canvasRect = chart.getBoundingClientRect();
+    const wrapRect = chartWrap.getBoundingClientRect();
+    const scaleX = canvasRect.width / options.width;
+    const scaleY = canvasRect.height / options.height;
+    const hx = xForHistoryIndex(index, history.length, layout) * scaleX;
+    const values = [
+      ["CPU", COLORS.cpu, pt.cpu],
+      ["Memory", COLORS.mem, pt.mem],
+      ["GPU", COLORS.gpu, pt.gpu],
+    ].filter(([, , v]) => Number.isFinite(v));
+    if (!values.length) {
+      hideChartTooltip();
+      return;
+    }
+
+    chartTooltip.replaceChildren();
+    const timeEl = document.createElement("div");
+    timeEl.className = "host-metrics-chart-tooltip-time";
+    timeEl.textContent = formatChartTime(pt.t);
+    chartTooltip.append(timeEl);
+    for (const [label, color, value] of values) {
+      chartTooltip.append(tooltipRow(label, color, formatPercent(value)));
+    }
+
+    let topY = canvasRect.height;
+    for (const [, , value] of values) {
+      topY = Math.min(topY, yForPercent(value, layout) * scaleY);
+    }
+    const left = canvasRect.left - wrapRect.left + hx;
+    const top = canvasRect.top - wrapRect.top + topY;
+    chartTooltip.style.left = `${left}px`;
+    chartTooltip.style.top = `${top}px`;
+    chartTooltip.hidden = false;
+    chartTooltip.classList.add("visible");
+  }
+
+  function updateChartHover(clientX) {
+    if (!modalOpen || !chart || history.length < 1) {
+      hideChartTooltip();
+      return;
+    }
+    const options = chartOptions();
+    const layout = chartLayout(options.width, options.height, options.pad);
+    const index = historyIndexAtCanvasX(chart, layout, clientX, history.length);
+    if (index == null) {
+      if (chartHoverIndex != null) {
+        chartHoverIndex = null;
+        drawLineChart(chart, history, { ...options, hoverIndex: null });
+        hideChartTooltip();
+      }
+      return;
+    }
+    if (index === chartHoverIndex) return;
+    chartHoverIndex = index;
+    drawLineChart(chart, history, { ...options, hoverIndex: index });
+    showChartTooltip(index);
+  }
+
+  function onChartMouseMove(e) {
+    updateChartHover(e.clientX);
+  }
+
+  function onChartMouseLeave() {
+    if (chartHoverIndex == null) return;
+    hideChartTooltip();
+    drawLineChart(chart, history, chartOptions());
+  }
 
   function pushHistory(sample) {
     if (sample?.cpu?.percent == null) return;
@@ -192,13 +379,11 @@ export function initHostMetricsUi() {
 
   function updateModal() {
     if (!modalOpen || !lastSample) return;
-    drawLineChart(chart, history, {
-      width: chart?.clientWidth || 640,
-      height: 220,
-      pad: 36,
-      showGrid: true,
-      showLegend: true,
-    });
+    const options = chartOptions();
+    drawLineChart(chart, history, options);
+    if (chartHoverIndex != null && history[chartHoverIndex]) {
+      showChartTooltip(chartHoverIndex);
+    }
     const cpuS = statSeries(history, "cpu");
     const memS = statSeries(history, "mem");
     const gpuS = statSeries(history, "gpu");
@@ -289,15 +474,20 @@ export function initHostMetricsUi() {
     modal.setAttribute("aria-hidden", "false");
     updateModal();
     window.addEventListener("resize", updateModal);
+    chart?.addEventListener("mousemove", onChartMouseMove);
+    chart?.addEventListener("mouseleave", onChartMouseLeave);
   }
 
   function closeModal() {
     if (!modal || !scrim) return;
     modalOpen = false;
+    hideChartTooltip();
     modal.classList.remove("open");
     scrim.classList.remove("open");
     modal.setAttribute("aria-hidden", "true");
     window.removeEventListener("resize", updateModal);
+    chart?.removeEventListener("mousemove", onChartMouseMove);
+    chart?.removeEventListener("mouseleave", onChartMouseLeave);
     setTimeout(() => {
       if (!modalOpen) {
         modal.hidden = true;

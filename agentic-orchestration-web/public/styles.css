@@ -316,7 +316,66 @@ body {
 }
 
 .host-metrics-chart-wrap {
+  position: relative;
   margin-bottom: 14px;
+}
+
+.host-metrics-chart-tooltip {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  min-width: 9.5rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.45);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  transform: translate(-50%, calc(-100% - 10px));
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.host-metrics-chart-tooltip.visible {
+  opacity: 1;
+}
+
+.host-metrics-chart-tooltip-time {
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.host-metrics-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.host-metrics-chart-tooltip-row + .host-metrics-chart-tooltip-row {
+  margin-top: 2px;
+}
+
+.host-metrics-chart-tooltip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.host-metrics-chart-tooltip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.host-metrics-chart-tooltip-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .host-metrics-chart-wrap canvas {
@@ -326,6 +385,7 @@ body {
   border-radius: 10px;
   background: rgba(2, 6, 23, 0.55);
   border: 1px solid var(--border);
+  cursor: crosshair;
 }
 
 .host-metrics-updated {
