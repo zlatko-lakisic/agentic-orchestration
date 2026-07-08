@@ -13,11 +13,17 @@ from orchestration.fetch_url_tool import (
     recover_fetch_url_after_tool_leak,
     run_ollama_fetch_summarize_step,
 )
+from orchestration.goal_format_hints import goal_requests_irrigation_minutes_line
+from orchestration.irrigation_minutes import (
+    has_irrigation_minutes_line,
+    irrigation_minutes_recovery_description,
+)
 from orchestration.mcp_task_hints import (
     augment_task_description_for_mcps,
     looks_like_mcp_tool_call_leak,
     mcp_ids_from_step_spec,
 )
+from orchestration.simple_chat import strip_web_prose_delivery_suffix
 from orchestration.output_artifacts import workflow_result_to_extractable_text
 from orchestration.runner import build_workflow, crew_kickoff_context
 from orchestration.text_normalize import sanitize_user_facing_prose
@@ -201,6 +207,28 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     )
                     if recovered:
                         text = recovered
+                if (
+                    goal_requests_irrigation_minutes_line(topic)
+                    and not has_irrigation_minutes_line(text)
+                ):
+                    print(
+                        "(execute-step) irrigation MINUTES missing; recovery kickoff",
+                        file=sys.stderr,
+                    )
+                    user_q = strip_web_prose_delivery_suffix(topic)
+                    retry_desc = irrigation_minutes_recovery_description(user_q)
+                    for crew_task in built.crew.tasks:
+                        crew_task.description = retry_desc
+                        crew_task.expected_output = (
+                            "Brief reasoning ending with MINUTES: N (integer 0-25)."
+                        )
+                    for agent in built.crew.agents:
+                        agent.tools = []
+                    with crew_kickoff_context(built):
+                        workflow_result = built.crew.kickoff(inputs={"topic": user_q})
+                    text = sanitize_user_facing_prose(
+                        workflow_result_to_extractable_text(workflow_result)
+                    )
 
             step_result = StepResult(
                 run_id=run_id,
