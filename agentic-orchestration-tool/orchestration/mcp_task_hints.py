@@ -15,7 +15,10 @@ _MEDIA_MCP_IDS = frozenset(
 _TOOL_LEAK_RE = re.compile(
     r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|"
     r"plant_knowledge_mcp|^\s*parameters:\s*\{|"
-    r'"name"\s*:\s*"[^"]*plant_knowledge[^"]*")',
+    r'"name"\s*:\s*"[^"]*plant_knowledge[^"]*"|'
+    r'"name"\s*:\s*"(?:describe_image(?:_file)?|transcribe_audio(?:_file)?|'
+    r'analyze_video(?:_file)?|python_m_mcp_servers_media_understand[^"]*|'
+    r'media_understand[^"]*)")',
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -56,6 +59,21 @@ def looks_like_mcp_tool_call_leak(text: str) -> bool:
         return True
     if lower.startswith("name:") and "parameters:" in lower:
         return True
+    # OpenAI-style / agent stub JSON: {"name":"describe_image_file","parameters":{...}}
+    if '"name"' in lower and '"parameters"' in lower:
+        if any(
+            k in lower
+            for k in (
+                "describe_image",
+                "transcribe_audio",
+                "analyze_video",
+                "media_understand",
+                "python_m_mcp",
+                "plant_knowledge",
+                "_web_uploads",
+            )
+        ):
+            return True
     return False
 
 

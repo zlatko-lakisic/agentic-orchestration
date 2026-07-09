@@ -162,10 +162,27 @@ def _goal_with_media_grounding(
     return goal, bundle, False
 
 
-def _finalize_dynamic_result_text(result_text: str | None, media_bundle: Any) -> str | None:
-    from orchestration.media_grounding import finalize_media_answer
+def _maybe_direct_vision_answer(goal: str, media_bundle: Any) -> str | None:
+    """Return a plain-text vision answer when the client forbids tools / wants PEOPLE lines."""
+    from orchestration.media_grounding import synthesize_direct_vision_answer
+
+    return synthesize_direct_vision_answer(goal, media_bundle)
+
+
+def _finalize_dynamic_result_text(
+    result_text: str | None,
+    media_bundle: Any,
+    *,
+    user_goal: str = "",
+) -> str | None:
+    from orchestration.media_grounding import finalize_media_answer, synthesize_direct_vision_answer
+    from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
 
     text, _accepted = finalize_media_answer(result_text or "", media_bundle)
+    if looks_like_mcp_tool_call_leak(text or "") or not (text or "").strip():
+        direct = synthesize_direct_vision_answer(user_goal, media_bundle, force=True)
+        if direct:
+            return direct
     return text
 
 
@@ -1100,6 +1117,12 @@ def main() -> None:
         if media_gated:
             print(cache_goal)
             return
+        direct_vision = _maybe_direct_vision_answer(cache_goal, media_grounding_bundle)
+        if direct_vision:
+            if not args.quiet:
+                print("(dynamic) direct vision completion (no agent tool loop)", file=sys.stderr)
+            print(direct_vision)
+            return
 
         manual_rounds = max(1, int(args.dynamic_iterative_rounds))
         max_rounds = manual_rounds
@@ -1325,7 +1348,7 @@ def main() -> None:
                 sess_quick = load_session(orchestrator_session_path)
                 iterative_final_text = (sess_quick.last_crew_output_excerpt or "").strip()
             iterative_final_text = _finalize_dynamic_result_text(
-                iterative_final_text, media_grounding_bundle
+                iterative_final_text, media_grounding_bundle, user_goal=cache_goal
             ) or ""
             if iterative_final_text:
                 print(iterative_final_text, flush=True)
@@ -1384,7 +1407,9 @@ def main() -> None:
             )
             if exit_code:
                 sys.exit(exit_code)
-            result_text = _finalize_dynamic_result_text(result_text, media_grounding_bundle)
+            result_text = _finalize_dynamic_result_text(
+                result_text, media_grounding_bundle, user_goal=cache_goal
+            )
             _update_session_after_crew(orchestrator_session_path, result_text)
             _update_session_after_final(
                 orchestrator_session_path, user_goal=cache_goal, result_text=result_text
@@ -1589,6 +1614,12 @@ def main() -> None:
         if media_gated:
             print(cache_goal)
             return
+        direct_vision = _maybe_direct_vision_answer(cache_goal, media_grounding_bundle)
+        if direct_vision:
+            if not args.quiet:
+                print("(dynamic) direct vision completion (no agent tool loop)", file=sys.stderr)
+            print(direct_vision)
+            return
         try:
             dyn_cfg, plan = build_dynamic_workflow_config(
                 user_prompt=cache_goal,
@@ -1635,7 +1666,9 @@ def main() -> None:
         )
         if exit_code:
             sys.exit(exit_code)
-        result_text = _finalize_dynamic_result_text(result_text, media_grounding_bundle)
+        result_text = _finalize_dynamic_result_text(
+            result_text, media_grounding_bundle, user_goal=cache_goal
+        )
         _update_session_after_crew(orchestrator_session_path, result_text)
         _update_session_after_final(
             orchestrator_session_path, user_goal=cache_goal, result_text=result_text

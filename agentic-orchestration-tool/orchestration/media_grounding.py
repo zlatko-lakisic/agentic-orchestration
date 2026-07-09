@@ -487,16 +487,143 @@ def finalize_media_answer(
     return cleaned, True
 
 
+def media_evidence_already_in_prompt(user_prompt: str) -> bool:
+    """True when harness already injected describe/transcribe evidence into the goal."""
+    return MEDIA_EVIDENCE_MARKER in str(user_prompt or "")
+
+
+def synthesize_direct_vision_answer(
+    user_goal: str,
+    bundle: MediaGroundingBundle | None,
+    *,
+    force: bool = False,
+) -> str | None:
+    """
+    Build a plain-text answer from harness vision/audio evidence without an agent tool loop.
+
+    Used for HA LLM Vision / gate PEOPLE contracts where tool-call JSON must never be
+    returned as ``message.content``. When ``force`` is True (tool-leak recovery),
+    return harness description even if the goal did not match the direct-vision heuristic.
+    """
+    from orchestration.goal_format_hints import (
+        goal_requests_direct_vision_completion,
+        goal_requests_gate_people_lines,
+    )
+
+    if bundle is None or not bundle.has_media or bundle.gate:
+        return None
+    if not force and not goal_requests_direct_vision_completion(user_goal):
+        return None
+
+    descriptions: list[str] = []
+    for ev in bundle.files:
+        out = ev.tool_output or {}
+        if not out.get("ok"):
+            continue
+        for key in ("description", "synopsis", "transcript"):
+            val = out.get(key)
+            if isinstance(val, str) and val.strip():
+                descriptions.append(val.strip())
+                break
+        if not descriptions and ev.excerpt:
+            # Fall back to excerpt fields like description=...
+            m = re.search(r"(?:description|synopsis|transcript)=(.+)$", ev.excerpt, re.DOTALL)
+            if m:
+                descriptions.append(m.group(1).strip()[:2000])
+
+    if not descriptions:
+        return None
+
+    combined = " ".join(descriptions).strip()
+    if not combined:
+        return None
+
+    if goal_requests_gate_people_lines(user_goal):
+        return _format_gate_people_lines(combined)
+
+    # Honor "exactly N lines" / free-form direct vision: return the vision text as-is.
+    return combined
+
+
+def _format_gate_people_lines(description: str) -> str:
+    """Map a vision description into the HA gate 3-line PEOPLE/NOPEOPLE contract."""
+    raw = str(description or "").strip()
+    # Pass through when the vision model already obeyed the 3-line contract.
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if len(lines) >= 3 and lines[0].upper() in {"PEOPLE", "NOPEOPLE"}:
+        label = lines[0].upper()
+        log_line = lines[1][:240]
+        alert = lines[2][:120]
+        return f"{label}\n{log_line}\n{alert}"
+
+    desc = re.sub(r"\s+", " ", raw).strip()
+    lower = desc.lower()
+
+    people_cues = (
+        "person",
+        "people",
+        "human",
+        "man",
+        "woman",
+        "boy",
+        "girl",
+        "child",
+        "someone",
+        "pedestrian",
+        "visitor",
+        "intruder",
+        "figure standing",
+        "individual",
+    )
+    no_people_cues = (
+        "no person",
+        "no people",
+        "nobody",
+        "no one",
+        "empty",
+        "clear",
+        "unoccupied",
+        "no human",
+        "without people",
+        "without a person",
+    )
+
+    has_no = any(c in lower for c in no_people_cues)
+    has_yes = any(re.search(rf"\b{re.escape(c)}\b", lower) for c in people_cues)
+    # Prefer explicit negatives when both appear (e.g. "no person visible").
+    label = "NOPEOPLE" if has_no or not has_yes else "PEOPLE"
+
+    log_line = desc[:240] if desc else (
+        "East gate area clear; no person visible." if label == "NOPEOPLE" else "Person visible at gate."
+    )
+    if label == "NOPEOPLE":
+        alert = "No people at gate"
+    else:
+        alert = "People at gate — check camera"
+    alert = alert[:120]
+    return f"{label}\n{log_line}\n{alert}"
+
+
 def augment_workflow_config_for_media_mcp(
     cfg: Any,
     *,
     user_prompt: str,
     mcp_catalog: list[dict[str, Any]],
 ) -> Any:
-    """Force media MCP ids onto the plan when attached files include media categories."""
+    """Force media MCP ids onto the plan when attached files include media categories.
+
+    Skip when harness evidence is already in the prompt or the goal forbids tools —
+    otherwise models emit ``describe_image_file`` JSON as the final answer.
+    """
     from dataclasses import replace
 
+    from orchestration.goal_format_hints import goal_requests_direct_vision_completion
+
     if not _attachment_block_has_media_categories(user_prompt):
+        return cfg
+    if media_evidence_already_in_prompt(user_prompt):
+        return cfg
+    if goal_requests_direct_vision_completion(user_prompt):
         return cfg
     mid = pick_media_mcp_id(mcp_catalog)
     if not mid:

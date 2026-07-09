@@ -7,7 +7,7 @@ const libUrl = pathToFileURL(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib", "text-normalize.mjs"),
 );
 
-const { sanitizeUserFacingProse, stripWrappingQuotes } = await import(libUrl);
+const { sanitizeUserFacingProse, stripWrappingQuotes, looksLikeMcpToolCallLeak } = await import(libUrl);
 
 test("stripWrappingQuotes removes straight double quotes", () => {
   assert.equal(stripWrappingQuotes('"Hello there"'), "Hello there");
@@ -31,4 +31,17 @@ test("sanitizeUserFacingProse unwraps boxed final answer", () => {
 test("sanitizeUserFacingProse strips format instruction echo", () => {
   const echoed = "Please provide your answer using only plain text (short paragraphs or bullet lists).";
   assert.equal(sanitizeUserFacingProse(echoed), "");
+});
+
+test("looksLikeMcpToolCallLeak detects describe_image_file JSON", () => {
+  const leaked =
+    '{"name": "describe_image_file", "parameters": {"path": "/app/tool/_web_uploads/x/0_openai_image_0.jpg"}}';
+  assert.equal(looksLikeMcpToolCallLeak(leaked), true);
+  assert.equal(sanitizeUserFacingProse(leaked), "");
+});
+
+test("looksLikeMcpToolCallLeak ignores gate PEOPLE lines", () => {
+  const ok = "NOPEOPLE\nEast gate area clear; no person visible.\nNo people at East gate";
+  assert.equal(looksLikeMcpToolCallLeak(ok), false);
+  assert.equal(sanitizeUserFacingProse(ok), ok);
 });

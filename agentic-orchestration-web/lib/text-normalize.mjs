@@ -111,6 +111,32 @@ export function sanitizeUserFacingProse(text) {
   t = stripLeadingInstructionParagraphs(t);
   t = t.replace(/\n{3,}/g, "\n\n").trim();
   t = stripWrappingQuotes(t);
+  if (looksLikeMcpToolCallLeak(t)) return "";
   if (looksLikeFormatInstructionOnly(t)) return "";
   return t;
+}
+
+/** Detect tool-call JSON / MCP stubs leaked as the final assistant answer. */
+export function looksLikeMcpToolCallLeak(text) {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  const lower = t.toLowerCase();
+  if (/^name:\s*\S+/im.test(t) && /parameters:\s*\{/i.test(t)) return true;
+  if (
+    /"name"\s*:\s*"(?:describe_image(?:_file)?|transcribe_audio(?:_file)?|analyze_video(?:_file)?|python_m_mcp[^"]*|media_understand[^"]*|plant_knowledge[^"]*)"/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (lower.includes('"name"') && lower.includes('"parameters"')) {
+    if (
+      /describe_image|transcribe_audio|analyze_video|media_understand|python_m_mcp|plant_knowledge|_web_uploads/i.test(
+        t,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

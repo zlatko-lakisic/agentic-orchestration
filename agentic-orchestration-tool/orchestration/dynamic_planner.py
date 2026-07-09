@@ -21,6 +21,7 @@ from orchestration.config_loader import (
     raw_skill_spec_for_task,
 )
 from orchestration.goal_format_hints import (
+    goal_requests_direct_vision_completion,
     goal_requests_irrigation_minutes_line,
     goal_requires_machine_readable_only,
     web_prose_deliverable_enabled,
@@ -481,6 +482,17 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
         expected_output = (
             "Brief reasoning ending with a final line exactly like MINUTES: 0 or MINUTES: 12 "
             "(integer 0-25). No tool-call JSON."
+        )
+    elif goal_requests_direct_vision_completion(user_prompt):
+        description = (
+            "{topic}\n\n"
+            "Answer from the media grounding evidence already in the prompt. "
+            "Do not call tools, emit tool JSON, or invent MCP invocations "
+            "(including describe_image_file). Reply in plain text only."
+        )
+        expected_output = (
+            "Plain-text answer only (for gate prompts: exactly three lines "
+            "PEOPLE|NOPEOPLE / description / alert). No tool-call JSON."
         )
     elif is_simple_chat_prompt(user_prompt):
         description = (
@@ -1133,6 +1145,14 @@ def _prune_irrelevant_mcp_from_user_goal(
             print(
                 f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
                 "(HA MINUTES: contract — no tool loop on client)",
+                file=sys.stderr,
+            )
+        return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
+    if goal_requests_direct_vision_completion(user_prompt):
+        if not quiet:
+            print(
+                f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
+                "(direct vision / gate PEOPLE contract — no tool loop on client)",
                 file=sys.stderr,
             )
         return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))

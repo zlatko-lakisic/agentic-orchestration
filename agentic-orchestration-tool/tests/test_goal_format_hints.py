@@ -4,6 +4,8 @@ import pytest
 
 from orchestration.goal_format_hints import (
     apply_web_prose_goal_if_enabled,
+    goal_requests_direct_vision_completion,
+    goal_requests_gate_people_lines,
     goal_requests_irrigation_minutes_line,
     goal_requires_machine_readable_only,
     web_prose_deliverable_enabled,
@@ -37,6 +39,18 @@ def test_goal_requests_irrigation_minutes_line() -> None:
         "final line exactly:\nMINUTES: <integer 0-25>"
     )
     assert not goal_requests_irrigation_minutes_line("How many minutes should I water?")
+
+
+@pytest.mark.unit
+def test_goal_requests_gate_people_and_direct_vision() -> None:
+    gate = (
+        "Do NOT call tools. Reply with exactly 3 lines:\n"
+        "PEOPLE or NOPEOPLE\nshort description\nshorter alert"
+    )
+    assert goal_requests_gate_people_lines(gate)
+    assert goal_requests_direct_vision_completion(gate)
+    assert goal_requires_machine_readable_only(gate)
+    assert not goal_requests_direct_vision_completion("Water the lawn for 10 minutes.")
 
 
 @pytest.mark.unit

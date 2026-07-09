@@ -38,8 +38,10 @@ kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
   --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-ORCH_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/orchestration"
+TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
+ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"
 kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
+  --from-file=main.py="${TOOL_PY_ROOT}/main.py" \
   --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \

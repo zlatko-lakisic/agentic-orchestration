@@ -6,6 +6,9 @@ spec:
         - name: coordinator
           volumeMounts:
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/main.py
+              subPath: main.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/dynamic_planner.py
               subPath: dynamic_planner.py
             - name: tool-hotfix-orchestration

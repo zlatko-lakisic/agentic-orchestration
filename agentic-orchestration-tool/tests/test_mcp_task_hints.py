@@ -31,6 +31,14 @@ def test_looks_like_mcp_tool_call_leak_ignores_normal_prose() -> None:
     )
 
 
+def test_looks_like_mcp_tool_call_leak_describe_image_file_json() -> None:
+    leaked = (
+        '{"name": "describe_image_file", "parameters": '
+        '{"path": "/app/tool/_web_uploads/x/0_openai_image_0.jpg"}}'
+    )
+    assert looks_like_mcp_tool_call_leak(leaked)
+
+
 def test_augment_task_description_for_fetch_url() -> None:
     out = augment_task_description_for_mcps("Summarize the repo.", ["fetch_url"])
     assert "fetch" in out

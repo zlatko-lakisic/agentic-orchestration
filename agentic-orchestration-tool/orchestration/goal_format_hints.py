@@ -57,6 +57,62 @@ def goal_requests_irrigation_minutes_line(user_text: str) -> bool:
     return False
 
 
+_GATE_PEOPLE_TOKEN_RE = re.compile(r"(?i)\b(?:no)?people\b")
+_NO_TOOLS_RE = re.compile(
+    r"(?i)\b(?:do\s+not|don't|never)\s+call\s+tools\b|"
+    r"\b(?:do\s+not|don't)\s+output\s+json\b|"
+    r"\bno\s+tool(?:s|-call)?\b|"
+    r"\btool_choice\b",
+)
+
+
+def goal_requests_gate_people_lines(user_text: str) -> bool:
+    """True for HA gate LLM Vision prompts that require PEOPLE/NOPEOPLE line output."""
+    t = str(user_text or "").strip()
+    if not t:
+        return False
+    lower = t.lower()
+    compact = re.sub(r"\s+", "", lower)
+    if "people|nopeople" in compact or "nopeople|people" in compact:
+        return True
+    if "people" in lower and "nopeople" in lower:
+        return True
+    # Common HA phrasing: "PEOPLE or NOPEOPLE" / "NOPEOPLE or PEOPLE"
+    if _GATE_PEOPLE_TOKEN_RE.search(t) and (
+        "exactly 3" in lower
+        or "exactly three" in lower
+        or "3 lines" in lower
+        or "three lines" in lower
+        or "line1" in compact
+        or "mobile alert" in lower
+    ):
+        return True
+    return False
+
+
+def goal_requests_direct_vision_completion(user_text: str) -> bool:
+    """
+    True for multimodal clients (esp. HA LLM Vision) that want a plain-text answer
+    with no tool loop — tool-call JSON must never be the final ``message.content``.
+    """
+    t = str(user_text or "").strip()
+    if not t:
+        return False
+    lower = t.lower()
+    gate = goal_requests_gate_people_lines(t)
+    no_tools = bool(_NO_TOOLS_RE.search(t))
+    if gate:
+        return True
+    if no_tools and (
+        "image" in lower
+        or "## attached files" in lower
+        or "[agentic: media grounding evidence]" in lower
+        or "vision" in lower
+    ):
+        return True
+    return False
+
+
 def web_prose_deliverable_enabled() -> bool:
     return os.getenv("AGENTIC_WEB_PROSE_DELIVERABLE", "0").strip().lower() in (
         "1",
@@ -87,6 +143,7 @@ def web_prose_planner_rules() -> str:
     return """
 - **Web chat default:** Unless the user explicitly requests JSON, CSV, or API-style structured output, each step's `expected_output` must require natural-language prose for the end user (markdown OK), not JSON objects or wrapper keys.
 - **Irrigation minutes:** If the goal requires a final line ``MINUTES: <integer>``, do not attach MCP tools; the client has no tool loop. Expected output must end with ``MINUTES: N``.
+- **Direct vision / gate PEOPLE lines:** If the goal forbids tools or requires ``PEOPLE``/``NOPEOPLE`` plain-text lines, do not attach MCP tools and do not emit tool-call JSON — answer from harness media evidence only.
 """
 
 
@@ -99,6 +156,8 @@ def goal_requires_machine_readable_only(user_text: str) -> bool:
     Also true for Home Assistant ``MINUTES: N`` irrigation decisions (plain text contract).
     """
     if goal_requests_irrigation_minutes_line(user_text):
+        return True
+    if goal_requests_gate_people_lines(user_text):
         return True
 
     t = user_text.strip().lower()
