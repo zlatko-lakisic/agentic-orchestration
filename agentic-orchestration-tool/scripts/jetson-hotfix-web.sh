@@ -8,7 +8,17 @@ WEB_ROOT="${PROJECT_ROOT}/agentic-orchestration-web"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
+# Prefer replace/create over client-side apply: large Python files exceed the
+# last-applied-configuration annotation size limit (262144 bytes).
+apply_configmap() {
+  local name="$1"
+  shift
+  kubectl create configmap "${name}" -n "${NS}" "$@" --dry-run=client -o yaml \
+    | kubectl replace -f - \
+    || kubectl create configmap "${name}" -n "${NS}" "$@"
+}
+
+apply_configmap agentic-web-hotfix-public \
   --from-file=app.js="${WEB_ROOT}/public/app.js" \
   --from-file=index.html="${WEB_ROOT}/public/index.html" \
   --from-file=styles.css="${WEB_ROOT}/public/styles.css" \
@@ -25,22 +35,20 @@ kubectl create configmap agentic-web-hotfix-public -n "${NS}" \
   --from-file=pwa-manifest-link.js="${WEB_ROOT}/public/pwa-manifest-link.js" \
   --from-file=chat-session.js="${WEB_ROOT}/public/chat-session.js" \
   --from-file=manifest.webmanifest="${WEB_ROOT}/public/manifest.webmanifest" \
-  --from-file=sw.js="${WEB_ROOT}/public/sw.js" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-file=sw.js="${WEB_ROOT}/public/sw.js"
 
-kubectl create configmap agentic-web-hotfix-root -n "${NS}" \
+apply_configmap agentic-web-hotfix-root \
   --from-file=server.mjs="${WEB_ROOT}/server.mjs" \
   --from-file=host-metrics.mjs="${WEB_ROOT}/host-metrics.mjs" \
   --from-file=perf-options.mjs="${WEB_ROOT}/lib/perf-options.mjs" \
   --from-file=ollama-keepalive.mjs="${WEB_ROOT}/lib/ollama-keepalive.mjs" \
   --from-file=chat-output.mjs="${WEB_ROOT}/lib/chat-output.mjs" \
   --from-file=text-normalize.mjs="${WEB_ROOT}/lib/text-normalize.mjs" \
-  --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"
-kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
+apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=main.py="${TOOL_PY_ROOT}/main.py" \
   --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
@@ -60,14 +68,12 @@ kubectl create configmap agentic-tool-hotfix-orchestration -n "${NS}" \
   --from-file=k8s_mcp_compat.py="${ORCH_ROOT}/k8s_mcp_compat.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
-  --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py"
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
-kubectl create configmap agentic-tool-hotfix-agent-providers -n "${NS}" \
+apply_configmap agentic-tool-hotfix-agent-providers \
   --from-file=base.py="${PROV_ROOT}/base.py" \
-  --from-file=ollama_provider.py="${PROV_ROOT}/ollama_provider.py" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-file=ollama_provider.py="${PROV_ROOT}/ollama_provider.py"
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"
 TOOL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/tool-hotfix-volume-patch.yaml"
