@@ -507,7 +507,9 @@ class OllamaProvider(AgentProvider):
         )
         os.environ["OLLAMA_HOST"] = host
 
-        if self.config.selfcontained:
+        from orchestration.runtime_bootstrap import should_ensure_ollama
+
+        if should_ensure_ollama(selfcontained=self.config.selfcontained):
             model = self.config.model.removeprefix("ollama/")
             ensure_ollama_runtime(model=model, host=host)
 
@@ -517,7 +519,9 @@ class OllamaProvider(AgentProvider):
         )
         if not is_ollama_healthy(host):
             raise RuntimeError(
-                f"Ollama is not reachable at {host}. Start the server or use selfcontained: true."
+                f"Ollama is not reachable at {host}. "
+                "Start the server, set selfcontained: true, "
+                "or enable AGENTIC_AUTO_ENSURE_RUNTIME=1 (default) so the agent installs/starts Ollama."
             )
 
     def build_agent(

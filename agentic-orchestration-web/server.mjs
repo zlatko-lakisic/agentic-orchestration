@@ -239,10 +239,10 @@ function resolvePythonExecutable() {
   const unixVenv = path.join(TOOL_ROOT, ".venv", "bin", "python");
   if (fs.existsSync(winVenv)) return winVenv;
   if (fs.existsSync(unixVenv)) return unixVenv;
-  return "python";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
-const PYTHON = resolvePythonExecutable();
+let PYTHON = resolvePythonExecutable();
 const HOST = process.env.AGENTIC_WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.AGENTIC_WEB_PORT || "3847");
 const AGENT_PROVIDERS_DIR = path.join(TOOL_ROOT, "config", "agent_providers");
@@ -343,6 +343,7 @@ function ensurePythonDepsForWebRuns(statusCb) {
   if (_pythonDepsChecked) return _pythonDepsOk;
   _pythonDepsChecked = true;
 
+  PYTHON = resolvePythonExecutable();
   if (_pythonCanImportDotenv()) {
     emit("Python dependencies already satisfied.");
     _pythonDepsOk = true;
@@ -363,10 +364,51 @@ function ensurePythonDepsForWebRuns(statusCb) {
     return false;
   }
 
+  const winVenv = path.join(TOOL_ROOT, ".venv", "Scripts", "python.exe");
+  const unixVenv = path.join(TOOL_ROOT, ".venv", "bin", "python");
+  const venvPython = process.platform === "win32" ? winVenv : unixVenv;
+  if (!fs.existsSync(venvPython) && !(process.env.AGENTIC_PYTHON || "").trim()) {
+    emit("Creating tool .venv…");
+    console.error(`[agentic-orchestration-web] Creating venv at ${path.join(TOOL_ROOT, ".venv")}`);
+    const bootstrapPy = process.platform === "win32" ? "python" : "python3";
+    const venvCreate = spawnSync(bootstrapPy, ["-m", "venv", path.join(TOOL_ROOT, ".venv")], {
+      cwd: TOOL_ROOT,
+      env: { ...process.env, PYTHONUTF8: "1" },
+      stdio: "pipe",
+      encoding: "utf8",
+      timeout: 180000,
+    });
+    if (venvCreate.status !== 0 || !fs.existsSync(venvPython)) {
+      _pythonDepsOk = false;
+      emit("Failed to create .venv.");
+      console.error(
+        "[agentic-orchestration-web] venv create failed:\n" +
+          String(venvCreate.stderr || venvCreate.stdout || "").trim(),
+      );
+      return false;
+    }
+    PYTHON = venvPython;
+  } else if (fs.existsSync(venvPython) && !(process.env.AGENTIC_PYTHON || "").trim()) {
+    PYTHON = venvPython;
+  }
+
   emit("Dependencies missing. Installing requirements…");
   console.error(
     `[agentic-orchestration-web] Python deps missing for ${PYTHON}; auto-installing from ${TOOL_REQUIREMENTS}`,
   );
+  const upgrade = spawnSync(PYTHON, ["-m", "pip", "install", "--upgrade", "pip"], {
+    cwd: TOOL_ROOT,
+    env: { ...process.env, PYTHONUTF8: "1" },
+    stdio: "pipe",
+    encoding: "utf8",
+    timeout: 120000,
+  });
+  if (upgrade.status !== 0) {
+    console.error(
+      "[agentic-orchestration-web] pip upgrade warning:\n" +
+        String(upgrade.stderr || upgrade.stdout || "").trim(),
+    );
+  }
   const install = spawnSync(PYTHON, ["-m", "pip", "install", "-r", TOOL_REQUIREMENTS], {
     cwd: TOOL_ROOT,
     env: { ...process.env, PYTHONUTF8: "1" },
@@ -611,6 +653,24 @@ function isOpenAiResponsesPath(req) {
   }
   const pl = getRequestPathname(req).toLowerCase();
   return pl === "/v1/responses" || pl.endsWith("/v1/responses");
+}
+
+/** OpenClaw plugin bridge. Matches `/api/v1/orchestrate`. */
+function isApiV1Orchestrate(req) {
+  const head = requestUrlHead(req);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(head);
+    } catch {
+      return head;
+    }
+  })();
+  const slashNorm = (s) => s.replace(/\\/g, "/");
+  for (const c of [head, decoded, slashNorm(head), slashNorm(decoded)]) {
+    if (/\/api\/v1\/orchestrate\/?$/i.test(c)) return true;
+  }
+  const pl = getRequestPathname(req).toLowerCase();
+  return pl === "/api/v1/orchestrate" || pl.endsWith("/api/v1/orchestrate");
 }
 
 /** Align with `agent_providers/openai_provider.py`: ensure base ends with `/v1`. */
@@ -1641,6 +1701,121 @@ async function handleOpenAiResponses(req, res) {
   res.end(outBuf);
 }
 
+/**
+ * Purpose-built bridge for the OpenClaw plugin.
+ * Simpler than /v1/chat/completions: { text, sessionId, … } → { ok, output }.
+ */
+async function handleApiV1Orchestrate(req, res) {
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, cors).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: "Method not allowed" }));
+    return;
+  }
+
+  const apiKey = String(
+    process.env.AGENTIC_ORCHESTRATE_API_KEY || process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "",
+  ).trim();
+  if (apiKey) {
+    const auth = String(req.headers.authorization || "").trim();
+    const matches = auth === `Bearer ${apiKey}` || auth === apiKey;
+    if (!matches) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+  }
+
+  let bodyBuf;
+  try {
+    bodyBuf = await readRequestBodyBuf(req, MAX_CHAT_COMPLETIONS_BODY_BYTES);
+  } catch (err) {
+    res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: clientErrorMessage(err, "Request body too large") }));
+    return;
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyBuf.length ? bodyBuf.toString("utf8") : "{}");
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    return;
+  }
+
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: "body.text is required" }));
+    return;
+  }
+
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+  const resetSession = body.resetSession === true;
+  const runMode = body.runMode || "dynamic";
+  const verboseCrew = body.verboseCrew === true;
+  const selectedIds = Array.isArray(body.selectedAgentProviderIds)
+    ? body.selectedAgentProviderIds
+    : [];
+
+  if (orchestrationRequestLogEnabled()) {
+    console.error(
+      "[agentic orchestrate]",
+      JSON.stringify({
+        remote: req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "",
+        promptChars: text.length,
+        sessionId: sessionId || "",
+        runMode: String(runMode).trim(),
+        resetSession,
+      }),
+    );
+  }
+
+  let runResult;
+  try {
+    runResult = await runDynamicAwait({
+      text,
+      runMode,
+      sessionId,
+      resetSession,
+      verboseCrew,
+      selectedAgentProviderIds: selectedIds,
+      userName: userNameFromRequestHeaders(req.headers),
+    });
+  } catch (e) {
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: clientErrorMessage(e, "Orchestration failed") }));
+    return;
+  }
+
+  if (runResult.code !== 0) {
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: "Orchestration process exited with non-zero code",
+        code: runResult.code,
+        stderr: runResult.stderr?.slice(-2000),
+      }),
+    );
+    return;
+  }
+
+  const output = normalizeOrchestratedApiContent(runResult.stdout);
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
+  res.end(JSON.stringify({ ok: true, output }));
+}
+
 function sendAgentProvidersJson(res) {
   let data;
   try {
@@ -1757,6 +1932,24 @@ function handleHttp(req, res) {
   }
   if (isAgentProvidersApi(req)) {
     sendAgentProvidersJson(res);
+    return;
+  }
+  if (isApiV1Orchestrate(req)) {
+    handleApiV1Orchestrate(req, res).catch((err) => {
+      if (!res.headersSent) {
+        res.writeHead(500, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({ error: clientErrorMessage(err, "Internal server error") }));
+      } else {
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
     return;
   }
   serveStatic(req, res);

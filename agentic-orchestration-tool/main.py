@@ -926,6 +926,22 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # Skip auto-install for long-running k8s helpers (images ship deps already).
+    _skip_runtime_bootstrap = bool(
+        getattr(args, "warm_pool_worker", False)
+        or getattr(args, "delegation_broker", False)
+    )
+    if not _skip_runtime_bootstrap:
+        # Auto-install Python/.venv deps and planner Ollama model when configured.
+        # Per-agent Ollama ensure also runs in OllamaProvider.initialize().
+        try:
+            from orchestration.runtime_bootstrap import bootstrap_tool_runtime
+
+            bootstrap_tool_runtime(tool_root=tool_root)
+        except Exception as exc:  # noqa: BLE001
+            print(f"error: runtime bootstrap failed: {exc}", file=sys.stderr)
+            sys.exit(2)
+
     if getattr(args, "planner_greet", False):
         from orchestration.planner_greeting import run_planner_greeting_cli
 

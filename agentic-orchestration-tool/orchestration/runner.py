@@ -316,6 +316,12 @@ def build_workflow(
             )
 
     agent_providers: dict[str, AgentProvider] = {}
+    from orchestration.runtime_bootstrap import ensure_provider_payloads
+
+    ensure_provider_payloads(
+        usable_payloads,
+        progress=(None if quiet else (lambda m: print(f"(progress) {m}", file=sys.stderr))),
+    )
     for provider_data in usable_payloads:
         ap = agent_provider_from_dict(provider_data, default_model=default_model)
         if ap.config.id in agent_providers:

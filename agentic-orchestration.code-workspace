@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../agentic-orchestration.wiki"
+		},
+		{
+			"path": "../agentic-orchestration-openclaw"
 		}
 	],
 	"settings": {}
