@@ -7,14 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-15
+
 ### Added
 
+- **Xquik MCP provider** — opt-in Streamable HTTP catalog entry (`config/mcp_providers/xquik.yaml`) gated on `XQUIK_API_KEY` for X data search, extraction, monitoring, and posting workflows.
 - **Media grounding harness** — deterministic ffprobe/ffmpeg facts (scene cuts, audio levels) injected before media Q&A; confabulated answers that contradict evidence are rejected; fixed gate when extraction is unavailable.
 - **Skill echo stripping** — `SKILL_ECHO_*` verification tokens removed from user-facing deliverables (audit log only).
 
 ### Changed
 
 - Dynamic planner auto-attaches `media_understand` when attachment block lists image/audio/video categories.
+
+### Fixed
+
+- **HA LLM Vision** — vision proxy returns plain `PEOPLE` / `NOPEOPLE` text for Home Assistant image classification.
+- **Jetson hotfix ConfigMaps** — replace large ConfigMaps without apply annotations that blocked coordinator rollouts.
 
 ## [1.11.0] - 2026-07-08
 
