@@ -27,6 +27,7 @@ The model-agnostic catalog system exists so the loop is not locked to any one ve
 
 **Deeper documentation (per package):**
 
+- **[`SECURITY.md`](SECURITY.md)** — vulnerability reporting, supported versions, threat model, and operator hardening.
 - **[`agentic-orchestration-tool/README.md`](agentic-orchestration-tool/README.md)** — workflows, router, dynamic mode, agent provider lifecycle, extra providers, VRAM, MCP catalog, learning loop, knowledge base.
 - **[`agentic-orchestration-web/README.md`](agentic-orchestration-web/README.md)** — Web UI setup, `AGENTIC_*` server env, security notes.
 - **[`examples/verticals/README.md`](examples/verticals/README.md)** — how vertical overlays relate to the tool and web packages.

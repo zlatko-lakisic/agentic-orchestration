@@ -118,6 +118,7 @@ Install / config / notes …
 
 - [Web UI]({{ '/web-ui/' | relative_url }}) — HTTP endpoints including orchestrate
 - [Configuration]({{ '/configuration/' | relative_url }}) — API keys and runtime auto-ensure
+- Security policies: [engine SECURITY.md](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/SECURITY.md) · [OpenClaw plugin SECURITY.md](https://github.com/zlatko-lakisic/agentic-orchestration-openclaw/blob/main/SECURITY.md)
 - [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) — what the engine does with each turn
 - [Infrastructure]({{ '/infrastructure/' | relative_url }}) — deploying the engine (Compose, Jetson, GHCR)
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — tools the planner can attach (not host connectors)
