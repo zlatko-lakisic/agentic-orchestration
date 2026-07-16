@@ -35,6 +35,11 @@ feature_row:
     url: /mcp-catalog/
     btn_label: "Browse integrations"
     btn_class: "btn--primary"
+  - title: "External Integrations"
+    excerpt: "Host connectors start with OpenClaw (ClawHub plugin + shared /api/v1/orchestrate bridge). More platforms will plug into the same inventory."
+    url: /external-integrations/
+    btn_label: "View connectors"
+    btn_class: "btn--primary"
   - title: "Agent Skills"
     excerpt: "YAML procedural playbooks — release checklists, PR review, domain how-tos — injected into tasks or backstory; composes with MCP tools."
     url: /agent-skills/

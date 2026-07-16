@@ -9,6 +9,8 @@ main:
     url: /Agent-harness-roadmap/
   - title: "MCP Catalog"
     url: /mcp-catalog/
+  - title: "Integrations"
+    url: /external-integrations/
   - title: "Agent Skills"
     url: /agent-skills/
   - title: "Architecture"
@@ -39,6 +41,8 @@ docs:
         url: /mcp-catalog/
       - title: "Agent Skills"
         url: /agent-skills/
+      - title: "External Integrations"
+        url: /external-integrations/
   - title: "Reference"
     children:
       - title: "Configuration"
@@ -49,6 +53,8 @@ docs:
         url: /workflows/
       - title: "Web UI"
         url: /web-ui/
+      - title: "External Integrations"
+        url: /external-integrations/
       - title: "Testing and CI"
         url: /testing-and-ci/
       - title: "Third-party Projects"

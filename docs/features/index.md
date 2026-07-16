@@ -217,6 +217,12 @@ npm start
 
 Vertical entry points: `npm run start:healthcare`, `npm run start:logistics`.
 
+## External integrations
+
+Host platforms (chat gateways, bots, IDE agents) can call into Agentic Orchestration through a shared HTTP bridge. **OpenClaw** is the first shipped connector (ClawHub plugin); more hosts will use the same inventory pattern.
+
+Details: [External integrations]({{ '/external-integrations/' | relative_url }}).
+
 ## Static Workflows
 
 For repeatable crews without LLM planning, define workflows under `config/workflows/*.yaml`.

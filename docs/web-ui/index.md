@@ -56,13 +56,13 @@ Health endpoints and metadata:
 - `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; also pushed over WebSocket).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
 
-### OpenClaw orchestrate bridge
+### Orchestrate bridge (external hosts)
 
 `POST /api/v1/orchestrate` runs a dynamic orchestration turn and returns `{ ok: true, output }`.
 
 - **Auth:** `Authorization: Bearer <key>` or `X-Api-Key` using `AGENTIC_ORCHESTRATE_API_KEY` (fallback: `AGENTIC_CHAT_COMPLETIONS_API_KEY`).
-- **Body:** JSON with the user prompt (and optional session continuity fields used by the OpenClaw plugin).
-- **Plugin:** install from ClawHub as `@zlatko-lakisic/openclaw-agentic-orchestration` (`openclaw plugins install clawhub:@zlatko-lakisic/openclaw-agentic-orchestration`). Enable `hooks.allowConversationAccess` in OpenClaw. Separate repo: [agentic-orchestration-openclaw](https://github.com/zlatko-lakisic/agentic-orchestration-openclaw).
+- **Body:** JSON with the user prompt (and optional session continuity fields).
+- **Connectors:** OpenClaw plugin and future host adapters — see [External integrations]({{ '/external-integrations/' | relative_url }}).
 
 ## Scripts
 

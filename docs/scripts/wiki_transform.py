@@ -45,6 +45,7 @@ PAGE_TITLES: dict[str, str] = {
     "Agent-societies-roadmap": "Agent societies roadmap",
     "Agent-harness-roadmap": "Agent harness roadmap",
     "User-agent-harnesses": "User agent harnesses",
+    "External-integrations": "External integrations",
     "GitHub-Pages-publish": "GitHub Pages publish",
 }
 
@@ -68,6 +69,7 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "Agent-societies-roadmap.md": "Agent-societies-roadmap/index.md",
     "Agent-harness-roadmap.md": "Agent-harness-roadmap/index.md",
     "User-agent-harnesses.md": "User-agent-harnesses/index.md",
+    "External-integrations.md": "external-integrations/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
@@ -107,6 +109,7 @@ PAGE_SLUGS: dict[str, str] = {
     "Agent-societies-roadmap": "Agent-societies-roadmap",
     "Agent-harness-roadmap": "Agent-harness-roadmap",
     "User-agent-harnesses": "User-agent-harnesses",
+    "External-integrations": "external-integrations",
     "Releases": "changelog",
     "Execution-backends": "execution-backends",
     "features": "features",
