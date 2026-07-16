@@ -43,6 +43,19 @@ def _max_fetch_chars() -> int:
         return 14000
 
 
+def _html_to_plain_text(html: str, *, max_chars: int) -> str:
+    """Strip common executable/style blocks then remaining tags; collapse whitespace."""
+    # Closing tags must allow browser-forgiving forms like </script foo="bar">
+    # (CodeQL py/bad-tag-filter).
+    text = re.sub(r"(?is)<script\b[^>]*>.*?</script\b[^>]*>", " ", html)
+    text = re.sub(r"(?is)<style\b[^>]*>.*?</style\b[^>]*>", " ", text)
+    text = re.sub(r"(?is)<noscript\b[^>]*>.*?</noscript\b[^>]*>", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
 def fetch_url_text(url: str, *, max_chars: int | None = None) -> str:
     cap = max_chars if max_chars is not None else _max_fetch_chars()
     req = Request(
@@ -58,13 +71,7 @@ def fetch_url_text(url: str, *, max_chars: int | None = None) -> str:
     with urlopen(req, timeout=25) as resp:  # noqa: S310 — agent-invoked bounded fetch
         raw = resp.read(cap * 8)
     text = raw.decode("utf-8", errors="replace")
-    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", text)
-    text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
-    text = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", text)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = unescape(text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:cap]
+    return _html_to_plain_text(text, max_chars=cap)
 
 
 def extract_http_urls_from_text(text: str) -> list[str]:

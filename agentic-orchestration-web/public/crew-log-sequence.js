@@ -203,7 +203,7 @@ function arrowPath(x1, x2, y, kind) {
   const dir = x2 >= x1 ? 1 : -1;
   const head = 7;
   const tx = x2 - dir * head;
-  const dash = kind === "async" || kind === "return" ? ' stroke-dasharray="5 4"' : "";
+  const dasharray = kind === "async" || kind === "return" ? "5 4" : null;
   const color =
     kind === "error"
       ? "#f87171"
@@ -217,14 +217,14 @@ function arrowPath(x1, x2, y, kind) {
     const loop = 14;
     return {
       path: `M ${x1} ${y} c 0 ${loop}, ${loop} ${loop}, ${loop} 0 s ${loop} ${-loop}, ${loop} ${-loop * 2}`,
-      dash,
+      dasharray: null,
       color,
-      marker: "none",
+      marker: null,
     };
   }
   return {
     path: `M ${x1} ${y} L ${tx} ${y}`,
-    dash,
+    dasharray,
     color,
     marker,
   };
@@ -278,72 +278,102 @@ export class CrewLogSequenceDiagram {
     const headerH = 44;
     const bodyH = Math.max(120, this.events.length * rowH + 24);
     const width = this._laneWidth;
+    const NS = "http://www.w3.org/2000/svg";
 
-    const headerCells = pids
-      .map(
-        (id) =>
-          `<div class="crew-seq-lane" title="${formatParticipantLabel(id)}">${formatParticipantLabel(id)}</div>`,
-      )
-      .join("");
+    // Build via DOM APIs (textContent / setAttribute) — never assign user-derived
+    // strings through innerHTML (CodeQL js/xss).
+    while (this.root.firstChild) {
+      this.root.removeChild(this.root.firstChild);
+    }
 
-    let arrows = "";
-    let labels = "";
+    const header = document.createElement("div");
+    header.className = "crew-seq-header";
+    header.style.setProperty("--seq-cols", String(pids.length));
+    for (const id of pids) {
+      const lane = document.createElement("div");
+      lane.className = "crew-seq-lane";
+      const label = formatParticipantLabel(id);
+      lane.title = label;
+      lane.textContent = label;
+      header.appendChild(lane);
+    }
+
+    const body = document.createElement("div");
+    body.className = "crew-seq-body";
+
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "crew-seq-svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${headerH + bodyH}`);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", String(headerH + bodyH));
+    svg.setAttribute("aria-hidden", "true");
+
+    const defs = document.createElementNS(NS, "defs");
+    for (const [mid, fill] of [
+      ["seq-arrow", "#fbbf24"],
+      ["seq-arrow-return", "#4ade80"],
+    ]) {
+      const marker = document.createElementNS(NS, "marker");
+      marker.setAttribute("id", mid);
+      marker.setAttribute("markerWidth", "8");
+      marker.setAttribute("markerHeight", "8");
+      marker.setAttribute("refX", "7");
+      marker.setAttribute("refY", "4");
+      marker.setAttribute("orient", "auto");
+      const tip = document.createElementNS(NS, "path");
+      tip.setAttribute("d", "M0,0 L8,4 L0,8 Z");
+      tip.setAttribute("fill", fill);
+      marker.appendChild(tip);
+      defs.appendChild(marker);
+    }
+    svg.appendChild(defs);
+
+    for (let i = 0; i < pids.length; i++) {
+      const x = laneCenterX(i, pids.length, width, pad);
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", String(x));
+      line.setAttribute("y1", String(headerH));
+      line.setAttribute("x2", String(x));
+      line.setAttribute("y2", String(headerH + bodyH));
+      line.setAttribute("class", "crew-seq-lifeline");
+      svg.appendChild(line);
+    }
+
     this.events.forEach((ev, i) => {
       const fromIdx = pids.indexOf(ev.from);
       const toIdx = pids.indexOf(ev.to);
       const y = headerH + 18 + i * rowH;
       const x1 = laneCenterX(fromIdx, pids.length, width, pad);
       const x2 = laneCenterX(toIdx, pids.length, width, pad);
-      const { path, dash, color, marker } = arrowPath(x1, x2, y, ev.kind);
-      arrows += `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.5"${dash}${
-        marker !== "none" ? ` marker-end="${marker}"` : ""
-      }/>`;
-      const lx = (x1 + x2) / 2;
-      labels += `<text x="${lx}" y="${y - 6}" class="crew-seq-msg-label" text-anchor="middle">${escapeXml(
-        ev.label,
-      )}</text>`;
+      const { path, dasharray, color, marker } = arrowPath(x1, x2, y, ev.kind);
+      const p = document.createElementNS(NS, "path");
+      p.setAttribute("d", path);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", color);
+      p.setAttribute("stroke-width", "1.5");
+      if (dasharray) p.setAttribute("stroke-dasharray", dasharray);
+      if (marker) p.setAttribute("marker-end", marker);
+      svg.appendChild(p);
+
+      const text = document.createElementNS(NS, "text");
+      text.setAttribute("x", String((x1 + x2) / 2));
+      text.setAttribute("y", String(y - 6));
+      text.setAttribute("class", "crew-seq-msg-label");
+      text.setAttribute("text-anchor", "middle");
+      text.textContent = String(ev.label || "");
+      svg.appendChild(text);
     });
 
-    const lifelines = pids
-      .map((_, i) => {
-        const x = laneCenterX(i, pids.length, width, pad);
-        return `<line x1="${x}" y1="${headerH}" x2="${x}" y2="${headerH + bodyH}" class="crew-seq-lifeline"/>`;
-      })
-      .join("");
+    body.appendChild(svg);
 
-    const empty =
-      this.events.length === 0
-        ? `<div class="crew-seq-empty">Sequence builds here as stderr lines arrive…</div>`
-        : "";
+    if (this.events.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "crew-seq-empty";
+      empty.textContent = "Sequence builds here as stderr lines arrive…";
+      body.appendChild(empty);
+    }
 
-    this.root.innerHTML = `
-      <div class="crew-seq-header" style="--seq-cols:${pids.length}">${headerCells}</div>
-      <div class="crew-seq-body">
-        <svg class="crew-seq-svg" viewBox="0 0 ${width} ${headerH + bodyH}" width="100%" height="${
-          headerH + bodyH
-        }" aria-hidden="true">
-          <defs>
-            <marker id="seq-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#fbbf24"/>
-            </marker>
-            <marker id="seq-arrow-return" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#4ade80"/>
-            </marker>
-          </defs>
-          ${lifelines}
-          ${arrows}
-          ${labels}
-        </svg>
-        ${empty}
-      </div>
-    `;
+    this.root.appendChild(header);
+    this.root.appendChild(body);
   }
-}
-
-function escapeXml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

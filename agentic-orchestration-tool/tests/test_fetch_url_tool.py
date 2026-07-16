@@ -2,6 +2,7 @@
 
 from orchestration.fetch_url_tool import (
     FetchUrlTool,
+    _html_to_plain_text,
     extract_http_urls_from_text,
     extract_url_from_leak_or_topic,
     is_fetch_stdio_mcp_entry,
@@ -25,6 +26,14 @@ def test_partition_fetch_stdio_mcps() -> None:
 def test_fetch_url_tool_name() -> None:
     tool = FetchUrlTool()
     assert tool.name == "fetch"
+
+
+def test_html_to_plain_text_strips_forgiving_script_close() -> None:
+    html = '<p>hi</p><script>alert(1)</script foo="bar"><b>ok</b>'
+    out = _html_to_plain_text(html, max_chars=200)
+    assert "alert" not in out
+    assert "hi" in out
+    assert "ok" in out
 
 
 def test_extract_http_urls_from_text() -> None:
