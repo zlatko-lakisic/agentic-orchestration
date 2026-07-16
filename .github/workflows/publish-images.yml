@@ -1,0 +1,125 @@
+name: Publish container images
+
+# Builds linux/arm64 (Jetson) + linux/amd64 images and pushes to GHCR on version tags.
+# Images:
+#   ghcr.io/<owner>/agentic-orchestrator-coordinator:vX.Y.Z
+#   ghcr.io/<owner>/agentic-orchestrator-worker:vX.Y.Z
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (e.g. v1.12.0). Defaults to git tag / sha."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    name: Build and push GHCR images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image names and tags
+        id: meta
+        run: |
+          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          COORD="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-coordinator"
+          WORK="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-worker"
+          echo "coordinator=$COORD" >> "$GITHUB_OUTPUT"
+          echo "worker=$WORK" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            TAG="${{ inputs.tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="sha-${GITHUB_SHA::7}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "coordinator_tags<<EOF"
+            echo "${COORD}:${TAG}"
+            echo "${COORD}:latest"
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "${COORD}:${TAG#v}"
+            fi
+            echo "EOF"
+            echo "worker_tags<<EOF"
+            echo "${WORK}:${TAG}"
+            echo "${WORK}:latest"
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "${WORK}:${TAG#v}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push coordinator (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: agentic-orchestration-tool/docker/Dockerfile.coordinator
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.coordinator_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=agentic-orchestrator-coordinator
+          cache-from: type=gha,scope=coordinator
+          cache-to: type=gha,mode=max,scope=coordinator
+
+      - name: Build and push worker (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: agentic-orchestration-tool
+          file: agentic-orchestration-tool/docker/Dockerfile.worker
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.worker_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=agentic-orchestrator-worker
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      - name: Summary
+        run: |
+          {
+            echo "## GHCR images published"
+            echo ""
+            echo "- \`${{ steps.meta.outputs.coordinator }}:${{ steps.meta.outputs.tag }}\`"
+            echo "- \`${{ steps.meta.outputs.worker }}:${{ steps.meta.outputs.tag }}\`"
+            echo ""
+            echo "Jetson pull example:"
+            echo "\`\`\`bash"
+            echo "export AGENTIC_USE_GHCR=1"
+            echo "export AGENTIC_IMAGE_TAG=${{ steps.meta.outputs.tag }}"
+            echo "sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

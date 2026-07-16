@@ -10,6 +10,8 @@ From `agentic-orchestration-tool/`:
 docker build -f docker/Dockerfile.worker -t agentic-orchestrator-worker:local .
 ```
 
+Published multi-arch images: `ghcr.io/zlatko-lakisic/agentic-orchestrator-worker:vX.Y.Z` (see `RELEASING.md`).
+
 Image name for K8s: set `AGENTIC_K8S_WORKER_IMAGE` (see [[Kubernetes-execution-upgrade]]).
 
 ## Run (local smoke)

@@ -11,6 +11,17 @@ docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator \
   -t agentic-orchestrator-coordinator:local .
 ```
 
+### Published images (GHCR)
+
+On each `v*.*.*` tag, CI publishes multi-arch images:
+
+```text
+ghcr.io/zlatko-lakisic/agentic-orchestrator-coordinator:vX.Y.Z
+ghcr.io/zlatko-lakisic/agentic-orchestrator-worker:vX.Y.Z
+```
+
+Jetson can pull instead of building (see `RELEASING.md` / `jetson-k3s-deploy.sh` + `AGENTIC_USE_GHCR=1`).
+
 ## Run locally (docker)
 
 Requires `.env` with API keys and K8s settings if using `AGENTIC_EXECUTION_BACKEND=kubernetes`:

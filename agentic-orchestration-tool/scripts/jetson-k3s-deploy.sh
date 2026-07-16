@@ -12,6 +12,13 @@ WORKER_IMAGE="${WORKER_IMAGE:-agentic-orchestrator-worker:local}"
 GIT_REMOTE="${GIT_REMOTE:-origin}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 WEB_PORT="${WEB_PORT:-80}"
+# When AGENTIC_USE_GHCR=1, pull prebuilt images instead of docker build on-device.
+# Override registry/owner/tag as needed:
+#   AGENTIC_GHCR_OWNER=zlatko-lakisic AGENTIC_IMAGE_TAG=v1.12.0
+AGENTIC_USE_GHCR="${AGENTIC_USE_GHCR:-0}"
+AGENTIC_GHCR_REGISTRY="${AGENTIC_GHCR_REGISTRY:-ghcr.io}"
+AGENTIC_GHCR_OWNER="${AGENTIC_GHCR_OWNER:-zlatko-lakisic}"
+AGENTIC_IMAGE_TAG="${AGENTIC_IMAGE_TAG:-}"
 
 log() { printf '\n=== %s ===\n' "$*"; }
 
@@ -154,11 +161,33 @@ kubectl create secret generic agentic-orchestrator-env \
   --dry-run=client -o yaml | kubectl apply -f -
 rm -f "${SECRET_TMP}"
 
-log "Build coordinator + worker images (native aarch64)"
-docker build -f "${TOOL_ROOT}/docker/Dockerfile.coordinator" \
-  -t "${COORDINATOR_IMAGE}" "${PROJECT_ROOT}"
-docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
-  -t "${WORKER_IMAGE}" "${TOOL_ROOT}"
+log "Build or pull coordinator + worker images"
+if [[ "${AGENTIC_USE_GHCR}" == "1" || "${AGENTIC_USE_GHCR}" == "true" || "${AGENTIC_USE_GHCR}" == "yes" ]]; then
+  if [[ -z "${AGENTIC_IMAGE_TAG}" ]]; then
+    if [[ -f "${PROJECT_ROOT}/VERSION" ]]; then
+      AGENTIC_IMAGE_TAG="v$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")"
+    else
+      AGENTIC_IMAGE_TAG="latest"
+    fi
+  fi
+  OWNER_LC="$(echo "${AGENTIC_GHCR_OWNER}" | tr '[:upper:]' '[:lower:]')"
+  COORDINATOR_IMAGE="${AGENTIC_GHCR_REGISTRY}/${OWNER_LC}/agentic-orchestrator-coordinator:${AGENTIC_IMAGE_TAG}"
+  WORKER_IMAGE="${AGENTIC_GHCR_REGISTRY}/${OWNER_LC}/agentic-orchestrator-worker:${AGENTIC_IMAGE_TAG}"
+  log "Pulling GHCR images (tag=${AGENTIC_IMAGE_TAG})"
+  echo "  coordinator: ${COORDINATOR_IMAGE}"
+  echo "  worker:      ${WORKER_IMAGE}"
+  if [[ -n "${GITHUB_TOKEN:-${GHCR_TOKEN:-}}" ]]; then
+    echo "${GITHUB_TOKEN:-${GHCR_TOKEN}}" | docker login "${AGENTIC_GHCR_REGISTRY}" -u "${GITHUB_USER:-${AGENTIC_GHCR_OWNER}}" --password-stdin
+  fi
+  docker pull "${COORDINATOR_IMAGE}"
+  docker pull "${WORKER_IMAGE}"
+else
+  log "Building coordinator + worker images (native aarch64)"
+  docker build -f "${TOOL_ROOT}/docker/Dockerfile.coordinator" \
+    -t "${COORDINATOR_IMAGE}" "${PROJECT_ROOT}"
+  docker build -f "${TOOL_ROOT}/docker/Dockerfile.worker" \
+    -t "${WORKER_IMAGE}" "${TOOL_ROOT}"
+fi
 
 log "Apply coordinator RBAC + deployment"
 kubectl apply -k "${TOOL_ROOT}/deploy/k8s/coordinator"

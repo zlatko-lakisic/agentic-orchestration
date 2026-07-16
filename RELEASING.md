@@ -7,6 +7,7 @@ This repo uses **Semantic Versioning** and **Keep a Changelog**.
 | `VERSION` | Latest **published** version (`X.Y.Z`). `0.0.0` = no GitHub Release yet. |
 | `CHANGELOG.md` | Human-readable notes; `[Unreleased]` accumulates until a release. |
 | `.github/workflows/release.yml` | Creates a GitHub Release when tag `v*` is pushed. |
+| `.github/workflows/publish-images.yml` | Pushes coordinator/worker images to GHCR (`amd64` + `arm64`) on tag `v*`. |
 
 ## Version bumps
 
@@ -28,7 +29,28 @@ This repo uses **Semantic Versioning** and **Keep a Changelog**.
 6. **Tag**: `vX.Y.Z` (annotated tag recommended).
 7. **Push** `main` and tag to GitHub: `git push github main && git push github vX.Y.Z`
 8. **GitHub Release** — created automatically by workflow from tag + changelog section.
-9. **Wiki** (optional) — note release under wiki Home if user-facing docs changed.
+9. **GHCR images** — `.github/workflows/publish-images.yml` builds `linux/amd64` + `linux/arm64` and pushes:
+   - `ghcr.io/zlatko-lakisic/agentic-orchestrator-coordinator:vX.Y.Z`
+   - `ghcr.io/zlatko-lakisic/agentic-orchestrator-worker:vX.Y.Z`
+10. **Wiki** (optional) — note release under wiki Home if user-facing docs changed.
+
+### Jetson: pull GHCR instead of on-device build
+
+After packages are public (or you `docker login ghcr.io`):
+
+```bash
+export AGENTIC_USE_GHCR=1
+export AGENTIC_IMAGE_TAG=v1.12.0   # or omit to use VERSION file / latest
+sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
+```
+
+Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER` before deploy.
+
+Manual publish without cutting a release:
+
+```text
+GitHub → Actions → Publish container images → Run workflow
+```
 
 ## Commands
 
