@@ -152,7 +152,11 @@ ENVEOF
   sub(/=.*$/, "", key)
   gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
   if (key == "") next
-  if (!(key in order)) order[++n]=key
+  # order[] is numeric-indexed; use seen[] so duplicate keys are not printed twice
+  if (!(key in seen)) {
+    seen[key]=1
+    order[++n]=key
+  }
   vals[key]=line
 } END { for (i=1;i<=n;i++) print vals[order[i]] }' > "${SECRET_TMP}"
 kubectl create secret generic agentic-orchestrator-env \

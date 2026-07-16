@@ -16,9 +16,9 @@ excerpt: >
   Most AI systems do one task well; this one is built around a coordinator that replans as it goes,
   carries forward what it learned, and checks its own work — model-agnostically, so the loop does not
   depend on one vendor's LLM.
-  Dynamic planning, 182 agent templates, 7 MCP integrations,
+  Dynamic planning, 182 agent templates, MCP integrations,
   agent skills playbooks, platform agent harness, and three execution backends — from local Ollama to Kubernetes.
-  Latest release: v1.10.0.
+  Latest release: v1.13.0.
 feature_row:
   - title: "Dynamic Planning"
     excerpt: "State a goal in plain language. The LLM planner selects agents, attaches MCP tools, and builds a multi-step execution plan automatically."
@@ -30,8 +30,8 @@ feature_row:
     url: /agent-catalog/
     btn_label: "Browse catalog"
     btn_class: "btn--primary"
-  - title: "7 MCP Integrations"
-    excerpt: "Brave Search, Tavily, Exa, Home Assistant, URL fetch, filesystem, and memory knowledge graph — credential-gated and Kubernetes-ready."
+  - title: "MCP Integrations"
+    excerpt: "Brave Search, Tavily, Exa, Home Assistant, Xquik, URL fetch, filesystem, media understand, and memory — credential-gated and Kubernetes-ready."
     url: /mcp-catalog/
     btn_label: "Browse integrations"
     btn_class: "btn--primary"

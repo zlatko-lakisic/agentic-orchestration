@@ -31,7 +31,6 @@ Recent behavior updates:
 - File uploads are supported in chat; drag & drop or paperclip, with **pending preview chips** (image/video/audio preview or an icon) and per-file cancel before send.
 - Server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Images, audio, and video are first-class (separate byte caps); agents can use MCP `media_understand` tools when enabled.
-- **Media grounding** — before answering, the harness extracts ffmpeg/ffprobe facts (scene cuts, audio levels) and optional tool output; confabulated answers that contradict those facts are rejected with a fixed gate message. Skill verification tokens (`SKILL_ECHO_*`) are stripped from deliverables.
 - Upload safety limits are enforced server-side (per-file by MIME class, total bytes, max file count).
 - **Warpgate / reverse-proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
 
@@ -56,6 +55,14 @@ Health endpoints and metadata:
 - `GET /api/session` returns a JSON object with `userName` and `sessionId` from proxy headers (Warpgate) or a generated `web-*` id.
 - `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; also pushed over WebSocket).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
+
+### OpenClaw orchestrate bridge
+
+`POST /api/v1/orchestrate` runs a dynamic orchestration turn and returns `{ ok: true, output }`.
+
+- **Auth:** `Authorization: Bearer <key>` or `X-Api-Key` using `AGENTIC_ORCHESTRATE_API_KEY` (fallback: `AGENTIC_CHAT_COMPLETIONS_API_KEY`).
+- **Body:** JSON with the user prompt (and optional session continuity fields used by the OpenClaw plugin).
+- **Plugin:** install from ClawHub as `@zlatko-lakisic/openclaw-agentic-orchestration` (`openclaw plugins install clawhub:@zlatko-lakisic/openclaw-agentic-orchestration`). Enable `hooks.allowConversationAccess` in OpenClaw. Separate repo: [agentic-orchestration-openclaw](https://github.com/zlatko-lakisic/agentic-orchestration-openclaw).
 
 ## Scripts
 

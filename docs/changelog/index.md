@@ -19,6 +19,35 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-16
+
+### Added
+
+- **GHCR multi-arch images** — GitHub Actions publishes `linux/amd64` + `linux/arm64` coordinator/worker images to `ghcr.io/zlatko-lakisic/agentic-orchestrator-*` on `v*` tags; Jetson can pull with `AGENTIC_USE_GHCR=1` instead of on-device `docker build`.
+- **Runtime auto-bootstrap** — `AGENTIC_AUTO_ENSURE_RUNTIME=1` (default) ensures Python `.venv` + requirements and, for Ollama agents, install/serve/pull models (not only `selfcontained: true`). Kubernetes Ollama ensure stays gated unless `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1`.
+- **OpenClaw HTTP bridge** — `POST /api/v1/orchestrate` on the web server (`AGENTIC_ORCHESTRATE_API_KEY` or `AGENTIC_CHAT_COMPLETIONS_API_KEY`) for the ClawHub plugin `@zlatko-lakisic/openclaw-agentic-orchestration`.
+
+### Fixed
+
+- **Jetson k3s secret sync** — `jetson-k3s-deploy.sh` env-file awk now dedupes keys correctly (duplicate `AGENTIC_K8S_DELEGATION_ENABLED` no longer breaks `kubectl create secret`).
+
+## [1.12.0] - 2026-07-15
+
+### Added
+
+- **Xquik MCP provider** — opt-in Streamable HTTP catalog entry (`config/mcp_providers/xquik.yaml`) gated on `XQUIK_API_KEY` for X data search, extraction, monitoring, and posting workflows.
+- **Media grounding harness** — deterministic ffprobe/ffmpeg facts (scene cuts, audio levels) injected before media Q&A; confabulated answers that contradict evidence are rejected; fixed gate when extraction is unavailable.
+- **Skill echo stripping** — `SKILL_ECHO_*` verification tokens removed from user-facing deliverables (audit log only).
+
+### Changed
+
+- Dynamic planner auto-attaches `media_understand` when attachment block lists image/audio/video categories.
+
+### Fixed
+
+- **HA LLM Vision** — vision proxy returns plain `PEOPLE` / `NOPEOPLE` text for Home Assistant image classification.
+- **Jetson hotfix ConfigMaps** — replace large ConfigMaps without apply annotations that blocked coordinator rollouts.
+
 ## [1.11.0] - 2026-07-08
 
 ### Added

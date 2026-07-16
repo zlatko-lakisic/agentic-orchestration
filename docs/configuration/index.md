@@ -53,6 +53,8 @@ See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}
 - `AGENTIC_ANSWER_CACHE=1` (default): same-goal replay in the same orchestrator session, with explicit "reply no to re-run" flow.
 - `AGENTIC_DYNAMIC_ITER_STREAM_STEPS=1`: emit each iterative round output to stdout instead of only the final synthesis.
 - `AGENTIC_OLLAMA_PULL_PROGRESS_STDERR=1` (default): keep normalized Ollama pull progress lines visible on stderr for web activity/progress UI.
+- `AGENTIC_AUTO_ENSURE_RUNTIME=1` (default): ensure Python `.venv` + `requirements.txt`, and for Ollama agents install/serve/pull models (not only `selfcontained: true`). Set `0` for legacy behaviour.
+- `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1`: allow Ollama auto-ensure inside kubernetes workers (off by default; host Ollama + `host.k3s.internal` is the Jetson path).
 
 ## Web server (`agentic-orchestration-web/.env`)
 
@@ -62,8 +64,10 @@ See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}
 | `AGENTIC_PYTHON` | Python executable (defaults to tool `.venv` when present) |
 | `AGENTIC_WEB_HOST` | Bind address (`0.0.0.0` for LAN) |
 | `AGENTIC_WEB_PORT` | Default `3847` |
+| `AGENTIC_ORCHESTRATE_API_KEY` | Bearer/API key for `POST /api/v1/orchestrate` (OpenClaw). Falls back to `AGENTIC_CHAT_COMPLETIONS_API_KEY` when unset. |
+| `AGENTIC_CHAT_COMPLETIONS_API_KEY` | Shared key for chat-completions-compatible proxies and orchestrate fallback. |
 
-See `agentic-orchestration-web/README.md`.
+See `agentic-orchestration-web/README.md` and [Web UI]({{ '/web-ui/' | relative_url }}).
 
 ## Security
 

@@ -20,6 +20,7 @@ This page describes how **Agentic Orchestration** is deployed in production-styl
 |------|--------|
 | **Bare metal / VM** | Install Python 3.12+ and Node 18+; run the web UI with `npm start` and point `AGENTIC_TOOL_ROOT` at the folder that contains `main.py`. |
 | **Docker Compose** | Multi-container stack at the monorepo root (see below). **Keep this wiki section in sync** when you add, rename, or remove services in `docker-compose.yml`. |
+| **Kubernetes / Jetson k3s** | Coordinator + warm pool + delegation broker on-device. Prefer **GHCR pulls** (`AGENTIC_USE_GHCR=1`) over building images on the edge device. |
 
 ## Docker Compose stack
 
@@ -46,21 +47,62 @@ When using containers, the repository defines a **`docker-compose.yml`** (or `co
 - The web stack **executes local Python** with user-supplied chat text. Do not expose **`AGENTIC_WEB_HOST`** to untrusted networks without authentication and hardening (see [Web UI]({{ '/web-ui/' | relative_url }})).
 - Restrict Ollama’s published port if only the orchestration container should call it.
 
-## Kubernetes (planned)
+## GHCR container images
 
-Distributed step execution (pod-per-step, coordinator + worker Jobs) is documented in [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}). Framework F0–F4 and K8s Phases 0–2 (worker CLI, image) are implemented in code; cluster Jobs (K3) are next.
+On each `v*` release tag, [`.github/workflows/publish-images.yml`](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/.github/workflows/publish-images.yml) builds **linux/amd64** and **linux/arm64** and pushes:
 
-### Worker image (K8s Phase 2.3)
+| Image | Example tag |
+|-------|-------------|
+| `ghcr.io/zlatko-lakisic/agentic-orchestrator-coordinator` | `v1.13.0`, `latest` |
+| `ghcr.io/zlatko-lakisic/agentic-orchestrator-worker` | `v1.13.0`, `latest` |
 
-Build from `agentic-orchestration-tool/`:
+Manual publish (without cutting a release): GitHub → Actions → **Publish container images** → Run workflow.
+
+Local builds (when not using GHCR):
 
 ```bash
-docker build -f docker/Dockerfile.worker -t agentic-orchestrator-worker:local .
+# coordinator (repo root as context)
+docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator \
+  -t agentic-orchestrator-coordinator:local .
+
+# worker
+docker build -f agentic-orchestration-tool/docker/Dockerfile.worker \
+  -t agentic-orchestrator-worker:local agentic-orchestration-tool/
 ```
 
-See `agentic-orchestration-tool/docker/README.worker.md` for mounts, secrets, and smoke script (`scripts/docker-worker-smoke.ps1`). Set `AGENTIC_K8S_WORKER_IMAGE` when K3 Job templates land.
+See `agentic-orchestration-tool/docker/README.coordinator.md` and `README.worker.md`.
 
-Coordinator Deployment + Job manifests: K3.7 (not yet in repo).
+## Jetson / k3s deploy
+
+Repo on device: `/var/projects/agentic-orchestration`. **Git-only** deploys — pull `main`, then run scripts (never `scp` tracked files). Device remote is usually `origin` → GitHub; push from a laptop with `git push github main`.
+
+### Routine update (ConfigMap / env hotfix)
+
+```bash
+cd /var/projects/agentic-orchestration
+git pull origin main
+bash agentic-orchestration-tool/scripts/jetson-deploy.sh
+```
+
+### Full stack (images + manifests)
+
+Prefer GHCR pulls (fast on Orin):
+
+```bash
+export AGENTIC_USE_GHCR=1
+export AGENTIC_IMAGE_TAG=v1.13.0   # or omit to use VERSION / latest
+sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
+```
+
+Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER` before deploy.
+
+**Web UI:** NodePort **`30487`** (`http://<jetson>:30487`). Traefik / Warpgate should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
+
+Ollama on Jetson is typically **native systemd** on the host; pods reach it via `host.k3s.internal:11434` (CoreDNS NodeHosts). See `jetson-fix-ollama-k8s.sh` / deploy script logs.
+
+## Kubernetes execution model
+
+Distributed step execution (coordinator + workers, warm pool, run-store PVC) is documented in [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) and [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}). Jetson ships a working coordinator Deployment; Job-per-step remains on the K8s roadmap phases described there.
 
 ## Related
 
@@ -69,3 +111,4 @@ Coordinator Deployment + Job manifests: K3.7 (not yet in repo).
 - [Web UI]({{ '/web-ui/' | relative_url }}) — `AGENTIC_*` web server settings
 - [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) — K8s execution roadmap
 - [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) — pluggable execution backends
+- [Releases]({{ '/changelog/' | relative_url }}) — versioning and GHCR publish on tags

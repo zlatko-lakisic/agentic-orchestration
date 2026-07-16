@@ -53,6 +53,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_understand` | First-party **media** server (`python -m mcp_servers.media_understand`): image describe, audio transcribe, video frames. | Community vision/audio servers on [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) (Multimedia) |
 | `media_audio_transcribe` | Same server; keywords biased to speech-to-text. | (alias of `media_understand`) |
 | `media_video_analyze` | Same server; keywords biased to video synopsis. | (alias of `media_understand`) |
+| `xquik` | Hosted **Xquik** Streamable HTTP MCP (`https://xquik.com/mcp`) for X/Twitter data search, monitoring, and posting. | [Xquik MCP docs](https://docs.xquik.com/mcp/overview) |
 
 ## Inventory (repository)
 
@@ -68,6 +69,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_understand` | `stdio` | Describe images, transcribe audio, analyze videos (local paths). | `AGENTIC_MCP_MEDIA_ENABLED` (+ `mcp` / optional `faster-whisper`, ffmpeg) |
 | `media_audio_transcribe` | `stdio` | Audio-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
 | `media_video_analyze` | `stdio` | Video-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
+| `xquik` | `streamable_http` | X data search, extraction, monitoring, webhooks, posting via Xquik. | `XQUIK_API_KEY` |
 
 ## Kubernetes compatibility (K0.6)
 
@@ -77,6 +79,7 @@ When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s pat
 |------|------------------|-------|
 | `search_brave` | ✅ | streamable_http |
 | `search_tavily` | ✅ | streamable_http |
+| `xquik` | ✅ | streamable_http |
 | `home_assistant` | ✅ | streamable_http |
 | `search_exa` | ❌ | stdio — K4 sidecar or gateway |
 | `fetch_url` | ✅ (with worker stdio) | Default: `AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url` + `mcp-server-fetch` in worker image |
@@ -129,6 +132,12 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 - Run: `python -m mcp_servers.media_understand` (FastMCP stdio). Tools: `describe_image_file`, `transcribe_audio_file`, `analyze_video_file`.
 - Audio: install `faster-whisper` (or configure OpenAI transcription). Video: `ffmpeg` on PATH.
 - Aliases `media_audio_transcribe` / `media_video_analyze` share the same process; they exist so planners match speech vs clip goals more cleanly.
+
+#### `xquik`
+
+- **Docs:** [Xquik MCP overview](https://docs.xquik.com/mcp/overview)
+- **Auth:** `Authorization: Bearer ${XQUIK_API_KEY}` against `https://xquik.com/mcp`
+- Opt-in by setting `XQUIK_API_KEY` in the tool `.env` (catalog entry is credential-gated).
 
 ## Adding a new MCP
 
