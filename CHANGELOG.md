@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **OpenAI chat completions streaming** — orchestrated `POST /v1/chat/completions` accepts `stream: true` and returns an OpenAI-compatible SSE (full answer as one content delta). Unblocks OpenClaw ≥ 2026.7, which always streams to the `agentic` provider.
+
 ## [1.13.1] - 2026-07-16
 
 ### Fixed

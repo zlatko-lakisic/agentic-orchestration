@@ -928,6 +928,44 @@ function normalizeOrchestratedApiContent(stdout) {
   return normalizeUserFacingText(stdout);
 }
 
+/**
+ * OpenAI-compatible SSE for orchestrated chat completions.
+ * Orchestration is non-incremental; we emit the full answer as one content delta
+ * so clients that always set stream:true (e.g. OpenClaw ≥ 2026.7) still work.
+ */
+function writeOrchestratedChatCompletionStream(res, { id, created, model, content, cors }) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    ...cors,
+  });
+  const writeChunk = (delta, finishReason = null) => {
+    res.write(
+      `data: ${JSON.stringify({
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta,
+            finish_reason: finishReason,
+          },
+        ],
+      })}\n\n`,
+    );
+  };
+  writeChunk({ role: "assistant", content: "" });
+  if (content) {
+    writeChunk({ content: String(content) });
+  }
+  writeChunk({}, "stop");
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
 function openAiApiDisablesAnswerCache() {
   const v = String(process.env.AGENTIC_OPENAI_API_DISABLE_CACHE || "1")
     .trim()
@@ -1101,21 +1139,7 @@ async function handleOpenAiChatCompletions(req, res) {
   // This endpoint is configured to always run through local orchestration (main.py),
   // never as a direct upstream OpenAI proxy.
   if (true) {
-    if (Boolean(payload.stream)) {
-      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message:
-              "Streaming is not supported when agentic orchestration is requested. Omit \"stream\" or set agentic.runMode to omit dynamic routing.",
-            type: "invalid_request_error",
-            param: "stream",
-            code: "unsupported_parameter",
-          },
-        }),
-      );
-      return;
-    }
+    const wantStream = Boolean(payload.stream);
 
     let dynamicText = messagesToDynamicText(payload.messages);
     let attachmentManifestPath = null;
@@ -1245,13 +1269,18 @@ async function handleOpenAiChatCompletions(req, res) {
     const content = normalizeOrchestratedApiContent(runResult.stdout);
     const created = Math.floor(Date.now() / 1000);
     const id = `chatcmpl-agentic-${crypto.randomUUID()}`;
+    const model = payload.model.trim();
+    if (wantStream) {
+      writeOrchestratedChatCompletionStream(res, { id, created, model, content, cors });
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(
       JSON.stringify({
         id,
         object: "chat.completion",
         created,
-        model: payload.model.trim(),
+        model,
         choices: [
           {
             index: 0,
