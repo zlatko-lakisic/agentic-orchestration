@@ -20,13 +20,36 @@ import {
   userDisplayNameSpawnEnv,
   userNameFromRequestHeaders,
 } from "./lib/user-context.mjs";
-import { startOllamaKeepAliveLoop } from "./lib/ollama-keepalive.mjs";
+import { startOllamaKeepAliveLoop, beginOrchestrateOllamaBusy, endOrchestrateOllamaBusy } from "./lib/ollama-keepalive.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Load `.env` next to this file (no extra deps). Does not override existing process.env. */
 function loadLocalEnv() {
   const envPath = path.join(__dirname, ".env");
+  if (!fs.existsSync(envPath)) return;
+  const raw = fs.readFileSync(envPath, "utf8");
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!key || key in process.env) continue;
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    process.env[key] = val;
+  }
+}
+
+/** Also load tool `.env` (managed by OpenClaw plugin) without overriding worker env. */
+function loadToolEnvFile(toolRoot) {
+  const envPath = path.join(toolRoot, ".env");
   if (!fs.existsSync(envPath)) return;
   const raw = fs.readFileSync(envPath, "utf8");
   for (const line of raw.split("\n")) {
@@ -182,6 +205,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const TOOL_ROOT = path.resolve(
   process.env.AGENTIC_TOOL_ROOT || path.join(__dirname, "..", "agentic-orchestration-tool"),
 );
+loadToolEnvFile(TOOL_ROOT);
 
 /** Match `orchestration/example_overlays.py` (no manual .env paths for vertical roots). */
 const EXAMPLE_VERTICAL_SUBDIR = {
@@ -1767,8 +1791,19 @@ async function handleApiV1Orchestrate(req, res) {
   const verboseCrew = body.verboseCrew === true;
   // Same catalog restriction as OpenAI-proxy / WS paths (env or body).
   const selectedIds = effectiveOpenAiProxyAgentProviderIds(body.selectedAgentProviderIds);
+  const simpleChat = isSimpleChatPrompt(text);
+  const effectiveReset = resetSession || simpleChat;
+  const performanceEnv = simpleChat
+    ? performanceSpawnEnvOverrides({
+        limitPlannerHistory: true,
+        plannerMaxTurns: 2,
+        plannerExcerptChars: 2000,
+        skipFinalQa: true,
+        skipLearningEval: true,
+      })
+    : {};
 
-  if (orchestrationRequestLogEnabled()) {
+  if (orchestrationRequestLogEnabled() || simpleChat) {
     console.error(
       "[agentic orchestrate]",
       JSON.stringify({
@@ -1776,27 +1811,32 @@ async function handleApiV1Orchestrate(req, res) {
         promptChars: text.length,
         sessionId: sessionId || "",
         runMode: String(runMode).trim(),
-        resetSession,
+        resetSession: effectiveReset,
+        simpleChat,
         selectedAgentProviderIds: selectedIds,
       }),
     );
   }
 
   let runResult;
+  beginOrchestrateOllamaBusy();
   try {
     runResult = await runDynamicAwait({
       text,
       runMode,
       sessionId,
-      resetSession,
+      resetSession: effectiveReset,
       verboseCrew,
       selectedAgentProviderIds: selectedIds,
+      performanceEnv,
       userName: userNameFromRequestHeaders(req.headers),
     });
   } catch (e) {
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(JSON.stringify({ error: clientErrorMessage(e, "Orchestration failed") }));
     return;
+  } finally {
+    endOrchestrateOllamaBusy();
   }
 
   if (runResult.code !== 0) {

@@ -15,6 +15,12 @@ test("isSimpleChatPrompt matches identity and greetings", () => {
   assert.equal(isSimpleChatPrompt("hi"), true);
 });
 
+test("isSimpleChatPrompt matches OpenClaw-wrapped who are you", () => {
+  const wrapped =
+    "[OpenClaw context]\nbrowser filesystem\n[/OpenClaw context]\n\nUser message:\nWho are you?";
+  assert.equal(isSimpleChatPrompt(wrapped), true);
+});
+
 test("isSimpleChatPrompt rejects long or compound tasks", () => {
   assert.equal(isSimpleChatPrompt("who are you and analyze my logs"), false);
   assert.equal(

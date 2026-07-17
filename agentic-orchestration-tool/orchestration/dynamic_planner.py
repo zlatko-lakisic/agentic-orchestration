@@ -1107,6 +1107,10 @@ def _maybe_augment_mcp_from_user_goal(
     match_prompt = user_prompt_for_goal_matching(user_prompt)
     if goal_requires_machine_readable_only(match_prompt):
         return cfg
+    from orchestration.simple_chat import is_simple_chat_prompt
+
+    if is_simple_chat_prompt(match_prompt):
+        return cfg
     if os.getenv("AGENTIC_DISABLE_MCP_GOAL_MATCH", "").strip().lower() in (
         "1",
         "true",
@@ -1172,6 +1176,17 @@ def _prune_irrelevant_mcp_from_user_goal(
             print(
                 f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
                 "(direct vision / gate PEOPLE contract — no tool loop on client)",
+                file=sys.stderr,
+            )
+        return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
+
+    from orchestration.simple_chat import is_simple_chat_prompt
+
+    if is_simple_chat_prompt(match_prompt):
+        if not quiet:
+            print(
+                f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
+                "(simple chat — no tools)",
                 file=sys.stderr,
             )
         return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))

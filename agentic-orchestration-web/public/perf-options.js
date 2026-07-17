@@ -1,7 +1,17 @@
 /** @typedef {import("../lib/perf-options.mjs").isSimpleChatPrompt} isSimpleChatPrompt */
 
+export function userTurnForSimpleChat(text) {
+  let t = String(text || "").trim();
+  const marker = "User message:";
+  if (marker && t.includes(marker)) {
+    const tail = t.split(marker).pop()?.trim() || "";
+    if (tail) t = tail;
+  }
+  return t;
+}
+
 export function isSimpleChatPrompt(text) {
-  const t = String(text || "").trim();
+  const t = userTurnForSimpleChat(text);
   if (!t || t.length > 120) return false;
   if (/\n/.test(t)) return false;
   if (

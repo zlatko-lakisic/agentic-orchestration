@@ -127,6 +127,16 @@ export async function pingOllamaKeepAlive(opts = {}) {
 
 let _timer = null;
 let _inFlight = false;
+/** When >0, skip keep-alive pings so chat/orchestrate owns the Ollama slot. */
+let _orchestrateBusy = 0;
+
+export function beginOrchestrateOllamaBusy() {
+  _orchestrateBusy += 1;
+}
+
+export function endOrchestrateOllamaBusy() {
+  _orchestrateBusy = Math.max(0, _orchestrateBusy - 1);
+}
 
 /** Start warmup + interval keep-alive (no-op when disabled or planner is not Ollama). */
 export function startOllamaKeepAliveLoop() {
@@ -147,7 +157,7 @@ export function startOllamaKeepAliveLoop() {
   );
 
   const tick = async () => {
-    if (_inFlight) return;
+    if (_inFlight || _orchestrateBusy > 0) return;
     _inFlight = true;
     try {
       const ok = await pingOllamaKeepAlive();

@@ -28,3 +28,11 @@ def test_web_prose_suffix_stripped_before_classify() -> None:
     wrapped = "who are you?" + WEB_PROSE_GOAL_SUFFIX
     assert is_simple_chat_prompt(wrapped)
     assert strip_web_prose_delivery_suffix(wrapped) == "who are you?"
+
+
+def test_openclaw_preamble_still_simple_chat() -> None:
+    wrapped = (
+        "[OpenClaw context]\nbrowser filesystem shell\n[/OpenClaw context]\n\n"
+        "User message:\nWho are you?"
+    )
+    assert is_simple_chat_prompt(wrapped)

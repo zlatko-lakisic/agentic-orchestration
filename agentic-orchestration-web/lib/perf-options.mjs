@@ -2,9 +2,20 @@
  * Performance helpers for web chat (simple prompts, planner trim, skip post-run LLM).
  */
 
+/** Prefer the real user turn when hosts prepend an OpenClaw-style context block. */
+export function userTurnForSimpleChat(text) {
+  let t = String(text || "").trim();
+  const marker = "User message:";
+  if (marker && t.includes(marker)) {
+    const tail = t.split(marker).pop()?.trim() || "";
+    if (tail) t = tail;
+  }
+  return t;
+}
+
 /** True when the prompt is short and does not need multi-agent planning / session carry-over. */
 export function isSimpleChatPrompt(text) {
-  const t = String(text || "").trim();
+  const t = userTurnForSimpleChat(text);
   if (!t || t.length > 120) return false;
   if (/\n/.test(t)) return false;
   if (

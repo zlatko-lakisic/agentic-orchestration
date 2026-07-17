@@ -17,9 +17,22 @@ def strip_web_prose_delivery_suffix(text: str) -> str:
     return t
 
 
+def user_turn_for_simple_chat(text: str) -> str:
+    """
+    Prefer the real user turn when hosts prepend context (OpenClaw ``User message:``).
+    """
+    t = strip_web_prose_delivery_suffix(text).strip()
+    marker = "User message:"
+    if marker in t:
+        tail = t.rsplit(marker, 1)[-1].strip()
+        if tail:
+            return tail
+    return t
+
+
 def is_simple_chat_prompt(text: str) -> bool:
     """True for short greetings/identity questions that should not use crew tools."""
-    t = strip_web_prose_delivery_suffix(text).strip()
+    t = user_turn_for_simple_chat(text)
     if not t or len(t) > 120:
         return False
     if "\n" in t:
