@@ -930,16 +930,19 @@ function normalizeOrchestratedApiContent(stdout) {
 
 /**
  * OpenAI-compatible SSE for orchestrated chat completions.
- * Orchestration is non-incremental; we emit the full answer as one content delta
- * so clients that always set stream:true (e.g. OpenClaw ≥ 2026.7) still work.
+ * Open the stream *before* orchestration so clients that require early bytes
+ * (OpenClaw ≥ 2026.7 idle watchdog) do not abort while the crew runs.
  */
-function writeOrchestratedChatCompletionStream(res, { id, created, model, content, cors }) {
+function beginOrchestratedChatCompletionStream(res, { id, created, model, cors }) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     ...cors,
   });
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
   const writeChunk = (delta, finishReason = null) => {
     res.write(
       `data: ${JSON.stringify({
@@ -958,12 +961,34 @@ function writeOrchestratedChatCompletionStream(res, { id, created, model, conten
     );
   };
   writeChunk({ role: "assistant", content: "" });
-  if (content) {
-    writeChunk({ content: String(content) });
-  }
-  writeChunk({}, "stop");
-  res.write("data: [DONE]\n\n");
-  res.end();
+  // SSE comments keep proxies/clients alive without changing the assistant text.
+  const keepalive = setInterval(() => {
+    try {
+      res.write(": keepalive\n\n");
+    } catch {
+      clearInterval(keepalive);
+    }
+  }, 15_000);
+  if (typeof keepalive.unref === "function") keepalive.unref();
+  return {
+    writeChunk,
+    finish(content) {
+      clearInterval(keepalive);
+      if (content) {
+        writeChunk({ content: String(content) });
+      }
+      writeChunk({}, "stop");
+      res.write("data: [DONE]\n\n");
+      res.end();
+    },
+    fail(message) {
+      clearInterval(keepalive);
+      writeChunk({ content: String(message || "Orchestration failed") });
+      writeChunk({}, "stop");
+      res.write("data: [DONE]\n\n");
+      res.end();
+    },
+  };
 }
 
 function openAiApiDisablesAnswerCache() {
@@ -1213,9 +1238,17 @@ async function handleOpenAiChatCompletions(req, res) {
           attachmentSlots: attachmentCombinedCount,
           attachmentMediaPartsDecoded: messageMediaFiles.length,
           runMode: String(agentic.runMode || "dynamic").trim(),
+          stream: wantStream,
         }),
       );
     }
+
+    const created = Math.floor(Date.now() / 1000);
+    const id = `chatcmpl-agentic-${crypto.randomUUID()}`;
+    const model = payload.model.trim();
+    const streamOut = wantStream
+      ? beginOrchestratedChatCompletionStream(res, { id, created, model, cors })
+      : null;
 
     let runResult;
     try {
@@ -1236,6 +1269,10 @@ async function handleOpenAiChatCompletions(req, res) {
         userName: userNameFromRequestHeaders(req.headers),
       });
     } catch (err) {
+      if (streamOut) {
+        streamOut.fail(clientErrorMessage(err, "Orchestration failed"));
+        return;
+      }
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
@@ -1252,11 +1289,16 @@ async function handleOpenAiChatCompletions(req, res) {
 
     if (runResult.code !== 0) {
       const hint = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim();
+      const message = `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`;
+      if (streamOut) {
+        streamOut.fail(message);
+        return;
+      }
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`,
+            message,
             type: "agentic_run_error",
             param: null,
             code: "orchestration_exit_nonzero",
@@ -1267,11 +1309,8 @@ async function handleOpenAiChatCompletions(req, res) {
     }
 
     const content = normalizeOrchestratedApiContent(runResult.stdout);
-    const created = Math.floor(Date.now() / 1000);
-    const id = `chatcmpl-agentic-${crypto.randomUUID()}`;
-    const model = payload.model.trim();
-    if (wantStream) {
-      writeOrchestratedChatCompletionStream(res, { id, created, model, content, cors });
+    if (streamOut) {
+      streamOut.finish(content);
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...cors });
