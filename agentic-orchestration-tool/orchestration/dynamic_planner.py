@@ -607,7 +607,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
   "skill_ids": ["optional default skill ids for steps that omit their own list"],
   "steps": [
     {{
-      "agent_provider_id": "<id from catalog>",
+      "agent_provider_id": "ollama_llama3_2_1b",
       "mcp_provider_ids": ["optional; per-step MCP subset — omit key to use top-level default"],
       "skill_ids": ["optional; per-step skill subset — omit key to use top-level default"],
       "description": "Instructions for the agent. Must mention {{topic}}.",
@@ -616,6 +616,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
     }}
   ]
 }}
+Copy `agent_provider_id` **exactly** from the catalog list above (never invent ids or leave angle-bracket placeholders).
 If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `mcp_provider_ids`.
 If no agent skill is relevant, set `"skill_ids": []` and omit per-step `skill_ids`.
 """
@@ -1078,6 +1079,22 @@ def _dynamic_plan_resolves_no_mcp(
     return True
 
 
+def user_prompt_for_goal_matching(user_prompt: str) -> str:
+    """
+    When OpenClaw (or other hosts) prepend context, keep MCP/goal matching on the
+    real user turn — text after the last ``User message:`` marker.
+    """
+    text = (user_prompt or "").strip()
+    if not text:
+        return text
+    marker = "User message:"
+    if marker in text:
+        tail = text.rsplit(marker, 1)[-1].strip()
+        if tail:
+            return tail
+    return text
+
+
 def _maybe_augment_mcp_from_user_goal(
     cfg: WorkflowConfig,
     *,
@@ -1087,7 +1104,8 @@ def _maybe_augment_mcp_from_user_goal(
 ) -> WorkflowConfig:
     if not mcp_catalog:
         return cfg
-    if goal_requires_machine_readable_only(user_prompt):
+    match_prompt = user_prompt_for_goal_matching(user_prompt)
+    if goal_requires_machine_readable_only(match_prompt):
         return cfg
     if os.getenv("AGENTIC_DISABLE_MCP_GOAL_MATCH", "").strip().lower() in (
         "1",
@@ -1098,7 +1116,7 @@ def _maybe_augment_mcp_from_user_goal(
         return cfg
     if not _dynamic_plan_resolves_no_mcp(cfg, mcp_catalog):
         return cfg
-    suggested = suggest_mcp_ids_from_user_goal(user_prompt, mcp_catalog)
+    suggested = suggest_mcp_ids_from_user_goal(match_prompt, mcp_catalog)
     if not suggested:
         return cfg
 
@@ -1140,7 +1158,8 @@ def _prune_irrelevant_mcp_from_user_goal(
         return cfg
     if not cfg.mcp_providers:
         return cfg
-    if goal_requests_irrigation_minutes_line(user_prompt):
+    match_prompt = user_prompt_for_goal_matching(user_prompt)
+    if goal_requests_irrigation_minutes_line(match_prompt):
         if not quiet:
             print(
                 f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
@@ -1148,7 +1167,7 @@ def _prune_irrelevant_mcp_from_user_goal(
                 file=sys.stderr,
             )
         return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
-    if goal_requests_direct_vision_completion(user_prompt):
+    if goal_requests_direct_vision_completion(match_prompt):
         if not quiet:
             print(
                 f"(dynamic) mcp relevance: clearing mcp_provider_ids {cfg.mcp_providers!r} "
@@ -1157,7 +1176,7 @@ def _prune_irrelevant_mcp_from_user_goal(
             )
         return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
 
-    suggested = set(suggest_mcp_ids_from_user_goal(user_prompt, mcp_catalog))
+    suggested = set(suggest_mcp_ids_from_user_goal(match_prompt, mcp_catalog))
     if not suggested:
         # No MCP appears relevant by heuristic; drop planner-selected defaults.
         if not quiet:

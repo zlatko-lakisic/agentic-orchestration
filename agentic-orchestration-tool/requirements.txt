@@ -1,4 +1,6 @@
 crewai==1.12.2
+# Intel macOS (x86_64): lancedb>=0.29 has no wheels — install with:
+#   pip install -r requirements.txt || pip install --no-deps 'crewai==1.12.2' && pip install 'mcp~=1.26.0'
 litellm
 python-dotenv
 pyyaml

@@ -24,6 +24,11 @@ export function resolveOllamaApiBase() {
   return `http://${raw.replace(/\/+$/, "")}`;
 }
 
+/** Prefer IPv4 loopback — Node often resolves localhost to ::1 first. */
+export function normalizeOllamaLoopbackBase(base) {
+  return String(base || "").replace(/:\/\/localhost(?=[:/]|$)/gi, "://127.0.0.1");
+}
+
 /** Ollama model tag for /api/generate (no ollama/ prefix). */
 export function resolvePlannerOllamaModelTag() {
   const raw = String(process.env.AGENTIC_PLANNER_MODEL || "").trim();
@@ -34,20 +39,47 @@ export function resolvePlannerOllamaModelTag() {
   return "";
 }
 
+/** Ollama keep_alive: number seconds, -1 forever, or duration string like "5m". */
 export function ollamaKeepAliveDuration() {
   const raw = String(process.env.AGENTIC_OLLAMA_KEEP_ALIVE || "-1").trim();
-  return raw || "-1";
+  const v = raw || "-1";
+  // Numeric forever / seconds — must be JSON number (string "-1" → HTTP 400).
+  if (/^-?\d+$/.test(v)) return Number(v);
+  return v;
 }
 
+/** Default 60s — local CPU models unload quickly if idle for minutes. */
 export function ollamaKeepAliveIntervalMs() {
-  const raw = String(process.env.AGENTIC_OLLAMA_KEEPALIVE_INTERVAL_MS || "300000").trim();
+  const raw = String(process.env.AGENTIC_OLLAMA_KEEPALIVE_INTERVAL_MS || "60000").trim();
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 30_000) return 300_000;
+  if (!Number.isFinite(n) || n < 15_000) return 60_000;
   return Math.min(n, 3_600_000);
+}
+
+export function ollamaKeepAliveMaxAttempts() {
+  const raw = String(process.env.AGENTIC_OLLAMA_KEEPALIVE_ATTEMPTS || "3").trim();
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return 3;
+  return Math.min(Math.floor(n), 8);
+}
+
+async function sleep(ms) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+/** Probe daemon; returns true when /api/tags responds OK. */
+export async function pingOllamaTags(opts = {}) {
+  const base = normalizeOllamaLoopbackBase(resolveOllamaApiBase());
+  const res = await fetch(`${base}/api/tags`, {
+    method: "GET",
+    signal: opts.signal ?? AbortSignal.timeout(15_000),
+  });
+  return res.ok;
 }
 
 /**
  * Load or refresh model residency. Returns true when Ollama accepted the request.
+ * Retries a few times and wakes the daemon via /api/tags first.
  * @param {object} [opts]
  * @param {AbortSignal} [opts.signal]
  */
@@ -56,23 +88,41 @@ export async function pingOllamaKeepAlive(opts = {}) {
   const model = resolvePlannerOllamaModelTag();
   if (!model) return false;
 
-  const base = resolveOllamaApiBase();
-  const url = `${base}/api/generate`;
-  const body = {
-    model,
-    prompt: " ",
-    stream: false,
-    keep_alive: ollamaKeepAliveDuration(),
-    options: { num_predict: 1 },
-  };
+  const base = normalizeOllamaLoopbackBase(resolveOllamaApiBase());
+  const attempts = ollamaKeepAliveMaxAttempts();
+  let lastErr = null;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: opts.signal ?? AbortSignal.timeout(120_000),
-  });
-  return res.ok;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      // Wake daemon (cheap) before generate — helps after sleep/idle.
+      await pingOllamaTags({ signal: opts.signal });
+
+      const url = `${base}/api/generate`;
+      const body = {
+        model,
+        prompt: ".",
+        stream: false,
+        keep_alive: ollamaKeepAliveDuration(),
+        options: { num_predict: 1 },
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: opts.signal ?? AbortSignal.timeout(120_000),
+      });
+      if (res.ok) return true;
+      lastErr = new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (i + 1 < attempts) {
+      await sleep(500 * (i + 1));
+    }
+  }
+  if (lastErr && opts.throwOnError) throw lastErr;
+  return false;
 }
 
 let _timer = null;
@@ -91,7 +141,7 @@ export function startOllamaKeepAliveLoop() {
   }
 
   const intervalMs = ollamaKeepAliveIntervalMs();
-  const base = resolveOllamaApiBase();
+  const base = normalizeOllamaLoopbackBase(resolveOllamaApiBase());
   console.error(
     `[agentic-orchestration-web] Ollama keep-alive: model=${model} base=${base} interval_ms=${intervalMs}`,
   );

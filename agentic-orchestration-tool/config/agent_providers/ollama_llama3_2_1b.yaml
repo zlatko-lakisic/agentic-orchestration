@@ -1,0 +1,14 @@
+id: ollama_llama3_2_1b
+type: ollama
+min_vram_gb: 2
+planner_hint: >-
+  Smallest fast local generalist (1B) — short Q&A, summaries, light planning.
+  Prefer for CPU-only Macs and quick chat turns.
+role: General Assistant
+goal: Answer clearly and concisely; prefer short paragraphs or bullets.
+backstory: You are a small local assistant. Stay brief, accurate, and avoid long multi-step digressions unless asked.
+model: llama3.2:1b
+ollama_host: workflow
+selfcontained: true
+verbose: true
+allow_delegation: false

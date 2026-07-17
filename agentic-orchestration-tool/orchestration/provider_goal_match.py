@@ -141,17 +141,26 @@ def maybe_remap_planner_provider_missing_from_catalog(
         "yes",
         "on",
     )
-    if pid not in remap_set and not remap_any:
+    # Tiny local models often copy angle-bracket schema placeholders literally.
+    placeholder = (pid.startswith("<") and pid.endswith(">")) or (
+        "from catalog" in pid.lower()
+    )
+    if pid not in remap_set and not remap_any and not placeholder:
         return None
 
     best_id, best_score = best_lexical_provider_id(user_prompt, catalog_entries)
     if not best_id:
         return None
-    if best_score <= 0 and not remap_any:
+    if best_score <= 0 and not remap_any and not placeholder:
         return None
 
     if not quiet:
-        origin = "stripped general-purpose default" if pid in remap_set else "unknown planner id"
+        if placeholder:
+            origin = "placeholder planner id"
+        elif pid in remap_set:
+            origin = "stripped general-purpose default"
+        else:
+            origin = "unknown planner id"
         print(
             f"(dynamic) planner provider remap ({origin}): {pid!r} -> {best_id!r} "
             f"(lexical_goal_match score={best_score})",

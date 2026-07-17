@@ -1765,9 +1765,8 @@ async function handleApiV1Orchestrate(req, res) {
   const resetSession = body.resetSession === true;
   const runMode = body.runMode || "dynamic";
   const verboseCrew = body.verboseCrew === true;
-  const selectedIds = Array.isArray(body.selectedAgentProviderIds)
-    ? body.selectedAgentProviderIds
-    : [];
+  // Same catalog restriction as OpenAI-proxy / WS paths (env or body).
+  const selectedIds = effectiveOpenAiProxyAgentProviderIds(body.selectedAgentProviderIds);
 
   if (orchestrationRequestLogEnabled()) {
     console.error(
@@ -1778,6 +1777,7 @@ async function handleApiV1Orchestrate(req, res) {
         sessionId: sessionId || "",
         runMode: String(runMode).trim(),
         resetSession,
+        selectedAgentProviderIds: selectedIds,
       }),
     );
   }

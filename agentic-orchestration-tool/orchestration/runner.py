@@ -31,6 +31,7 @@ from orchestration.agent_skills_catalog import (
     skills_list_fingerprint,
 )
 from orchestration.agent_skills_context import augment_description_for_skills
+from orchestration.crewai_mcp_normalize import normalize_mcps_for_crewai
 from orchestration.mcp_task_hints import augment_task_description_for_mcps, mcp_ids_from_raw_spec
 from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
 from orchestration.step_context import prepare_step_description
@@ -342,6 +343,8 @@ def build_workflow(
         ap = agent_providers[apid]
         mcps_list = task_mcps_resolved[tdef.id]
         effective_mcps = mcps_list if (mcps_list and apid not in mcps_disabled_for_provider) else []
+        if effective_mcps:
+            effective_mcps = normalize_mcps_for_crewai(effective_mcps) or []
         role_suffix: str | None = None
         if len(groups_by_apid[apid]) > 1:
             role_suffix = hashlib.sha256(
