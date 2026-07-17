@@ -1,0 +1,21 @@
+# Mount OpenClaw-synced MCP catalog + workspace into warm-pool workers (stdio MCP spawn).
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          volumeMounts:
+            - name: openclaw-mcp-providers
+              mountPath: /openclaw/mcp-providers
+              readOnly: true
+            - name: openclaw-workspace
+              mountPath: /home/zlatko.lakisic/.openclaw/workspace
+      volumes:
+        - name: openclaw-mcp-providers
+          hostPath:
+            path: /home/zlatko.lakisic/.openclaw/agentic-orchestration/openclaw-mcp-providers
+            type: DirectoryOrCreate
+        - name: openclaw-workspace
+          hostPath:
+            path: /home/zlatko.lakisic/.openclaw/workspace
+            type: DirectoryOrCreate

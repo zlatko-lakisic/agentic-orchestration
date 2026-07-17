@@ -84,8 +84,10 @@ SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-p
 PLANT_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-plant-knowledge-mcp-hostpath-patch.yaml"
 MCP_PROVIDERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-providers-hostpath-patch.yaml"
 MCP_SERVERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-servers-hostpath-patch.yaml"
+OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-openclaw-mcp-hostpath-patch.yaml"
 WARM_SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml"
 WARM_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml"
+WARM_OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
@@ -107,6 +109,9 @@ fi
 if [[ -f "${MCP_SERVERS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MCP_SERVERS_PATCH}"
 fi
+if [[ -f "${OPENCLAW_MCP_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${OPENCLAW_MCP_PATCH}"
+fi
 if [[ -f "${WARM_POOL_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_POOL_PATCH}"
 fi
@@ -115,6 +120,9 @@ if [[ -f "${WARM_SKILLS_PATCH}" ]]; then
 fi
 if [[ -f "${WARM_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_MCP_PATCH}"
+fi
+if [[ -f "${WARM_OPENCLAW_MCP_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_OPENCLAW_MCP_PATCH}"
 fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"

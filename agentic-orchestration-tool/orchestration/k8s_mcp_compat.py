@@ -100,7 +100,9 @@ def k8s_worker_stdio_mcp_ids_from_env() -> frozenset[str]:
     if raw.lower() in ("", "0", "false", "none", "off"):
         return frozenset()
     ids = {part.strip() for part in raw.split(",") if part.strip()}
-    return frozenset(ids & K8S_STDIO_MCP_IDS)
+    # Shipped allowlist, plus OpenClaw-synced fragments (openclaw_*) when listed explicitly.
+    allowed = {i for i in ids if i in K8S_STDIO_MCP_IDS or i.startswith("openclaw_")}
+    return frozenset(allowed)
 
 
 def k8s_supergateway_stateful_from_env() -> bool:

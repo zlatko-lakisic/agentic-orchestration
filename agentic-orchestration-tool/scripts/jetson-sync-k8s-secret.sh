@@ -22,10 +22,10 @@ AGENTIC_K8S_RUN_STORE_PVC=agentic-run-store
 AGENTIC_K8S_RUN_STORE_MOUNT=/run/store
 AGENTIC_K8S_ENV_SECRET=agentic-orchestrator-env
 AGENTIC_K8S_WARM_POOL_ENABLED=1
-AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local,media_understand,media_audio_transcribe,media_video_analyze
+AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local,openclaw_filesystem,media_understand,media_audio_transcribe,media_video_analyze
 AGENTIC_MCP_FETCH_ENABLED=1
 AGENTIC_MCP_MEDIA_ENABLED=1
-FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace
+FILESYSTEM_MCP_ALLOWED_DIRECTORY=/home/zlatko.lakisic/.openclaw/workspace
 AGENTIC_LOG_FORMAT=json
 ENVEOF
 } | awk -F= '{

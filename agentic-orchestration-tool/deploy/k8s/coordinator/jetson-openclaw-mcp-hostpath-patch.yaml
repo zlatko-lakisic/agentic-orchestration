@@ -1,0 +1,23 @@
+# Mount OpenClaw-synced MCP provider YAML + OpenClaw workspace into the coordinator.
+# Plugin writes fragments to ~/.openclaw/agentic-orchestration/openclaw-mcp-providers when
+# syncOpenClawMcp=true (managedBackend false still materializes them on the host).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: openclaw-mcp-providers
+              mountPath: /openclaw/mcp-providers
+              readOnly: true
+            - name: openclaw-workspace
+              mountPath: /home/zlatko.lakisic/.openclaw/workspace
+      volumes:
+        - name: openclaw-mcp-providers
+          hostPath:
+            path: /home/zlatko.lakisic/.openclaw/agentic-orchestration/openclaw-mcp-providers
+            type: DirectoryOrCreate
+        - name: openclaw-workspace
+          hostPath:
+            path: /home/zlatko.lakisic/.openclaw/workspace
+            type: DirectoryOrCreate
