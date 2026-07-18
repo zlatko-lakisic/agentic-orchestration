@@ -1,0 +1,37 @@
+# Bargo Congress Trades remote MCP (Streamable HTTP).
+# Docs: https://www.bargo.ai/free-apis/congress
+#
+# Set in .env:
+#   BARGO_API_KEY=<your free Bargo API key>
+id: bargo_congress
+description: >-
+  Read-only U.S. Congress STOCK Act trade disclosures through Bargo's hosted
+  Streamable HTTP MCP server. Requires a free Bargo API key.
+capabilities: >-
+  Query normalized House and Senate stock-trade disclosures by member, ticker,
+  chamber, transaction type, and disclosure date, with member and performance data.
+good_for: >-
+  Congressional trading research, STOCK Act monitoring, lawmaker portfolio
+  analysis, and screening public-company tickers for disclosed political trades.
+planner_hint: >-
+  Use when the goal explicitly asks about U.S. congressional or lawmaker stock
+  trades, STOCK Act disclosures, or House and Senate trading activity.
+match_keywords_only: true
+user_goal_keywords:
+  - bargo congress
+  - congress trades
+  - congressional trading
+  - congressional stock trades
+  - lawmaker trades
+  - politician trades
+  - stock act
+  - house trades
+  - senate trades
+
+required_env:
+  - BARGO_API_KEY
+
+streamable_http:
+  url: "https://www.bargo.ai/free-apis/congress/mcp"
+  headers:
+    X-Api-Key: "${BARGO_API_KEY}"
