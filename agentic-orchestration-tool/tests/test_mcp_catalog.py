@@ -43,6 +43,22 @@ def test_xquik_mcp_catalog_entry_requires_api_key(
 
 
 @pytest.mark.unit
+def test_bargo_congress_mcp_catalog_entry_requires_api_key(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BARGO_API_KEY", raising=False)
+    entries = load_mcp_providers_catalog(config_dir / "mcp_providers")
+    bargo = next(e for e in entries if e.get("id") == "bargo_congress")
+
+    assert not mcp_entry_has_api_credentials(bargo)
+
+    monkeypatch.setenv("BARGO_API_KEY", "bargo_test")
+
+    assert mcp_entry_has_api_credentials(bargo)
+
+
+@pytest.mark.unit
 def test_suggest_fetch_url_when_goal_has_http_url(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
