@@ -11,6 +11,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **OpenAI chat completions streaming** — orchestrated `POST /v1/chat/completions` accepts `stream: true`, opens SSE immediately (role chunk + keepalives), then emits the full answer as one content delta. Unblocks OpenClaw ≥ 2026.7, which always streams and aborts idle connections while waiting.
 - **Jetson OpenClaw MCP bridge** — hostPath-mount OpenClaw-synced MCP YAML (`openclaw-mcp-providers`) and the OpenClaw workspace into coordinator/warm-pool; prepend `/openclaw/mcp-providers` on `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`; allow `openclaw_*` ids in `AGENTIC_K8S_WORKER_STDIO_MCPS` so `openclaw_filesystem` is not stripped by the k8s MCP allowlist.
+- **MCP tool-call leak harness** — detect CrewAI/tool-stub Final Answers (`{"name","parameters"}`, `npx_y_…`) without treating legitimate deliverable JSON as a leak; on filesystem MCP steps, recover via deterministic workspace list + summarize-only kickoff (`mcp_tool_leak_recovery.py`).
 
 ## [1.13.1] - 2026-07-16
 

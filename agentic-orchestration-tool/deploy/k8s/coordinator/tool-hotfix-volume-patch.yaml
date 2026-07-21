@@ -39,6 +39,9 @@ spec:
               mountPath: /app/tool/orchestration/mcp_task_hints.py
               subPath: mcp_task_hints.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/mcp_tool_leak_recovery.py
+              subPath: mcp_tool_leak_recovery.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/irrigation_minutes.py
               subPath: irrigation_minutes.py
             - name: tool-hotfix-orchestration

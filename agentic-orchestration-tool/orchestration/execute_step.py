@@ -23,6 +23,7 @@ from orchestration.mcp_task_hints import (
     looks_like_mcp_tool_call_leak,
     mcp_ids_from_step_spec,
 )
+from orchestration.mcp_tool_leak_recovery import recover_after_mcp_tool_leak
 from orchestration.simple_chat import strip_web_prose_delivery_suffix
 from orchestration.output_artifacts import workflow_result_to_extractable_text
 from orchestration.runner import build_workflow, crew_kickoff_context
@@ -191,22 +192,33 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print("kickoff", file=sys.stderr)
                 with crew_kickoff_context(built):
                     workflow_result = built.crew.kickoff(inputs={"topic": topic})
-                text = sanitize_user_facing_prose(
-                    workflow_result_to_extractable_text(workflow_result)
-                )
-                if looks_like_mcp_tool_call_leak(text) and "fetch_url" in mcp_ids:
-                    print(
-                        "(execute-step) tool-call leak; fetch URL and summarize",
-                        file=sys.stderr,
-                    )
-                    recovered = recover_fetch_url_after_tool_leak(
-                        built=built,
-                        topic=topic,
-                        task_description=task_description,
-                        leaked_text=text,
-                    )
-                    if recovered:
-                        text = recovered
+                raw_text = workflow_result_to_extractable_text(workflow_result)
+                text = sanitize_user_facing_prose(raw_text)
+                # sanitize strips known leaks to ""; detect on raw so recovery still runs.
+                if looks_like_mcp_tool_call_leak(raw_text) and mcp_ids:
+                    if "fetch_url" in mcp_ids:
+                        print(
+                            "(execute-step) tool-call leak; fetch URL and summarize",
+                            file=sys.stderr,
+                        )
+                        recovered = recover_fetch_url_after_tool_leak(
+                            built=built,
+                            topic=topic,
+                            task_description=task_description,
+                            leaked_text=raw_text,
+                        )
+                        if recovered:
+                            text = recovered
+                    if looks_like_mcp_tool_call_leak(text or "") or not (text or "").strip():
+                        recovered = recover_after_mcp_tool_leak(
+                            built=built,
+                            topic=topic,
+                            task_description=task_description,
+                            mcp_ids=mcp_ids,
+                            leaked_text=raw_text,
+                        )
+                        if recovered:
+                            text = recovered
                 if (
                     goal_requests_irrigation_minutes_line(topic)
                     and not has_irrigation_minutes_line(text)
