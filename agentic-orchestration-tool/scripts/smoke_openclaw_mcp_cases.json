@@ -1,0 +1,47 @@
+{
+  "description": "OpenClaw MCP → AO API smoke cases (Jetson). Prompts hit POST /api/v1/orchestrate.",
+  "cases": [
+    {
+      "id": "fs_list_workspace",
+      "tags": ["filesystem", "openclaw_filesystem"],
+      "prompt": "List everything in your filesystem workspace with absolute paths. Use the filesystem tools — don't guess. Include AO_MCP_SMOKE.txt if present.",
+      "expect_all": [
+        "{workspace}/AO_MCP_SMOKE.txt",
+        "{workspace}/AGENTS.md"
+      ],
+      "forbid_any": ["Don't use past results", "npx_y_modelcontextprotocol"],
+      "forbid_tool_leak": true,
+      "min_absolute_paths": 3
+    },
+    {
+      "id": "fs_list_absolute_prompt",
+      "tags": ["filesystem", "openclaw_filesystem"],
+      "prompt": "Using openclaw_filesystem MCP tools, list the absolute path {workspace} and report every filename you see including AO_MCP_SMOKE.txt. Do not invent files. Reply with absolute paths only.",
+      "expect_all": ["AO_MCP_SMOKE.txt", "{workspace}"],
+      "forbid_tool_leak": true,
+      "min_absolute_paths": 2
+    },
+    {
+      "id": "fs_read_smoke_file",
+      "tags": ["filesystem", "openclaw_filesystem", "read"],
+      "prompt": "Read the file at absolute path {marker_file} using filesystem tools. Report the exact file contents. Do not invent contents.",
+      "expect_all": ["AO_MCP_SMOKE_OK"],
+      "forbid_tool_leak": true
+    },
+    {
+      "id": "fs_read_agents_md",
+      "tags": ["filesystem", "openclaw_filesystem", "read"],
+      "prompt": "Read {workspace}/AGENTS.md with filesystem tools and quote one short line from it. Use the absolute path. Do not guess.",
+      "expect_any": [["Jetson", "OpenClaw", "workspace", "AGENTS"]],
+      "forbid_tool_leak": true
+    },
+    {
+      "id": "bridge_nodes_list_via_ao",
+      "tags": ["bridge", "openclaw_bridge"],
+      "requires_bridge": true,
+      "prompt": "Using the openclaw_bridge MCP, call openclaw_nodes_list and summarize what nodes exist. If none, say none.",
+      "expect_any": [["node", "none", "device", "paired", "empty"]],
+      "forbid_tool_leak": true
+    }
+  ]
+}
