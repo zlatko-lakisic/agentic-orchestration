@@ -55,4 +55,5 @@ def test_augment_task_description_idempotent() -> None:
 def test_augment_task_description_for_mcp_leak_retry() -> None:
     out = augment_task_description_for_mcp_leak_retry("Summarize.", ["fetch_url"])
     assert "[agentic: MCP retry]" in out
-    assert "Invoke the fetch tool now" in out
+    assert "tool-call syntax" in out.lower() or "tool-call stub" in out.lower()
+    assert "Final Answer" in out
