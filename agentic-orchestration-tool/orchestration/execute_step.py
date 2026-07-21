@@ -23,7 +23,15 @@ from orchestration.mcp_task_hints import (
     looks_like_mcp_tool_call_leak,
     mcp_ids_from_step_spec,
 )
-from orchestration.mcp_tool_leak_recovery import recover_after_mcp_tool_leak
+from orchestration.mcp_tool_leak_recovery import (
+    filesystem_allowed_root,
+    goal_requests_filesystem_listing,
+    has_filesystem_mcp,
+    looks_like_unusable_crew_answer,
+    needs_filesystem_recovery,
+    recover_after_mcp_tool_leak,
+    run_filesystem_list_summarize_step,
+)
 from orchestration.simple_chat import strip_web_prose_delivery_suffix
 from orchestration.output_artifacts import workflow_result_to_extractable_text
 from orchestration.runner import build_workflow, crew_kickoff_context
@@ -176,6 +184,12 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 and "fetch_url" in mcp_ids
                 and bool(goal_urls)
             )
+            ollama_fs_list_direct = (
+                _is_ollama_provider(agent_provider)
+                and has_filesystem_mcp(mcp_ids)
+                and goal_requests_filesystem_listing(topic)
+                and filesystem_allowed_root() is not None
+            )
 
             if ollama_fetch_direct:
                 print(
@@ -188,17 +202,41 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     task_description=task_description,
                     urls=goal_urls,
                 )
+            elif ollama_fs_list_direct:
+                root = filesystem_allowed_root()
+                assert root is not None
+                print(
+                    f"(execute-step) ollama+filesystem list: direct list workspace {root}",
+                    file=sys.stderr,
+                )
+                text = run_filesystem_list_summarize_step(
+                    built=built,
+                    topic=topic,
+                    root=root,
+                    prefer_raw_listing=True,
+                )
             else:
                 print("kickoff", file=sys.stderr)
                 with crew_kickoff_context(built):
                     workflow_result = built.crew.kickoff(inputs={"topic": topic})
                 raw_text = workflow_result_to_extractable_text(workflow_result)
                 text = sanitize_user_facing_prose(raw_text)
-                # sanitize strips known leaks to ""; detect on raw so recovery still runs.
-                if looks_like_mcp_tool_call_leak(raw_text) and mcp_ids:
+                # sanitize may strip leaks to ""; detect on raw so recovery still runs.
+                needs_recovery = bool(mcp_ids) and (
+                    looks_like_mcp_tool_call_leak(raw_text)
+                    or looks_like_unusable_crew_answer(raw_text)
+                    or looks_like_unusable_crew_answer(text or "")
+                    or needs_filesystem_recovery(
+                        text=text or "",
+                        raw_text=raw_text,
+                        topic=topic,
+                        mcp_ids=mcp_ids,
+                    )
+                )
+                if needs_recovery:
                     if "fetch_url" in mcp_ids:
                         print(
-                            "(execute-step) tool-call leak; fetch URL and summarize",
+                            "(execute-step) unusable answer; fetch URL and summarize",
                             file=sys.stderr,
                         )
                         recovered = recover_fetch_url_after_tool_leak(
@@ -207,9 +245,14 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                             task_description=task_description,
                             leaked_text=raw_text,
                         )
-                        if recovered:
+                        if recovered and not looks_like_unusable_crew_answer(recovered):
                             text = recovered
-                    if looks_like_mcp_tool_call_leak(text or "") or not (text or "").strip():
+                    if looks_like_unusable_crew_answer(text or "") or needs_filesystem_recovery(
+                        text=text or "",
+                        raw_text=raw_text,
+                        topic=topic,
+                        mcp_ids=mcp_ids,
+                    ):
                         recovered = recover_after_mcp_tool_leak(
                             built=built,
                             topic=topic,
