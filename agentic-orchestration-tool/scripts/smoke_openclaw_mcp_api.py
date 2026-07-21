@@ -37,12 +37,21 @@ from typing import Any
 _TOOL_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CASES = Path(__file__).resolve().parent / "smoke_openclaw_mcp_cases.json"
 
-_TOOL_LEAK_RE = re.compile(
-    r'(?is)("name"\s*:\s*"[^"]+"\s*,\s*"parameters")|'
-    r"(npx_y_modelcontextprotocol)|"
-    r"(don'?t use past results)|"
-    r"(do not use past results)",
+# Also strip pip/venv install noise that can leak into orchestrate stdout on cold pods.
+_INSTALL_NOISE_RE = re.compile(
+    r"(?im)^(Requirement already satisfied:|Collecting |Downloading |Installing collected|Successfully installed).*$"
 )
+
+
+def _strip_install_noise(text: str) -> str:
+    lines = []
+    for line in str(text or "").splitlines():
+        if _INSTALL_NOISE_RE.match(line.strip()):
+            continue
+        if re.match(r"^\s*—+", line) and "MB/s" in line:
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def _env(name: str, default: str = "") -> str:
@@ -78,6 +87,24 @@ def _ensure_smoke_marker(workspace: Path) -> str:
                 pass
         print(f"WARN cannot write smoke marker {marker}: {exc}", file=sys.stderr)
         return content
+
+
+def _ensure_agents_md(workspace: Path) -> str:
+    """Guarantee AGENTS.md has stable content for read smokes (pods may have emptied it)."""
+    path = workspace / "AGENTS.md"
+    body = "# AGENTS.md\nJetson OpenClaw workspace.\n"
+    try:
+        existing = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    except OSError:
+        existing = ""
+    if "Jetson OpenClaw workspace" in existing or "# AGENTS.md" in existing:
+        return existing
+    try:
+        path.write_text(body, encoding="utf-8")
+        return body
+    except OSError as exc:
+        print(f"WARN cannot write AGENTS.md {path}: {exc}", file=sys.stderr)
+        return existing or body
 
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
@@ -197,7 +224,7 @@ def _eval_case(
         failures.append(f"http_status={status} body={json.dumps(data)[:400]}")
     if data.get("ok") is not True:
         failures.append(f"ok!=true error={data.get('error')!r}")
-    text = str(data.get("output") or output or "")
+    text = _strip_install_noise(str(data.get("output") or output or ""))
     if not text.strip():
         failures.append("empty output")
 
@@ -332,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     timeout_s = float(_env("SMOKE_TIMEOUT_S") or "300")
     workspace = _workspace()
     marker_content = _ensure_smoke_marker(workspace)
+    _ensure_agents_md(workspace)
 
     if not _ping(url):
         print(f"FAIL ping for base derived from {url}", file=sys.stderr)
