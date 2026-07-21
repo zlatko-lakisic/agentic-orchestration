@@ -91,6 +91,16 @@ Full options, troubleshooting, and managed-backend layout: plugin [README](https
 - Env: see [Configuration]({{ '/configuration/' | relative_url }}) (`AGENTIC_ORCHESTRATE_API_KEY`, runtime auto-ensure)
 - Jetson / k8s stacks already expose the web UI on NodePort **30487**; point the plugin at that base URL when not using managed local spawn
 
+### OpenClaw MCP sync (Jetson / external AO)
+
+When `managedBackend: false` and AO runs in Kubernetes, the plugin still writes OpenClaw `mcp.servers` as YAML under `~/.openclaw/agentic-orchestration/openclaw-mcp-providers`. The engine must mount that catalog and the OpenClaw workspace:
+
+- HostPath mounts + `AGENTIC_EXTRA_MCP_PROVIDERS_PATH=/openclaw/mcp-providers` (see `env.jetson` / coordinator rollout patches)
+- Allow `openclaw_*` ids in `AGENTIC_K8S_WORKER_STDIO_MCPS` so synced servers (e.g. `openclaw_filesystem`) are not stripped
+- Smoke: `agentic-orchestration-tool/scripts/smoke_openclaw_mcp.sh` (list/read via NodePort **30487**)
+
+Plugin **1.1.0** prefers the orchestrate endpoint for OpenAI `/v1` base URL, defaults display model to `llama3.2:3b`, and sanitizes bridge error stacks.
+
 ## Adding another integration
 
 1. **Prefer the existing bridge** — call `POST /api/v1/orchestrate` with the same auth and JSON body the OpenClaw plugin uses (prompt + session fields). Extend the API only when the host needs capabilities the bridge cannot express.

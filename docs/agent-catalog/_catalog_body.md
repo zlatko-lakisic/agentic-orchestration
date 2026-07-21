@@ -14,7 +14,7 @@
 | `claude_research` | claude-3-5-haiku-20241022 | Research Analyst | Anthropic Claude—research, comparisons, grounded summaries, and struct | min_vram 0 GiB | ANTHROPIC_API_KEY | ✓ | research |
 | `claude_write` | claude-3-5-haiku-20241022 | Technical Writer | Anthropic Claude—polish prose, briefings, executive summaries, and cle | min_vram 0 GiB | ANTHROPIC_API_KEY |  | write |
 
-### ollama (84 providers)
+### ollama (85 providers)
 
 | ID | Model | Role | Good for | Hardware | Env | GP | Harness |
 |---|---|---|---|---|---|---|---|
@@ -57,6 +57,7 @@
 | `ollama_llama3` | llama3 | General Assistant | Llama 3 base family — general-purpose local assistant. | min_vram 8 GiB | OLLAMA_HOST |  | general |
 | `ollama_llama3_1` | llama3.1 | General Assistant | Llama 3.1 family — general chat, longer context than 3.2 for many tags | min_vram 8 GiB | OLLAMA_HOST |  | general |
 | `ollama_llama3_2` | llama3.2 | General Assistant | Default local generalist; planning, Q&A, summaries, light analysis. | min_vram 8 GiB | OLLAMA_HOST |  | general |
+| `ollama_llama3_2_1b` | llama3.2:1b | General Assistant | Smallest fast local generalist (1B) — short Q&A, summaries, light plan | min_vram 2 GiB | OLLAMA_HOST |  | general |
 | `ollama_llama3_2_vision` | llama3.2-vision | Vision Analyst | Llama 3.2 Vision — Meta multimodal; images + instructions. | min_vram 10 GiB | OLLAMA_HOST |  | vision |
 | `ollama_llama3_3` | llama3.3 | Senior Generalist | Stronger Llama 3.3 for harder general reasoning and longer outputs. | min_vram 8 GiB | OLLAMA_HOST |  | general |
 | `ollama_llama4` | llama4 | Senior Generalist | Llama 4 when available — frontier-class local general model (large dow | min_vram 8 GiB | OLLAMA_HOST |  | general |

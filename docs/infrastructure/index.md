@@ -53,8 +53,8 @@ On each `v*` release tag, [`.github/workflows/publish-images.yml`](https://githu
 
 | Image | Example tag |
 |-------|-------------|
-| `ghcr.io/zlatko-lakisic/agentic-orchestrator-coordinator` | `v1.13.0`, `latest` |
-| `ghcr.io/zlatko-lakisic/agentic-orchestrator-worker` | `v1.13.0`, `latest` |
+| `ghcr.io/zlatko-lakisic/agentic-orchestrator-coordinator` | `v1.14.0`, `latest` |
+| `ghcr.io/zlatko-lakisic/agentic-orchestrator-worker` | `v1.14.0`, `latest` |
 
 Manual publish (without cutting a release): GitHub → Actions → **Publish container images** → Run workflow.
 
@@ -90,7 +90,7 @@ Prefer GHCR pulls (fast on Orin):
 
 ```bash
 export AGENTIC_USE_GHCR=1
-export AGENTIC_IMAGE_TAG=v1.13.0   # or omit to use VERSION / latest
+export AGENTIC_IMAGE_TAG=v1.14.0   # or omit to use VERSION / latest
 sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
 ```
 

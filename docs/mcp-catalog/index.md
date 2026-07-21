@@ -54,6 +54,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_audio_transcribe` | Same server; keywords biased to speech-to-text. | (alias of `media_understand`) |
 | `media_video_analyze` | Same server; keywords biased to video synopsis. | (alias of `media_understand`) |
 | `xquik` | Hosted **Xquik** Streamable HTTP MCP (`https://xquik.com/mcp`) for X/Twitter data search, monitoring, and posting. | [Xquik MCP docs](https://docs.xquik.com/mcp/overview) |
+| `bargo_congress` | Hosted **Bargo** Congress Trades Streamable HTTP MCP for House/Senate STOCK Act disclosures. | [Bargo Congress API](https://www.bargo.ai/free-apis/congress) |
 
 ## Inventory (repository)
 
@@ -70,6 +71,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_audio_transcribe` | `stdio` | Audio-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
 | `media_video_analyze` | `stdio` | Video-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
 | `xquik` | `streamable_http` | X data search, extraction, monitoring, webhooks, posting via Xquik. | `XQUIK_API_KEY` |
+| `bargo_congress` | `streamable_http` | Read-only House/Senate STOCK Act trade disclosures via Bargo. | `BARGO_API_KEY` |
 
 ## Kubernetes compatibility (K0.6)
 
@@ -80,6 +82,7 @@ When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s pat
 | `search_brave` | ✅ | streamable_http |
 | `search_tavily` | ✅ | streamable_http |
 | `xquik` | ✅ | streamable_http |
+| `bargo_congress` | ✅ | streamable_http |
 | `home_assistant` | ✅ | streamable_http |
 | `search_exa` | ❌ | stdio — K4 sidecar or gateway |
 | `fetch_url` | ✅ (with worker stdio) | Default: `AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url` + `mcp-server-fetch` in worker image |
@@ -138,6 +141,12 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 - **Docs:** [Xquik MCP overview](https://docs.xquik.com/mcp/overview)
 - **Auth:** `Authorization: Bearer ${XQUIK_API_KEY}` against `https://xquik.com/mcp`
 - Opt-in by setting `XQUIK_API_KEY` in the tool `.env` (catalog entry is credential-gated).
+
+#### `bargo_congress`
+
+- **Docs:** [Bargo Congress Trades](https://www.bargo.ai/free-apis/congress) · free key: [Bargo dash](https://www.bargo.ai/free-apis/dash)
+- **Auth:** `X-Api-Key: ${BARGO_API_KEY}` against `https://www.bargo.ai/free-apis/congress/mcp`
+- Keyword-gated (`match_keywords_only`) for congressional / STOCK Act goals; opt-in by setting `BARGO_API_KEY`.
 
 ## Adding a new MCP
 

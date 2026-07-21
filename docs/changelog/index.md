@@ -19,6 +19,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-07-21
+
+### Added
+
+- **Bargo Congress Trades MCP** — opt-in Streamable HTTP catalog entry (`config/mcp_providers/bargo_congress.yaml`) gated on `BARGO_API_KEY` for read-only House/Senate STOCK Act trade disclosures.
+
+### Fixed
+
+- **OpenAI chat completions streaming** — orchestrated `POST /v1/chat/completions` accepts `stream: true`, opens SSE immediately (role chunk + keepalives), then emits the full answer as one content delta. Unblocks OpenClaw ≥ 2026.7, which always streams and aborts idle connections while waiting.
+- **Jetson OpenClaw MCP bridge** — hostPath-mount OpenClaw-synced MCP YAML (`openclaw-mcp-providers`) and the OpenClaw workspace into coordinator/warm-pool; prepend `/openclaw/mcp-providers` on `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`; allow `openclaw_*` ids in `AGENTIC_K8S_WORKER_STDIO_MCPS` so `openclaw_filesystem` is not stripped by the k8s MCP allowlist.
+- **MCP tool-call leak harness** — detect CrewAI/tool-stub Final Answers (`{"name","parameters"}`, `npx_y_…`) without treating legitimate deliverable JSON as a leak; on filesystem MCP steps, recover via deterministic workspace list (`mcp_tool_leak_recovery.py`). Also catches meta echoes like `(Don't use past results here.)` after max iterations, and uses a direct list path for Ollama + “list workspace” goals.
+- **OpenClaw MCP API smoke** — `scripts/smoke_openclaw_mcp.sh` (+ `smoke_openclaw_mcp_api.py` / `smoke_openclaw_mcp_cases.json`) posts orchestrate prompts for synced `openclaw_filesystem` (list/read) on Jetson NodePort `30487`; supports `--until-pass` recursive runs.
+
 ## [1.13.1] - 2026-07-16
 
 ### Fixed
