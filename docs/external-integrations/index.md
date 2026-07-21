@@ -99,7 +99,7 @@ When `managedBackend: false` and AO runs in Kubernetes, the plugin still writes 
 - Allow `openclaw_*` ids in `AGENTIC_K8S_WORKER_STDIO_MCPS` so synced servers (e.g. `openclaw_filesystem`) are not stripped
 - Smoke: `agentic-orchestration-tool/scripts/smoke_openclaw_mcp.sh` (list/read via NodePort **30487**)
 
-Plugin **1.1.0** prefers the orchestrate endpoint for OpenAI `/v1` base URL, defaults display model to `llama3.2:3b`, and sanitizes bridge error stacks.
+Plugin **1.2.0** prefers the orchestrate endpoint for OpenAI `/v1` base URL, defaults display model to `llama3.2:3b`, and sanitizes bridge error stacks.
 
 ## Adding another integration
 
