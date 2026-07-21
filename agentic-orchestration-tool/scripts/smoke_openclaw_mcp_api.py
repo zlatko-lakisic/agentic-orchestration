@@ -230,13 +230,22 @@ def run_round(
     for case in cases:
         cid = str(case.get("id") or "case")
         tags = {str(t) for t in (case.get("tags") or [])}
-        if "bridge" in tags and not include_bridge:
+        if "bridge" in tags and not include_bridge and not case.get("skip_orchestrate"):
             print(f"SKIP {cid} (bridge; set SMOKE_INCLUDE_BRIDGE=1)")
             continue
         if case.get("requires_bridge") and not _bridge_reachable(
             str(case.get("bridge_url") or "http://127.0.0.1:3848")
         ):
             print(f"SKIP {cid} (bridge not reachable on host)")
+            continue
+
+        if case.get("skip_orchestrate") and str(case.get("prompt")) == "__bridge_health__":
+            ok = _bridge_reachable(str(case.get("bridge_url") or "http://127.0.0.1:3848"))
+            print(f"{'PASS' if ok else 'FAIL'} {cid} (bridge control plane)")
+            if ok:
+                passed += 1
+            else:
+                failed += 1
             continue
 
         prompt = _render_prompt(

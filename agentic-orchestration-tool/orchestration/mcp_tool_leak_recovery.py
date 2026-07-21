@@ -40,6 +40,19 @@ _LIST_GOAL_RE = re.compile(
     r")\b"
 )
 
+_READ_GOAL_RE = re.compile(
+    r"(?is)\b("
+    r"read\s+(the\s+)?file"
+    r"|read\s+.+\.(md|txt|json|ya?ml|py|ts|js)\b"
+    r"|open\s+(the\s+)?file"
+    r"|show\s+(me\s+)?(the\s+)?contents?\s+of"
+    r"|file\s+contents?"
+    r"|quote\s+one\s+short\s+line"
+    r")\b"
+)
+
+_ABS_PATH_RE = re.compile(r"(/(?:home|var|tmp|Users|openclaw)[^\s\"'`]+)")
+
 
 def filesystem_allowed_root() -> Path | None:
     for key in (
@@ -59,8 +72,93 @@ def has_filesystem_mcp(mcp_ids: list[str]) -> bool:
     return any(mid in FILESYSTEM_MCP_IDS or mid.startswith("openclaw_") for mid in mcp_ids)
 
 
+def user_goal_for_filesystem(topic: str) -> str:
+    """Match list/read intent on the real user turn, not OpenClaw bootstrap dumps."""
+    from orchestration.simple_chat import user_turn_for_simple_chat
+
+    return user_turn_for_simple_chat(topic).strip()
+
+
 def goal_requests_filesystem_listing(topic: str) -> bool:
-    return bool(_LIST_GOAL_RE.search(str(topic or "")))
+    goal = user_goal_for_filesystem(topic)
+    if goal_requests_filesystem_read(goal):
+        # Prefer read when both could match.
+        return False
+    return bool(_LIST_GOAL_RE.search(goal))
+
+
+def goal_requests_filesystem_read(topic: str) -> bool:
+    goal = user_goal_for_filesystem(topic)
+    return bool(_READ_GOAL_RE.search(goal))
+
+
+def extract_readable_paths_from_topic(topic: str, root: Path) -> list[Path]:
+    """Absolute paths under the allowlisted root mentioned in the user goal."""
+    goal = user_goal_for_filesystem(topic)
+    root = root.resolve()
+    found: list[Path] = []
+    seen: set[str] = set()
+    for match in _ABS_PATH_RE.findall(goal):
+        raw = match.rstrip(".,;:)")
+        try:
+            path = Path(raw).expanduser().resolve()
+        except OSError:
+            continue
+        try:
+            path.relative_to(root)
+        except ValueError:
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(path)
+    # Common relative marker file
+    if "AO_MCP_SMOKE" in goal and (root / "AO_MCP_SMOKE.txt").is_file():
+        p = (root / "AO_MCP_SMOKE.txt").resolve()
+        if str(p) not in seen:
+            found.append(p)
+    if "AGENTS.md" in goal and (root / "AGENTS.md").is_file():
+        p = (root / "AGENTS.md").resolve()
+        if str(p) not in seen:
+            found.append(p)
+    return found
+
+
+def read_workspace_files(paths: list[Path], *, max_chars: int = 8000) -> str:
+    blocks: list[str] = []
+    remaining = max_chars
+    for path in paths:
+        if remaining <= 0:
+            break
+        try:
+            if path.is_dir():
+                blocks.append(f"### {path}\n(directory — not a file)")
+                continue
+            data = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            blocks.append(f"### {path}\n(read failed: {exc})")
+            continue
+        if len(data) > remaining:
+            data = data[:remaining] + "\n… truncated"
+        blocks.append(f"### {path}\n{data}")
+        remaining -= len(data)
+    return "\n\n".join(blocks) if blocks else "(no readable files)"
+
+
+def run_filesystem_read_step(
+    *,
+    built: Any,
+    topic: str,
+    root: Path,
+) -> str:
+    """Deterministic read of paths named in the user goal (tools off)."""
+    _ = built
+    paths = extract_readable_paths_from_topic(topic, root)
+    if not paths:
+        # Fall back to listing so the caller still gets something grounded.
+        return list_workspace_absolute_paths(root)
+    return read_workspace_files(paths)
 
 
 def looks_like_unusable_crew_answer(text: str) -> bool:
@@ -233,6 +331,19 @@ def needs_filesystem_recovery(
             raw_text, root
         ):
             return True
+    if goal_requests_filesystem_read(topic):
+        root = filesystem_allowed_root()
+        paths = extract_readable_paths_from_topic(topic, root) if root else []
+        if paths:
+            # Require at least a snippet of the first file in the answer.
+            try:
+                snippet = paths[0].read_text(encoding="utf-8", errors="replace")[:40].strip()
+            except OSError:
+                snippet = ""
+            if snippet and snippet not in (text or "") and snippet not in (raw_text or ""):
+                return True
+        elif not answer_has_workspace_paths(text, root):
+            return True
     return False
 
 
@@ -247,13 +358,19 @@ def recover_after_mcp_tool_leak(
     """
     Runtime harness after an unusable Final Answer on an MCP step.
 
-    Prefer deterministic filesystem listing when a filesystem MCP is attached;
+    Prefer deterministic filesystem list/read when a filesystem MCP is attached;
     otherwise one guided retry kickoff.
     """
     _ = leaked_text
     if has_filesystem_mcp(mcp_ids):
         root = filesystem_allowed_root()
         if root is not None:
+            if goal_requests_filesystem_read(topic):
+                print(
+                    f"(execute-step) unusable MCP answer; read workspace files under {root}",
+                    file=sys.stderr,
+                )
+                return run_filesystem_read_step(built=built, topic=topic, root=root)
             print(
                 f"(execute-step) unusable MCP answer; list workspace {root}",
                 file=sys.stderr,

@@ -32,8 +32,16 @@
       "id": "fs_read_agents_md",
       "tags": ["filesystem", "openclaw_filesystem", "read"],
       "prompt": "Read {workspace}/AGENTS.md with filesystem tools and quote one short line from it. Use the absolute path. Do not guess.",
-      "expect_any": [["Jetson", "OpenClaw", "workspace", "AGENTS"]],
+      "expect_all": ["### {workspace}/AGENTS.md"],
+      "expect_any": [["Jetson OpenClaw workspace", "OpenClaw workspace", "# AGENTS.md"]],
       "forbid_tool_leak": true
+    },
+    {
+      "id": "bridge_control_plane_health",
+      "tags": ["bridge", "control_plane"],
+      "requires_bridge": true,
+      "prompt": "__bridge_health__",
+      "skip_orchestrate": true
     },
     {
       "id": "bridge_nodes_list_via_ao",

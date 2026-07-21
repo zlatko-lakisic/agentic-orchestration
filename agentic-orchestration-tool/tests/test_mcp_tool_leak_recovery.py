@@ -42,6 +42,20 @@ def test_goal_requests_filesystem_listing() -> None:
         "List everything in your filesystem workspace with absolute paths."
     )
     assert not goal_requests_filesystem_listing("What is the capital of France?")
+    # OpenClaw context dump must not trigger list mode
+    bloated = (
+        "[OpenClaw context]\nworkspace listing notes\nls tools\n\nUser message:\n"
+        "Read the file at absolute path /tmp/x.txt using filesystem tools."
+    )
+    assert not goal_requests_filesystem_listing(bloated)
+
+
+def test_goal_requests_filesystem_read() -> None:
+    from orchestration.mcp_tool_leak_recovery import goal_requests_filesystem_read
+
+    assert goal_requests_filesystem_read(
+        "Read the file at absolute path /home/z/.openclaw/workspace/AO_MCP_SMOKE.txt"
+    )
 
 
 def test_list_workspace_absolute_paths(tmp_path: Path) -> None:

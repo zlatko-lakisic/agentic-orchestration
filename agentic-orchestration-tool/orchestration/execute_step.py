@@ -26,11 +26,13 @@ from orchestration.mcp_task_hints import (
 from orchestration.mcp_tool_leak_recovery import (
     filesystem_allowed_root,
     goal_requests_filesystem_listing,
+    goal_requests_filesystem_read,
     has_filesystem_mcp,
     looks_like_unusable_crew_answer,
     needs_filesystem_recovery,
     recover_after_mcp_tool_leak,
     run_filesystem_list_summarize_step,
+    run_filesystem_read_step,
 )
 from orchestration.simple_chat import strip_web_prose_delivery_suffix
 from orchestration.output_artifacts import workflow_result_to_extractable_text
@@ -190,6 +192,12 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 and goal_requests_filesystem_listing(topic)
                 and filesystem_allowed_root() is not None
             )
+            ollama_fs_read_direct = (
+                _is_ollama_provider(agent_provider)
+                and has_filesystem_mcp(mcp_ids)
+                and goal_requests_filesystem_read(topic)
+                and filesystem_allowed_root() is not None
+            )
 
             if ollama_fetch_direct:
                 print(
@@ -201,6 +209,18 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     topic=topic,
                     task_description=task_description,
                     urls=goal_urls,
+                )
+            elif ollama_fs_read_direct:
+                root = filesystem_allowed_root()
+                assert root is not None
+                print(
+                    f"(execute-step) ollama+filesystem read: direct read under {root}",
+                    file=sys.stderr,
+                )
+                text = run_filesystem_read_step(
+                    built=built,
+                    topic=topic,
+                    root=root,
                 )
             elif ollama_fs_list_direct:
                 root = filesystem_allowed_root()
