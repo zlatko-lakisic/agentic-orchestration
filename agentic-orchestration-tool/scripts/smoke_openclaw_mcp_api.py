@@ -41,6 +41,12 @@ _DEFAULT_CASES = Path(__file__).resolve().parent / "smoke_openclaw_mcp_cases.jso
 _INSTALL_NOISE_RE = re.compile(
     r"(?im)^(Requirement already satisfied:|Collecting |Downloading |Installing collected|Successfully installed).*$"
 )
+_TOOL_LEAK_RE = re.compile(
+    r'(?is)("name"\s*:\s*"[^"]+"\s*,\s*"parameters")|'
+    r"(npx_y_modelcontextprotocol)|"
+    r"(don'?t use past results)|"
+    r"(do not use past results)",
+)
 
 
 def _strip_install_noise(text: str) -> str:
