@@ -60,8 +60,24 @@ def _ensure_smoke_marker(workspace: Path) -> str:
     workspace.mkdir(parents=True, exist_ok=True)
     marker = workspace / "AO_MCP_SMOKE.txt"
     content = "AO_MCP_SMOKE_OK hello-from-workspace"
-    marker.write_text(content + "\n", encoding="utf-8")
-    return content
+    if marker.is_file():
+        try:
+            existing = marker.read_text(encoding="utf-8", errors="replace")
+            if "AO_MCP_SMOKE_OK" in existing:
+                return existing.strip().splitlines()[0].strip() or content
+        except OSError:
+            pass
+    try:
+        marker.write_text(content + "\n", encoding="utf-8")
+        return content
+    except OSError as exc:
+        if marker.is_file():
+            try:
+                return marker.read_text(encoding="utf-8", errors="replace").strip().splitlines()[0]
+            except OSError:
+                pass
+        print(f"WARN cannot write smoke marker {marker}: {exc}", file=sys.stderr)
+        return content
 
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
