@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-07-21
+
+### Added
+
+- **Bargo Congress Trades MCP** — opt-in Streamable HTTP catalog entry (`config/mcp_providers/bargo_congress.yaml`) gated on `BARGO_API_KEY` for read-only House/Senate STOCK Act trade disclosures.
+
 ### Fixed
 
 - **OpenAI chat completions streaming** — orchestrated `POST /v1/chat/completions` accepts `stream: true`, opens SSE immediately (role chunk + keepalives), then emits the full answer as one content delta. Unblocks OpenClaw ≥ 2026.7, which always streams and aborts idle connections while waiting.
