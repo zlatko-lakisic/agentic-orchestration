@@ -59,8 +59,10 @@ flowchart TB
   WP -->|"claim + result.json"| PVC
   Broker -.-> Jobs
   Jobs -.-> PVC
-  Orch <-->|"LLM"| Ollama
-  WP <-->|"LLM"| Ollama
+  Orch -->|"LLM"| Ollama
+  WP -->|"LLM"| Ollama
+  Ollama -.->|"responses"| Orch
+  Ollama -.->|"responses"| WP
   Orch -.->|"hostPath"| GitTree
   WP -.->|"hostPath"| GitTree
   Orch -.-> OpenClawHost
