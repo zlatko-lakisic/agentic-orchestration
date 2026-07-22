@@ -70,6 +70,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
   --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
+  --from-file=crewai_mcp_normalize.py="${ORCH_ROOT}/crewai_mcp_normalize.py" \
   --from-file=runner.py="${ORCH_ROOT}/runner.py" \
   --from-file=config_loader.py="${ORCH_ROOT}/config_loader.py" \
   --from-file=run_store.py="${ORCH_ROOT}/run_store.py" \

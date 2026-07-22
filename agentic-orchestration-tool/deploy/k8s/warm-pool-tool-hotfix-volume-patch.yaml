@@ -48,6 +48,9 @@ spec:
               mountPath: /app/orchestration/media_grounding.py
               subPath: media_grounding.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/crewai_mcp_normalize.py
+              subPath: crewai_mcp_normalize.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/runner.py
               subPath: runner.py
             - name: tool-hotfix-orchestration
