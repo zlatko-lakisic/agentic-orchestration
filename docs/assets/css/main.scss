@@ -9,3 +9,130 @@
   text-align: center;
   overflow-x: auto;
 }
+
+.mermaid-figure {
+  margin: 1.5em 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.35);
+  cursor: zoom-in;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mermaid-figure:hover,
+.mermaid-figure:focus {
+  outline: none;
+  border-color: rgba(129, 140, 248, 0.8);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.mermaid-figure .mermaid {
+  margin: 0;
+}
+
+.mermaid-zoom-hint {
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.mermaid-modal-open {
+  overflow: hidden;
+}
+
+.mermaid-modal[hidden] {
+  display: none !important;
+}
+
+.mermaid-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+}
+
+.mermaid-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.mermaid-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(96vw, 1400px);
+  height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.mermaid-modal__close {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.75rem;
+  z-index: 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.95);
+  color: #f8fafc;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mermaid-modal__close:hover,
+.mermaid-modal__close:focus {
+  background: #334155;
+  outline: none;
+}
+
+.mermaid-modal__toolbar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 3.5rem 0.5rem 1rem;
+}
+
+.mermaid-modal__zoom-btn {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 0.5rem;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.mermaid-modal__zoom-btn:hover,
+.mermaid-modal__zoom-btn:focus {
+  background: #334155;
+  outline: none;
+}
+
+.mermaid-modal__body {
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.mermaid-modal__stage {
+  transform-origin: top center;
+  transition: transform 0.15s ease;
+  min-width: min-content;
+}
+
+.mermaid-modal__stage svg {
+  display: block;
+  margin: 0 auto;
+}
+

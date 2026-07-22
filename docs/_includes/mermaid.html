@@ -48,4 +48,130 @@
   });
 
   await mermaid.run();
+  window.enhanceMermaidZoom?.();
+</script>
+
+<template id="mermaid-zoom-template">
+  <div class="mermaid-modal" hidden>
+    <div class="mermaid-modal__backdrop" data-mermaid-close></div>
+    <div
+      class="mermaid-modal__dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Enlarged diagram"
+    >
+      <button
+        type="button"
+        class="mermaid-modal__close"
+        data-mermaid-close
+        aria-label="Close enlarged diagram"
+      >
+        ×
+      </button>
+      <div class="mermaid-modal__toolbar">
+        <button type="button" class="mermaid-modal__zoom-btn" data-zoom="-">−</button>
+        <button type="button" class="mermaid-modal__zoom-btn" data-zoom="+">+</button>
+        <button type="button" class="mermaid-modal__zoom-btn" data-zoom="reset">Reset</button>
+      </div>
+      <div class="mermaid-modal__body">
+        <div class="mermaid-modal__stage"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  window.enhanceMermaidZoom = function enhanceMermaidZoom() {
+    const diagrams = Array.from(document.querySelectorAll(".mermaid"));
+    if (!diagrams.length) return;
+
+    const tpl = document.getElementById("mermaid-zoom-template");
+    if (!tpl) return;
+    const modal = tpl.content.firstElementChild.cloneNode(true);
+    document.body.appendChild(modal);
+
+    const stage = modal.querySelector(".mermaid-modal__stage");
+    const body = modal.querySelector(".mermaid-modal__body");
+    let scale = 1;
+    let lastFocus = null;
+
+    const applyScale = () => {
+      stage.style.transform = `scale(${scale})`;
+    };
+
+    const closeModal = () => {
+      modal.hidden = true;
+      document.body.classList.remove("mermaid-modal-open");
+      stage.innerHTML = "";
+      scale = 1;
+      applyScale();
+      if (lastFocus && typeof lastFocus.focus === "function") lastFocus.focus();
+    };
+
+    const openModal = (sourceEl) => {
+      const svg = sourceEl.querySelector("svg");
+      if (!svg) return;
+      lastFocus = document.activeElement;
+      stage.innerHTML = "";
+      const clone = svg.cloneNode(true);
+      clone.removeAttribute("width");
+      clone.removeAttribute("height");
+      clone.style.width = "100%";
+      clone.style.height = "auto";
+      clone.style.maxWidth = "none";
+      stage.appendChild(clone);
+      scale = 1;
+      applyScale();
+      modal.hidden = false;
+      document.body.classList.add("mermaid-modal-open");
+      body.scrollTop = 0;
+      body.scrollLeft = 0;
+      modal.querySelector(".mermaid-modal__close").focus();
+    };
+
+    modal.querySelectorAll("[data-mermaid-close]").forEach((el) => {
+      el.addEventListener("click", closeModal);
+    });
+
+    modal.querySelectorAll("[data-zoom]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const action = btn.getAttribute("data-zoom");
+        if (action === "+") scale = Math.min(3, scale + 0.25);
+        else if (action === "-") scale = Math.max(0.5, scale - 0.25);
+        else scale = 1;
+        applyScale();
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (modal.hidden) return;
+      if (event.key === "Escape") closeModal();
+    });
+
+    diagrams.forEach((el) => {
+      if (el.closest(".mermaid-figure")) return;
+      const figure = document.createElement("figure");
+      figure.className = "mermaid-figure";
+      figure.tabIndex = 0;
+      figure.setAttribute("role", "button");
+      figure.setAttribute("aria-label", "Enlarge diagram");
+      el.parentNode.insertBefore(figure, el);
+      figure.appendChild(el);
+
+      const hint = document.createElement("figcaption");
+      hint.className = "mermaid-zoom-hint";
+      hint.textContent = "Click to enlarge";
+      figure.appendChild(hint);
+
+      const open = () => openModal(el);
+      figure.addEventListener("click", open);
+      figure.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      });
+    });
+  }
 </script>

@@ -19,6 +19,8 @@ This page is the **deployed system** view — runtime components, networks, and 
 
 Color key: **blue** = clients/ingress · **amber** = host processes · **indigo** = k8s workloads · **green** = shared storage · **pink** = MCP gateways.
 
+On the docs site, click any diagram to open a larger view.
+
 ```mermaid
 flowchart TB
   classDef client fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
@@ -30,25 +32,25 @@ flowchart TB
   classDef mcp fill:#FBCFE8,stroke:#DB2777,stroke-width:2px,color:#831843
   classDef opt fill:#E5E7EB,stroke:#6B7280,stroke-width:1px,color:#374151
 
-  Browser["Browser / OpenClaw / API"]:::client
-  Traefik["Traefik / Warpgate - TLS upstream"]:::ingress
+  Browser["🌐 Browser / OpenClaw / API"]:::client
+  Traefik["🔐 Traefik / Warpgate - TLS upstream"]:::ingress
 
-  subgraph Host["Jetson host"]
-    Ollama["Host Ollama :11434"]:::host
-    GitTree["Git checkout + catalogs"]:::host
-    OpenClawHost["OpenClaw host paths"]:::host
+  subgraph Host["🖥️ Jetson host"]
+    Ollama["🧠 Host Ollama :11434"]:::host
+    GitTree["📁 Git checkout + catalogs"]:::host
+    OpenClawHost["🦞 OpenClaw host paths"]:::host
   end
 
-  subgraph Cluster["k3s - agentic-orchestration"]
-    SVC["Service NodePort 30487 to :3847"]:::coord
-    Web["Coordinator web UI + WS"]:::coord
-    Orch["Coordinator planner + harness"]:::coord
-    WP["Warm-pool workers"]:::worker
-    Broker["Delegation broker optional"]:::opt
-    Jobs["Ephemeral worker Jobs"]:::opt
-    PVC[("run-store PVC /run/store")]:::store
-    MCPFetch["mcp-fetch :8080"]:::mcp
-    MCPFs["mcp-filesystem :8081"]:::mcp
+  subgraph Cluster["☸️ k3s - agentic-orchestration"]
+    SVC["🔌 Service NodePort 30487 to :3847"]:::coord
+    Web["💻 Coordinator web UI + WS"]:::coord
+    Orch["🧭 Coordinator planner + harness"]:::coord
+    WP["⚙️ Warm-pool workers"]:::worker
+    Broker["📨 Delegation broker optional"]:::opt
+    Jobs["📦 Ephemeral worker Jobs"]:::opt
+    PVC[("💾 run-store PVC /run/store")]:::store
+    MCPFetch["🔗 mcp-fetch :8080"]:::mcp
+    MCPFs["📂 mcp-filesystem :8081"]:::mcp
   end
 
   Browser --> Traefik
@@ -78,14 +80,14 @@ flowchart TB
 ```mermaid
 sequenceDiagram
   autonumber
-  actor User
-  participant Edge as Traefik / Warpgate
-  participant Coord as Coordinator
-  participant Plan as Planner harness
-  participant Store as run-store PVC
-  participant Worker as Warm-pool / Job
-  participant LLM as Host Ollama
-  participant Tools as MCP / RAG / skills
+  actor User as 👤 User
+  participant Edge as 🔐 Traefik / Warpgate
+  participant Coord as 💻 Coordinator
+  participant Plan as 🧭 Planner harness
+  participant Store as 💾 run-store PVC
+  participant Worker as ⚙️ Warm-pool / Job
+  participant LLM as 🧠 Host Ollama
+  participant Tools as 🧰 MCP / RAG / skills
 
   User->>Edge: HTTPS chat / API
   Edge->>Coord: NodePort 30487 to port 3847
@@ -137,18 +139,18 @@ flowchart LR
   classDef logical fill:#E0E7FF,stroke:#4F46E5,stroke-width:2px,color:#312E81
   classDef physical fill:#D1FAE5,stroke:#059669,stroke-width:2px,color:#064E3B
 
-  subgraph Logical["Logical product layers"]
-    L1["Web / API"]:::logical
-    L2["Planner + harness - skills, MCP, RAG"]:::logical
-    L3["Execution backends - inprocess / subprocess / k8s"]:::logical
-    L4["Models + tools - Ollama + MCP servers"]:::logical
+  subgraph Logical["🧩 Logical product layers"]
+    L1["🌐 Web / API"]:::logical
+    L2["🧭 Planner + harness - skills, MCP, RAG"]:::logical
+    L3["⚙️ Execution backends - inprocess / subprocess / k8s"]:::logical
+    L4["🧠 Models + tools - Ollama + MCP servers"]:::logical
   end
 
-  subgraph Physical["Physical on Jetson k3s"]
-    P1["agentic-coordinator pod"]:::physical
-    P2["warm-pool pods / Jobs"]:::physical
-    P3["Host Ollama + hostPath catalogs"]:::physical
-    P4["Optional MCP Deployments"]:::physical
+  subgraph Physical["🏗️ Physical on Jetson k3s"]
+    P1["💻 agentic-coordinator pod"]:::physical
+    P2["⚙️ warm-pool pods / Jobs"]:::physical
+    P3["🧠 Host Ollama + hostPath catalogs"]:::physical
+    P4["🔗 Optional MCP Deployments"]:::physical
   end
 
   L1 --> P1
