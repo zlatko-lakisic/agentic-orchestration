@@ -47,6 +47,7 @@ PAGE_TITLES: dict[str, str] = {
     "User-agent-harnesses": "User agent harnesses",
     "External-integrations": "External integrations",
     "GitHub-Pages-publish": "GitHub Pages publish",
+    "System-architecture": "System architecture (Kubernetes / Jetson)",
 }
 
 # Wiki root filename → docs/ relative path (None = skip sync)
@@ -70,6 +71,7 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "Agent-harness-roadmap.md": "Agent-harness-roadmap/index.md",
     "User-agent-harnesses.md": "User-agent-harnesses/index.md",
     "External-integrations.md": "external-integrations/index.md",
+    "System-architecture.md": "system-architecture/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
@@ -110,6 +112,8 @@ PAGE_SLUGS: dict[str, str] = {
     "Agent-harness-roadmap": "Agent-harness-roadmap",
     "User-agent-harnesses": "User-agent-harnesses",
     "External-integrations": "external-integrations",
+    "System-architecture": "system-architecture",
+    "RAG-sources": "rag-catalog",
     "Releases": "changelog",
     "Execution-backends": "execution-backends",
     "features": "features",

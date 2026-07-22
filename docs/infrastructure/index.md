@@ -12,6 +12,8 @@ sidebar:
 
 This page describes how **Agentic Orchestration** is deployed in production-style setups. For day-to-day local development, start with the root **`README.md`** and package READMEs (`agentic-orchestration-tool/`, `agentic-orchestration-web/`).
 
+**Deployed topology (Jetson / k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, host Ollama, catalogs).
+
 ![Deployment scalability and observability](assets/6.png)
 
 ## Deployment modes

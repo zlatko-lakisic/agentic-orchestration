@@ -17,6 +17,8 @@ main:
     url: /rag-catalog/
   - title: "Architecture"
     url: /architecture/
+  - title: "System Architecture"
+    url: /system-architecture/
   - title: "Configuration"
     url: /configuration/
   - title: "Changelog"
@@ -33,6 +35,8 @@ docs:
         url: /Agent-harness-roadmap/
       - title: "Architecture"
         url: /architecture/
+      - title: "System Architecture"
+        url: /system-architecture/
       - title: "Infrastructure"
         url: /infrastructure/
   - title: "Catalogs"

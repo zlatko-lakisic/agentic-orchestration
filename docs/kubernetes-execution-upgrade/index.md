@@ -17,7 +17,7 @@ Living document for evolving **Agentic Orchestration** from in-process CrewAI `k
 
 **Companion plan:** [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) — Python refactor for pluggable execution backends (`CrewAI` in-process default, `subprocess`, `kubernetes`). **This page owns cluster delivery; the companion page owns the code seam.** Framework **F0–F4** is complete; K8s Phase 3 implements framework **F5**.
 
-**Related:** [Architecture]({{ '/architecture/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }})
+**Related:** [System architecture]({{ '/system-architecture/' | relative_url }}), [Architecture]({{ '/architecture/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [MCP providers]({{ '/mcp-catalog/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }})
 
 ---
 
