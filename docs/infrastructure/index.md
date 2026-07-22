@@ -14,7 +14,7 @@ This page describes how **Agentic Orchestration** is deployed in production-styl
 
 **Deployed topology (Jetson / k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, host Ollama, catalogs).
 
-![Deployment scalability and observability](assets/6.png)
+![Deployment scalability and observability]({{ '/assets/6.png' | relative_url }})
 
 ## Deployment modes
 

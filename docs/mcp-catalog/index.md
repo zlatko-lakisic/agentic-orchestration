@@ -12,7 +12,7 @@ sidebar:
 
 The tool loads MCP **templates** from `agentic-orchestration-tool/config/mcp_providers/` (one `*.yaml` per integration unless using a legacy bundle file). Merge additional directories via `AGENTIC_EXTRA_MCP_PROVIDERS_PATH` (`;` on Windows, `:` on Unix).
 
-![MCP integration model](assets/3.png)
+![MCP integration model]({{ '/assets/3.png' | relative_url }})
 
 ## Design
 

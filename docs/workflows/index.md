@@ -10,7 +10,7 @@ sidebar:
 ---
 # Workflows and router
 
-![Multi-agent collaboration flow](assets/4.png)
+![Multi-agent collaboration flow]({{ '/assets/4.png' | relative_url }})
 
 ## Static workflows
 

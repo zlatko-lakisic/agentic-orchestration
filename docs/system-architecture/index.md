@@ -17,58 +17,56 @@ This page is the **deployed system** view — runtime components, networks, and 
 
 ## Component map (edge)
 
+Color key: **blue** = clients/ingress · **amber** = host processes · **indigo** = k8s workloads · **green** = shared storage · **pink** = MCP gateways.
+
 ```mermaid
 flowchart TB
-  subgraph Users["Clients"]
-    Browser["Browser / OpenClaw / API clients"]
+  classDef client fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A8A
+  classDef ingress fill:#BFDBFE,stroke:#1D4ED8,stroke-width:2px,color:#1E3A8A
+  classDef host fill:#FDE68A,stroke:#D97706,stroke-width:2px,color:#78350F
+  classDef coord fill:#C7D2FE,stroke:#4338CA,stroke-width:2px,color:#312E81
+  classDef worker fill:#A5B4FC,stroke:#4F46E5,stroke-width:2px,color:#312E81
+  classDef store fill:#6EE7B7,stroke:#059669,stroke-width:2px,color:#064E3B
+  classDef mcp fill:#FBCFE8,stroke:#DB2777,stroke-width:2px,color:#831843
+  classDef opt fill:#E5E7EB,stroke:#6B7280,stroke-width:1px,color:#374151
+
+  Browser["Browser / OpenClaw / API"]:::client
+  Traefik["Traefik / Warpgate - TLS upstream"]:::ingress
+
+  subgraph Host["Jetson host"]
+    Ollama["Host Ollama :11434"]:::host
+    GitTree["Git checkout + catalogs"]:::host
+    OpenClawHost["OpenClaw host paths"]:::host
   end
 
-  subgraph Edge["Jetson host (single k3s node)"]
-    Traefik["Traefik / Warpgate<br/>TLS ingress upstream"]
-    Ollama["Host Ollama<br/>:11434 (systemd)"]
-    GitTree["Git checkout<br/>/var/projects/agentic-orchestration"]
-    OpenClawHost["Host OpenClaw paths<br/>~/.openclaw/..."]
-
-    subgraph K3s["k3s · namespace agentic-orchestration"]
-      SVC["Service agentic-coordinator<br/>ClusterIP :3847 → NodePort :30487"]
-
-      subgraph Coord["Deployment: agentic-coordinator"]
-        Web["Node web UI + WebSocket<br/>(agentic-orchestration-web)"]
-        Orch["Python orchestrator<br/>main.py · planner · harness"]
-        Web --- Orch
-      end
-
-      WP["Deployment: agentic-warm-pool<br/>workers · --warm-pool-worker"]
-      Broker["Deployment: agentic-delegation-broker<br/>(optional; often disabled on Jetson)"]
-      Jobs["Ephemeral worker Jobs<br/>(fallback / sidecar MCP paths)"]
-
-      PVC[("PVC agentic-run-store<br/>mount /run/store")]
-
-      MCPFetch["agentic-mcp-fetch :8080"]
-      MCPFs["agentic-mcp-filesystem :8081"]
-    end
-
-    subgraph PlantNS["namespace plant-knowledge (optional)"]
-      PlantMCP["plant-knowledge-mcp :8080"]
-    end
+  subgraph Cluster["k3s - agentic-orchestration"]
+    SVC["Service NodePort 30487 to :3847"]:::coord
+    Web["Coordinator web UI + WS"]:::coord
+    Orch["Coordinator planner + harness"]:::coord
+    WP["Warm-pool workers"]:::worker
+    Broker["Delegation broker optional"]:::opt
+    Jobs["Ephemeral worker Jobs"]:::opt
+    PVC[("run-store PVC /run/store")]:::store
+    MCPFetch["mcp-fetch :8080"]:::mcp
+    MCPFs["mcp-filesystem :8081"]:::mcp
   end
 
   Browser --> Traefik
-  Traefik -->|"http://<jetson>:30487"| SVC
+  Traefik -->|"NodePort 30487"| SVC
   SVC --> Web
-  Orch -->|"queue / StepSpec"| PVC
-  WP -->|"dequeue + result.json"| PVC
-  Broker -->|"child Jobs"| Jobs
-  Jobs -->|"result.json"| PVC
-  Orch -->|"LLM"| Ollama
-  WP -->|"LLM"| Ollama
-  Orch -.->|"hostPath catalogs"| GitTree
-  WP -.->|"hostPath catalogs"| GitTree
+  Web --- Orch
+  Orch -->|"enqueue StepSpec"| PVC
+  WP -->|"claim + result.json"| PVC
+  Broker -.-> Jobs
+  Jobs -.-> PVC
+  Orch <-->|"LLM"| Ollama
+  WP <-->|"LLM"| Ollama
+  Orch -.->|"hostPath"| GitTree
+  WP -.->|"hostPath"| GitTree
   Orch -.-> OpenClawHost
   WP -.-> OpenClawHost
   Orch --> MCPFetch
   Orch --> MCPFs
-  Orch --> PlantMCP
   WP --> MCPFetch
   WP --> MCPFs
 ```
@@ -77,25 +75,26 @@ flowchart TB
 
 ```mermaid
 sequenceDiagram
+  autonumber
   actor User
   participant Edge as Traefik / Warpgate
-  participant Coord as agentic-coordinator
+  participant Coord as Coordinator
   participant Plan as Planner harness
   participant Store as run-store PVC
-  participant Worker as warm-pool / Job
+  participant Worker as Warm-pool / Job
   participant LLM as Host Ollama
   participant Tools as MCP / RAG / skills
 
   User->>Edge: HTTPS chat / API
-  Edge->>Coord: NodePort 30487 → :3847
-  Coord->>Plan: dynamic plan (rag_ids, mcp, skills)
-  Plan->>Coord: WorkflowConfig / StepSpec[]
+  Edge->>Coord: NodePort 30487 to port 3847
+  Coord->>Plan: dynamic plan rag_ids, mcp, skills
+  Plan->>Coord: WorkflowConfig / StepSpec list
   Coord->>Store: enqueue step specs
   Worker->>Store: claim step
-  Worker->>Tools: inject RAG / skills; call MCP tools
+  Worker->>Tools: inject RAG / skills; call MCP
   Worker->>LLM: agent completion
   LLM-->>Worker: model output
-  Worker->>Store: result.json (+ rag_audit)
+  Worker->>Store: result.json + rag_audit
   Coord->>Store: read results / progress
   Coord-->>User: WebSocket / HTTP reply
 ```
@@ -133,18 +132,21 @@ Hotfix ConfigMaps also overlay selected Python modules onto coordinator/worker i
 
 ```mermaid
 flowchart LR
+  classDef logical fill:#E0E7FF,stroke:#4F46E5,stroke-width:2px,color:#312E81
+  classDef physical fill:#D1FAE5,stroke:#059669,stroke-width:2px,color:#064E3B
+
   subgraph Logical["Logical product layers"]
-    L1["Web / API"]
-    L2["Planner + harness<br/>skills · MCP · RAG · grounding"]
-    L3["Execution backends<br/>inprocess · subprocess · kubernetes"]
-    L4["Models + tools<br/>Ollama · MCP servers"]
+    L1["Web / API"]:::logical
+    L2["Planner + harness - skills, MCP, RAG"]:::logical
+    L3["Execution backends - inprocess / subprocess / k8s"]:::logical
+    L4["Models + tools - Ollama + MCP servers"]:::logical
   end
 
   subgraph Physical["Physical on Jetson k3s"]
-    P1["agentic-coordinator pod"]
-    P2["warm-pool pods / Jobs"]
-    P3["Host Ollama + hostPath catalogs"]
-    P4["Optional MCP Deployments"]
+    P1["agentic-coordinator pod"]:::physical
+    P2["warm-pool pods / Jobs"]:::physical
+    P3["Host Ollama + hostPath catalogs"]:::physical
+    P4["Optional MCP Deployments"]:::physical
   end
 
   L1 --> P1

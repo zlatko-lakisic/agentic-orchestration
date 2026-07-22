@@ -10,7 +10,7 @@ sidebar:
 ---
 # Sessions, learning, knowledge base, answer cache
 
-![Memory and state management structure](assets/5.png)
+![Memory and state management structure]({{ '/assets/5.png' | relative_url }})
 
 ## Orchestrator sessions
 

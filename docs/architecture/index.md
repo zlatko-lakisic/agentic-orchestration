@@ -12,7 +12,7 @@ sidebar:
 
 ## High-level flow
 
-![Core architecture diagram](assets/2.png)
+![Core architecture diagram]({{ '/assets/2.png' | relative_url }})
 
 1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id`, optional MCP ids, and optional skill ids (see [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }})).
 2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Agent skills load from `config/agent_skills/` plus `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. Entries without required credentials (or missing `required_files`) are filtered out before planning. Planned **harness** layers: platform catalog verification ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }})) and user scenario packs ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})).

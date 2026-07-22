@@ -22,6 +22,11 @@ MD_LINK = re.compile(
     r"\)"
 )
 
+# Wiki pages live at /slug/; relative assets/foo.png would 404 as /slug/assets/foo.png.
+ASSET_IMG = re.compile(
+    r"!\[(?P<alt>[^\]]*)\]\((?:\./)?assets/(?P<path>[^)]+)\)"
+)
+
 FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n+", re.DOTALL)
 
 PAGE_TITLES: dict[str, str] = {
@@ -166,7 +171,14 @@ def convert_md_link(match: re.Match[str]) -> str:
     return f"]({_page_href(page, anchor)})"
 
 
+def convert_asset_img(match: re.Match[str]) -> str:
+    alt = match.group("alt")
+    path = match.group("path").strip()
+    return f"![{alt}]({{{{ '/assets/{path}' | relative_url }}}})"
+
+
 def convert_text(text: str) -> str:
+    text = ASSET_IMG.sub(convert_asset_img, text)
     text = WIKI_LINK.sub(convert_wiki_link, text)
     text = MD_LINK.sub(convert_md_link, text)
     text = text.replace(GITLAB_PUBLISH_ROW, GITHUB_PUBLISH_ROW)
