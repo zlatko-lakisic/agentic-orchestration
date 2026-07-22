@@ -6,6 +6,8 @@ import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { GitHubIcon } from './GitHubIcon'
 import { TracePanel } from './TracePanel'
 
+const HERO_IMG = `${import.meta.env.BASE_URL}hero-network`
+
 export function Hero() {
   const reduced = usePrefersReducedMotion()
   const fade = (delay: number) =>
@@ -18,8 +20,30 @@ export function Hero() {
         }
 
   return (
-    <header className="bg-grain relative overflow-x-hidden border-b border-line">
-      <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-end lg:gap-12">
+    <header className="relative overflow-x-hidden border-b border-line">
+      {/* Full-bleed network artwork — decorative only */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <picture>
+          <source srcSet={`${HERO_IMG}.webp`} type="image/webp" />
+          <img
+            src={`${HERO_IMG}.jpg`}
+            alt=""
+            width={1024}
+            height={521}
+            decoding="async"
+            fetchPriority="high"
+            className="h-full w-full object-cover object-[70%_center] opacity-[0.38]"
+          />
+        </picture>
+        {/* Soften into Control Plane graphite; keep left readable for copy */}
+        <div className="absolute inset-0 bg-graphite/55" />
+        <div className="absolute inset-0 bg-gradient-to-r from-graphite via-graphite/70 to-graphite/25" />
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-graphite to-transparent" />
+        {/* Obscure any residual Gemini mark in the extreme bottom-right */}
+        <div className="absolute right-0 bottom-0 h-14 w-36 bg-gradient-to-tl from-graphite via-graphite/95 to-transparent" />
+      </div>
+
+      <div className="relative z-10 mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-end lg:gap-12">
         <div>
           <motion.p
             className="font-display text-sm font-medium tracking-[0.2em] text-steel uppercase"
@@ -65,7 +89,7 @@ export function Hero() {
           subtitle="representative · not a live execution"
           events={HERO_TRACE}
           animate
-          className="min-h-[280px]"
+          className="min-h-[280px] bg-panel/90 backdrop-blur-sm"
           footer={
             <p className="font-mono text-[11px] text-dim">
               Representative example — ambient proof beside the explanation, not a captured
