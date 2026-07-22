@@ -34,3 +34,11 @@ publish-github.sh
 publish-github.ps1
 
 .DS_Store
+
+# Site / Pages build
+site/node_modules/
+site/dist/
+_site/
+docs/.jekyll-cache/
+docs/.sass-cache/
+docs/vendor/

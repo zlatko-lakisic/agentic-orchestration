@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+
+/*
+  Control Plane tokens
+  --------------------
+  Graphite/slate base (not sibling navy, not neon-black).
+  Accent = system (steel cyan). Pass green = verified only.
+  Type: Chivo + Source Sans 3 + IBM Plex Mono (not sibling set).
+*/
+
+@theme {
+  --color-graphite: #12151c;
+  --color-panel: #1a1f29;
+  --color-panel-raised: #222834;
+  --color-steel: #6b9aab;
+  --color-steel-dim: #4d7380;
+  --color-pass: #5a9a6e;
+  --color-mist: #b4bcc8;
+  --color-white: #e8ecf2;
+  --color-line: #2c3340;
+  --color-dim: #7a8494;
+
+  --font-display: 'Chivo', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--color-graphite);
+    color: var(--color-mist);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-steel) 35%, transparent);
+    color: var(--color-white);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-steel);
+    outline-offset: 3px;
+  }
+
+  a:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--color-steel);
+    outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  .bg-grain {
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% 0%, color-mix(in srgb, var(--color-steel) 8%, transparent), transparent),
+      linear-gradient(180deg, color-mix(in srgb, var(--color-panel) 40%, transparent) 0%, transparent 40%);
+  }
+}

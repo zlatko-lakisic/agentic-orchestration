@@ -11,7 +11,7 @@ plugins:
 title: "Agentic Orchestration"
 description: "Built around a coordinator that replans as it goes — model-agnostic multi-agent orchestration on CrewAI. Dynamic planning, MCP tools, agent skills playbooks, YAML catalogs."
 url: "https://zlatko-lakisic.github.io"
-baseurl: "/agentic-orchestration"
+baseurl: "/agentic-orchestration/docs"
 repository: "zlatko-lakisic/agentic-orchestration"
 
 # Google Analytics 4 (web stream: agentic-orchestration docs)

@@ -1,10 +1,11 @@
-name: Deploy docs to GitHub Pages
+name: Deploy site and docs to GitHub Pages
 
 on:
   push:
     branches:
       - main
     paths:
+      - "site/**"
       - "docs/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -20,18 +21,46 @@ concurrency:
 
 jobs:
   build:
-    name: Build Jekyll site
+    name: Build landing + docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/jekyll-build-pages@v1
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
         with:
-          source: ./docs
+          ruby-version: "3.1"
+          bundler-cache: true
+          working-directory: docs
+
+      - name: Build Jekyll docs
+        working-directory: docs
+        run: bundle exec jekyll build --baseurl "/agentic-orchestration/docs" -d ../_site/docs
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build Vite landing
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble site
+        run: |
+          cp -R site/dist/. _site/
+          test -f _site/index.html
+          test -f _site/docs/index.html
+          test -d _site/assets
+          test -d _site/docs/assets
 
       - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
 
   deploy:
     name: Deploy to GitHub Pages
