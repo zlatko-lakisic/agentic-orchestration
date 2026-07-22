@@ -95,10 +95,10 @@ sequenceDiagram
   Plan->>Coord: WorkflowConfig / StepSpec list
   Coord->>Store: enqueue step specs
   Worker->>Store: claim step
-  Worker->>Tools: inject RAG / skills; call MCP
+  Worker->>Tools: inject RAG / skills and call MCP
   Worker->>LLM: agent completion
   LLM-->>Worker: model output
-  Worker->>Store: result.json + rag_audit
+  Worker->>Store: result.json and rag_audit
   Coord->>Store: read results / progress
   Coord-->>User: WebSocket / HTTP reply
 ```
