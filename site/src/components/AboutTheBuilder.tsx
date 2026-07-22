@@ -1,5 +1,9 @@
 import { GITHUB_USER, LINKEDIN } from '../content/links'
 
+// TODO(owner): replace placeholder body with supplied copy —
+// who they are (role, own words) → throughline to why they built this → keep the two links.
+// Do not invent title, employer, tenure, or track record.
+
 export function AboutTheBuilder() {
   return (
     <section id="about" className="border-b border-line bg-panel/40">
@@ -10,7 +14,7 @@ export function AboutTheBuilder() {
         </h2>
         <p className="mt-5 max-w-2xl text-mist">
           Enterprise-architecture background applied to a real system: process first, catalogs as
-          substrate, honesty about what is shipped versus partial. Same author as the sibling
+          substrate, honesty about what is solid versus still maturing. Same author as the sibling
           project My Futuristic Home — different identity on purpose.
         </p>
         <div className="mt-6 flex flex-wrap gap-4 text-sm">
