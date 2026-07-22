@@ -1,0 +1,13 @@
+id: orchestrator_kb
+description: Prior finalized orchestrator answers stored in the local SQLite FTS knowledge base.
+planner_hint: Attach when the user asks about prior runs, remembered answers, or local project knowledge already stored by the orchestrator.
+backend: sqlite-fts
+mode: inject
+# Empty path → default tool_root/__orchestrator_kb__/kb.sqlite3 at query time.
+top_k: 5
+max_tokens: 2000
+capabilities:
+  - "FTS retrieval over prior finalized answers"
+good_for:
+  - "Reuse prior orchestrator outputs"
+  - "Ground follow-ups in session history stored in KB"

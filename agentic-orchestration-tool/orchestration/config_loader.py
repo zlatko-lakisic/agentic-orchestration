@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,10 @@ class TaskDefinition:
     mcp_providers: list[Any] | None = None
     # When None, inherit ``WorkflowConfig.skills``. When [], no skills for this task only.
     skills: list[str] | None = None
+    # When None, inherit ``WorkflowConfig.rag_sources``. When [], no RAG for this task only.
+    rag_sources: list[str] | None = None
+    # Optional explicit retrieval query (prefer over task description when set).
+    rag_query: str | None = None
 
 
 def raw_mcp_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[Any]:
@@ -33,6 +37,13 @@ def raw_skill_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> lis
     return [str(x).strip() for x in config.skills if str(x).strip()]
 
 
+def raw_rag_spec_for_task(task: TaskDefinition, config: WorkflowConfig) -> list[str]:
+    """Raw rag id list for a task (inherits ``config.rag_sources`` when ``task.rag_sources`` is None)."""
+    if task.rag_sources is not None:
+        return [str(x).strip() for x in task.rag_sources if str(x).strip()]
+    return [str(x).strip() for x in config.rag_sources if str(x).strip()]
+
+
 @dataclass(frozen=True)
 class WorkflowConfig:
     name: str
@@ -46,6 +57,8 @@ class WorkflowConfig:
     skills: list[str]
     tasks: list[TaskDefinition]
     task_sequence: list[str]
+    # Catalog ids for RAG sources (optional; default empty).
+    rag_sources: list[str] = field(default_factory=list)
 
 
 def load_workflow_config(
@@ -76,6 +89,7 @@ def load_workflow_config(
         agent_providers = workflow.get("providers", [])
     mcp_providers = workflow.get("mcp_providers", [])
     skills = workflow.get("skills", [])
+    rag_sources = workflow.get("rag_sources", [])
     tasks = workflow.get("tasks", [])
     sequence = workflow.get("task_sequence", [])
 
@@ -102,6 +116,11 @@ def load_workflow_config(
     for j, skill_item in enumerate(skills):
         if not isinstance(skill_item, str) or not str(skill_item).strip():
             raise ValueError(f"workflow.skills[{j}] must be a non-empty catalog id string")
+    if not isinstance(rag_sources, list):
+        raise ValueError("'workflow.rag_sources' must be a list when set.")
+    for j, rag_item in enumerate(rag_sources):
+        if not isinstance(rag_item, str) or not str(rag_item).strip():
+            raise ValueError(f"workflow.rag_sources[{j}] must be a non-empty catalog id string")
 
     task_definitions: list[TaskDefinition] = []
     for item in tasks:
@@ -154,6 +173,24 @@ def load_workflow_config(
         else:
             task_skills = None
 
+        task_rag: list[str] | None
+        if "rag_sources" in item:
+            trag = item["rag_sources"]
+            if not isinstance(trag, list):
+                raise ValueError(f"Task '{task_id}' rag_sources must be a list when set.")
+            for j, rag_item in enumerate(trag):
+                if not isinstance(rag_item, str) or not str(rag_item).strip():
+                    raise ValueError(
+                        f"Task '{task_id}' rag_sources[{j}] must be a non-empty catalog id string",
+                    )
+            task_rag = [str(x).strip() for x in trag if str(x).strip()]
+        else:
+            task_rag = None
+
+        task_rag_query: str | None = None
+        if "rag_query" in item and item["rag_query"] is not None:
+            task_rag_query = str(item["rag_query"]).strip() or None
+
         task_definitions.append(
             TaskDefinition(
                 id=task_id,
@@ -162,6 +199,8 @@ def load_workflow_config(
                 expected_output=expected_output,
                 mcp_providers=task_mcp,
                 skills=task_skills,
+                rag_sources=task_rag,
+                rag_query=task_rag_query,
             )
         )
 
@@ -175,6 +214,7 @@ def load_workflow_config(
         skills=[str(x).strip() for x in skills if str(x).strip()],
         tasks=task_definitions,
         task_sequence=[str(task_id).strip() for task_id in sequence],
+        rag_sources=[str(x).strip() for x in rag_sources if str(x).strip()],
     )
     if topic_override is not None and str(topic_override).strip():
         cfg = replace(cfg, topic=str(topic_override).strip())

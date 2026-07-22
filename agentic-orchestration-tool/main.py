@@ -55,6 +55,7 @@ _DEFAULT_CONFIG_PATH = "config/workflows/workflow.yaml"
 _DEFAULT_AGENT_PROVIDERS_CATALOG_REL = "config/agent_providers"
 _DEFAULT_MCP_PROVIDERS_CATALOG = "config/mcp_providers"
 _DEFAULT_AGENT_SKILLS_CATALOG = "config/agent_skills"
+_DEFAULT_RAG_SOURCES_CATALOG = "config/rag_sources"
 
 
 def _default_agent_providers_catalog_arg() -> str:
@@ -285,6 +286,7 @@ def _run_dynamic_workflow_with_hf_fallback(
     agent_providers_catalog_path: Path,
     mcp_catalog_path: Path | None,
     agent_skills_catalog_path: Path | None,
+    rag_sources_catalog_path: Path | None = None,
     crew_verbose: bool,
     quiet: bool,
     emit_stdout_summary: bool = True,
@@ -305,6 +307,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
         execution_error_sink=sink,
@@ -336,6 +339,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
     )
@@ -349,6 +353,7 @@ def execute_workflow_from_config(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
     emit_stdout_summary: bool = True,
     emit_progress_lines: bool = True,
     execution_error_sink: list[str] | None = None,
@@ -363,6 +368,7 @@ def execute_workflow_from_config(
         crew_verbose=crew_verbose,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
     )
     return execute_workflow_config_resolved(config, options=options)
@@ -375,6 +381,7 @@ def run_workflow(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
 ) -> tuple[int, str | None]:
     """Load workflow YAML, run crew; return (exit code, final output text if any)."""
     result = run_workflow_execution(
@@ -383,6 +390,7 @@ def run_workflow(
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
     )
     return result.exit_code, result.result_text
 
@@ -394,6 +402,7 @@ def run_workflow_execution(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
 ) -> WorkflowExecutionResult:
     """Load workflow YAML and return the backend execution result (F3 post-run adapter entry)."""
     config = load_workflow_config(config_path, topic_override=topic_override)
@@ -403,6 +412,7 @@ def run_workflow_execution(
         quiet=quiet,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
     )
 
 
@@ -419,6 +429,7 @@ def run_interactive_router(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for tasks until quit; Ollama router picks a catalog workflow each time."""
     entries = discover_workflow_catalog(config_dir)
@@ -502,6 +513,7 @@ def run_interactive_fixed_config(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
 ) -> None:
     """Prompt for topics until quit; always runs the same workflow file."""
     if not config_path.exists():
@@ -535,6 +547,7 @@ def run_interactive_fixed_config(
             quiet=quiet,
             mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         )
         if exit_code == 0 and result_text:
             saved = offer_save_extracted_files(
@@ -779,6 +792,17 @@ def parse_args() -> argparse.Namespace:
             f"Or a bundle YAML with 'agent_skills'. "
             f"Default {_DEFAULT_AGENT_SKILLS_CATALOG!r}; missing path loads no skill catalog entries. "
             f"Also merges directories in AGENTIC_EXTRA_AGENT_SKILLS_PATH ({os.pathsep}-separated)."
+        ),
+    )
+    parser.add_argument(
+        "--rag-sources-catalog",
+        default=_DEFAULT_RAG_SOURCES_CATALOG,
+        metavar="PATH",
+        help=(
+            f"Directory of one YAML per RAG source (sqlite-fts inject/tool retrieval). "
+            f"Or a bundle YAML with 'rag_sources'. "
+            f"Default {_DEFAULT_RAG_SOURCES_CATALOG!r}; missing path loads no RAG catalog entries. "
+            f"Also merges directories in AGENTIC_EXTRA_RAG_SOURCES_PATH ({os.pathsep}-separated)."
         ),
     )
     parser.add_argument(
@@ -1029,6 +1053,11 @@ def main() -> None:
         if not Path(args.agent_skills_catalog).is_absolute()
         else Path(args.agent_skills_catalog)
     )
+    rag_sources_catalog_path = (
+        (tool_root / args.rag_sources_catalog).resolve()
+        if not Path(args.rag_sources_catalog).is_absolute()
+        else Path(args.rag_sources_catalog)
+    )
     selected_dynamic_provider_ids = _parse_dynamic_agent_provider_ids(
         str(getattr(args, "dynamic_agent_provider_ids", "") or "")
     )
@@ -1165,6 +1194,7 @@ def main() -> None:
                     allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
                     agent_skills_catalog_path=agent_skills_catalog_path,
+                    rag_sources_catalog_path=rag_sources_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
                     tool_root=tool_root,
@@ -1219,6 +1249,7 @@ def main() -> None:
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
                 agent_skills_catalog_path=agent_skills_catalog_path,
+                rag_sources_catalog_path=rag_sources_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 emit_stdout_summary=stream_iter_steps,
@@ -1395,6 +1426,7 @@ def main() -> None:
                     allowed_agent_provider_ids=selected_dynamic_provider_ids,
                     mcp_catalog_path=mcp_catalog_path,
                     agent_skills_catalog_path=agent_skills_catalog_path,
+                    rag_sources_catalog_path=rag_sources_catalog_path,
                     session_path=orchestrator_session_path,
                     max_steps=1,
                     tool_root=tool_root,
@@ -1416,6 +1448,7 @@ def main() -> None:
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
                 agent_skills_catalog_path=agent_skills_catalog_path,
+                rag_sources_catalog_path=rag_sources_catalog_path,
                 crew_verbose=not args.quiet,
                 quiet=args.quiet,
                 emit_stdout_summary=True,
@@ -1643,6 +1676,7 @@ def main() -> None:
                 allowed_agent_provider_ids=selected_dynamic_provider_ids,
                 mcp_catalog_path=mcp_catalog_path,
                 agent_skills_catalog_path=agent_skills_catalog_path,
+                rag_sources_catalog_path=rag_sources_catalog_path,
                 session_path=orchestrator_session_path,
                 tool_root=tool_root,
                 quiet=args.quiet,
@@ -1675,6 +1709,7 @@ def main() -> None:
             agent_providers_catalog_path=agent_providers_catalog_path,
             mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
             crew_verbose=not args.quiet,
             quiet=args.quiet,
             emit_stdout_summary=True,
@@ -1785,6 +1820,7 @@ def main() -> None:
             quiet=args.quiet,
             mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         )
         if exit_code:
             sys.exit(exit_code)
@@ -1828,6 +1864,7 @@ def main() -> None:
             quiet=args.quiet,
             mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         )
         if execution.exit_code:
             sys.exit(execution.exit_code)
@@ -1867,6 +1904,7 @@ def main() -> None:
         quiet=args.quiet,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
     )
 
 

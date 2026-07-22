@@ -97,10 +97,19 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
         mcp_resolved = _resolved_mcps_from_spec(data)
         mcp_ids = mcp_ids_from_step_spec(data)
         skill_ids = skill_ids_from_step_spec(data)
+        rag_ids = [str(x).strip() for x in (data.get("rag_sources") or []) if str(x).strip()]
+        rag_query = str(task.get("rag_query") or "").strip() or None
         skills_catalog_path = resolve_agent_skills_catalog_path_for_worker(
             data,
             tool_root=tool_root,
         )
+        rag_catalog_path_raw = str(paths.get("rag_sources_catalog") or "").strip()
+        rag_catalog_path = Path(rag_catalog_path_raw) if rag_catalog_path_raw else None
+        if rag_catalog_path is None:
+            default_rag = (tool_root / "config" / "rag_sources").resolve()
+            if default_rag.exists():
+                rag_catalog_path = default_rag
+
         reresolve_skills = bool(skill_ids and skills_catalog_path is not None)
         if reresolve_skills:
             task_description = prepare_worker_task_description_for_skills(
@@ -121,6 +130,9 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             workflow_skill_ids = []
             catalog_for_build = None
 
+        from orchestration.rag_context import strip_rag_from_description
+
+        task_description = strip_rag_from_description(task_description)
         task_description = augment_task_description_for_mcps(task_description, mcp_ids)
 
         cfg = WorkflowConfig(
@@ -139,9 +151,12 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     expected_output=str(task.get("expected_output", "")),
                     mcp_providers=[],
                     skills=task_skill_ids,
+                    rag_sources=rag_ids if rag_ids else None,
+                    rag_query=rag_query,
                 )
             ],
             task_sequence=[step_id],
+            rag_sources=rag_ids,
         )
 
         from orchestration.simple_chat import is_simple_chat_prompt
@@ -160,6 +175,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 quiet=True,
                 emit_progress_lines=False,
                 agent_skills_catalog_path=catalog_for_build,
+                rag_sources_catalog_path=rag_catalog_path,
                 task_mcp_overrides={step_id: mcp_resolved} if mcp_resolved else None,
             )
             if run_store and not simple_chat:
@@ -311,6 +327,59 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 exit_code=0,
                 result_text=text,
             )
+            # Harness RAG grounding (blocking).
+            rag_audits = (built.workflow_context or {}).get("task_rag_audits") or {}
+            rag_audit_dict = rag_audits.get(step_id) or data.get("rag_audit")
+            if rag_audit_dict or rag_ids:
+                from orchestration.rag_grounding import finalize_rag_answer
+                from orchestration.rag_retrieve import RagChunk, RagStepAudit
+
+                audit = RagStepAudit(
+                    granted_rag_ids=list(
+                        (rag_audit_dict or {}).get("granted_rag_ids") or rag_ids
+                    ),
+                    cited_chunk_ids=[],
+                )
+                for ch in (rag_audit_dict or {}).get("returned_chunks") or []:
+                    audit.retrieved_chunks.append(
+                        RagChunk(
+                            source_id=str(ch.get("source_id", "")),
+                            chunk_id=str(ch.get("chunk_id", "")),
+                            text="",
+                            score=float(ch.get("score") or 0),
+                        )
+                    )
+                # Merge live audits from in-process tool calls if present.
+                live = rag_audits.get(step_id)
+                if isinstance(live, dict):
+                    for ch in live.get("returned_chunks") or []:
+                        key = (str(ch.get("source_id", "")), str(ch.get("chunk_id", "")))
+                        if key not in audit.retrieved_chunk_key_set():
+                            audit.retrieved_chunks.append(
+                                RagChunk(
+                                    source_id=key[0],
+                                    chunk_id=key[1],
+                                    text="",
+                                    score=float(ch.get("score") or 0),
+                                )
+                            )
+                text2, accepted, reject = finalize_rag_answer(
+                    text or "",
+                    audit,
+                    granted_rag_ids=list(audit.granted_rag_ids),
+                )
+                step_result.rag_audit = audit.to_dict()
+                if not accepted:
+                    step_result.exit_code = 1
+                    step_result.error = f"rag_grounding:{reject}"
+                    step_result.result_text = text2
+                    if result_path is not None:
+                        _write_step_result(result_path, step_result)
+                    print(f"error: RAG grounding failed: {reject}", file=sys.stderr)
+                    return 1
+                text = text2
+                step_result.result_text = text
+
             if result_path is not None:
                 _write_step_result(result_path, step_result)
                 print(f"wrote {result_path}", file=sys.stderr)

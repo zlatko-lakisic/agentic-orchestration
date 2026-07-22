@@ -92,6 +92,11 @@ from orchestration.agent_skills_catalog import (
     resolve_workflow_skill_refs,
     suggest_skill_ids_from_user_goal,
 )
+from orchestration.rag_sources_catalog import (
+    load_rag_sources_catalog_merged,
+    rag_catalog_for_planner_prompt,
+    resolve_rag_ids,
+)
 
 
 def _dynamic_instance_key(user_prompt: str) -> str:
@@ -514,6 +519,7 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
         "plan_summary": f"Single available agent `{agent_id}` answers the request in one step.",
         "mcp_provider_ids": [],
         "skill_ids": [],
+        "rag_ids": [],
         "steps": [
             {
                 "agent_provider_id": agent_id,
@@ -531,6 +537,7 @@ def _planner_system_prompt(
     last_crew_excerpt: str | None = None,
     mcp_catalog_doc: str = "",
     skills_catalog_doc: str = "",
+    rag_catalog_doc: str = "",
     learning_summary: str = "",
     kb_context: str = "",
 ) -> str:
@@ -559,6 +566,21 @@ Available **agent skills** — pick ids **only** from this catalog (procedural i
 - **Default skills:** Top-level `skill_ids` applies to steps that **omit** `skill_ids`.
 - **No skills for one step:** Set that step's `skill_ids` to `[]`.
 """
+    rag_block = ""
+    if rag_catalog_doc.strip():
+        rag_block = f"""
+
+Available **RAG sources** — pick ids **only** from this catalog (retrieval corpora; inject or tool mode):
+{rag_catalog_doc}
+
+- **Attach RAG only when relevant:** If the user's goal needs grounding in a listed corpus, include those ids in `rag_ids` (top-level default and/or per-step). If none match, use `[]` and omit per-step lists.
+- **Unknown ids fail the run:** Do not invent RAG ids; the runner hard-fails on unknown `rag_ids`.
+- **Per-step RAG:** Prefer a **minimal** per-step `rag_ids` list; use the top-level default only when every step needs the same sources.
+- **Default RAG:** Top-level `rag_ids` applies to steps that **omit** `rag_ids`.
+- **No RAG for one step:** Set that step's `rag_ids` to `[]`.
+- **Optional `rag_query`:** Per-step search text; when omitted, the harness uses the step description.
+- When citing retrieved material in agent outputs, use the tag form `[rag:source_id#chunk_id]` exactly (harness verifies citations).
+"""
     agi_traits = ""
     if os.getenv("AGENTIC_AGI_TRAITS", "1").strip().lower() not in ("0", "false", "no", "off"):
         agi_traits = """
@@ -576,6 +598,7 @@ Available **agent providers** (pick ONLY `agent_provider_id` values from this ca
 {catalog_doc}
 {mcp_block}
 {skills_block}
+{rag_block}
 {agi_traits}
 Rules:
 - Read the user's goal and produce a clear step-by-step plan.
@@ -595,21 +618,24 @@ Rules:
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
 - Keep the plan concise: between 1 and {max_steps} steps.
 - "expected_output" should be specific enough to judge success.
-- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)** and **skill id(s)** each step uses (or state explicitly when none apply).
+- In `plan_summary`, briefly justify **why** each `agent_provider_id` fits that step, and **list which MCP catalog id(s)**, **skill id(s)**, and **RAG id(s)** each step uses (or state explicitly when none apply).
 - If session or previous output context is present, treat new instructions as continuations when appropriate.
 
 **Planner vs crew output:** Your reply is the **plan**, not the user's deliverable. If the user goal asks for a tiny JSON object (e.g. `{{"minutes": ...}}`) or strict machine-readable fields, that output must be produced **by agents in `steps`**, not by you here. Never reply with only those keys—always emit `plan_summary` and a non-empty `steps` array using catalog `agent_provider_id` values.
 
 Respond with a single JSON object only (no markdown outside JSON if possible) with this shape:
 {{
-  "plan_summary": "short rationale for steps, agent providers, MCP choices, and skill choices",
+  "plan_summary": "short rationale for steps, agent providers, MCP choices, skill choices, and RAG choices",
   "mcp_provider_ids": ["optional default MCP ids for steps that omit their own list"],
   "skill_ids": ["optional default skill ids for steps that omit their own list"],
+  "rag_ids": ["optional default RAG source ids for steps that omit their own list"],
   "steps": [
     {{
       "agent_provider_id": "ollama_llama3_2_1b",
       "mcp_provider_ids": ["optional; per-step MCP subset — omit key to use top-level default"],
       "skill_ids": ["optional; per-step skill subset — omit key to use top-level default"],
+      "rag_ids": ["optional; per-step RAG subset — omit key to use top-level default"],
+      "rag_query": "optional explicit retrieval query for this step",
       "description": "Instructions for the agent. Must mention {{topic}}.",
       "expected_output": "What this step should produce",
       "rationale": "optional one-line: why this step now (helps users/logs when iterating)"
@@ -619,6 +645,7 @@ Respond with a single JSON object only (no markdown outside JSON if possible) wi
 Copy `agent_provider_id` **exactly** from the catalog list above (never invent ids or leave angle-bracket placeholders).
 If no MCP provider is relevant, set `"mcp_provider_ids": []` and omit per-step `mcp_provider_ids`.
 If no agent skill is relevant, set `"skill_ids": []` and omit per-step `skill_ids`.
+If no RAG source is relevant, set `"rag_ids": []` and omit per-step `rag_ids`.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
         cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
@@ -824,6 +851,7 @@ def workflow_config_from_plan(
     max_steps: int,
     mcp_catalog_entries: list[dict[str, Any]] | None = None,
     skill_catalog_entries: list[dict[str, Any]] | None = None,
+    rag_catalog_entries: list[dict[str, Any]] | None = None,
     quiet: bool = False,
 ) -> WorkflowConfig:
     def _user_wants_local_only(text: str) -> bool:
@@ -861,6 +889,7 @@ def workflow_config_from_plan(
     seen_providers: set[str] = set()
     _mcp_step_sentinel: Any = object()
     _skill_step_sentinel: Any = object()
+    _rag_step_sentinel: Any = object()
 
     mcp_raw = plan.get("mcp_provider_ids", [])
     if mcp_raw is None:
@@ -883,6 +912,17 @@ def workflow_config_from_plan(
         s = str(x).strip()
         if s:
             skill_plan_ids.append(s)
+
+    rag_raw = plan.get("rag_ids", [])
+    if rag_raw is None:
+        rag_raw = []
+    if not isinstance(rag_raw, list):
+        raise ValueError("Planner JSON 'rag_ids' must be an array when present")
+    rag_plan_ids: list[str] = []
+    for x in rag_raw:
+        s = str(x).strip()
+        if s:
+            rag_plan_ids.append(s)
 
     for i, step in enumerate(steps_raw):
         if not isinstance(step, dict):
@@ -930,6 +970,19 @@ def workflow_config_from_plan(
                 raise ValueError(f"steps[{i}].skill_ids must be an array when present")
             per_step_skills = [str(x).strip() for x in ss_raw if str(x).strip()]
 
+        sr_raw = step.get("rag_ids", _rag_step_sentinel)
+        per_step_rag: list[str] | None
+        if sr_raw is _rag_step_sentinel:
+            per_step_rag = None
+        else:
+            if not isinstance(sr_raw, list):
+                raise ValueError(f"steps[{i}].rag_ids must be an array when present")
+            per_step_rag = [str(x).strip() for x in sr_raw if str(x).strip()]
+
+        rag_query: str | None = None
+        if "rag_query" in step and step.get("rag_query") is not None:
+            rag_query = str(step.get("rag_query")).strip() or None
+
         # NOTE: We intentionally do not "prefer" a backend here.
         # The planner should choose the most relevant agent provider (including Ollama),
         # based on each entry's planner_hint/role/goal and the user's description.
@@ -943,6 +996,8 @@ def workflow_config_from_plan(
                 expected_output=expected,
                 mcp_providers=per_step_mcp,
                 skills=per_step_skills,
+                rag_sources=per_step_rag,
+                rag_query=rag_query,
             )
         )
         if pid not in seen_providers:
@@ -1053,6 +1108,21 @@ def workflow_config_from_plan(
             new_task_defs_skill.append(replace(t, skills=kept))
         task_definitions = new_task_defs_skill
 
+    # RAG ids always hard-fail on unknown (no soft-drop).
+    if rag_catalog_entries is not None or rag_plan_ids or any(
+        t.rag_sources is not None for t in task_definitions
+    ):
+        catalog = list(rag_catalog_entries or [])
+        resolve_rag_ids(rag_plan_ids, catalog, context="plan default rag_ids")
+        new_task_defs_rag: list[TaskDefinition] = []
+        for t in task_definitions:
+            if t.rag_sources is None:
+                new_task_defs_rag.append(t)
+                continue
+            resolve_rag_ids(list(t.rag_sources), catalog, context=f"{t.id} rag_ids")
+            new_task_defs_rag.append(t)
+        task_definitions = new_task_defs_rag
+
     return WorkflowConfig(
         name="dynamic-plan",
         process="sequential",
@@ -1063,6 +1133,7 @@ def workflow_config_from_plan(
         skills=skill_plan_ids,
         tasks=task_definitions,
         task_sequence=[t.id for t in task_definitions],
+        rag_sources=rag_plan_ids,
     )
 
 
@@ -1379,6 +1450,7 @@ def build_dynamic_workflow_config(
     allowed_agent_provider_ids: list[str] | None = None,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
     instance_key: str | None = None,
     max_steps: int | None = None,
     planner_model: str | None = None,
@@ -1500,6 +1572,11 @@ def build_dynamic_workflow_config(
         )
     skills_doc = skills_catalog_for_planner_prompt(skill_entries)
 
+    rag_entries: list[dict[str, Any]] = []
+    if rag_sources_catalog_path is not None:
+        rag_entries = load_rag_sources_catalog_merged(rag_sources_catalog_path)
+    rag_doc = rag_catalog_for_planner_prompt(rag_entries)
+
     doc = catalog_for_planner_prompt(entries)
     learning_summary = ""
     kb_context = ""
@@ -1536,6 +1613,7 @@ def build_dynamic_workflow_config(
         last_crew_excerpt=last_excerpt,
         mcp_catalog_doc=mcp_doc,
         skills_catalog_doc=skills_doc,
+        rag_catalog_doc=rag_doc,
         learning_summary=learning_summary,
         kb_context=kb_context,
     )
@@ -1559,7 +1637,7 @@ def build_dynamic_workflow_config(
                     f"Valid agent_provider_id values (use ONLY these): {known_agent_ids}.\n"
                     "Return a corrected JSON object that strictly matches the schema: "
                     "`plan_summary`, non-empty `steps` with `agent_provider_id` / `description` / `expected_output`, "
-                    "optional `mcp_provider_ids` and `skill_ids`. "
+                    "optional `mcp_provider_ids`, `skill_ids`, and `rag_ids`. "
                     "Do NOT reply with only user-wire keys like `minutes`—that is not the planner schema."
                 ),
             }
@@ -1575,6 +1653,7 @@ def build_dynamic_workflow_config(
                 max_steps=limit,
                 mcp_catalog_entries=mcp_entries,
                 skill_catalog_entries=skill_entries,
+                rag_catalog_entries=rag_entries,
                 quiet=quiet,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1609,6 +1688,7 @@ def build_dynamic_workflow_config(
                 max_steps=limit,
                 mcp_catalog_entries=mcp_entries,
                 skill_catalog_entries=skill_entries,
+                rag_catalog_entries=rag_entries,
                 quiet=quiet,
             )
 
@@ -1625,6 +1705,7 @@ def build_dynamic_workflow_config(
                 max_steps=limit,
                 mcp_catalog_entries=mcp_entries,
                 skill_catalog_entries=skill_entries,
+                rag_catalog_entries=rag_entries,
                 quiet=quiet,
             )
         except Exception as exc:  # noqa: BLE001

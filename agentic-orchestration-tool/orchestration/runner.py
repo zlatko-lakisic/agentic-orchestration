@@ -17,7 +17,7 @@ from agent_providers.base import AgentProvider
 from agent_providers.factory import agent_provider_from_dict
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task
+from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task, raw_rag_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
@@ -35,6 +35,11 @@ from orchestration.crewai_mcp_normalize import normalize_mcps_for_crewai
 from orchestration.mcp_task_hints import augment_task_description_for_mcps, mcp_ids_from_raw_spec
 from orchestration.crewai_mcp_hotfix import apply_crewai_mcp_native_resolver_hotfix
 from orchestration.step_context import prepare_step_description
+from orchestration.rag_apply import apply_rag_for_task
+from orchestration.rag_sources_catalog import load_rag_sources_catalog_merged
+from orchestration.rag_tool import attach_rag_tools_to_agents
+from orchestration.rag_retrieve import RagStepAudit
+from orchestration.rag_grounding import finalize_rag_answer
 
 apply_crewai_mcp_native_resolver_hotfix()
 
@@ -53,6 +58,7 @@ class _SequentialKickoffState:
     last_output_text: str = field(default="")
     progress_enabled: bool = field(default=False)
     emit_progress_lines: bool = True
+    rag_audits: dict[str, RagStepAudit] = field(default_factory=dict)
 
 
 @dataclass
@@ -171,6 +177,15 @@ def _serial_crew_task_callback(output: Any) -> None:
         state.last_output_text = str(output) if output is not None else ""
     except Exception:  # noqa: BLE001
         state.last_output_text = ""
+
+    audit = state.rag_audits.get(task_id)
+    if audit is not None and (audit.granted_rag_ids or audit.retrieved_chunks):
+        _text, accepted, reject = finalize_rag_answer(state.last_output_text, audit)
+        if not accepted:
+            raise RuntimeError(
+                f"RAG grounding failed for task {task_id!r}: {reject}",
+            )
+
     _progress(f"completed {_task_human_label(task_id, task_ref)}")
     if k + 1 < len(state.task_run_order):
         next_id, next_task, next_ap = state.task_run_order[k + 1]
@@ -198,6 +213,7 @@ def build_workflow(
     quiet: bool = False,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
     task_mcp_overrides: dict[str, list[Any]] | None = None,
     task_skill_overrides: dict[str, list[dict[str, Any]]] | None = None,
@@ -210,6 +226,7 @@ def build_workflow(
         os.environ["AGENTIC_OLLAMA_VERBOSE"] = "1"
 
     default_model = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    tool_root = Path(__file__).resolve().parents[1]
 
     resolved = _resolve_agent_provider_entries(config)
     usable_payloads, skipped_cred_ids = filter_entries_by_api_credentials(
@@ -271,6 +288,25 @@ def build_workflow(
         for tid, override in task_skill_overrides.items():
             task_skills_resolved[tid] = list(override)
 
+    rag_catalog: list[dict[str, Any]] = (
+        load_rag_sources_catalog_merged(rag_sources_catalog_path)
+        if rag_sources_catalog_path is not None
+        else []
+    )
+    task_rag_audits: dict[str, RagStepAudit] = {}
+    task_rag_descriptions: dict[str, str] = {}
+    for tdef in config.tasks:
+        base_desc = tdef.description
+        desc, audit, _ids = apply_rag_for_task(
+            tdef,
+            config,
+            description=base_desc,
+            catalog_entries=rag_catalog,
+            tool_root=tool_root,
+        )
+        task_rag_audits[tdef.id] = audit
+        task_rag_descriptions[tdef.id] = desc
+
     task_skill_blocks: dict[str, list[tuple[str, str]]] = {}
     backstory_skill_blocks: dict[str, list[tuple[str, str]]] = {}
     backstory_skill_fp_by_task: dict[str, tuple[str, ...]] = {}
@@ -287,12 +323,16 @@ def build_workflow(
     fingerprint_by_task: dict[str, tuple[str, ...]] = {
         tid: mcps_list_fingerprint(mclist) for tid, mclist in task_mcps_resolved.items()
     }
-    agent_cache_fp_by_task: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-        tid: (fingerprint_by_task[tid], backstory_skill_fp_by_task[tid])
+    rag_fp_by_task: dict[str, tuple[str, ...]] = {
+        tdef.id: tuple(sorted(raw_rag_spec_for_task(tdef, config)))
+        for tdef in config.tasks
+    }
+    agent_cache_fp_by_task: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
+        tid: (fingerprint_by_task[tid], backstory_skill_fp_by_task[tid], rag_fp_by_task[tid])
         for tid in fingerprint_by_task
     }
 
-    groups_by_apid: dict[str, set[tuple[tuple[str, ...], tuple[str, ...]]]] = defaultdict(set)
+    groups_by_apid: dict[str, set[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = defaultdict(set)
     for tdef in config.tasks:
         groups_by_apid[tdef.agent_provider_id].add(agent_cache_fp_by_task[tdef.id])
 
@@ -332,7 +372,7 @@ def build_workflow(
         ap.health_check()
         agent_providers[ap.config.id] = ap
 
-    crew_agent_cache: dict[tuple[str, tuple[tuple[str, ...], tuple[str, ...]]], Any] = {}
+    crew_agent_cache: dict[tuple[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]], Any] = {}
     mcps_disabled_for_provider: set[str] = set()
     for tdef in config.tasks:
         apid = tdef.agent_provider_id
@@ -375,6 +415,23 @@ def build_workflow(
 
     agents = list(crew_agent_cache.values())
 
+    # Attach tool-mode RAG tools per agent (ACL enforced inside RagQueryTool).
+    for tdef in config.tasks:
+        apid = tdef.agent_provider_id
+        fp = agent_cache_fp_by_task[tdef.id]
+        agent = crew_agent_cache.get((apid, fp))
+        if agent is None:
+            continue
+        rag_ids = frozenset(raw_rag_spec_for_task(tdef, config))
+        audit = task_rag_audits.get(tdef.id) or RagStepAudit(granted_rag_ids=list(rag_ids))
+        attach_rag_tools_to_agents(
+            [agent],
+            allowed_source_ids=rag_ids,
+            catalog_entries=rag_catalog,
+            tool_root=tool_root,
+            audit=audit,
+        )
+
     task_def_by_id: dict[str, TaskDefinition] = {t.id: t for t in config.tasks}
     tasks_by_id: dict[str, Task] = {}
     for task_def in config.tasks:
@@ -390,7 +447,7 @@ def build_workflow(
         tasks_by_id[task_def.id] = Task(
             description=augment_task_description_for_mcps(
                 augment_description_for_skills(
-                    task_def.description,
+                    task_rag_descriptions.get(task_def.id, task_def.description),
                     task_skill_blocks[task_def.id],
                 ),
                 mcp_ids_from_raw_spec(raw_mcp_spec_for_task(task_def, config)),
@@ -417,6 +474,7 @@ def build_workflow(
     kickoff_state = _SequentialKickoffState(
         task_run_order=task_run_order,
         inputs_holder=inputs_holder,
+        rag_audits=task_rag_audits,
     )
     kickoff_state.progress_enabled = (
         os.getenv("AGENTIC_PROGRESS", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -441,6 +499,7 @@ def build_workflow(
         "task_skills_resolved": {
             k: [str(e.get("id", "")).strip() for e in v] for k, v in task_skills_resolved.items()
         },
+        "task_rag_audits": {k: v.to_dict() for k, v in task_rag_audits.items()},
     }
     return BuiltWorkflow(
         crew=crew,

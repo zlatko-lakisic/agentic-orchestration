@@ -78,6 +78,7 @@ class CrewAIExecutionBackend:
             quiet=options.quiet,
             mcp_catalog_path=options.mcp_catalog_path,
             agent_skills_catalog_path=options.agent_skills_catalog_path,
+            rag_sources_catalog_path=options.rag_sources_catalog_path,
             emit_progress_lines=options.emit_progress_lines,
         )
         return self.execute_built(built, options=options)
@@ -197,6 +198,7 @@ def run_options_from_legacy(
     crew_verbose: bool = True,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
 ) -> RunOptions:
     return RunOptions(
@@ -207,5 +209,6 @@ def run_options_from_legacy(
         crew_verbose=crew_verbose,
         mcp_catalog_path=mcp_catalog_path,
         agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
     )

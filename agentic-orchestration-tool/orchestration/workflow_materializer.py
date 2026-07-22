@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
-from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task
+from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task, raw_rag_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
@@ -22,6 +22,8 @@ from orchestration.backends.base import StepSpec
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.mcp_task_hints import augment_task_description_for_mcps, mcp_ids_from_raw_spec
 from orchestration.step_context import prepare_step_description
+from orchestration.rag_apply import apply_rag_for_task
+from orchestration.rag_sources_catalog import load_rag_sources_catalog_merged
 
 
 def resolve_task_mcp_maps(
@@ -62,10 +64,12 @@ def build_step_specs(
     run_id: str,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
+    rag_sources_catalog_path: Path | None = None,
     quiet: bool = False,
     prior_outputs: dict[str, str] | None = None,
     run_store_path: str = "",
     artifacts_dir: str = "",
+    tool_root: Path | None = None,
 ) -> list[StepSpec]:
     """Build backend-agnostic step specs using the same catalog resolution as ``build_workflow``."""
     resolved = resolve_agent_provider_entries(config)
@@ -86,6 +90,12 @@ def build_step_specs(
         skills_catalog_path=agent_skills_catalog_path,
         quiet=quiet,
     )
+    rag_catalog: list[dict[str, Any]] = (
+        load_rag_sources_catalog_merged(rag_sources_catalog_path)
+        if rag_sources_catalog_path is not None
+        else []
+    )
+    root = tool_root or Path(__file__).resolve().parents[1]
     topic = config.topic or ""
     prior = prior_outputs or {}
     specs: list[StepSpec] = []
@@ -107,6 +117,7 @@ def build_step_specs(
         task_entries, backstory_entries = partition_skill_entries(task_skills.get(task_id, []))
         raw_mcps = raw_mcp_spec_for_task(task_def, config)
         raw_skills = raw_skill_spec_for_task(task_def, config)
+        raw_rags = raw_rag_spec_for_task(task_def, config)
         description = augment_description_for_skills(
             task_def.description,
             resolve_skill_blocks(task_entries),
@@ -114,6 +125,13 @@ def build_step_specs(
         description = augment_task_description_for_mcps(
             description,
             mcp_ids_from_raw_spec(raw_mcps),
+        )
+        description, rag_audit, _rag_ids = apply_rag_for_task(
+            task_def,
+            config,
+            description=description,
+            catalog_entries=rag_catalog,
+            tool_root=root,
         )
         description = prepare_step_description(description, prior_output)
         mcp_resolved = task_mcps.get(task_id, [])
@@ -158,6 +176,14 @@ def build_step_specs(
                     if agent_skills_catalog_path is not None
                     else ""
                 ),
+                rag_sources=list(raw_rags),
+                rag_query=str(task_def.rag_query or ""),
+                rag_sources_catalog_path=(
+                    str(rag_sources_catalog_path.resolve())
+                    if rag_sources_catalog_path is not None
+                    else ""
+                ),
+                rag_audit=rag_audit.to_dict(),
             )
         )
     return specs

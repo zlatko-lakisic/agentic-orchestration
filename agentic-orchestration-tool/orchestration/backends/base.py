@@ -20,6 +20,7 @@ class RunOptions:
     crew_verbose: bool = True
     mcp_catalog_path: Path | None = None
     agent_skills_catalog_path: Path | None = None
+    rag_sources_catalog_path: Path | None = None
     run_id: str = ""
 
 
@@ -41,6 +42,10 @@ class StepSpec:
     run_store_path: str = ""
     artifacts_dir: str = ""
     agent_skills_catalog_path: str = ""
+    rag_sources: list[str] = field(default_factory=list)
+    rag_query: str = ""
+    rag_sources_catalog_path: str = ""
+    rag_audit: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         paths: dict[str, str] = {
@@ -49,6 +54,8 @@ class StepSpec:
         }
         if self.agent_skills_catalog_path:
             paths["agent_skills_catalog"] = self.agent_skills_catalog_path
+        if self.rag_sources_catalog_path:
+            paths["rag_sources_catalog"] = self.rag_sources_catalog_path
         return {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
@@ -59,10 +66,13 @@ class StepSpec:
             "task": {
                 "description": self.task_description,
                 "expected_output": self.task_expected_output,
+                "rag_query": self.rag_query,
             },
             "agent_provider": dict(self.agent_provider),
             "mcp_providers": list(self.mcp_providers),
             "skills": list(self.skills),
+            "rag_sources": list(self.rag_sources),
+            "rag_audit": dict(self.rag_audit),
             "prior_output": self.prior_output,
             "inputs": dict(self.inputs),
             "paths": paths,
@@ -78,9 +88,10 @@ class StepResult:
     error: str | None = None
     recoverable: bool = False
     recovery_hint: str | None = None
+    rag_audit: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "schema_version": "0.1",
             "run_id": self.run_id,
             "step_id": self.step_id,
@@ -92,6 +103,10 @@ class StepResult:
             "recovery_hint": self.recovery_hint,
             "artifacts": [],
         }
+        if self.rag_audit is not None:
+            out["rag_audit"] = dict(self.rag_audit)
+        return out
+
 
 
 @dataclass

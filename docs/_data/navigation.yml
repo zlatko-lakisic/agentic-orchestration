@@ -13,6 +13,8 @@ main:
     url: /external-integrations/
   - title: "Agent Skills"
     url: /agent-skills/
+  - title: "RAG Sources"
+    url: /rag-catalog/
   - title: "Architecture"
     url: /architecture/
   - title: "Configuration"
@@ -41,6 +43,8 @@ docs:
         url: /mcp-catalog/
       - title: "Agent Skills"
         url: /agent-skills/
+      - title: "RAG Sources"
+        url: /rag-catalog/
       - title: "External Integrations"
         url: /external-integrations/
   - title: "Reference"

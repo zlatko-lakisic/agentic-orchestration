@@ -54,6 +54,7 @@ class FileSystemRunStore(RunStore):
             error=data.get("error"),
             recoverable=bool(data.get("recoverable", False)),
             recovery_hint=data.get("recovery_hint"),
+            rag_audit=data.get("rag_audit") if isinstance(data.get("rag_audit"), dict) else None,
         )
 
 

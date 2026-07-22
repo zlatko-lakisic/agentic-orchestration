@@ -69,7 +69,18 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=k8s_mcp_compat.py="${ORCH_ROOT}/k8s_mcp_compat.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
-  --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py"
+  --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
+  --from-file=runner.py="${ORCH_ROOT}/runner.py" \
+  --from-file=config_loader.py="${ORCH_ROOT}/config_loader.py" \
+  --from-file=run_store.py="${ORCH_ROOT}/run_store.py" \
+  --from-file=rag_sources_catalog.py="${ORCH_ROOT}/rag_sources_catalog.py" \
+  --from-file=rag_retrieve.py="${ORCH_ROOT}/rag_retrieve.py" \
+  --from-file=rag_context.py="${ORCH_ROOT}/rag_context.py" \
+  --from-file=rag_apply.py="${ORCH_ROOT}/rag_apply.py" \
+  --from-file=rag_tool.py="${ORCH_ROOT}/rag_tool.py" \
+  --from-file=rag_grounding.py="${ORCH_ROOT}/rag_grounding.py" \
+  --from-file=backends_base.py="${ORCH_ROOT}/backends/base.py" \
+  --from-file=backends_crewai.py="${ORCH_ROOT}/backends/crewai.py"
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
 apply_configmap agentic-tool-hotfix-agent-providers \
@@ -82,11 +93,13 @@ WARM_POOL_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
 JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
 SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-patch.yaml"
+RAG_SOURCES_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-rag-sources-hostpath-patch.yaml"
 PLANT_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-plant-knowledge-mcp-hostpath-patch.yaml"
 MCP_PROVIDERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-providers-hostpath-patch.yaml"
 MCP_SERVERS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-mcp-servers-hostpath-patch.yaml"
 OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-openclaw-mcp-hostpath-patch.yaml"
 WARM_SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml"
+WARM_RAG_SOURCES_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hostpath-patch.yaml"
 WARM_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml"
 WARM_OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml"
 
@@ -100,6 +113,9 @@ if [[ -f "${JTOP_PATCH}" ]]; then
 fi
 if [[ -f "${SKILLS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${SKILLS_PATCH}"
+fi
+if [[ -f "${RAG_SOURCES_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${RAG_SOURCES_PATCH}"
 fi
 if [[ -f "${PLANT_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PLANT_MCP_PATCH}"
@@ -118,6 +134,9 @@ if [[ -f "${WARM_POOL_PATCH}" ]]; then
 fi
 if [[ -f "${WARM_SKILLS_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_SKILLS_PATCH}"
+fi
+if [[ -f "${WARM_RAG_SOURCES_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RAG_SOURCES_PATCH}"
 fi
 if [[ -f "${WARM_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_MCP_PATCH}"

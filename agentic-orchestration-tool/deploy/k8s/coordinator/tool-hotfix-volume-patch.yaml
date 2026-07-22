@@ -68,6 +68,39 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/media_grounding.py
               subPath: media_grounding.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/runner.py
+              subPath: runner.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/config_loader.py
+              subPath: config_loader.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/run_store.py
+              subPath: run_store.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_sources_catalog.py
+              subPath: rag_sources_catalog.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_retrieve.py
+              subPath: rag_retrieve.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_context.py
+              subPath: rag_context.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_apply.py
+              subPath: rag_apply.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_tool.py
+              subPath: rag_tool.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/rag_grounding.py
+              subPath: rag_grounding.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/backends/base.py
+              subPath: backends_base.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/backends/crewai.py
+              subPath: backends_crewai.py
             - name: tool-hotfix-agent-providers
               mountPath: /app/tool/agent_providers/base.py
               subPath: base.py
