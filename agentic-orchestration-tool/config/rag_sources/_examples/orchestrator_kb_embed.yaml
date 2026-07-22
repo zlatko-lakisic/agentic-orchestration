@@ -1,0 +1,16 @@
+# Example only — this directory is skipped by the catalog loader (name starts with _).
+# Copy to config/rag_sources/ (or AGENTIC_EXTRA_RAG_SOURCES_PATH) when ready.
+#
+# provider: any LiteLLM embedding model id (optional litellm: prefix).
+# index: local SQLite vector store (created on first retrieve).
+# path: corpus DB (knowledge_base-compatible). Empty path = default __orchestrator_kb__/kb.sqlite3.
+
+id: orchestrator_kb_embed
+backend: embedding
+mode: inject
+provider: ollama/nomic-embed-text
+index: ../../__orchestrator_kb__/embed_index.sqlite3
+top_k: 5
+max_tokens: 2000
+description: Semantic retrieval over the orchestrator KB via local Ollama embeddings.
+planner_hint: Use when goals paraphrase docs (weak keyword overlap with FTS).

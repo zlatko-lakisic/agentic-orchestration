@@ -2,8 +2,10 @@
 
 Backends (honesty labels):
 - ``sqlite-fts`` — **shipped** (wraps ``orchestration.knowledge_base``)
-- ``embedding`` — **planned** (hard-fails at load; no silent FTS fallback)
-- ``hybrid`` — **planned** (hard-fails at load)
+- ``embedding`` — **shipped** (LiteLLM embeddings + local SQLite vector index)
+- ``hybrid`` — **shipped** (FTS + embedding via reciprocal rank fusion)
+
+Embedding/hybrid never silently fall back to FTS when the provider fails.
 """
 
 from __future__ import annotations
@@ -14,12 +16,13 @@ from typing import Any
 
 import yaml
 
+from orchestration.rag_embeddings import normalize_embedding_provider
+
 _EXTRA_RAG_PATH_ENV = "AGENTIC_EXTRA_RAG_SOURCES_PATH"
 _SKIP_STEMS = frozenset({"readme", "index"})
 
-SHIPPED_BACKENDS = frozenset({"sqlite-fts"})
-PLANNED_BACKENDS = frozenset({"embedding", "hybrid"})
-KNOWN_BACKENDS = SHIPPED_BACKENDS | PLANNED_BACKENDS
+SHIPPED_BACKENDS = frozenset({"sqlite-fts", "embedding", "hybrid"})
+KNOWN_BACKENDS = SHIPPED_BACKENDS
 KNOWN_MODES = frozenset({"inject", "tool"})
 
 
@@ -85,7 +88,7 @@ def _resolve_entry_path(entry: dict[str, Any], file_ref: str) -> Path:
 
 
 def validate_rag_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    """Validate one catalog entry; raise ValueError / NotImplementedError on failure."""
+    """Validate one catalog entry; raise ValueError on failure."""
     eid = str(entry.get("id", "")).strip()
     if not eid:
         raise ValueError("RAG source entry missing non-empty 'id'")
@@ -95,12 +98,6 @@ def validate_rag_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             f"RAG source {eid!r}: unknown backend {backend!r}. "
             f"Known: {', '.join(sorted(KNOWN_BACKENDS))}",
-        )
-    if backend in PLANNED_BACKENDS:
-        raise NotImplementedError(
-            f"RAG source {eid!r}: backend {backend!r} is **planned** (not shipped). "
-            "Use backend 'sqlite-fts'. Embedding/hybrid will hard-fail at load — "
-            "never silently fall back to FTS.",
         )
 
     mode = str(entry.get("mode", "inject")).strip().lower() or "inject"
@@ -112,7 +109,7 @@ def validate_rag_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
     path_raw = entry.get("path")
     path_str = str(path_raw).strip() if path_raw is not None else ""
-    # Empty path = default orchestrator KB resolved at query time (sqlite-fts only).
+    # Empty path = default orchestrator KB resolved at query time.
     if path_str:
         resolved = _resolve_entry_path(entry, path_str)
         if not resolved.exists() and not resolved.parent.is_dir():
@@ -122,6 +119,35 @@ def validate_rag_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
             )
         entry = dict(entry)
         entry["_resolved_path"] = str(resolved)
+
+    provider = ""
+    index_raw = entry.get("index")
+    index_str = str(index_raw).strip() if index_raw is not None else ""
+    if backend in ("embedding", "hybrid"):
+        provider = normalize_embedding_provider(str(entry.get("provider") or ""))
+        if not provider:
+            raise ValueError(
+                f"RAG source {eid!r}: backend {backend!r} requires non-empty 'provider' "
+                "(LiteLLM embedding model, e.g. text-embedding-3-small or ollama/nomic-embed-text). "
+                "No silent fallback to sqlite-fts.",
+            )
+        if not index_str:
+            raise ValueError(
+                f"RAG source {eid!r}: backend {backend!r} requires non-empty 'index' "
+                "(local SQLite vector index path). No silent fallback to sqlite-fts.",
+            )
+        index_resolved = _resolve_entry_path(entry, index_str)
+        from orchestration.rag_embeddings import _as_index_sqlite_path
+
+        index_file = _as_index_sqlite_path(index_resolved)
+        parent_dir = index_file.parent
+        if not parent_dir.exists() and not parent_dir.parent.is_dir():
+            raise ValueError(
+                f"RAG source {eid!r}: index {index_str!r} parent is missing "
+                f"(resolved {parent_dir})",
+            )
+        entry = dict(entry)
+        entry["_resolved_index"] = str(index_file)
 
     top_k = entry.get("top_k", 5)
     try:
@@ -145,6 +171,8 @@ def validate_rag_source_entry(entry: dict[str, Any]) -> dict[str, Any]:
     out["mode"] = mode
     out["top_k"] = top_k_i
     out["max_tokens"] = max_tokens_i
+    if provider:
+        out["provider"] = provider
     if not isinstance(out.get("filters"), dict):
         out["filters"] = {}
     return out
@@ -237,4 +265,3 @@ def rag_catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
     return "### RAG sources (retrieval corpora)\n" + "\n".join(
         _format_rag_catalog_entry(p) for p in ordered
     )
-

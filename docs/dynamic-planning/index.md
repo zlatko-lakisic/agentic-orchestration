@@ -85,7 +85,7 @@ The planner can attach skill **ids** (procedural playbooks) via top-level `skill
 
 ## RAG sources in plans
 
-The planner can attach RAG source **ids** via top-level `rag_ids` and/or per-step `rag_ids` (optional `rag_query`) when entries exist in [RAG sources]({{ '/rag-catalog/' | relative_url }}). Unknown ids **hard-fail** at plan validation. See that page for shipped vs **planned** backends and known gaps on the shipped path.
+The planner can attach RAG source **ids** via top-level `rag_ids` and/or per-step `rag_ids` (optional `rag_query`) when entries exist in [RAG sources]({{ '/rag-catalog/' | relative_url }}). Unknown ids **hard-fail** at plan validation. Backends: `sqlite-fts`, `embedding` (LiteLLM + local SQLite index), `hybrid` (FTS + embedding RRF).
 
 ## Sessions
 
@@ -100,7 +100,7 @@ See [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relativ
 - Agent templates: `--agent-providers-catalog` (default `config/agent_providers`).
 - MCP templates: `--mcp-providers-catalog` (default `config/mcp_providers`).
 - Agent skills: `--agent-skills-catalog` (default `config/agent_skills`). See [Agent skills]({{ '/agent-skills/' | relative_url }}).
-- RAG sources: `--rag-sources-catalog` (default `config/rag_sources`). See [RAG sources]({{ '/rag-catalog/' | relative_url }}) (includes **planned** backends and known gaps).
+- RAG sources: `--rag-sources-catalog` (default `config/rag_sources`). See [RAG sources]({{ '/rag-catalog/' | relative_url }}).
 
 ## Learning and KB
 

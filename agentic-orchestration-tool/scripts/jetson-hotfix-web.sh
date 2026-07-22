@@ -76,6 +76,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=run_store.py="${ORCH_ROOT}/run_store.py" \
   --from-file=rag_sources_catalog.py="${ORCH_ROOT}/rag_sources_catalog.py" \
   --from-file=rag_retrieve.py="${ORCH_ROOT}/rag_retrieve.py" \
+  --from-file=rag_embeddings.py="${ORCH_ROOT}/rag_embeddings.py" \
   --from-file=rag_context.py="${ORCH_ROOT}/rag_context.py" \
   --from-file=rag_apply.py="${ORCH_ROOT}/rag_apply.py" \
   --from-file=rag_tool.py="${ORCH_ROOT}/rag_tool.py" \

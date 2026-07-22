@@ -50,27 +50,29 @@ def test_missing_path_parent_fails() -> None:
 
 
 @pytest.mark.unit
-def test_embedding_backend_planned_hard_fail() -> None:
-    with pytest.raises(NotImplementedError, match="planned"):
+def test_embedding_requires_provider() -> None:
+    with pytest.raises(ValueError, match="provider"):
         validate_rag_source_entry(
             {
                 "id": "emb",
                 "backend": "embedding",
                 "mode": "tool",
-                "provider": "litellm:text-embedding-3-small",
-                "index": "./idx",
+                "index": "./idx.sqlite3",
+                "_source_path": "/tmp/fake.yaml",
             }
         )
 
 
 @pytest.mark.unit
-def test_hybrid_backend_planned_hard_fail() -> None:
-    with pytest.raises(NotImplementedError, match="planned"):
+def test_hybrid_requires_index(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="index"):
         validate_rag_source_entry(
             {
                 "id": "hyb",
                 "backend": "hybrid",
                 "mode": "inject",
+                "provider": "ollama/nomic-embed-text",
+                "_source_path": str(tmp_path / "x.yaml"),
             }
         )
 

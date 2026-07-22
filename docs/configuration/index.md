@@ -77,7 +77,7 @@ Never commit `.env` or tokens. `.env` files are gitignored by convention.
 ## Related
 
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — required env per integration; [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) cross-reference
-- [RAG sources]({{ '/rag-catalog/' | relative_url }}) — retrieval corpora (`sqlite-fts` shipped; embedding/hybrid planned; known gaps listed on that page)
+- [RAG sources]({{ '/rag-catalog/' | relative_url }}) — retrieval corpora (`sqlite-fts`, `embedding`, `hybrid` shipped; known gaps on that page)
 - [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }}) — procedural skill catalog env vars and attachment semantics
 - [Agent skills]({{ '/agent-skills/' | relative_url }}) — shipped skill inventory
 - [CLI reference]({{ '/cli-reference/' | relative_url }})

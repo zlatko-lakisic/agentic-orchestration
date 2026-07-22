@@ -220,31 +220,177 @@ def retrieve_from_source(
     *,
     query: str,
     tool_root: Path,
+    embed_fn: Any | None = None,
 ) -> list[RagChunk]:
     """Single-shot retrieval for one catalog entry."""
     backend = str(entry.get("backend", "")).strip().lower()
     source_id = str(entry.get("id", "")).strip()
+    top_k = int(entry.get("top_k", 5))
     if backend == "sqlite-fts":
-        db = resolve_sqlite_fts_db_path(entry, tool_root=tool_root)
-        hits = search_sqlite_fts_at_path(
-            db_path=db,
+        return _retrieve_sqlite_fts(entry, query=query, tool_root=tool_root, source_id=source_id, top_k=top_k)
+    if backend == "embedding":
+        return _retrieve_embedding(
+            entry,
             query=query,
-            limit=int(entry.get("top_k", 5)),
+            tool_root=tool_root,
+            source_id=source_id,
+            top_k=top_k,
+            embed_fn=embed_fn,
         )
-        return [
-            RagChunk(
-                source_id=source_id,
-                chunk_id=str(h.doc_id),
-                text=h.content_snippet or h.user_goal,
-                score=float(h.score),
-            )
-            for h in hits
-        ]
-    if backend in ("embedding", "hybrid"):
-        raise NotImplementedError(
-            f"RAG backend {backend!r} is planned; source {source_id!r} must not be loaded.",
+    if backend == "hybrid":
+        return _retrieve_hybrid(
+            entry,
+            query=query,
+            tool_root=tool_root,
+            source_id=source_id,
+            top_k=top_k,
+            embed_fn=embed_fn,
         )
     raise ValueError(f"Unknown RAG backend {backend!r} for source {source_id!r}")
+
+
+def _retrieve_sqlite_fts(
+    entry: dict[str, Any],
+    *,
+    query: str,
+    tool_root: Path,
+    source_id: str,
+    top_k: int,
+) -> list[RagChunk]:
+    db = resolve_sqlite_fts_db_path(entry, tool_root=tool_root)
+    hits = search_sqlite_fts_at_path(db_path=db, query=query, limit=top_k)
+    return [
+        RagChunk(
+            source_id=source_id,
+            chunk_id=str(h.doc_id),
+            text=h.content_snippet or h.user_goal,
+            score=float(h.score),
+        )
+        for h in hits
+    ]
+
+
+def _max_embed_docs() -> int:
+    try:
+        n = int(os.getenv("AGENTIC_RAG_EMBED_MAX_DOCS", "2000"))
+    except ValueError:
+        n = 2000
+    return max(1, min(50_000, n))
+
+
+def _retrieve_embedding(
+    entry: dict[str, Any],
+    *,
+    query: str,
+    tool_root: Path,
+    source_id: str,
+    top_k: int,
+    embed_fn: Any | None = None,
+) -> list[RagChunk]:
+    from orchestration.rag_embeddings import (
+        load_docs_from_kb,
+        litellm_embed_texts,
+        normalize_embedding_provider,
+        resolve_index_path,
+        search_vector_index,
+        sync_vector_index,
+    )
+
+    q = " ".join(str(query or "").strip().split())
+    if not q:
+        return []
+    provider = normalize_embedding_provider(str(entry.get("provider") or ""))
+    if not provider:
+        raise RuntimeError(
+            f"RAG source {source_id!r}: embedding backend missing provider "
+            "(no silent fallback to sqlite-fts)",
+        )
+    docs_db = resolve_sqlite_fts_db_path(entry, tool_root=tool_root)
+    index_path = resolve_index_path(entry, tool_root=tool_root)
+    emb = embed_fn or litellm_embed_texts
+    docs = load_docs_from_kb(docs_db, max_docs=_max_embed_docs())
+    sync_vector_index(index_path=index_path, docs=docs, model=provider, embed_fn=emb)
+    qvec = emb([q], provider)[0]
+    hits = search_vector_index(index_path=index_path, query_vec=qvec, model=provider, limit=top_k)
+    return [
+        RagChunk(source_id=source_id, chunk_id=cid, text=text, score=float(score))
+        for cid, score, text in hits
+    ]
+
+
+def _retrieve_hybrid(
+    entry: dict[str, Any],
+    *,
+    query: str,
+    tool_root: Path,
+    source_id: str,
+    top_k: int,
+    embed_fn: Any | None = None,
+) -> list[RagChunk]:
+    from orchestration.rag_embeddings import (
+        load_docs_from_kb,
+        litellm_embed_texts,
+        normalize_embedding_provider,
+        reciprocal_rank_fusion,
+        resolve_index_path,
+        search_vector_index,
+        sync_vector_index,
+    )
+
+    q = " ".join(str(query or "").strip().split())
+    if not q:
+        return []
+    provider = normalize_embedding_provider(str(entry.get("provider") or ""))
+    if not provider:
+        raise RuntimeError(
+            f"RAG source {source_id!r}: hybrid backend missing provider "
+            "(no silent fallback to sqlite-fts alone)",
+        )
+
+    oversample = max(top_k * 4, top_k)
+    fts_chunks = _retrieve_sqlite_fts(
+        entry,
+        query=q,
+        tool_root=tool_root,
+        source_id=source_id,
+        top_k=oversample,
+    )
+    fts_ids = [c.chunk_id for c in fts_chunks]
+    fts_by_id = {c.chunk_id: c for c in fts_chunks}
+
+    docs_db = resolve_sqlite_fts_db_path(entry, tool_root=tool_root)
+    index_path = resolve_index_path(entry, tool_root=tool_root)
+    emb = embed_fn or litellm_embed_texts
+    docs = load_docs_from_kb(docs_db, max_docs=_max_embed_docs())
+    sync_vector_index(index_path=index_path, docs=docs, model=provider, embed_fn=emb)
+    qvec = emb([q], provider)[0]
+    emb_hits = search_vector_index(
+        index_path=index_path,
+        query_vec=qvec,
+        model=provider,
+        limit=oversample,
+    )
+    emb_ids = [cid for cid, _score, _text in emb_hits]
+    emb_by_id = {
+        cid: RagChunk(source_id=source_id, chunk_id=cid, text=text, score=float(score))
+        for cid, score, text in emb_hits
+    }
+
+    fused = reciprocal_rank_fusion([fts_ids, emb_ids], limit=top_k)
+    out: list[RagChunk] = []
+    for cid, rrf_score in fused:
+        base = emb_by_id.get(cid) or fts_by_id.get(cid)
+        if base is None:
+            continue
+        out.append(
+            RagChunk(
+                source_id=source_id,
+                chunk_id=cid,
+                text=base.text,
+                score=float(rrf_score),
+            )
+        )
+    return out
 
 
 def apply_token_budgets(

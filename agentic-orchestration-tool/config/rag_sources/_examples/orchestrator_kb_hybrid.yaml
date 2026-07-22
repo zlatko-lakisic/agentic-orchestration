@@ -1,0 +1,12 @@
+# Example only — skipped by catalog loader (_examples/).
+# Hybrid = sqlite-fts + embedding fused with reciprocal rank fusion (RRF).
+
+id: orchestrator_kb_hybrid
+backend: hybrid
+mode: inject
+provider: ollama/nomic-embed-text
+index: ../../__orchestrator_kb__/hybrid_index.sqlite3
+top_k: 5
+max_tokens: 2000
+description: Hybrid FTS + embedding retrieval over the orchestrator KB.
+planner_hint: Prefer when both exact tokens and paraphrases matter.

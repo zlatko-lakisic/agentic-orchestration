@@ -799,7 +799,7 @@ def parse_args() -> argparse.Namespace:
         default=_DEFAULT_RAG_SOURCES_CATALOG,
         metavar="PATH",
         help=(
-            f"Directory of one YAML per RAG source (sqlite-fts inject/tool retrieval). "
+            f"Directory of one YAML per RAG source (sqlite-fts / embedding / hybrid). "
             f"Or a bundle YAML with 'rag_sources'. "
             f"Default {_DEFAULT_RAG_SOURCES_CATALOG!r}; missing path loads no RAG catalog entries. "
             f"Also merges directories in AGENTIC_EXTRA_RAG_SOURCES_PATH ({os.pathsep}-separated)."

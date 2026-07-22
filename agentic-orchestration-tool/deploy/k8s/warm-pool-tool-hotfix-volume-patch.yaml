@@ -69,6 +69,9 @@ spec:
               mountPath: /app/orchestration/rag_retrieve.py
               subPath: rag_retrieve.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/rag_embeddings.py
+              subPath: rag_embeddings.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/rag_context.py
               subPath: rag_context.py
             - name: tool-hotfix-orchestration

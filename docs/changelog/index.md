@@ -19,6 +19,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **RAG embedding + hybrid backends** — LiteLLM embeddings with a local SQLite vector index (`embedding`), and FTS+embedding reciprocal rank fusion (`hybrid`). Provider/index required at catalog load; embedding failures never silently fall back to FTS. Examples under `config/rag_sources/_examples/`.
+
 ## [1.14.0] - 2026-07-21
 
 ### Added
