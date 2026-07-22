@@ -15,14 +15,14 @@ const VERTICALS = [
 
 export function Verticals() {
   return (
-    <section id="verticals" className="border-b border-line">
+    <section id="verticals" className="border-b border-line bg-panel/40">
       <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
-        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">05 · verticals</p>
+        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">04 · domains</p>
         <h2 className="font-display mt-3 max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
-          Domain overlays that ship.
+          Two domains that ship today.
         </h2>
         <p className="mt-5 max-w-2xl text-mist">
-          Outcome first. The CLI command is the proof.
+          Real overlays with a one-command entry point. Outcome first; the command is the proof.
         </p>
 
         <ul className="mt-10 grid gap-4 md:grid-cols-2">

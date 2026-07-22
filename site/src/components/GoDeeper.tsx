@@ -20,7 +20,7 @@ export function GoDeeper() {
   return (
     <section id="go-deeper" className="border-b border-line">
       <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
-        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">09 · go deeper</p>
+        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">08 · go deeper</p>
         <h2 className="font-display mt-3 max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
           Documentation and related work.
         </h2>
@@ -46,9 +46,6 @@ export function GoDeeper() {
             </li>
           ))}
         </ul>
-        <p className="mt-6 font-mono text-[11px] text-dim">
-          TODO: public GitLab mirror URL — self-hosted mirror exists on private LAN only.
-        </p>
       </div>
     </section>
   )

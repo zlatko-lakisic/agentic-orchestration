@@ -4,7 +4,7 @@ export function AboutTheBuilder() {
   return (
     <section id="about" className="border-b border-line bg-panel/40">
       <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
-        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">08 · builder</p>
+        <p className="font-mono text-[11px] tracking-wider text-steel uppercase">07 · builder</p>
         <h2 className="font-display mt-3 max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
           About the builder.
         </h2>

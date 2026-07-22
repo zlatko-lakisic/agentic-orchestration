@@ -31,12 +31,14 @@ export function Hero() {
             className="font-display mt-4 max-w-xl text-4xl leading-[1.08] font-semibold text-balance text-white sm:text-5xl"
             {...fade(0.15)}
           >
-            A loop that replans, remembers the work, and checks itself.
+            When one answer isn&apos;t enough.
           </motion.h1>
           <motion.p className="mt-5 max-w-lg text-base text-mist sm:text-lg" {...fade(0.28)}>
-            Not a smarter single model — a process for multi-step work: coordinator,
-            working record, knowledge that should carry, and scored QA. Runs
-            model-agnostically on CrewAI + LiteLLM.
+            You ask AI a question and get an answer — great for quick things. But some jobs are
+            too big for one answer. They take real steps, and the first draft can&apos;t just be
+            trusted. This works like a small team instead of a single assistant: it plans the
+            work, does it, catches its own mistakes and redoes them, and has a separate reviewer
+            check the result before it reaches you — using whatever AI you already trust.
           </motion.p>
           <motion.div className="mt-9 flex flex-wrap gap-3" {...fade(0.4)}>
             <a
@@ -60,10 +62,16 @@ export function Hero() {
 
         <TracePanel
           title="run · console"
-          subtitle="task.in → replan → qa → task.out"
+          subtitle="representative · not a live execution"
           events={HERO_TRACE}
           animate
           className="min-h-[280px]"
+          footer={
+            <p className="font-mono text-[11px] text-dim">
+              Representative example — ambient proof beside the explanation, not a captured
+              session.
+            </p>
+          }
         />
       </div>
     </header>

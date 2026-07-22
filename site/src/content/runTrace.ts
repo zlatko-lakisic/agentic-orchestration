@@ -59,7 +59,7 @@ export const REPRESENTATIVE_RUN: TraceEvent[] = [
     kind: 'score',
     label: 'QA score',
     detail:
-      'Rubric: reward qualified claims; penalize invented trial IDs / approval numbers. Score 0.86 — pass.',
+      'Review: reward qualified claims; penalize invented trial IDs / approval numbers. Scored above the review threshold — pass. (Illustrative result, not a live metric.)',
     status: 'pass',
   },
   {
