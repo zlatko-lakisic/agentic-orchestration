@@ -1,8 +1,21 @@
 ---
 ---
 
+/* Control Plane fonts — set before theme imports (!default) */
+$sans-serif: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  "Helvetica Neue", Arial, sans-serif !default;
+$sans-serif-narrow: $sans-serif !default;
+$global-font-family: $sans-serif !default;
+$header-font-family: "Chivo", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  sans-serif !default;
+$monospace: "IBM Plex Mono", ui-monospace, Monaco, Consolas, monospace !default;
+
 @import "minimal-mistakes/skins/{{ site.minimal_mistakes_skin | default: 'default' }}";
 @import "minimal-mistakes";
+
+/* --------------------------------------------------------------------------
+   Mermaid figures / zoom modal — Control Plane tokens
+   -------------------------------------------------------------------------- */
 
 .mermaid {
   margin: 1.5em 0;
@@ -13,9 +26,9 @@
 .mermaid-figure {
   margin: 1.5em 0;
   padding: 0.75rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid #2c3340;
   border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.35);
+  background: #1a1f29;
   cursor: zoom-in;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -23,8 +36,8 @@
 .mermaid-figure:hover,
 .mermaid-figure:focus {
   outline: none;
-  border-color: rgba(129, 140, 248, 0.8);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+  border-color: #6b9aab;
+  box-shadow: 0 0 0 3px rgba(107, 154, 171, 0.28);
 }
 
 .mermaid-figure .mermaid {
@@ -35,7 +48,7 @@
   margin: 0.5rem 0 0;
   text-align: center;
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: #7a8494;
 }
 
 .mermaid-modal-open {
@@ -57,7 +70,7 @@
 .mermaid-modal__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(2, 6, 23, 0.78);
+  background: rgba(18, 21, 28, 0.82);
   backdrop-filter: blur(2px);
 }
 
@@ -68,8 +81,8 @@
   height: min(92vh, 900px);
   display: flex;
   flex-direction: column;
-  background: #0f172a;
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: #12151c;
+  border: 1px solid #2c3340;
   border-radius: 1rem;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.45);
   overflow: hidden;
@@ -84,8 +97,8 @@
   height: 2.25rem;
   border: 0;
   border-radius: 999px;
-  background: rgba(30, 41, 59, 0.95);
-  color: #f8fafc;
+  background: #222834;
+  color: #e8ecf2;
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
@@ -93,8 +106,9 @@
 
 .mermaid-modal__close:hover,
 .mermaid-modal__close:focus {
-  background: #334155;
-  outline: none;
+  background: #2c3340;
+  outline: 2px solid #6b9aab;
+  outline-offset: 2px;
 }
 
 .mermaid-modal__toolbar {
@@ -104,10 +118,10 @@
 }
 
 .mermaid-modal__zoom-btn {
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  border: 1px solid #2c3340;
   border-radius: 0.5rem;
-  background: #1e293b;
-  color: #e2e8f0;
+  background: #1a1f29;
+  color: #b4bcc8;
   padding: 0.35rem 0.75rem;
   cursor: pointer;
   font-size: 0.9rem;
@@ -115,8 +129,10 @@
 
 .mermaid-modal__zoom-btn:hover,
 .mermaid-modal__zoom-btn:focus {
-  background: #334155;
-  outline: none;
+  background: #222834;
+  color: #e8ecf2;
+  outline: 2px solid #6b9aab;
+  outline-offset: 2px;
 }
 
 .mermaid-modal__body {
@@ -136,3 +152,44 @@
   margin: 0 auto;
 }
 
+/* Docs-home section lists */
+.docs-home-section {
+  margin: 2rem 0 2.5rem;
+}
+
+.docs-home-section h2 {
+  margin-bottom: 0.75rem;
+}
+
+.docs-home-section ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.docs-home-section li a {
+  display: inline-block;
+  padding: 0.35rem 0;
+}
+
+.docs-home-lead {
+  color: #7a8494;
+  max-width: 40rem;
+}
+
+.site-home-link {
+  font-family: $monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b9aab !important;
+  margin-right: 0.75rem;
+  white-space: nowrap;
+}
+
+.site-home-link:hover,
+.site-home-link:focus {
+  color: #e8ecf2 !important;
+}

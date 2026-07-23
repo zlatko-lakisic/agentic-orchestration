@@ -2,26 +2,30 @@
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.esm.min.mjs";
 
   const skin = "{{ site.minimal_mistakes_skin | default: 'default' }}";
-  const theme = skin === "dark" ? "dark" : "default";
+  const useControlPlane = skin === "control-plane" || skin === "dark";
 
   mermaid.initialize({
     startOnLoad: false,
-    theme: theme,
+    theme: useControlPlane ? "dark" : "default",
     securityLevel: "loose",
     flowchart: { useMaxWidth: true, htmlLabels: true, curve: "basis" },
-    themeVariables: theme === "dark" ? {
-      primaryColor: "#4338CA",
-      primaryTextColor: "#E0E7FF",
-      primaryBorderColor: "#A5B4FC",
-      lineColor: "#94A3B8",
-      secondaryColor: "#065F46",
-      tertiaryColor: "#1E3A8A",
-      background: "#0F172A",
-      mainBkg: "#1E293B",
-      nodeBorder: "#64748B",
-      clusterBkg: "#1E293B",
-      titleColor: "#F8FAFC",
-      edgeLabelBackground: "#0F172A",
+    themeVariables: useControlPlane ? {
+      // Control Plane tokens
+      primaryColor: "#1a1f29",
+      primaryTextColor: "#b4bcc8",
+      primaryBorderColor: "#6b9aab",
+      lineColor: "#6b9aab",
+      secondaryColor: "#222834",
+      tertiaryColor: "#12151c",
+      background: "#12151c",
+      mainBkg: "#1a1f29",
+      nodeBorder: "#2c3340",
+      clusterBkg: "#1a1f29",
+      clusterBorder: "#2c3340",
+      titleColor: "#e8ecf2",
+      edgeLabelBackground: "#12151c",
+      textColor: "#b4bcc8",
+      fontFamily: "Source Sans 3, sans-serif",
     } : {
       primaryColor: "#C7D2FE",
       primaryTextColor: "#312E81",
