@@ -32,7 +32,7 @@ export function Hero() {
             height={521}
             decoding="async"
             fetchPriority="high"
-            className="h-full w-full object-cover object-[70%_center] opacity-[0.19]"
+            className="h-full w-full object-cover object-[70%_center] opacity-[0.7]"
           />
         </picture>
         {/* Soften into Control Plane graphite; keep left readable for copy */}
