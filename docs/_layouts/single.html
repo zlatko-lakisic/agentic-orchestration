@@ -1,0 +1,72 @@
+---
+layout: default
+---
+{%- assign page_path = page.url | default: page.permalink -%}
+{%- assign section_label = "docs" -%}
+{%- for section in site.data.navigation.docs -%}
+  {%- for item in section.children -%}
+    {%- if page_path == item.url or page.url == item.url or page.permalink == item.url -%}
+      {%- assign section_label = section.title | downcase -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endfor -%}
+
+{%- assign is_wide = false -%}
+{%- if page.classes == "wide" or page.classes contains "wide" -%}
+  {%- assign is_wide = true -%}
+{%- endif -%}
+{%- if page.url == "/" -%}
+  {%- assign is_wide = true -%}
+{%- endif -%}
+
+{%- assign show_toc = false -%}
+{%- if page.toc == true and is_wide == false -%}
+  {%- assign show_toc = true -%}
+{%- endif -%}
+
+{%- assign toc_label = page.toc_label | default: "On this page" -%}
+
+<div class="docs-shell{% if is_wide %} docs-shell--wide{% endif %}">
+  <aside class="docs-sidebar" aria-label="Documentation">
+    <button type="button" class="docs-sidebar__toggle" data-sidebar-toggle aria-expanded="false" aria-controls="docs-sidebar-nav">
+      <span>Documentation menu</span>
+      <span aria-hidden="true">+</span>
+    </button>
+    <div id="docs-sidebar-nav" class="docs-sidebar__nav" data-sidebar-panel>
+      {% include nav-docs.html %}
+    </div>
+  </aside>
+
+  <div class="docs-main">
+    <header class="page-header">
+      <p class="page-header__eyebrow">docs · {{ section_label }}</p>
+      <h1 class="page-header__title">{{ page.title }}</h1>
+    </header>
+
+    {% if show_toc %}
+    <details class="docs-toc-mobile">
+      <summary>{{ toc_label }}</summary>
+      {% include toc.html html=content list_id="toc-mobile" %}
+    </details>
+    {% endif %}
+
+    <article id="main-content" class="page-content" data-page-content>
+      {% if show_toc %}
+        {{ content | inject_anchors }}
+      {% else %}
+        {{ content }}
+      {% endif %}
+    </article>
+
+    {% include page-nav.html %}
+  </div>
+
+  {% if show_toc %}
+  <aside class="docs-toc" aria-label="{{ toc_label }}">
+    <div class="docs-toc__inner">
+      <p class="toc-label">{{ toc_label }}</p>
+      {% include toc.html html=content %}
+    </div>
+  </aside>
+  {% endif %}
+</div>

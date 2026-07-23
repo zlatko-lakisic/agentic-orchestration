@@ -1,0 +1,50 @@
+{%- comment -%} Previous / next from docs nav order {%- endcomment -%}
+{%- assign flat = "" -%}
+{%- capture flat_urls -%}
+{%- for section in site.data.navigation.docs -%}
+{%- for item in section.children -%}
+{{ item.url }}|||{{ item.title }}
+{% endfor -%}
+{%- endfor -%}
+{%- endcapture -%}
+{%- assign lines = flat_urls | strip | split: "
+" -%}
+{%- assign prev_url = nil -%}
+{%- assign prev_title = nil -%}
+{%- assign next_url = nil -%}
+{%- assign next_title = nil -%}
+{%- assign found = false -%}
+{%- for line in lines -%}
+  {%- assign parts = line | split: "|||" -%}
+  {%- assign u = parts[0] -%}
+  {%- assign t = parts[1] -%}
+  {%- if found and next_url == nil -%}
+    {%- assign next_url = u -%}
+    {%- assign next_title = t -%}
+  {%- endif -%}
+  {%- if page.url == u or page.permalink == u -%}
+    {%- assign found = true -%}
+  {%- elsif found == false -%}
+    {%- assign prev_url = u -%}
+    {%- assign prev_title = t -%}
+  {%- endif -%}
+{%- endfor -%}
+
+{%- if prev_url or next_url -%}
+<nav class="page-nav" aria-label="Adjacent pages">
+  {%- if prev_url -%}
+    <a class="page-nav__card" href="{{ prev_url | relative_url }}">
+      <span class="page-nav__dir">Previous</span>
+      <span class="page-nav__title">{{ prev_title }}</span>
+    </a>
+  {%- else -%}
+    <span></span>
+  {%- endif -%}
+  {%- if next_url -%}
+    <a class="page-nav__card page-nav__card--next" href="{{ next_url | relative_url }}">
+      <span class="page-nav__dir">Next</span>
+      <span class="page-nav__title">{{ next_title }}</span>
+    </a>
+  {%- endif -%}
+</nav>
+{%- endif -%}

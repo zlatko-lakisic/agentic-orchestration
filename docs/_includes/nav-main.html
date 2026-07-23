@@ -1,0 +1,15 @@
+{%- if include.mobile -%}
+<ul id="nav-main-mobile" class="nav-main--mobile" data-nav-mobile hidden>
+{%- else -%}
+<ul class="nav-main" aria-label="Primary">
+{%- endif -%}
+  {%- for link in site.data.navigation.main -%}
+    {%- assign is_active = false -%}
+    {%- if page.url == link.url or page.permalink == link.url -%}
+      {%- assign is_active = true -%}
+    {%- endif -%}
+    <li>
+      <a href="{{ link.url | relative_url }}"{% if is_active %} class="is-active" aria-current="page"{% endif %}>{{ link.title }}</a>
+    </li>
+  {%- endfor -%}
+</ul>

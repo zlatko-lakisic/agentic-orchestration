@@ -1,0 +1,44 @@
+/* Rouge / kramdown highlight — Control Plane base16 */
+.highlight,
+div.highlighter-rouge,
+figure.highlight {
+  background: var(--cp-base00);
+  color: var(--cp-base05);
+  border: 1px solid var(--cp-line);
+  border-radius: 4px;
+  margin: 1.25em 0;
+  overflow-x: auto;
+}
+
+.highlight pre,
+div.highlighter-rouge pre {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-family: var(--cp-font-mono);
+  font-size: 0.85rem;
+  line-height: 1.65;
+  background: transparent;
+}
+
+.highlight .c, .highlight .c1, .highlight .cm, .highlight .cd { color: var(--cp-base03); font-style: italic; }
+.highlight .k, .highlight .kd, .highlight .kn, .highlight .kp, .highlight .kr, .highlight .kt, .highlight .kv { color: var(--cp-base0a); }
+.highlight .s, .highlight .s1, .highlight .s2, .highlight .sb, .highlight .sc, .highlight .sd, .highlight .se, .highlight .sh, .highlight .si, .highlight .sx, .highlight .ss { color: var(--cp-base0b); }
+.highlight .m, .highlight .mf, .highlight .mh, .highlight .mi, .highlight .mo, .highlight .il { color: var(--cp-base0e); }
+.highlight .na, .highlight .nb, .highlight .nc, .highlight .no, .highlight .nd, .highlight .ni, .highlight .ne, .highlight .nf, .highlight .nl, .highlight .nn { color: var(--cp-base0d); }
+.highlight .o, .highlight .ow { color: var(--cp-base0a); }
+.highlight .p { color: var(--cp-base05); }
+.highlight .err { color: var(--cp-base08); }
+.highlight .gd { color: var(--cp-base08); }
+.highlight .gi { color: var(--cp-base0b); }
+.highlight .gu { color: var(--cp-base0a); }
+.highlight .table { margin: 0; border: 0; }
+.highlight .table td { border: 0; padding: 0; }
+.highlight .gutter, .highlight .rouge-gutter {
+  color: var(--cp-base03);
+  border-right: 1px solid var(--cp-line);
+  padding-right: 0.75em;
+  text-align: right;
+  user-select: none;
+}
+.highlight .code, .highlight .rouge-code { padding-left: 0.75em; }

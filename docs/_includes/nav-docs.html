@@ -1,0 +1,25 @@
+<nav aria-label="Docs sections">
+  <ul class="nav-docs">
+    {%- for section in site.data.navigation.docs -%}
+      <li class="nav-docs__section">
+        <span class="nav-docs__label">{{ section.title }}</span>
+        <ul class="nav-docs__list">
+          {%- for item in section.children -%}
+            {%- assign is_active = false -%}
+            {%- if page.url == item.url or page.permalink == item.url -%}
+              {%- assign is_active = true -%}
+            {%- endif -%}
+            {%- comment -%} Also match when page.url is pretty-printed with trailing path {%- endcomment -%}
+            {%- assign item_href = item.url | relative_url -%}
+            {%- if page.url == item_href -%}
+              {%- assign is_active = true -%}
+            {%- endif -%}
+            <li>
+              <a href="{{ item.url | relative_url }}"{% if is_active %} class="is-active" aria-current="page"{% endif %}>{{ item.title }}</a>
+            </li>
+          {%- endfor -%}
+        </ul>
+      </li>
+    {%- endfor -%}
+  </ul>
+</nav>

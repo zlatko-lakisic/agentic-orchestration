@@ -1,0 +1,12 @@
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p class="site-footer__meta">Agentic Orchestration · documentation</p>
+    <ul class="site-footer__links">
+      {%- for link in site.footer.links -%}
+        <li>
+          <a href="{{ link.url }}"{% unless link.url contains site.url or link.url contains 'http' %}{% endunless %}>{{ link.label }}</a>
+        </li>
+      {%- endfor -%}
+    </ul>
+  </div>
+</footer>

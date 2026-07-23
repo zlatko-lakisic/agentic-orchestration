@@ -1,0 +1,10 @@
+{% if include.html %}
+  {% assign toc_html = include.html | toc_only %}
+{% else %}
+  {% assign toc_html = content | toc_only %}
+{% endif %}
+{% if include.list_id %}
+{{ toc_html | replace: 'id="toc"', 'id="toc-mobile"' }}
+{% else %}
+{{ toc_html }}
+{% endif %}

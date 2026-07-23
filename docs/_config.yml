@@ -1,18 +1,14 @@
-remote_theme: "mmistakes/minimal-mistakes@4.26.2"
-minimal_mistakes_skin: "control-plane"
-
-plugins:
-  - jekyll-include-cache
-  - jekyll-remote-theme
-  - jekyll-feed
-  - jekyll-sitemap
-  - jekyll-seo-tag
-
 title: "Agentic Orchestration"
 description: "Built around a coordinator that replans as it goes — model-agnostic multi-agent orchestration on CrewAI. Dynamic planning, MCP tools, agent skills playbooks, YAML catalogs."
 url: "https://zlatko-lakisic.github.io"
 baseurl: "/agentic-orchestration/docs"
 repository: "zlatko-lakisic/agentic-orchestration"
+
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+  - jekyll-seo-tag
+  - jekyll-toc
 
 # Google Analytics 4 (web stream: agentic-orchestration docs)
 analytics:
@@ -34,17 +30,31 @@ masthead_title: "Agentic Orchestration"
 footer:
   links:
     - label: "Home"
-      icon: "fas fa-fw fa-home"
       url: "https://zlatko-lakisic.github.io/agentic-orchestration/"
     - label: "GitHub"
-      icon: "fab fa-fw fa-github"
       url: "https://github.com/zlatko-lakisic/agentic-orchestration"
     - label: "LinkedIn"
-      icon: "fab fa-fw fa-linkedin"
       url: "https://www.linkedin.com/in/zlatko-lakisic/"
 
 markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
 permalink: pretty
+
+# Build-time TOC (jekyll-toc) — ignores toc_icon; honors toc / toc_label
+toc:
+  min_level: 2
+  max_level: 3
+  ordered_list: false
+  no_toc_section_class: no_toc_section
+  list_id: toc
+  list_class: toc-list
+  sublist_class: toc-sublist
+  item_class: toc-item
+  item_prefix: toc-
 
 exclude:
   - Gemfile

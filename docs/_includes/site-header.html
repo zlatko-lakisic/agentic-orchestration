@@ -1,0 +1,32 @@
+{%- comment -%}
+  Brand / Home must bypass relative_url (docs baseurl is /agentic-orchestration/docs)
+  so the masthead returns to the Control Plane landing at /agentic-orchestration/.
+{%- endcomment -%}
+{%- assign landing_home = "/agentic-orchestration/" -%}
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <div class="site-header__brand">
+      <a class="site-home-link" href="{{ landing_home }}">← Home</a>
+      {% if site.logo %}
+        <a class="site-logo" href="{{ landing_home }}">
+          <img src="{{ site.logo | relative_url }}" alt="">
+        </a>
+      {% endif %}
+      <a class="site-title" href="{{ landing_home }}">{{ site.masthead_title | default: site.title }}</a>
+    </div>
+
+    {% include nav-main.html %}
+
+    <button
+      type="button"
+      class="nav-toggle"
+      data-nav-toggle
+      aria-expanded="false"
+      aria-controls="nav-main-mobile"
+    >
+      Menu
+    </button>
+  </div>
+  {% include nav-main.html mobile="true" %}
+</header>
