@@ -28,7 +28,7 @@ sidebar:
 | **MCP** | `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`, `HOME_ASSISTANT_*`, `BRAVE_SEARCH_*`, `TAVILY_API_KEY`, `EXA_API_KEY`, `AGENTIC_MCP_FETCH_ENABLED`, `AGENTIC_MCP_MEMORY_MCP_ENABLED`, `FILESYSTEM_MCP_ALLOWED_DIRECTORY`, goal-match toggles |
 | **Agent skills** | `AGENTIC_AGENT_SKILLS_CATALOG`, `AGENTIC_EXTRA_AGENT_SKILLS_PATH`, `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`, `AGENTIC_DISABLE_SKILL_GOAL_MATCH`, `AGENTIC_STRICT_SKILL_IDS` |
 | **RAG sources** | `AGENTIC_EXTRA_RAG_SOURCES_PATH`, `AGENTIC_RAG_INJECT_MAX_TOKENS` — see [RAG sources]({{ '/rag-catalog/' | relative_url }}) |
-| **Execution backend** | `AGENTIC_EXECUTION_BACKEND`, `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_RUN_STORE_PATH` | See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) |
+| **Execution backend** | `AGENTIC_EXECUTION_BACKEND`, `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_RUN_STORE_PATH`, `AGENTIC_RUN_STORE_BACKEND` | See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) |
 | **Progress / step context** | `AGENTIC_PROGRESS`, `AGENTIC_STEP_CONTEXT_*` |
 | **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints: `attachment_fingerprint`; legacy `mcp_fingerprint` alias); user harness: `AGENTIC_USER_HARNESS_RECORD_STATS`, `AGENTIC_USER_HARNESS_FEED_PLANNER` |
 | **Cloud anonymization** | `AGENTIC_ANONYMIZE_CLOUD` (default `1`), `AGENTIC_CLOUD_PROVIDER_TYPES` (default `openai,anthropic,huggingface`), `AGENTIC_ANONYMIZE_PATTERNS_PATH` / `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH` — scrub PII/secrets before cloud LLM egress; YAML custom regexes; privacy/offline goals force local providers. **Tier 3**: `AGENTIC_ANONYMIZE_REVERSIBLE` (default `1`, unique recoverable `[EMAIL:1]`-style tokens), `AGENTIC_ANONYMIZE_NER` (default `0`, optional Presidio PERSON/LOCATION/NRP pass — soft dep, see `requirements-anonymize.txt`), `AGENTIC_ANONYMIZE_TOOL_RESULTS` (default `1`, scrub fetched pages / prior-step handoff), `AGENTIC_ANONYMIZE_VISION_LOCAL` / `AGENTIC_ANONYMIZE_VISION_MODEL` (default `1` / `ollama/llava`, prefer local vision model for video synopsis) |
@@ -51,6 +51,33 @@ sidebar:
 | `AGENTIC_K8S_ALLOW_STDIO_MCPS` | `0` | K8s mode only: when `1`, allow stdio MCP ids if sidecars exist (K4). K3 MVP keeps `0`. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#mcp-compatibility-matrix-k8s-mode). |
 
 See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) for architecture and phased rollout. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) for PVC layout on cluster.
+
+## Run store backends
+
+`AGENTIC_RUN_STORE_BACKEND` chooses where step **results** are stored. Step **specs** always
+stay on `AGENTIC_RUN_STORE_PATH` (local directory or PVC) because subprocess workers and
+Kubernetes Jobs are handed a file path for `--execute-step`; only results move off disk.
+Workers keep writing `result.json` onto the shared volume, and the remote backends promote a
+worker-written result to the remote store on first read.
+
+`boto3` and `redis` are soft dependencies (`requirements-run-store.txt`) — the default
+filesystem backend never imports them.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_RUN_STORE_BACKEND` | `filesystem` | `filesystem` (aliases `fs`, `file`, `local`), `s3` (alias `minio`), or `redis`. Unknown values are a startup error. |
+| `AGENTIC_RUN_STORE_S3_BUCKET` | _(unset)_ | **Required** for `s3`. Results at `{prefix}/{run_id}/{step_id}/result.json`. |
+| `AGENTIC_RUN_STORE_S3_PREFIX` | `agentic-runs` | Key prefix inside the bucket. |
+| `AGENTIC_RUN_STORE_S3_ENDPOINT` | _(unset)_ | Set for MinIO / Ceph RGW; leave unset for AWS S3. |
+| `AGENTIC_RUN_STORE_S3_REGION` | `AWS_REGION` / `AWS_DEFAULT_REGION` | Client region. |
+| `AGENTIC_RUN_STORE_S3_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` | Explicit credential; otherwise the boto3 default chain applies. |
+| `AGENTIC_RUN_STORE_S3_SECRET_ACCESS_KEY` | `AWS_SECRET_ACCESS_KEY` | Paired with the access key id. |
+| `AGENTIC_RUN_STORE_REDIS_URL` | `redis://127.0.0.1:6379/0` | Connection URL for `redis`. |
+| `AGENTIC_RUN_STORE_REDIS_PREFIX` | `agentic` | Keys are `{prefix}:run:{run_id}:step:{step_id}:result`. |
+| `AGENTIC_RUN_STORE_REDIS_TTL_SECONDS` | _(unset)_ | Optional expiry on result keys; unset keeps them forever. |
+
+Smoke: `agentic-orchestration-tool/scripts/smoke_run_store_backends.sh` (offline by default;
+`AGENTIC_SMOKE_RUN_STORE_S3_LIVE=1` / `AGENTIC_SMOKE_RUN_STORE_REDIS_LIVE=1` for live round-trips).
 
 ## Agent societies (K6.1)
 

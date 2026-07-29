@@ -96,6 +96,9 @@ spec:
               mountPath: /app/orchestration/run_store.py
               subPath: run_store.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/run_store_backends.py
+              subPath: run_store_backends.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/workflow_materializer.py
               subPath: workflow_materializer.py
             - name: tool-hotfix-orchestration

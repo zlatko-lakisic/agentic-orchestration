@@ -13,6 +13,8 @@ from pathlib import Path
 from orchestration.backends.base import StepResult
 
 DEFAULT_RUN_STORE_MOUNT = "/run/store"
+DEFAULT_RUN_STORE_BACKEND = "filesystem"
+RUN_STORE_BACKENDS = ("filesystem", "s3", "redis")
 
 
 class RunStore(ABC):
@@ -23,18 +25,38 @@ class RunStore(ABC):
     def read_step_result(self, run_id: str, step_id: str) -> StepResult | None: ...
 
     @abstractmethod
-    def step_result_path(self, run_id: str, step_id: str) -> Path: ...
+    def step_result_path(self, run_id: str, step_id: str) -> Path:
+        """Local result path for this step.
+
+        Only the filesystem backend guarantees the file is the store of record;
+        remote backends return the local mirror path that workers write to.
+        """
+
+    @property
+    @abstractmethod
+    def local_root(self) -> Path:
+        """Local (or PVC-mounted) directory shared with subprocess/Job workers."""
+
+    def has_step_result(self, run_id: str, step_id: str) -> bool:
+        return self.read_step_result(run_id, step_id) is not None
 
 
 class FileSystemRunStore(RunStore):
     def __init__(self, root: Path) -> None:
         self._root = root
 
+    @property
+    def local_root(self) -> Path:
+        return self._root
+
     def _run_dir(self, run_id: str) -> Path:
         return self._root / run_id
 
     def step_result_path(self, run_id: str, step_id: str) -> Path:
         return self._run_dir(run_id) / step_id / "result.json"
+
+    def has_step_result(self, run_id: str, step_id: str) -> bool:
+        return self.step_result_path(run_id, step_id).is_file()
 
     def write_step_result(self, run_id: str, step_id: str, result: StepResult) -> None:
         path = self.step_result_path(run_id, step_id)
@@ -45,17 +67,39 @@ class FileSystemRunStore(RunStore):
         path = self.step_result_path(run_id, step_id)
         if not path.is_file():
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return StepResult(
-            run_id=str(data.get("run_id", run_id)),
-            step_id=str(data.get("step_id", step_id)),
-            exit_code=int(data.get("exit_code", 1)),
-            result_text=data.get("result_text"),
-            error=data.get("error"),
-            recoverable=bool(data.get("recoverable", False)),
-            recovery_hint=data.get("recovery_hint"),
-            rag_audit=data.get("rag_audit") if isinstance(data.get("rag_audit"), dict) else None,
+        return step_result_from_dict(
+            json.loads(path.read_text(encoding="utf-8")),
+            run_id=run_id,
+            step_id=step_id,
         )
+
+
+def step_result_from_dict(
+    data: dict[str, object],
+    *,
+    run_id: str,
+    step_id: str,
+) -> StepResult:
+    """Deserialize a ``result.json`` payload; ``run_id``/``step_id`` are fallbacks."""
+    rag_audit = data.get("rag_audit")
+    return StepResult(
+        run_id=str(data.get("run_id", run_id)),
+        step_id=str(data.get("step_id", step_id)),
+        exit_code=int(data.get("exit_code", 1)),  # type: ignore[arg-type]
+        result_text=data.get("result_text"),  # type: ignore[arg-type]
+        error=data.get("error"),  # type: ignore[arg-type]
+        recoverable=bool(data.get("recoverable", False)),
+        recovery_hint=data.get("recovery_hint"),  # type: ignore[arg-type]
+        rag_audit=rag_audit if isinstance(rag_audit, dict) else None,
+    )
+
+
+def step_result_from_json(payload: str, *, run_id: str, step_id: str) -> StepResult:
+    return step_result_from_dict(json.loads(payload), run_id=run_id, step_id=step_id)
+
+
+def step_result_to_json(result: StepResult) -> str:
+    return json.dumps(result.to_dict(), indent=2)
 
 
 def new_run_id() -> str:
@@ -94,24 +138,70 @@ def allocate_run_store_root(*, run_id: str) -> tuple[Path, bool]:
     return root, True
 
 
+def run_store_backend_from_env() -> str:
+    """Return the configured backend name (``filesystem``, ``s3`` or ``redis``)."""
+    raw = os.getenv("AGENTIC_RUN_STORE_BACKEND", "").strip().lower()
+    if not raw:
+        return DEFAULT_RUN_STORE_BACKEND
+    if raw in ("fs", "file", "local"):
+        return "filesystem"
+    if raw in ("minio", "s3"):
+        return "s3"
+    if raw not in RUN_STORE_BACKENDS:
+        raise ValueError(
+            f"unknown AGENTIC_RUN_STORE_BACKEND={raw!r}; "
+            f"expected one of {', '.join(RUN_STORE_BACKENDS)}"
+        )
+    return raw
+
+
+def run_store_from_env(root: Path | None = None) -> RunStore:
+    """Build the configured run store.
+
+    ``root`` is the local/PVC directory shared with workers. Remote backends keep
+    using it for step specs and as the mirror that workers write results into;
+    only the result store of record moves off the filesystem.
+    """
+    local_root = root or run_store_base_from_env()
+    if local_root is None:
+        local_root = Path(tempfile.mkdtemp(prefix="agentic-run-store-"))
+    backend = run_store_backend_from_env()
+    if backend == "filesystem":
+        return FileSystemRunStore(local_root)
+
+    mirror = FileSystemRunStore(local_root)
+    # Imported lazily so boto3/redis stay optional for filesystem users.
+    from orchestration.run_store_backends import (
+        redis_run_store_from_env,
+        s3_run_store_from_env,
+    )
+
+    if backend == "s3":
+        return s3_run_store_from_env(local_mirror=mirror)
+    return redis_run_store_from_env(local_mirror=mirror)
+
+
 @contextmanager
-def run_store_session(run_id: str) -> Iterator[tuple[FileSystemRunStore, Path]]:
+def run_store_session(run_id: str) -> Iterator[tuple[RunStore, Path]]:
     """Yield ``(store, workspace)``; remove ephemeral workspaces on exit.
 
-    ``store._root`` is the mount base (``AGENTIC_RUN_STORE_PATH``) or an ephemeral
-    run directory. ``workspace`` holds per-run spec files: ``{base}/{run_id}/`` when
-    persistent, else the ephemeral directory.
+    ``store.local_root`` is the mount base (``AGENTIC_RUN_STORE_PATH``) or an
+    ephemeral run directory. ``workspace`` holds per-run spec files:
+    ``{base}/{run_id}/`` when persistent, else the ephemeral directory. Step specs
+    always live on this local/PVC path because workers are handed a file path;
+    step results go wherever ``AGENTIC_RUN_STORE_BACKEND`` points.
     """
     base = run_store_base_from_env()
     if base is not None:
-        store = FileSystemRunStore(base)
+        local_root = base
         workspace = base / run_id
         workspace.mkdir(parents=True, exist_ok=True)
         ephemeral = False
     else:
         workspace = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))
-        store = FileSystemRunStore(workspace)
+        local_root = workspace
         ephemeral = True
+    store = run_store_from_env(local_root)
     try:
         yield store, workspace
     finally:

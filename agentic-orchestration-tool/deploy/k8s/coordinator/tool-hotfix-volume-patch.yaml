@@ -117,6 +117,9 @@ spec:
               mountPath: /app/tool/orchestration/run_store.py
               subPath: run_store.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/run_store_backends.py
+              subPath: run_store_backends.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/rag_sources_catalog.py
               subPath: rag_sources_catalog.py
             - name: tool-hotfix-orchestration

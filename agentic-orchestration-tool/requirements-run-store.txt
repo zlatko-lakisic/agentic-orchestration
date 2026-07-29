@@ -1,0 +1,10 @@
+# Optional run-store backends (AGENTIC_RUN_STORE_BACKEND=s3|redis).
+# Soft dependencies: the default filesystem backend never imports these.
+# Install only the client you need:
+#   pip install boto3   # AGENTIC_RUN_STORE_BACKEND=s3    (AWS S3, MinIO, Ceph RGW)
+#   pip install redis   # AGENTIC_RUN_STORE_BACKEND=redis
+boto3>=1.34.0
+redis>=5.0.0
+# Test doubles for tests/test_run_store_backends.py (optional; tests fall back to
+# in-process fakes when these are missing):
+#   pip install moto fakeredis

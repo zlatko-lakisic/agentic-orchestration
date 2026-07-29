@@ -50,7 +50,6 @@ def run_config_via_kubernetes(
     config_box = [config]
 
     with run_store_session(run_id) as (store, workspace):
-        store_mount = str(store._root)
         worker_run_store = settings.run_store_mount
         coordinator = StepCoordinator(store=store)
         prior_outputs: dict[str, str] = {}

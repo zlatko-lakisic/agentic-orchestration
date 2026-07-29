@@ -24,7 +24,7 @@ def run_config_via_subprocess(
 
     with run_store_session(run_id) as (store, workspace):
         coordinator = StepCoordinator(store=store)
-        store_mount = str(store._root)
+        store_mount = str(store.local_root)
         prior_outputs: dict[str, str] = {}
 
         def _run_one(active_config: WorkflowConfig, spec_index: int) -> StepResult:

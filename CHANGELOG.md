@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Run store backends: S3/MinIO and Redis (`AGENTIC_RUN_STORE_BACKEND`, default `filesystem`)** — the last deferred item from the Kubernetes execution upgrade run-store design. `orchestration/run_store_backends.py` adds `S3RunStore` (keys `{prefix}/{run_id}/{step_id}/result.json`; `AGENTIC_RUN_STORE_S3_BUCKET`, `AGENTIC_RUN_STORE_S3_PREFIX` default `agentic-runs`, `AGENTIC_RUN_STORE_S3_ENDPOINT` for MinIO / Ceph RGW, credentials from `AGENTIC_RUN_STORE_S3_*` or the standard `AWS_*` vars) and `RedisRunStore` (keys `{prefix}:run:{run_id}:step:{step_id}:result`; `AGENTIC_RUN_STORE_REDIS_URL`, `_PREFIX`, optional `_TTL_SECONDS`), selected through the new `run_store_from_env()` factory that `run_store_session()` now uses. Backends are **result** stores: step **specs** stay on the local/PVC workspace (`AGENTIC_RUN_STORE_PATH`) because subprocess workers and Kubernetes Jobs are handed a file path for `--execute-step`, so workers keep writing `result.json` on the shared volume and a worker-written result is promoted to the remote store on first read. `boto3` / `redis` are soft dependencies (`requirements-run-store.txt`) imported only when a remote backend is constructed — the default filesystem path is unchanged. `RunStore` gains `has_step_result()` and `local_root` so `StepCoordinator` and the runners no longer assume a filesystem path. Smoke: `scripts/smoke_run_store_backends.sh` (offline by default; `AGENTIC_SMOKE_RUN_STORE_S3_LIVE=1` / `AGENTIC_SMOKE_RUN_STORE_REDIS_LIVE=1` for live round-trips).
+
+### Changed
+
+- **Kubernetes execution upgrade docs** — S3/Redis run stores are no longer listed as deferred, and per-step Job retry (K3.4–3.5, `step_recovery.py` + `StepCoordinator` retry) is marked as shipped rather than "deferred post-MVP".
+
 ## [1.19.0] - 2026-07-29
 
 ### Added

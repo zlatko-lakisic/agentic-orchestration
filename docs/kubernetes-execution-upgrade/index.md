@@ -63,7 +63,7 @@ See the companion plan for module layout (`orchestration/backends/`), `Execution
 | **Coordinator** | Process that owns the step loop: spawn workers, hand off outputs, retries, sessions. Today this logic lives in `main.py` + `runner.py`. |
 | **Worker** | Ephemeral pod/Job that executes **one** planned step and writes results to shared storage. |
 | **Crew run** | One user goal → one plan → N sequential steps. Maps to a K8s **Job** graph or coordinator-managed Job chain, **not** a K8s Node. |
-| **Run store** | PVC mounted at a shared path for v1; same `FileSystemRunStore` as local/subprocess (S3/Redis deferred) |
+| **Run store** | PVC mounted at a shared path; holds step **specs** always. Step **results** go to the backend named by `AGENTIC_RUN_STORE_BACKEND`: `filesystem` (default, same `FileSystemRunStore` as local/subprocess), `s3` (S3/MinIO), or `redis`. |
 
 ---
 
@@ -262,11 +262,11 @@ Framework **F4** (subprocess backend) validated the distributed contract locally
 | Topic | Adjustment |
 |-------|------------|
 | **K1 / K2** | Effectively done via F2 + F4; remaining K2 work is worker **Dockerfile** (2.3) and log prefixes (2.2). |
-| **Run store v1** | **PVC + `FileSystemRunStore`** at a mounted path (e.g. `/run/store`) — reuse subprocess code; S3/Redis deferred. |
+| **Run store v1** | **PVC + `FileSystemRunStore`** at a mounted path (e.g. `/run/store`) — reuse subprocess code. S3/MinIO and Redis result backends **shipped** later (`AGENTIC_RUN_STORE_BACKEND`); specs stay on the PVC. |
 | **K3 runner** | Add `kubernetes_runner.py` mirroring `subprocess_runner.py` — same `StepCoordinator`, different spawn. |
 | **CLI dispatch** | **K3.0:** extend `execution_dispatch.py` so `kubernetes` backend routes to `execute_config` (today only `AGENTIC_SUBPROCESS_WORKERS=1` enables distributed path). |
 | **Phase 1.5** | **Cancelled** — in-process keeps whole-crew kickoff; not required for K8s. |
-| **HF fallback / recovery** | **K3 MVP:** workflow-level only (already in `main`); per-step Job retry deferred post-MVP. |
+| **HF fallback / recovery** | **K3 MVP:** workflow-level only (already in `main`). Per-step Job retry **shipped** in K3.4–3.5 (`step_recovery.py` + `StepCoordinator` retry) — no longer deferred. |
 | **Phase 1.6** | Done in framework **F3** (`output_artifacts.py` adapters). |
 
 **Minimal path to K3:** ~~K0 sign-off~~ ✅ → K2.3 worker image → K3.0 dispatch → K3.1–3.3 Job + PVC → K3.8 kind test (HTTP MCPs only; K4 for stdio).
@@ -287,7 +287,8 @@ Track progress by checking boxes as work completes. See [Phase dependencies and 
 
 - [x] **0.1** Step spec JSON schema v0.1 — implemented in `StepSpec.to_dict()` / materializer; formal wiki review optional.
 - [x] **0.2** Worker `result.json` contract v0.1 — implemented in `StepResult` / `execute_step.py`; formal wiki review optional.
-- [x] **0.3** Run store v1: **PVC + `FileSystemRunStore`** at mounted path (S3/MinIO/Redis deferred).
+- [x] **0.3** Run store v1: **PVC + `FileSystemRunStore`** at mounted path.
+- [x] **0.3a** Alternative result backends: `AGENTIC_RUN_STORE_BACKEND=s3|redis` (`run_store_backends.py`, soft `boto3`/`redis` deps). Step specs stay on the PVC because Jobs need a file path for `--execute-step`; only results move off disk, and worker-written `result.json` is promoted to the remote store on first read.
 - [x] **0.4** Sign off `ExecutionBackend` protocol — shipped in framework **F0** ([Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}#executionbackend-protocol)).
 - [x] **0.5** Sign off env flag: `AGENTIC_EXECUTION_BACKEND=inprocess|subprocess|kubernetes` (default `inprocess`) — implemented in `orchestration/backends/factory.py`.
 - [x] **0.6** K8s MCP compatibility matrix signed off ([MCP matrix](#mcp-compatibility-matrix-k8s-mode)) — policy in `orchestration/k8s_mcp_compat.py`; planner filter **K4.3** ✅.
@@ -394,9 +395,9 @@ subprocess_runner.py          kubernetes_runner.py
 - [x] **3.0** Extend `execution_dispatch.py`: `use_distributed_execute_config()` routes `kubernetes` → `execute_config`.
 - [x] **3.1** K8s client — `kubernetes` Python package + `KubernetesJobRunner` (`kubernetes_jobs.py`).
 - [x] **3.2** Job template: labels `run_id`, `step_id`, `agent_provider_id`; TTL; worker args `…/{run_id}/{step_id}-spec.json`.
-- [x] **3.3** PVC mount on worker Jobs (`AGENTIC_K8S_RUN_STORE_PVC`); coordinator uses `AGENTIC_RUN_STORE_PATH` + `FileSystemRunStore`.
-- [x] **3.4** Per-step HF execution fallback: failed Job → parse error → rebuild config → new Job (`step_recovery.py`, `StepCoordinator` retry).
-- [x] **3.5** Per-step provider recovery via `recovery_hint` in `StepCoordinator` (`provider_recovery` → `recover_from_workflow_error`).
+- [x] **3.3** PVC mount on worker Jobs (`AGENTIC_K8S_RUN_STORE_PVC`); coordinator uses `AGENTIC_RUN_STORE_PATH` + the `AGENTIC_RUN_STORE_BACKEND` store (`filesystem` default, `s3`/`redis` optional).
+- [x] **3.4** Per-step HF execution fallback: failed Job → parse error → rebuild config → new Job (`step_recovery.py`, `StepCoordinator` retry). **Shipped** — the earlier "deferred post-MVP" note no longer applies.
+- [x] **3.5** Per-step provider recovery via `recovery_hint` in `StepCoordinator` (`provider_recovery` → `recover_from_workflow_error`). **Shipped** alongside 3.4.
 - [x] **3.6** Workflow result records `k8s_jobs` metadata per step Job (`WorkflowExecutionResult.k8s_jobs`); session wiring deferred.
 - [x] **3.7** Coordinator Deployment + RBAC (`deploy/k8s/coordinator/`); sample worker Job (`worker-job.example.yaml`).
 - [x] **3.8** Integration test: mocked Jobs (`tests/test_backend_kubernetes.py`) + live kind e2e in CI (`tests/test_kind_kubernetes_e2e.py`, stub worker).
@@ -644,6 +645,8 @@ Record decisions here as the project proceeds.
 | 2026-06-26 | Framework F4 complete — subprocess proves distributed contract | K3 is adapter swap, not replan |
 | 2026-06-26 | Run store v1: **PVC + `FileSystemRunStore`** | Reuse local/subprocess code; mount at `/run/store`; S3/Redis deferred |
 | 2026-06-26 | K3 MVP: workflow-level HF fallback only | Per-step Job retry (3.4–3.5) deferred; `main._run_dynamic_workflow_with_hf_fallback` already covers distributed runs |
+| 2026-07-29 | Per-step Job retry (3.4–3.5) **shipped** | `step_recovery.py` + `StepCoordinator` retry supersede the 2026-06-26 "deferred" note |
+| 2026-07-29 | S3/MinIO + Redis run-store backends **shipped** (`AGENTIC_RUN_STORE_BACKEND`) | Results only: Jobs still need a local/PVC file path for `--execute-step`, so specs stay on the PVC and worker-written results are promoted to the remote store; `boto3`/`redis` remain soft deps |
 | 2026-06-26 | Phase 1.5 (`InProcessExecutionBackend` step loop) cancelled | In-process keeps whole-crew kickoff; K8s uses `StepCoordinator` only |
 | 2026-06-27 | **K0.6 MCP matrix signed off** | K3 MVP: `search_brave`, `search_tavily`, `home_assistant`; stdio excluded until K4; policy in `k8s_mcp_compat.py` |
 
