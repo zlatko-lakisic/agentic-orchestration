@@ -47,12 +47,24 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def append_trace_event(tool_root: Path, event: dict[str, Any]) -> None:
-    """Append a JSONL trace event (best-effort, no exceptions)."""
+def append_trace_event(
+    tool_root: Path,
+    event: dict[str, Any],
+    *,
+    user_id: str | None = None,
+) -> None:
+    """Append a JSONL trace event (best-effort, no exceptions).
+
+    ``user_id`` is recorded when the caller knows who the run belongs to (daemon
+    server mode). CLI runs omit it, so existing trace lines are unchanged.
+    """
     try:
         p = traces_path(tool_root)
         p.parent.mkdir(parents=True, exist_ok=True)
         payload = dict(event)
+        uid = str(user_id or "").strip()
+        if uid:
+            payload.setdefault("user_id", uid)
         payload.setdefault("ts", time.time())
         with p.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
@@ -116,11 +128,23 @@ def save_stats(tool_root: Path, data: dict[str, Any]) -> None:
     _write_json(stats_path(tool_root), data)
 
 
-def enqueue_user_rating(tool_root: Path, rating_event: dict[str, Any]) -> None:
-    """Append user rating (JSONL) so Python can consume later."""
+def enqueue_user_rating(
+    tool_root: Path,
+    rating_event: dict[str, Any],
+    *,
+    user_id: str | None = None,
+) -> None:
+    """Append user rating (JSONL) so Python can consume later.
+
+    ``user_id`` attributes the rating when the daemon knows the caller; omitting it
+    keeps the legacy event shape byte-for-byte.
+    """
     p = pending_ratings_path(tool_root)
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = dict(rating_event)
+    uid = str(user_id or "").strip()
+    if uid:
+        payload.setdefault("user_id", uid)
     payload.setdefault("ts", time.time())
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload, ensure_ascii=False) + "\n")

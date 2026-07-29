@@ -150,6 +150,41 @@ spec:
               mountPath: /app/tool/orchestration/rag_grounding.py
               subPath: rag_grounding.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/user_context.py
+              subPath: user_context.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/dynamic_run.py
+              subPath: dynamic_run.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/direct_agent.py
+              subPath: direct_agent.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/host_metrics.py
+              subPath: host_metrics.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/deal_auth.py
+              subPath: deal_auth.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/hardware_profile.py
+              subPath: hardware_profile.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/learning_store.py
+              subPath: learning_store.py
+            # Optional API daemon package (only used when the pod runs
+            # `python -m orchestration.serve`; harmless otherwise).
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/serve/__init__.py
+              subPath: serve_init.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/serve/__main__.py
+              subPath: serve_main.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/serve/app.py
+              subPath: serve_app.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/serve/ws.py
+              subPath: serve_ws.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/backends/base.py
               subPath: backends_base.py
             - name: tool-hotfix-orchestration

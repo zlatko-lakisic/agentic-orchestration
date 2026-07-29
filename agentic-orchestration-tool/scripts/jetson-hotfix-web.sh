@@ -75,6 +75,13 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=cloud_anonymize_tier3.py="${ORCH_ROOT}/cloud_anonymize_tier3.py" \
   --from-file=knowledge_base.py="${ORCH_ROOT}/knowledge_base.py" \
   --from-file=orchestrator_session.py="${ORCH_ROOT}/orchestrator_session.py" \
+  --from-file=user_context.py="${ORCH_ROOT}/user_context.py" \
+  --from-file=dynamic_run.py="${ORCH_ROOT}/dynamic_run.py" \
+  --from-file=direct_agent.py="${ORCH_ROOT}/direct_agent.py" \
+  --from-file=host_metrics.py="${ORCH_ROOT}/host_metrics.py" \
+  --from-file=deal_auth.py="${ORCH_ROOT}/deal_auth.py" \
+  --from-file=hardware_profile.py="${ORCH_ROOT}/hardware_profile.py" \
+  --from-file=learning_store.py="${ORCH_ROOT}/learning_store.py" \
   --from-file=impartial_qa.py="${ORCH_ROOT}/impartial_qa.py" \
   --from-file=society_charter.py="${ORCH_ROOT}/society_charter.py" \
   --from-file=society_session.py="${ORCH_ROOT}/society_session.py" \
@@ -98,7 +105,11 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=rag_tool.py="${ORCH_ROOT}/rag_tool.py" \
   --from-file=rag_grounding.py="${ORCH_ROOT}/rag_grounding.py" \
   --from-file=backends_base.py="${ORCH_ROOT}/backends/base.py" \
-  --from-file=backends_crewai.py="${ORCH_ROOT}/backends/crewai.py"
+  --from-file=backends_crewai.py="${ORCH_ROOT}/backends/crewai.py" \
+  --from-file=serve_init.py="${ORCH_ROOT}/serve/__init__.py" \
+  --from-file=serve_main.py="${ORCH_ROOT}/serve/__main__.py" \
+  --from-file=serve_app.py="${ORCH_ROOT}/serve/app.py" \
+  --from-file=serve_ws.py="${ORCH_ROOT}/serve/ws.py"
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
 apply_configmap agentic-tool-hotfix-agent-providers \

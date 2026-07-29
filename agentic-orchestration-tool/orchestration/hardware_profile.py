@@ -306,6 +306,139 @@ def filter_catalog_by_architecture(
     return kept, excluded, available
 
 
+def detect_vram_gb_available() -> float | None:
+    """
+    VRAM budget available for a *concurrently resident* model set (GiB).
+
+    ``AGENTIC_VRAM_GB`` wins when set (explicit budget, useful for unified-memory
+    boards where nvidia-smi lies or is absent). Otherwise falls back to the largest
+    detected NVIDIA GPU with the usual ``AGENTIC_MAX_VRAM_*`` caps applied. ``None``
+    means "unknown" — callers should degrade to a single model rather than guess.
+    """
+    override = os.getenv("AGENTIC_VRAM_GB", "").strip()
+    if override:
+        try:
+            value = float(override)
+            if value > 0:
+                return _apply_vram_caps(value)
+        except ValueError:
+            pass
+    detected = detect_max_nvidia_vram_gb()
+    if detected is None:
+        return None
+    return _apply_vram_caps(detected)
+
+
+def _resident_headroom_gb() -> float:
+    """Reserve for KV cache / framework overhead before packing models."""
+    raw = os.getenv("AGENTIC_RESIDENT_HEADROOM_GB", "").strip()
+    try:
+        value = float(raw) if raw else 1.0
+    except ValueError:
+        value = 1.0
+    return max(0.0, value)
+
+
+def _max_resident_models() -> int:
+    raw = os.getenv("AGENTIC_MAX_RESIDENT_MODELS", "").strip()
+    try:
+        value = int(raw) if raw else 4
+    except ValueError:
+        value = 4
+    return max(1, min(32, value))
+
+
+def plan_resident_models(
+    catalog_entries: list[dict[str, Any]],
+    *,
+    vram_gb_available: float | None,
+) -> dict[str, Any]:
+    """
+    Plan a set of models that can stay loaded at the same time without VRAM thrash.
+
+    Packs providers smallest-requirement-first up to ``vram_gb_available`` minus
+    ``AGENTIC_RESIDENT_HEADROOM_GB``, capped at ``AGENTIC_MAX_RESIDENT_MODELS``.
+    Providers with no VRAM requirement (cloud/remote) are always resident and cost
+    nothing. Graceful degradation: an unknown budget keeps a single local model, and a
+    budget too small for anything returns an empty selection with per-provider reasons
+    rather than raising.
+
+    Returns ``{selected, skipped, budgetGb, headroomGb, usedGb, degraded}`` where
+    ``skipped`` is a list of ``{id, reason, requiredGb}``.
+    """
+    headroom = _resident_headroom_gb()
+    budget = None if vram_gb_available is None else max(0.0, float(vram_gb_available) - headroom)
+    max_models = _max_resident_models()
+
+    priced: list[tuple[str, float | None, dict[str, Any]]] = []
+    for entry in catalog_entries or []:
+        pid = str(entry.get("id", "")).strip()
+        if not pid:
+            continue
+        priced.append((pid, effective_min_vram_gb(entry), entry))
+
+    # Smallest first so a modest budget holds several small models instead of one big one.
+    priced.sort(key=lambda item: (item[1] is not None, item[1] or 0.0, item[0]))
+
+    selected: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    used = 0.0
+    local_selected = 0
+    for pid, required, _entry in priced:
+        if required is None:
+            selected.append(pid)
+            continue
+        if len(selected) >= max_models:
+            skipped.append(
+                {
+                    "id": pid,
+                    "reason": f"resident model cap reached (AGENTIC_MAX_RESIDENT_MODELS={max_models})",
+                    "requiredGb": required,
+                }
+            )
+            continue
+        if budget is None:
+            if local_selected >= 1:
+                skipped.append(
+                    {
+                        "id": pid,
+                        "reason": "VRAM budget unknown; degraded to one resident local model "
+                        "(set AGENTIC_VRAM_GB)",
+                        "requiredGb": required,
+                    }
+                )
+                continue
+            selected.append(pid)
+            local_selected += 1
+            used += required
+            continue
+        if used + required <= budget:
+            selected.append(pid)
+            local_selected += 1
+            used += required
+            continue
+        skipped.append(
+            {
+                "id": pid,
+                "reason": (
+                    f"needs {required:.1f} GiB; only {max(0.0, budget - used):.1f} GiB of the "
+                    f"{budget:.1f} GiB resident budget left"
+                ),
+                "requiredGb": required,
+            }
+        )
+
+    return {
+        "selected": selected,
+        "skipped": skipped,
+        "budgetGb": budget,
+        "headroomGb": headroom,
+        "usedGb": round(used, 2),
+        "maxResidentModels": max_models,
+        "degraded": budget is None or bool(skipped),
+    }
+
+
 def filter_catalog_by_hardware(
     entries: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str], float | None, set[str]]:

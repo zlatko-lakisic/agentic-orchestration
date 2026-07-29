@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -123,15 +124,37 @@ def shared_run_store_mount_path() -> str:
     return mount.rstrip("/") or DEFAULT_RUN_STORE_MOUNT
 
 
-def allocate_run_store_root(*, run_id: str) -> tuple[Path, bool]:
+def run_store_user_namespace_enabled() -> bool:
+    """``AGENTIC_RUN_STORE_USER_NAMESPACE=1`` prefixes run roots with the caller's user id."""
+    return os.getenv("AGENTIC_RUN_STORE_USER_NAMESPACE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _safe_user_prefix(user_id: str | None) -> str:
+    raw = str(user_id or "").strip().lower()
+    if not raw:
+        return ""
+    cleaned = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
+    return cleaned[:64].rstrip("-._")
+
+
+def allocate_run_store_root(*, run_id: str, user_id: str | None = None) -> tuple[Path, bool]:
     """Return ``(store_root, ephemeral)`` for one crew run.
 
     When ``AGENTIC_RUN_STORE_PATH`` is set, uses ``{base}/{run_id}/`` (PVC-friendly).
     Otherwise creates a temp directory that should be removed after the run.
+    With ``AGENTIC_RUN_STORE_USER_NAMESPACE=1`` and a ``user_id``, the shared path
+    becomes ``{base}/users/{user_id}/{run_id}/`` so multi-tenant deployments do not
+    interleave run directories. Unset (the default) keeps the legacy layout.
     """
     base = run_store_base_from_env()
     if base is not None:
-        root = base / run_id
+        prefix = _safe_user_prefix(user_id) if run_store_user_namespace_enabled() else ""
+        root = (base / "users" / prefix / run_id) if prefix else (base / run_id)
         root.mkdir(parents=True, exist_ok=True)
         return root, False
     root = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))

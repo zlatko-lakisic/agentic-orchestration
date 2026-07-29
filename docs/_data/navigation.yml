@@ -79,6 +79,8 @@ docs:
         url: /dual-execution-framework/
       - title: "Kubernetes Execution"
         url: /kubernetes-execution-upgrade/
+      - title: "Engine API Daemon"
+        url: /engine-daemon-plan/
       - title: "Agent Skills Roadmap"
         url: /agent-skills-roadmap/
       - title: "Agent Societies Roadmap"

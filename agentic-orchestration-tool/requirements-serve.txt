@@ -1,0 +1,5 @@
+# Optional engine API daemon (python -m orchestration.serve).
+# Not required for CLI / Node web / Jetson default deploy.
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.30.0,<1
+websockets>=12.0,<16

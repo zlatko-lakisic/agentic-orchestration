@@ -99,8 +99,54 @@ def safe_orchestrator_session_slug(raw: str) -> str:
     return cleaned
 
 
-def session_file_path(tool_root: Path, session_slug: str) -> Path:
+SESSION_USER_DIR_NAME = "users"
+SESSION_USER_NAMESPACE_ENV = "AGENTIC_SESSION_USER_NAMESPACE"
+
+
+def session_user_namespace_enabled() -> bool:
+    """``AGENTIC_SESSION_USER_NAMESPACE=1`` writes sessions under ``users/<user_id>/``."""
+    return os.getenv(SESSION_USER_NAMESPACE_ENV, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _safe_user_id(user_id: str | None) -> str | None:
+    raw = str(user_id or "").strip().lower()
+    if not raw:
+        return None
+    cleaned = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
+    return cleaned[:64].rstrip("-._") or None
+
+
+def legacy_session_file_path(tool_root: Path, session_slug: str) -> Path:
+    """Pre-user-dimension location: ``__orchestrator_sessions__/<slug>.json``."""
     return (tool_root / SESSION_DIR_NAME / f"{session_slug}.json").resolve()
+
+
+def session_file_path(
+    tool_root: Path,
+    session_slug: str,
+    user_id: str | None = None,
+) -> Path:
+    """
+    Path for a session file.
+
+    Legacy single-user layout stays the default. With ``AGENTIC_SESSION_USER_NAMESPACE=1``
+    and a ``user_id``, sessions live under ``__orchestrator_sessions__/users/<user_id>/``;
+    an existing legacy file for the same slug still wins so nothing is orphaned.
+    """
+    safe_user = _safe_user_id(user_id)
+    if not safe_user or not session_user_namespace_enabled():
+        return legacy_session_file_path(tool_root, session_slug)
+    legacy = legacy_session_file_path(tool_root, session_slug)
+    if legacy.exists():
+        return legacy
+    return (
+        tool_root / SESSION_DIR_NAME / SESSION_USER_DIR_NAME / safe_user / f"{session_slug}.json"
+    ).resolve()
 
 
 def stable_instance_key_for_session(session_slug: str) -> str:
@@ -108,9 +154,22 @@ def stable_instance_key_for_session(session_slug: str) -> str:
     return f"dynamic-sess-{digest}"
 
 
+def _legacy_sibling_for(path: Path) -> Path | None:
+    """Legacy ``<sessions>/<slug>.json`` for a namespaced ``<sessions>/users/<id>/<slug>.json``."""
+    parent = path.parent
+    if parent.parent.name != SESSION_USER_DIR_NAME:
+        return None
+    return parent.parent.parent / path.name
+
+
 def load_session(path: Path) -> OrchestratorSessionFile:
     if not path.exists():
-        return OrchestratorSessionFile()
+        # Dual-read: a namespaced session that was never written falls back to the
+        # legacy single-user file so enabling the namespace never loses history.
+        legacy = _legacy_sibling_for(path)
+        if legacy is None or not legacy.exists():
+            return OrchestratorSessionFile()
+        path = legacy
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         return OrchestratorSessionFile()

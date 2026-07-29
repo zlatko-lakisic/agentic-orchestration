@@ -79,6 +79,57 @@ filesystem backend never imports them.
 Smoke: `agentic-orchestration-tool/scripts/smoke_run_store_backends.sh` (offline by default;
 `AGENTIC_SMOKE_RUN_STORE_S3_LIVE=1` / `AGENTIC_SMOKE_RUN_STORE_REDIS_LIVE=1` for live round-trips).
 
+## Engine API daemon (optional)
+
+`python -m orchestration.serve` is **opt-in**. The CLI (`python main.py`) and the Node web server
+are unchanged and never import FastAPI, which lives in `requirements-serve.txt` alongside uvicorn
+and websockets. A CLI-only or Jetson install can skip that file; the daemon then fails with a
+message naming it rather than a bare `ImportError`.
+
+See [Engine API daemon plan]({{ '/engine-daemon-plan/' | relative_url }}) for the protocol and the
+slice-by-slice status.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in, and in server mode the port must be reachable **only** through the identity-terminating proxy. |
+| `AGENTIC_SERVE_PORT` | `8765` | Bind port. |
+| `AGENTIC_SERVE_LOG_LEVEL` | `info` | uvicorn log level. |
+| `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
+| `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without an identity header (HTTP `401`, WebSocket close `1008`) instead of falling back to the implicit local user. Also switches deal authorization on. |
+| `AGENTIC_WEB_USER_NAME_HEADER` | `x-agentic-user-name,x-user-name` | Comma-separated headers searched for the display name (same variable the Node server uses). |
+| `AGENTIC_WEB_SESSION_ID_HEADER` | `x-agentic-session-id,x-warpgate-session-id` | Comma-separated headers searched for the session id; absent → a generated `web-<hex>` id. |
+| `AGENTIC_WEB_HOST_METRICS_PUSH_MS` | `2000` | Interval for `host_metrics` pushes after `host_metrics_subscribe` (clamped to 1000–60000). |
+| `AGENTIC_HOST_METRICS_PROC_ROOT` | `/proc` | Set to `/host/proc` when the node's `/proc` is mounted; also flips the reported `scope` to `host`. |
+| `AGENTIC_JETSON_JTOP_METRICS_PATH` | _(unset)_ | jtop snapshot JSON; supplies GPU / power / temperature and flips `scope` to `jetson`. |
+| `AGENTIC_DIRECT_AGENT_CONTEXT_CHARS` | `20000` | Cap on caller-supplied context in the direct-agent prompt. |
+
+Smoke: `agentic-orchestration-tool/scripts/smoke_serve.sh` (offline by default and safe without the
+extras; `AGENTIC_SMOKE_SERVE_LIVE=1` binds a real port and probes `/health`).
+
+### User dimension and deal scope
+
+All three are **opt-in** and dual-read, so existing on-disk state is never orphaned.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_SESSION_USER_NAMESPACE` | `0` | `1` writes new sessions to `__orchestrator_sessions__/users/<user_id>/<slug>.json`. An existing legacy `<slug>.json` still wins, and a namespaced session that was never written falls back to the legacy file on read. |
+| `AGENTIC_RUN_STORE_USER_NAMESPACE` | `0` | `1` allocates shared run roots at `{AGENTIC_RUN_STORE_PATH}/users/<user_id>/<run_id>/`. |
+| `AGENTIC_DEAL_AUTH` | _(unset)_ | `1` enforces deal membership without requiring `AGENTIC_REQUIRE_IDENTITY`. Membership lives in `__orchestrator_deals__/members.json` (roles `viewer` < `editor` < `owner`). Local mode is permissive; in server mode an empty file denies every deal. |
+
+**One writer for SQLite.** Do not let the Node spawn-per-message CLI and the daemon write the same
+`__orchestrator_kb__/kb.sqlite3` in one deployment — pick one writer.
+
+### Concurrent resident models
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_VRAM_GB` | _(unset)_ | Explicit VRAM budget for `plan_resident_models()`. Useful on unified-memory boards where `nvidia-smi` is absent or misleading. Falls back to the largest detected NVIDIA GPU. |
+| `AGENTIC_RESIDENT_HEADROOM_GB` | `1` | Reserved for KV cache / framework overhead before packing models. |
+| `AGENTIC_MAX_RESIDENT_MODELS` | `4` | Cap on simultaneously resident models (ceiling `32`). |
+
+The existing `AGENTIC_MAX_VRAM_GB` / `AGENTIC_MAX_VRAM_FRACTION` caps still apply. An unknown budget
+degrades to one resident local model rather than guessing.
+
 ## Agent societies (K6.1)
 
 Used by `python main.py --society CHARTER.yaml --goal "…"`. The charter's `max_turns` and
