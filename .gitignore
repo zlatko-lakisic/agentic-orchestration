@@ -35,8 +35,10 @@ publish-github.ps1
 
 .DS_Store
 
+# Dependencies (never commit installed packages)
+node_modules/
+
 # Site / Pages build
-site/node_modules/
 site/dist/
 _site/
 docs/.jekyll-cache/
