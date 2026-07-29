@@ -49,6 +49,40 @@ def _truthy(name: str) -> bool:
     return _env(name).lower() in ("1", "true", "yes", "on")
 
 
+def _load_tool_dotenv() -> None:
+    """Best-effort: pick up Jetson ``.env`` so catalog/path detection matches ``main.py``."""
+    env_path = _TOOL_ROOT / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+            os.environ[key] = val.strip().strip('"').strip("'")
+    except OSError:
+        return
+
+
+def _prefer_jetson_charter() -> bool:
+    """True when the active catalog / host is the Jetson edge layout."""
+    catalog = _env("AGENTIC_AGENT_PROVIDERS_CATALOG").lower()
+    if "jetson" in catalog or "agent_providers_jetson" in catalog:
+        return True
+    if Path("/etc/nv_tegra_release").is_file():
+        return True
+    platform = _env("AGENTIC_EDGE_PLATFORM").lower()
+    return platform in ("jetson", "tegra")
+
+
+def _default_live_charter() -> Path:
+    return _JETSON_CHARTER if _prefer_jetson_charter() else _PANEL_CHARTER
+
+
 def _ok(msg: str) -> None:
     print(f"  OK  {msg}")
 
@@ -213,10 +247,8 @@ def run_optional_live_society() -> tuple[bool, str]:
     if not _truthy("AGENTIC_SMOKE_SOCIETY_LIVE"):
         return True, "live society skipped (set AGENTIC_SMOKE_SOCIETY_LIVE=1)"
 
-    charter = _env("SMOKE_SOCIETY_CHARTER")
-    if not charter:
-        jetson_catalog = "jetson" in _env("AGENTIC_AGENT_PROVIDERS_CATALOG")
-        charter = str(_JETSON_CHARTER if jetson_catalog else _PANEL_CHARTER)
+    _load_tool_dotenv()
+    charter = _env("SMOKE_SOCIETY_CHARTER") or str(_default_live_charter())
     goal = _env(
         "SMOKE_SOCIETY_GOAL",
         "Should a small RAG index live on the edge device or in the cluster? Decide.",
