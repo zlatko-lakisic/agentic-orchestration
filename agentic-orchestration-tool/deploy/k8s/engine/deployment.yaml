@@ -69,6 +69,10 @@ spec:
           volumeMounts:
             - name: tool-host
               mountPath: /app/tool
+            - name: repo-version
+              mountPath: /app/VERSION
+              subPath: VERSION
+              readOnly: true
             - name: jtop-metrics
               mountPath: /host/agentic-metrics
               readOnly: true
@@ -92,6 +96,10 @@ spec:
         - name: tool-host
           hostPath:
             path: /var/projects/agentic-orchestration/agentic-orchestration-tool
+            type: Directory
+        - name: repo-version
+          hostPath:
+            path: /var/projects/agentic-orchestration
             type: Directory
         - name: jtop-metrics
           hostPath:
