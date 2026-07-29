@@ -23,8 +23,17 @@ bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
+# Additive Engine API daemon (KnowBuddy /api/v1/*). Opt out with AGENTIC_JETSON_ENABLE_ENGINE=0.
+# Web UI stays on :30487; daemon publishes :8765 (hostPort) + NodePort 30765.
+if [[ "${AGENTIC_JETSON_ENABLE_ENGINE:-1}" != "0" ]]; then
+  bash "${TOOL_ROOT}/scripts/jetson-enable-engine.sh" "${PROJECT_ROOT}"
+fi
+
 PING_URL="http://127.0.0.1:30487/api/ping"
 if ! curl -sf "${PING_URL}" >/dev/null 2>&1; then
   PING_URL="http://127.0.0.1/api/ping"
 fi
-echo "Deploy complete. Verify: curl -s ${PING_URL}"
+echo "Deploy complete. Verify web: curl -s ${PING_URL}"
+if [[ "${AGENTIC_JETSON_ENABLE_ENGINE:-1}" != "0" ]]; then
+  echo "Verify engine (KnowBuddy Remote URL): curl -s http://127.0.0.1:8765/health"
+fi

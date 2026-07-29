@@ -54,7 +54,8 @@ The device uses remote **`origin`** (not `github`). Push from dev with `git push
 
 | Script | Purpose |
 |--------|---------|
-| `jetson-deploy.sh` | Routine deploy: pull + apply-env + sync-k8s-secret + hotfix-web |
+| `jetson-deploy.sh` | Routine deploy: pull + apply-env + sync-k8s-secret + hotfix-web (+ engine unless `AGENTIC_JETSON_ENABLE_ENGINE=0`) |
+| `jetson-enable-engine.sh` | Publish `python -m orchestration.serve` on hostPort **8765** + NodePort **30765** (KnowBuddy); web stays on **30487** |
 | `jetson-coordinator-rollout.sh` | Apply Recreate/no-hostPort patch; wait/unblock rollouts |
 | `jetson-web-port-redirect.sh` | Optional legacy iptables `:80` → `30487` (sudo) |
 | `jetson-apply-env.sh` | Merge `config/env.jetson` → `.env` |

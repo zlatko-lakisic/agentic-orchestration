@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Jetson Engine API daemon publish** — additive `agentic-engine` Deployment (`deploy/k8s/engine/`) runs `python -m orchestration.serve` beside the Node web UI. hostPort **8765** (KnowBuddy Remote URL `http://<jetson>:8765`) plus NodePort **30765**; web UI stays on **30487**. `scripts/jetson-enable-engine.sh` (called from `jetson-deploy.sh` unless `AGENTIC_JETSON_ENABLE_ENGINE=0`) reuses the coordinator image, hostPath-mounts the git tool tree, and installs `requirements-serve.txt` on first start. Do not point KnowBuddy at `:30487` — `/api/v1/direct-agent` and `/api/v1/kb/*` exist only on the engine.
+
 ## [1.23.0] - 2026-07-29
 
 ### Added

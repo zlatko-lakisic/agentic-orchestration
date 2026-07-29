@@ -1,0 +1,99 @@
+# Engine API daemon (python -m orchestration.serve) — additive alongside the Node web UI.
+# Does NOT replace agentic-coordinator (NodePort 30487). KnowBuddy / REST clients use this
+# process on port 8765 (hostPort) or NodePort 30765.
+#
+# Image: same coordinator image (Python + CrewAI deps). Tool tree is hostPath-mounted from
+# the git checkout so jetson-deploy.sh pull is enough — no docker rebuild for serve code.
+# FastAPI/uvicorn install at start from requirements-serve.txt (optional extras).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-engine
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-engine
+    app.kubernetes.io/component: engine
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-engine
+        app.kubernetes.io/component: engine
+    spec:
+      # Single-node Jetson: hostPort 8765 → http://<jetson>:8765 for KnowBuddy.
+      # Recreate avoids hostPort conflicts during rollout.
+      containers:
+        - name: engine
+          image: agentic-orchestrator-coordinator:local
+          imagePullPolicy: IfNotPresent
+          workingDir: /app/tool
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              cd /app/tool
+              if ! python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
+                echo "Installing optional serve extras from requirements-serve.txt ..."
+                pip install -q -r requirements-serve.txt
+              fi
+              exec python -m orchestration.serve
+          ports:
+            - name: engine
+              containerPort: 8765
+              hostPort: 8765
+          env:
+            - name: AGENTIC_TOOL_ROOT
+              value: /app/tool
+            - name: AGENTIC_SERVE_HOST
+              value: "0.0.0.0"
+            - name: AGENTIC_SERVE_PORT
+              value: "8765"
+            - name: AGENTIC_SERVE_LOG_LEVEL
+              value: info
+            - name: AGENTIC_JETSON_JTOP_METRICS_PATH
+              value: /host/agentic-metrics/jtop-metrics.json
+            # One-writer story: this pod owns KB SQLite for KnowBuddy; Node web spawn
+            # still writes its own emptyDir KB. Do not point KnowBuddy at :30487.
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: agentic-orchestrator-env
+                optional: true
+          volumeMounts:
+            - name: tool-host
+              mountPath: /app/tool
+            - name: jtop-metrics
+              mountPath: /host/agentic-metrics
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: engine
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /api/ping
+              port: engine
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: tool-host
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool
+            type: Directory
+        - name: jtop-metrics
+          hostPath:
+            path: /var/run/agentic
+            type: DirectoryOrCreate

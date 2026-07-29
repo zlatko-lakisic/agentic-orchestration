@@ -1,0 +1,17 @@
+# ClusterIP for in-cluster clients of the engine daemon.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-engine
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-engine
+    app.kubernetes.io/component: engine
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agentic-engine
+  ports:
+    - name: engine
+      port: 8765
+      targetPort: 8765

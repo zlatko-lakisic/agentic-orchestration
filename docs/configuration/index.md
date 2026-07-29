@@ -91,8 +91,9 @@ slice-by-slice status.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in, and in server mode the port must be reachable **only** through the identity-terminating proxy. |
-| `AGENTIC_SERVE_PORT` | `8765` | Bind port. |
+| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in, and in server mode the port must be reachable **only** through the identity-terminating proxy. On Jetson, `config/env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
+| `AGENTIC_SERVE_PORT` | `8765` | Bind port. KnowBuddy Remote URL on Jetson: `http://<jetson>:8765` (NodePort alternate **30765**). Web UI remains on **30487**. |
+| `AGENTIC_JETSON_ENABLE_ENGINE` | `1` | When unset/`1`, `jetson-deploy.sh` applies `scripts/jetson-enable-engine.sh`. Set `0` to leave only the Node web UI. |
 | `AGENTIC_SERVE_LOG_LEVEL` | `info` | uvicorn log level. |
 | `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
 | `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without an identity header (HTTP `401`, WebSocket close `1008`) instead of falling back to the implicit local user. Also switches deal authorization on. |

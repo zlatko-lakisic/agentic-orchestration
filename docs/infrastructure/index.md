@@ -100,6 +100,8 @@ Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER
 
 **Web UI:** NodePort **`30487`** (`http://<jetson>:30487`). Traefik / Warpgate should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
 
+**Engine API daemon (KnowBuddy):** separate Deployment `agentic-engine` on hostPort **`8765`** (`http://<jetson>:8765`) and NodePort **`30765`**. Opt-out with `AGENTIC_JETSON_ENABLE_ENGINE=0`. Point KnowBuddy Settings → Remote URL at **`:8765`**, not `:30487` (the Node web process does not serve `/api/v1/direct-agent` or `/api/v1/kb/*`).
+
 Ollama on Jetson is typically **native systemd** on the host; pods reach it via `host.k3s.internal:11434` (CoreDNS NodeHosts). See `jetson-fix-ollama-k8s.sh` / deploy script logs.
 
 ## Kubernetes execution model
