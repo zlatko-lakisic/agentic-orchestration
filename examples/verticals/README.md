@@ -8,6 +8,7 @@ These folders live at the **monorepo root** next to `agentic-orchestration-tool/
 |----|--------|------------------------------------------------------|-----------------------------------|----------------------------|--------|
 | `healthcare` | [`healthcare/`](healthcare/) | `--example healthcare` | `npm run start:healthcare` → [`package.json`](../agentic-orchestration-web/package.json) | `3850` | [`healthcare/README.md`](healthcare/README.md) |
 | `logistics` | [`logistics/`](logistics/) | `--example logistics` | `npm run start:logistics` → [`package.json`](../agentic-orchestration-web/package.json) | `3851` | [`logistics/README.md`](logistics/README.md) |
+| `society_research_panel` | [`society_research_panel/`](society_research_panel/) | `--example society_research_panel --society society_research_panel.yaml --goal "…"` | _(CLI only in K6.1)_ | — | [`society_research_panel/README.md`](society_research_panel/README.md) |
 
 ¹Per-vertical scripts default **`AGENTIC_WEB_PORT`** to **3850** (healthcare) or **3851** (logistics) so the stock UI can stay on **3847**. Override with env when starting those scripts.
 
@@ -20,6 +21,7 @@ When a vertical ships **web scripts** in its own folder, they may include `start
 
 ## Related (not the same as a vertical)
 
+- **Agent society charters** are not workflow YAML: `society_research_panel` ships charters (roster + protocol + budgets) run with `--society CHARTER.yaml`, not `--config`. See [Agent societies roadmap](../../docs/Agent-societies-roadmap/index.md) and [ADR 0001](../../docs/adr/0001-agent-societies-v1.md).
 - **Routable workflow YAML** for healthcare-style *fixed* crews lives in the tool under [`agentic-orchestration-tool/config/workflows/workflow_healthcare_commercial_brief.yaml`](../agentic-orchestration-tool/config/workflows/workflow_healthcare_commercial_brief.yaml) (router mode). That is separate from the **`--example healthcare`** overlay, which mainly affects **dynamic** orchestrator context and merged catalogs.
 
 ## Adding or renaming a vertical

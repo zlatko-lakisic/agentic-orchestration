@@ -26,7 +26,8 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 | `--interactive` (`-i`) | Interactive loop on a **fixed** `--config` workflow. |
 | `--dynamic` | Plan + run ephemeral multi-step workflow from `TASK`. |
 | `--dynamic-iterative` | Stepwise dynamic runs with replanning. |
-| `--example healthcare|logistics` | Apply built-in vertical overlay (context + extra catalogs) without manual `.env` path wiring. |
+| `--society CHARTER.yaml` | Run an agent society from a charter (round-robin turns on a shared blackboard). Mutually exclusive with `--dynamic*`. |
+| `--example healthcare|logistics|society_research_panel` | Apply built-in vertical overlay (context + extra catalogs) without manual `.env` path wiring. |
 
 ## Workflow / router
 
@@ -71,6 +72,18 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 | `--dynamic-iterative-max-rounds N` | Cap with auto. |
 | `--dynamic-iterative-min-rounds N` | Minimum rounds before stop allowed. |
 | `--dynamic-iterative-no-synthesize` | Skip final synthesis. |
+
+## Agent societies (K6.1)
+
+| Flag | Meaning |
+|------|---------|
+| `--society CHARTER.yaml` | Charter path (relative paths resolve against the tool dir, then the current directory). |
+| `--goal TEXT` | Goal for the society; falls back to `TASK`, then `society.goal` in the charter. |
+| `--society-session NAME` | Session dir under `__orchestrator_sessions__/societies/` (default: charter `society.id`). |
+| `--society-max-turns N` | Lower the charter's `max_turns` for this run (never raises it). |
+| `--society-no-controller` | Stop only on `stop_when` phrases and the turn budget (no controller LLM). |
+
+Charter schema: `config/schemas/society_charter.schema.json`. Env vars: see [Configuration]({{ '/configuration/' | relative_url }}#agent-societies-k61). Design: [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}).
 
 ## Session
 

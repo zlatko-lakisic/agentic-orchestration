@@ -13,7 +13,9 @@ mermaid: true
 
 Living document for evolving **Agentic Orchestration** from **orchestrated pipelines** (planner → sequential steps → injected prior output) toward **autonomous agent societies**: multiple agents that can initiate work, message each other, and delegate without the planner rewriting the full plan every turn.
 
-**Status:** **Not started** — design and phased plan only (2026-06).
+**Status:** **In progress — Phase 0 + K6.1 (society lite) shipped** (2026-07). Phase 2 (blackboard message bus) is next; Phases 3–5 are design only.
+
+**Shipped so far:** charter schema + [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}), `python main.py --society CHARTER.yaml --goal "…"`, round-robin turn runtime with an append-only blackboard, society sessions under `__orchestrator_sessions__/societies/`, in-process `delegate_task` with a hard delegation budget, society controller, catalog flag `society_capable`, vertical example `examples/verticals/society_research_panel/`, and a `process: hierarchical` reference workflow.
 
 **Builds on:** [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (K3–K5 complete: coordinator, warm pool, delegation RPC, structured logging), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }})
 
@@ -37,8 +39,9 @@ A **society** is not “one big group chat.” It is:
 | **Planner → steps** | Dynamic planner picks one agent per step; [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) |
 | **Task handoff** | Prior step output injected into the next task/step description (`step_context.py`, `workflow_materializer.py`) |
 | **K8s delegation** | `k8s_delegate_task` tool + delegation broker spawns child Jobs ([Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#phase-5--operational-polish-optional) K5.5) |
-| **CrewAI delegation** | `allow_delegation: false` on virtually all catalog entries |
-| **Hierarchical crews** | `process: hierarchical` supported in code; no shipped reference workflow |
+| **CrewAI delegation** | `allow_delegation: false` on virtually all catalog entries (`ollama_hermes3` is the facilitator exception) |
+| **Hierarchical crews** | `process: hierarchical` supported in code; reference workflow shipped (`config/workflows/workflow_society_hierarchical_panel.yaml`) |
+| **Society runtime (K6.1)** | `--society CHARTER.yaml` — round-robin turns, shared blackboard, bounded `delegate_task`, controller stop |
 
 See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#non-goals-initial-phases) — in-run CrewAI delegation / hierarchical managers were explicitly deferred until a society use case justified them. **This page is that justification and roadmap.**
 
@@ -103,45 +106,49 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 
 ## Interaction modes (charter enum)
 
-| Mode | Description |
-|------|-------------|
-| `handoff` | Current behavior — sequential steps, prior output injection |
-| `crew_delegation` | CrewAI `allow_delegation: true` on selected agents |
-| `hierarchical` | Manager agent + worker agents (`process: hierarchical`) |
-| `blackboard` | Async posts to shared bus; agents pull threads |
-| `delegate_rpc` | Existing K8s delegation tool (generalize to all backends in K6.1) |
+| Mode | Description | v1 status |
+|------|-------------|-----------|
+| `handoff` | Current behavior — sequential steps, prior output injection | Existing behavior |
+| `crew_delegation` | CrewAI `allow_delegation: true` on selected agents | Reference workflow only |
+| `hierarchical` | Manager agent + worker agents (`process: hierarchical`) | Reference workflow only |
+| `blackboard` | Posts to shared memory; agents read it each turn (append-only in v1, threaded in K6.2) | **Shipped (K6.1)** — charter default |
+| `delegate_rpc` | Delegation tool — `delegate_task` inline, `k8s_delegate_task` on K8s | **Shipped (K6.1)** |
 
 ---
 
 ## Phased roadmap
 
-### Phase 0 — Definition and guardrails (design only)
+### Phase 0 — Definition and guardrails — **shipped**
 
 **Deliverables**
 
-- **Society charter schema** (YAML): `society_id`, members (`agent_provider_id`), roles, `max_turns`, `max_delegations`, token/cost cap, allowed MCPs, stop conditions (`consensus`, `moderator_done`, `timeout`)
-- Interaction modes enum (table above)
-- ADR: non-goals v1 — no unbounded spend, no internet-facing societies without auth
+- [x] **Society charter schema** (YAML): `config/schemas/society_charter.schema.json` — `society.id`, members (`agent_provider_id`, `role`, `charge`, `can_delegate`, per-member MCP allowlist), `max_turns`, `max_delegations`, `min_turns`, `protocol`, `interaction_mode`, `tools`, and `stop_when` phrases
+- [x] Interaction modes enum (table above) — `blackboard` and `delegate_rpc` drive the v1 runtime; `handoff`, `crew_delegation`, and `hierarchical` are declarative
+- [x] ADR: [`docs/adr/0001-agent-societies-v1.md`]({{ '/adr/0001-agent-societies-v1/' | relative_url }}) — non-goals v1: no unbounded spend, no internet-facing societies without auth, no nested societies, no cross-tenant/external agents, no parallel turns
 
-**Exit criteria:** Example `society_research_panel.yaml` charter + one-page ADR in repo `docs/` or wiki.
+**Exit criteria met:** `examples/verticals/society_research_panel/society_research_panel.yaml` charter (plus a Jetson-sized variant) and the one-page ADR are in the repo.
+
+**Deferred:** token/cost cap in currency terms (turn and delegation caps only in v1); `consensus` and `timeout` stop conditions (v1 ships phrase-based `stop_when` plus the controller).
 
 ---
 
-### Phase 1 — Society lite on laptop (`inprocess`) — K6.1
+### Phase 1 — Society lite on laptop (`inprocess`) — K6.1 — **shipped**
 
 **Goal:** Prove multi-agent autonomy **without K8s complexity**.
 
-| Task | Work |
-|------|------|
-| **1.1** | Reference workflow: hierarchical crew — manager (`allow_delegation: true`) + 2–3 workers; document `process: hierarchical` |
-| **1.2** | Catalog flag `society_capable: true`; default `allow_delegation` remains `false`; societies opt in per entry |
-| **1.3** | In-process `delegate_task` tool — same API surface as `k8s_delegate_task`, inline child step via `execute_step` |
-| **1.4** | Society session type under `__orchestrator_sessions__/societies/`: roster, turn counter, blackboard path |
-| **1.5** | Society controller — reuse iterative controller pattern: `society_controller_decision(done, reason, budget_remaining)` |
+| Task | Work | Status |
+|------|------|--------|
+| **1.1** | Reference workflow: hierarchical crew — manager (`allow_delegation: true`) + 2 workers; `process: hierarchical` documented | [x] `config/workflows/workflow_society_hierarchical_panel.yaml`; `manager_llm` from `AGENTIC_CREW_MANAGER_MODEL` |
+| **1.2** | Catalog flag `society_capable: true`; default `allow_delegation` remains `false`; societies opt in per entry | [x] `AgentProviderConfig.society_capable`; tagged on `ollama_hermes3` (the only `allow_delegation: true` entry), `ollama_llama3_3`, `ollama_qwen2_5_coder`, `ollama_llama3_2_3b`, `gpt_research`, `gpt_write`, `claude_research` |
+| **1.3** | In-process `delegate_task` tool — same API surface as `k8s_delegate_task`, inline child step | [x] `orchestration/delegate_task_tool.py`; identical `_run` signature; budget reserved before the child runs |
+| **1.4** | Society session type under `__orchestrator_sessions__/societies/`: roster, turn counter, blackboard path | [x] `orchestration/society_session.py` — `meta.json`, `blackboard.md`, `transcript.jsonl` |
+| **1.5** | Society controller — reuse iterative controller pattern: `society_controller_decision(done, reason, budget_remaining)` | [x] `orchestration/society_controller.py`; model precedence `AGENTIC_SOCIETY_CONTROLLER_MODEL` → `AGENTIC_ITERATIVE_CONTROLLER_MODEL` → `AGENTIC_PLANNER_MODEL` |
 
-**CLI (proposed):** `python main.py --society charter.yaml --goal "…"`
+**CLI (shipped):** `python main.py --society charter.yaml --goal "…"` (plus `--society-session`, `--society-max-turns`, `--society-no-controller`; mutually exclusive with `--dynamic` / `--dynamic-iterative`).
 
-**Exit criteria:** 3-agent panel, 10+ turns, one delegation, controller stops cleanly, transcript in session.
+**Turn protocol:** `round_robin` in `orchestration/society_runtime.py`. `protocol: hierarchical` is accepted as an alias that still takes round-robin turns — manager-driven delegation quality varies too much across local and cloud models to be the default runtime (see ADR 0001).
+
+**Exit criteria:** 3-agent panel with `max_turns: 12`, one bounded delegation path, controller stops cleanly, transcript in the session. Verify with `scripts/smoke_society_lite.sh` (offline) or `AGENTIC_SMOKE_SOCIETY_LIVE=1 scripts/smoke_society_lite.sh` (real short run).
 
 ---
 
@@ -198,30 +205,44 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 
 ---
 
-## Example v1 society charter (research panel)
+## Example v1 society charter (research panel) — shipped
+
+Shipped at `examples/verticals/society_research_panel/society_research_panel.yaml` (same vertical
+pattern as healthcare / logistics), validated against `config/schemas/society_charter.schema.json`.
+Members are local Ollama entries so the panel runs without cloud keys:
 
 ```yaml
 society:
   id: research_panel
   protocol: round_robin
+  interaction_mode: blackboard
   max_turns: 12
+  max_delegations: 2
+  min_turns: 3
   members:
-    - agent_provider_id: openai_gpt4o_mini
+    - agent_provider_id: ollama_hermes3
       role: facilitator
       can_delegate: true
-    - agent_provider_id: acme_internal_llm   # hypothetical custom endpoint
+      charge: You chair this panel…
+    - agent_provider_id: ollama_llama3_3
       role: domain_expert
-    - agent_provider_id: anthropic_claude_haiku
+    - agent_provider_id: ollama_qwen2_5_coder
       role: critic
   stop_when:
     - facilitator_posts: "FINAL_RECOMMENDATION"
   tools:
-    - society_post
-    - society_read_thread
-    - delegate_task
+    - delegate_task     # society_post / society_read_thread arrive in K6.2
 ```
 
-Ship as vertical example: `examples/verticals/society_research_panel/` (same pattern as healthcare / logistics).
+```bash
+cd agentic-orchestration-tool
+python main.py --example society_research_panel \
+  --society ../examples/verticals/society_research_panel/society_research_panel.yaml \
+  --goal "Should we run our RAG index on the edge device or in the cluster?"
+```
+
+`society_research_panel_jetson.yaml` in the same directory seats three overlay entries backed by
+`llama3.2:3b` for single-small-model edge devices.
 
 ---
 
@@ -249,14 +270,34 @@ Ship as vertical example: `examples/verticals/society_research_panel/` (same pat
 
 ---
 
-## Suggested first implementation slice
+## First implementation slice — done
 
-If green-lit, start with:
+1. [x] ADR + society charter JSON/YAML schema
+2. [x] **K6.1.3** — in-process `delegate_task` (parallel API to `k8s_delegate_task`)
+3. [x] One **hierarchical** reference workflow with `allow_delegation: true` on manager only
+4. [ ] Link from [Home]({{ '/' | relative_url }}) and this page from [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#phase-5--operational-polish-optional)
 
-1. ADR + society charter JSON/YAML schema
-2. **K6.1.3** — in-process `delegate_task` (parallel API to `k8s_delegate_task`)
-3. One **hierarchical** reference workflow with `allow_delegation: true` on manager only
-4. Link from [Home]({{ '/' | relative_url }}) and this page from [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#phase-5--operational-polish-optional)
+### Files shipped in K6.1
+
+| Path | Role |
+|------|------|
+| `config/schemas/society_charter.schema.json` | Charter JSON Schema |
+| `orchestration/society_charter.py` | Charter load/validate; dataclasses; catalog + `society_capable` checks |
+| `orchestration/society_session.py` | Session dir, `meta.json`, blackboard, transcript, delegation budget |
+| `orchestration/society_controller.py` | `society_controller_decision(...)` |
+| `orchestration/delegate_task_tool.py` | `delegate_task` CrewAI tool + inline child run |
+| `orchestration/society_runtime.py` | `run_society(...)` round-robin turn loop |
+| `main.py` | `--society`, `--goal`, `--society-session`, `--society-max-turns`, `--society-no-controller` |
+| `examples/verticals/society_research_panel/` | Charters, edge overlay seats, orchestrator context, README |
+| `config/workflows/workflow_society_hierarchical_panel.yaml` | Hierarchical crew reference |
+| `scripts/smoke_society_lite.sh` / `.py` | Offline smoke (+ optional live run) |
+| `tests/test_society_*.py`, `tests/test_delegate_task_tool.py` | Unit coverage (no live LLM) |
+
+### Next up (K6.2)
+
+Message schema under `society/messages/`, `society_post` / `society_read_thread` /
+`society_list_agents` tools, and `moderator_picks` / `reactive` turn protocols — replacing the
+append-only markdown blackboard, whose context grows linearly with turn count.
 
 ---
 
@@ -286,3 +327,4 @@ If green-lit, start with:
 |------|--------|
 | 2026-06-29 | Initial K6 roadmap — agent societies plan (wiki page) |
 | 2026-06-29 | Deferred doc: **Integrating external agents (vs catalog agents)** — add after K6 ships |
+| 2026-07-29 | **Phase 0 + K6.1 shipped** — charter schema, ADR 0001, `--society` CLI, round-robin runtime, society sessions, bounded `delegate_task`, society controller, `society_capable` catalog flag, research-panel vertical, hierarchical reference workflow, society smoke |

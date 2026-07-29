@@ -188,6 +188,7 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "general_purpose",
         "verbose",
         "allow_delegation",
+        "society_capable",
         "min_vram_gb",
         "hardware",
         "harness_profile",
@@ -211,6 +212,7 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         huggingface_base_url=str(data.get("huggingface_base_url", "")).strip(),
         verbose=bool(data.get("verbose", True)),
         allow_delegation=bool(data.get("allow_delegation", False)),
+        society_capable=bool(data.get("society_capable", False)),
     )
 
     if not config.role:

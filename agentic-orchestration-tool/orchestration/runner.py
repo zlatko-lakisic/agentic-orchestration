@@ -510,14 +510,20 @@ def build_workflow(
     )
     kickoff_state.emit_progress_lines = bool(emit_progress_lines)
 
-    crew = Crew(
-        agents=agents,
-        tasks=ordered_tasks,
-        process=_to_process(config.process),
-        verbose=crew_verbose,
-        task_callback=_serial_crew_task_callback,
-        before_kickoff_callbacks=[_serial_crew_before_kickoff],
-    )
+    crew_kwargs: dict[str, Any] = {
+        "agents": agents,
+        "tasks": ordered_tasks,
+        "process": _to_process(config.process),
+        "verbose": crew_verbose,
+        "task_callback": _serial_crew_task_callback,
+        "before_kickoff_callbacks": [_serial_crew_before_kickoff],
+    }
+    if config.process == "hierarchical":
+        # CrewAI requires a manager for hierarchical crews (K6.1 reference workflow).
+        crew_kwargs["manager_llm"] = (
+            os.getenv("AGENTIC_CREW_MANAGER_MODEL", "").strip() or default_model
+        )
+    crew = Crew(**crew_kwargs)
 
     topic = config.topic or os.getenv("WORKFLOW_TOPIC", "Agentic AI orchestration")
     if anonymize_cloud_enabled() and any(

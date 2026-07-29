@@ -10,3 +10,4 @@ backstory: You are precise, cite limitations when uncertain, and prefer structur
 model: claude-3-5-haiku-20241022
 verbose: true
 allow_delegation: false
+society_capable: true

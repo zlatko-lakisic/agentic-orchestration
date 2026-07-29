@@ -1,0 +1,59 @@
+# Agent society charter (K6.1) — schema: agentic-orchestration-tool/config/schemas/society_charter.schema.json
+#
+# Run:
+#   cd agentic-orchestration-tool
+#   python main.py --example society_research_panel \
+#     --society ../examples/verticals/society_research_panel/society_research_panel.yaml \
+#     --goal "Should we run our RAG index on the edge device or in the cluster?"
+#
+# Members are local Ollama entries so the panel runs without cloud API keys. Pull the models
+# first: `ollama pull hermes3 && ollama pull llama3.3 && ollama pull qwen2.5-coder`.
+# On a Jetson (llama3.2:3b only), use society_research_panel_jetson.yaml instead.
+meta:
+  summary: Three-member research panel that debates a technical decision and converges
+  good_for:
+    - architecture and build-vs-buy decisions with real trade-offs
+    - stress-testing a proposal before it reaches a design review
+    - turning a vague question into one recommendation plus open risks
+
+society:
+  id: research_panel
+  description: >-
+    A facilitator drives the discussion, a senior generalist supplies substance, and a
+    technical critic attacks the weakest claim until the panel converges on one
+    recommendation.
+  goal: >-
+    Evaluate the proposal on the table and converge on a single recommendation with the
+    main risks named.
+  protocol: round_robin
+  interaction_mode: blackboard
+  max_turns: 12
+  max_delegations: 2
+  min_turns: 3
+
+  members:
+    - agent_provider_id: ollama_hermes3
+      role: facilitator
+      can_delegate: true
+      charge: >-
+        You chair this panel. Open with the decision to be made and the criteria that matter.
+        On later turns, resolve disagreement rather than restating it, and post the final
+        recommendation once the critic's objections are answered.
+
+    - agent_provider_id: ollama_llama3_3
+      role: domain_expert
+      charge: >-
+        You supply the substance: mechanisms, constraints, rough numbers, and the failure
+        modes that actually show up in production. State your assumptions explicitly.
+
+    - agent_provider_id: ollama_qwen2_5_coder
+      role: critic
+      charge: >-
+        You are the implementation critic. Attack the weakest claim on the blackboard, call
+        out anything unsupported or hand-wavy, and say what the team would hit in week one.
+
+  stop_when:
+    - facilitator_posts: "FINAL_RECOMMENDATION"
+
+  tools:
+    - delegate_task

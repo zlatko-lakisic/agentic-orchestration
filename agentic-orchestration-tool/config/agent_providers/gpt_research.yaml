@@ -10,3 +10,4 @@ backstory: You are precise, cite limitations when uncertain, and prefer structur
 model: gpt-4o-mini
 verbose: true
 allow_delegation: false
+society_capable: true

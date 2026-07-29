@@ -99,6 +99,43 @@ def _parse_dynamic_agent_provider_ids(raw: str | None) -> list[str]:
     return out
 
 
+def _run_society_cli(
+    args: argparse.Namespace,
+    *,
+    tool_root: Path,
+    charter_arg: str,
+    agent_providers_catalog_path: Path,
+    mcp_catalog_path: Path,
+) -> int:
+    """Resolve --society arguments and hand off to the society runtime (K6.1)."""
+    from orchestration.society_runtime import run_society
+
+    charter_path = Path(charter_arg).expanduser()
+    if not charter_path.is_absolute():
+        candidate = (tool_root / charter_path).resolve()
+        charter_path = candidate if candidate.is_file() else (Path.cwd() / charter_path).resolve()
+    if not charter_path.is_file():
+        print(f"error: --society charter not found: {charter_path}", file=sys.stderr)
+        return 2
+
+    goal = str(getattr(args, "goal", None) or "").strip() or str(getattr(args, "task", None) or "").strip()
+    session_slug = str(getattr(args, "society_session", None) or "").strip() or os.getenv(
+        "AGENTIC_SOCIETY_SESSION", ""
+    ).strip()
+
+    return run_society(
+        tool_root=tool_root,
+        charter_path=charter_path,
+        goal=goal,
+        session_slug=session_slug or None,
+        quiet=bool(args.quiet),
+        agent_catalog_path=agent_providers_catalog_path,
+        mcp_catalog_path=mcp_catalog_path,
+        max_turns=getattr(args, "society_max_turns", None),
+        use_controller=False if getattr(args, "society_no_controller", False) else None,
+    )
+
+
 def _load_dynamic_attachment_block(args: argparse.Namespace, tool_root: Path) -> str:
     raw = getattr(args, "dynamic_attachments", None)
     if not raw or not str(raw).strip():
@@ -626,7 +663,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--example",
-        choices=("healthcare", "logistics"),
+        choices=("healthcare", "logistics", "society_research_panel"),
         default=None,
         metavar="NAME",
         help=(
@@ -727,6 +764,53 @@ def parse_args() -> argparse.Namespace:
         help=(
             "With --dynamic-iterative-auto: minimum rounds to run before the controller may stop "
             "(default env AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS or 1)."
+        ),
+    )
+    parser.add_argument(
+        "--society",
+        default=None,
+        metavar="CHARTER.yaml",
+        help=(
+            "Run an agent society from a charter YAML (see config/schemas/society_charter.schema.json): "
+            "members take round-robin turns on a shared blackboard until a stop condition, the "
+            "society controller, or --society-max-turns ends the run. Goal comes from --goal or TASK. "
+            "Mutually exclusive with --dynamic / --dynamic-iterative."
+        ),
+    )
+    parser.add_argument(
+        "--goal",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "Goal for --society (alternative to the TASK positional). Falls back to "
+            "society.goal in the charter when both are omitted."
+        ),
+    )
+    parser.add_argument(
+        "--society-session",
+        default=None,
+        metavar="NAME",
+        help=(
+            "With --society: session directory name under "
+            "__orchestrator_sessions__/societies/ (default: the charter's society id). "
+            "Also settable via AGENTIC_SOCIETY_SESSION."
+        ),
+    )
+    parser.add_argument(
+        "--society-max-turns",
+        default=None,
+        type=int,
+        metavar="N",
+        help=(
+            "With --society: lower the charter's max_turns for this run (never raises it)."
+        ),
+    )
+    parser.add_argument(
+        "--society-no-controller",
+        action="store_true",
+        help=(
+            "With --society: skip the controller LLM between rounds and stop only on "
+            "stop_when phrases or the turn budget (same as AGENTIC_SOCIETY_CONTROLLER=0)."
         ),
     )
     parser.add_argument(
@@ -1065,6 +1149,24 @@ def main() -> None:
     if args.dynamic and args.dynamic_iterative:
         print("error: choose only one of --dynamic or --dynamic-iterative", file=sys.stderr)
         sys.exit(2)
+
+    society_charter_arg = str(getattr(args, "society", None) or "").strip()
+    if society_charter_arg:
+        if args.dynamic or args.dynamic_iterative:
+            print(
+                "error: choose only one of --society, --dynamic, or --dynamic-iterative",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        sys.exit(
+            _run_society_cli(
+                args,
+                tool_root=tool_root,
+                charter_arg=society_charter_arg,
+                agent_providers_catalog_path=agent_providers_catalog_path,
+                mcp_catalog_path=mcp_catalog_path,
+            )
+        )
 
     if args.dynamic_iterative:
         has_manifest = bool(

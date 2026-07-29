@@ -72,6 +72,8 @@ class AgentProviderConfig:
     huggingface_base_url: str = ""
     verbose: bool = True
     allow_delegation: bool = False
+    # Operator opt-in for agent societies (K6.1); societies refuse members without it.
+    society_capable: bool = False
 
 
 class AgentProvider(ABC):

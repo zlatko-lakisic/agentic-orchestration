@@ -10,3 +10,4 @@ ollama_host: workflow
 selfcontained: true
 verbose: true
 allow_delegation: false
+society_capable: true

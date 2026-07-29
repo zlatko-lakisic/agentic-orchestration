@@ -35,6 +35,7 @@ sidebar:
 | **Answer cache** | `AGENTIC_ANSWER_CACHE` |
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, controller-related vars |
 | **Iterative stdout behavior** | `AGENTIC_DYNAMIC_ITER_STREAM_STEPS` |
+| **Agent societies** | `AGENTIC_SOCIETY_*` — see below and [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}) |
 | **Attachments / uploads** | `AGENTIC_ATTACHMENTS_ALLOW_ABSOLUTE` (advanced escape hatch; defaults keep paths under tool upload directory) |
 | **Extra catalogs** | `AGENTIC_EXTRA_AGENT_PROVIDERS_PATH`, `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`, `AGENTIC_EXTRA_AGENT_SKILLS_PATH`, `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` |
 | **Artifacts** | `AGENTIC_VERIFY`, output dirs |
@@ -49,6 +50,29 @@ sidebar:
 | `AGENTIC_K8S_ALLOW_STDIO_MCPS` | `0` | K8s mode only: when `1`, allow stdio MCP ids if sidecars exist (K4). K3 MVP keeps `0`. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#mcp-compatibility-matrix-k8s-mode). |
 
 See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) for architecture and phased rollout. See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) for PVC layout on cluster.
+
+## Agent societies (K6.1)
+
+Used by `python main.py --society CHARTER.yaml --goal "…"`. The charter's `max_turns` and
+`max_delegations` are always enforced; the variables below only supply defaults when the charter
+omits them, or tune the runtime around them.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_SOCIETY_MAX_TURNS` | `12` | Default turn cap when the charter omits `max_turns` (hard ceiling `200`). `--society-max-turns` can lower a run further, never raise it. |
+| `AGENTIC_SOCIETY_MAX_DELEGATIONS` | `3` | Default `delegate_task` budget for the whole run when the charter omits `max_delegations` (ceiling `50`). |
+| `AGENTIC_SOCIETY_REQUIRE_CAPABLE` | `1` | Members must carry `society_capable: true` in the agent catalog. Set `0` to seat any entry. |
+| `AGENTIC_SOCIETY_CONTROLLER` | `1` | Consult the controller LLM after each completed round (may stop early). Set `0` to rely only on `stop_when` phrases and the turn cap — same as `--society-no-controller`. |
+| `AGENTIC_SOCIETY_CONTROLLER_MODEL` | _(unset)_ | Controller model; falls back to `AGENTIC_ITERATIVE_CONTROLLER_MODEL`, then `AGENTIC_PLANNER_MODEL`, then `gpt-4o-mini`. |
+| `AGENTIC_SOCIETY_CONTROLLER_EXCERPT_CHARS` | `12000` | Blackboard excerpt sent to the controller. |
+| `AGENTIC_SOCIETY_BLACKBOARD_CHARS` | `12000` | Blackboard excerpt injected into each member turn (trimmed from the front, newest posts kept). |
+| `AGENTIC_SOCIETY_SESSION` | _(unset)_ | Session directory name under `__orchestrator_sessions__/societies/`; default is the charter's `society.id`. `--society-session` overrides. |
+| `AGENTIC_SOCIETY_DELEGATE` | `0` | Allow the inline `delegate_task` tool **outside** society runs. Society members with `can_delegate: true` get it regardless. |
+| `AGENTIC_SOCIETY_DELEGATE_RESULT_CHARS` | `6000` | Truncation for a delegated child's answer. |
+| `AGENTIC_CREW_MANAGER_MODEL` | `OPENAI_MODEL_NAME` | Manager LLM for `process: hierarchical` crews (`config/workflows/workflow_society_hierarchical_panel.yaml`). |
+
+Charter schema: `config/schemas/society_charter.schema.json`. Example: `examples/verticals/society_research_panel/`
+(`--example society_research_panel`). Design and non-goals: [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}).
 
 ## Notable runtime toggles
 

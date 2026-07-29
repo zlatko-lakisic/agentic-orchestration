@@ -1,0 +1,77 @@
+# Reference workflow for the CrewAI `hierarchical` interaction mode (K6.1.1).
+#
+# This is the *crew_delegation / hierarchical* shortcut from docs/adr/0001-agent-societies-v1.md:
+# one manager with `allow_delegation: true` plans and hands work to two workers that cannot
+# delegate. The manager LLM comes from AGENTIC_CREW_MANAGER_MODEL (default OPENAI_MODEL_NAME).
+#
+# Run it directly (it is a normal workflow, not a charter):
+#   python main.py --config config/workflows/workflow_society_hierarchical_panel.yaml "your topic"
+#
+# The `--society` CLI does NOT use this file. The society runtime takes round-robin turns
+# because manager-driven delegation quality varies a lot across local and cloud models; see
+# examples/verticals/society_research_panel/ for the charter-driven path.
+meta:
+  id: society_hierarchical_panel
+  router_include: false
+  summary: Manager-led panel — hierarchical CrewAI process with one delegating manager
+  description: >
+    Reference for `process: hierarchical`: the manager decomposes the topic and delegates to a
+    domain expert and a critic. Shipped as documentation of the interaction mode, not as the
+    society runtime.
+  good_for:
+    - demonstrating CrewAI hierarchical delegation
+    - comparing manager-led delegation against the charter-driven society runtime
+
+workflow:
+  name: "society-hierarchical-panel"
+  process: "hierarchical"
+  topic: "Should we run the RAG index on the edge device or in the cluster?"
+
+  agent_providers:
+    - id: "panel_manager"
+      type: "openai"
+      role: "Panel Manager"
+      goal: "Decompose the question, assign work to the right specialist, and integrate the answers"
+      backstory: >-
+        You chair a small panel. You decide what needs answering first, delegate to the
+        specialist best suited to it, and merge what comes back into one recommendation.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: true
+      society_capable: true
+
+    - id: "panel_expert"
+      type: "openai"
+      role: "Domain Expert"
+      goal: "Supply mechanisms, constraints, and realistic failure modes"
+      backstory: >-
+        You add substance others miss and state your assumptions explicitly.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+      society_capable: true
+
+    - id: "panel_critic"
+      type: "openai"
+      role: "Implementation Critic"
+      goal: "Attack the weakest claim and name what would falsify it"
+      backstory: >-
+        You are a blunt reviewer who flags unsupported claims and week-one implementation pain.
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+      society_capable: true
+
+  tasks:
+    - id: "panel_debate"
+      agent_provider_id: "panel_manager"
+      description: >
+        Chair a panel on '{topic}'. Delegate the substance to the Domain Expert and the
+        objections to the Implementation Critic, then resolve the disagreement yourself.
+        Do not answer everything alone.
+      expected_output: >
+        One recommendation, the reasoning behind it, and the open risks — with each specialist's
+        contribution visible in the reasoning.
+
+  task_sequence:
+    - "panel_debate"

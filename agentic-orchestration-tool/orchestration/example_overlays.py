@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-_EXAMPLE_IDS: tuple[str, ...] = ("healthcare", "logistics")
+_EXAMPLE_IDS: tuple[str, ...] = ("healthcare", "logistics", "society_research_panel")
 
 _LOGISTICS_SIM_ENV = "AGENTIC_LOGISTICS_SIM_MCP_PY"
 

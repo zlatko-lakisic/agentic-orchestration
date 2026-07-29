@@ -9,4 +9,6 @@ model: hermes3
 ollama_host: workflow
 selfcontained: true
 verbose: true
-allow_delegation: false
+# Society facilitator: the one entry allowed to delegate in the shipped charter.
+allow_delegation: true
+society_capable: true

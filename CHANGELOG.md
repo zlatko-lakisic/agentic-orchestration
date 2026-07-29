@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Agent societies — Phase 0 + K6.1 (society lite)** — multi-agent panels declared in YAML instead of re-planned every turn. A charter (`config/schemas/society_charter.schema.json`) names the roster (`agent_provider_id` + role), the turn protocol, hard budgets, and stop conditions; `python main.py --society CHARTER.yaml --goal "…"` runs it. Members take **round-robin** turns as single-agent crews (`orchestration/society_runtime.py`) with an append-only blackboard injected into each turn, and state persists under `__orchestrator_sessions__/societies/<slug>/` (`meta.json`, `blackboard.md`, `transcript.jsonl`; `orchestration/society_session.py`). The run stops on a charter `stop_when` phrase (e.g. `facilitator_posts: FINAL_RECOMMENDATION`), on the society controller (`orchestration/society_controller.py`, mirroring the iterative controller: `AGENTIC_SOCIETY_CONTROLLER_MODEL` → `AGENTIC_ITERATIVE_CONTROLLER_MODEL` → `AGENTIC_PLANNER_MODEL`), or on `max_turns` — whichever comes first. New in-process `delegate_task` tool (`orchestration/delegate_task_tool.py`) mirrors the `k8s_delegate_task` argument surface and runs the child inline, debited against `max_delegations` before it executes. Catalog entries opt in with `society_capable: true` (`allow_delegation` stays `false` except on the facilitator entry `ollama_hermes3`). Ships `docs/adr/0001-agent-societies-v1.md` (interaction-mode enum and v1 non-goals: no unbounded spend, no internet-facing societies without auth, no nested societies), the vertical example `examples/verticals/society_research_panel/` (local-Ollama panel plus a Jetson-sized variant, `--example society_research_panel`), a `process: hierarchical` reference workflow (`config/workflows/workflow_society_hierarchical_panel.yaml`), and smoke `scripts/smoke_society_lite.sh` (offline by default; `AGENTIC_SMOKE_SOCIETY_LIVE=1` for a real short run).
+
 ## [1.17.0] - 2026-07-29
 
 ### Added

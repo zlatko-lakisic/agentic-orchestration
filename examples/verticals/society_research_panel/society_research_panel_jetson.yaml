@@ -1,0 +1,52 @@
+# Jetson / small-edge variant of the research panel charter.
+#
+# The Jetson catalog (config/agent_providers_jetson) ships one small model, and a society needs
+# distinct catalog ids per seat, so this charter seats the three overlay entries in
+# ./agent_providers/ — all backed by llama3.2:3b on the host Ollama.
+#
+# Run (on the device):
+#   cd agentic-orchestration-tool
+#   python main.py --example society_research_panel \
+#     --society ../examples/verticals/society_research_panel/society_research_panel_jetson.yaml \
+#     --goal "Should the RAG index live on the Jetson or in the cluster?" --society-max-turns 6
+#
+# Budgets are deliberately small: a 3B model converges by repetition, not insight.
+meta:
+  summary: Edge-sized research panel — three seats on one small local model
+  good_for:
+    - smoke-testing the society runtime without cloud keys or large models
+    - short edge debates where latency matters more than depth
+
+society:
+  id: research_panel_jetson
+  description: >-
+    Same round-robin protocol as the full panel, sized for a single small local model on an
+    edge device. No delegation: a 3B model spends the budget without adding substance.
+  goal: >-
+    Evaluate the proposal on the table and converge on a single recommendation with the
+    main risks named.
+  protocol: round_robin
+  interaction_mode: blackboard
+  max_turns: 6
+  max_delegations: 0
+  min_turns: 3
+
+  members:
+    - agent_provider_id: soc_jetson_facilitator
+      role: facilitator
+      charge: >-
+        You chair this panel. Open with the decision to be made, then converge. Post the final
+        recommendation as soon as the critic's objections are answered.
+
+    - agent_provider_id: soc_jetson_expert
+      role: domain_expert
+      charge: >-
+        Add concrete substance: constraints, rough numbers, and the failure modes you expect.
+
+    - agent_provider_id: soc_jetson_critic
+      role: critic
+      charge: >-
+        Attack the weakest claim on the blackboard and name what would falsify it. Be brief.
+
+  stop_when:
+    - facilitator_posts: "FINAL_RECOMMENDATION"

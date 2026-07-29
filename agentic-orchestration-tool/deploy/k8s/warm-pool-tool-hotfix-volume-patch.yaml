@@ -63,6 +63,21 @@ spec:
               mountPath: /app/orchestration/orchestrator_session.py
               subPath: orchestrator_session.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/society_charter.py
+              subPath: society_charter.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/society_session.py
+              subPath: society_session.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/society_controller.py
+              subPath: society_controller.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/society_runtime.py
+              subPath: society_runtime.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/delegate_task_tool.py
+              subPath: delegate_task_tool.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/media_grounding.py
               subPath: media_grounding.py
             - name: tool-hotfix-orchestration
@@ -110,6 +125,9 @@ spec:
             - name: tool-hotfix-agent-providers
               mountPath: /app/agent_providers/base.py
               subPath: base.py
+            - name: tool-hotfix-agent-providers
+              mountPath: /app/agent_providers/factory.py
+              subPath: factory.py
             - name: tool-hotfix-agent-providers
               mountPath: /app/agent_providers/ollama_provider.py
               subPath: ollama_provider.py

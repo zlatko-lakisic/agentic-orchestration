@@ -9,3 +9,4 @@ backstory: You favor short paragraphs, concrete wording, and scannable structure
 model: gpt-4o-mini
 verbose: true
 allow_delegation: false
+society_capable: true

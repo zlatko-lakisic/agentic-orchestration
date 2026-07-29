@@ -75,6 +75,11 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=cloud_anonymize_tier3.py="${ORCH_ROOT}/cloud_anonymize_tier3.py" \
   --from-file=knowledge_base.py="${ORCH_ROOT}/knowledge_base.py" \
   --from-file=orchestrator_session.py="${ORCH_ROOT}/orchestrator_session.py" \
+  --from-file=society_charter.py="${ORCH_ROOT}/society_charter.py" \
+  --from-file=society_session.py="${ORCH_ROOT}/society_session.py" \
+  --from-file=society_controller.py="${ORCH_ROOT}/society_controller.py" \
+  --from-file=society_runtime.py="${ORCH_ROOT}/society_runtime.py" \
+  --from-file=delegate_task_tool.py="${ORCH_ROOT}/delegate_task_tool.py" \
   --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
   --from-file=crewai_mcp_normalize.py="${ORCH_ROOT}/crewai_mcp_normalize.py" \
   --from-file=runner.py="${ORCH_ROOT}/runner.py" \
@@ -93,6 +98,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
 apply_configmap agentic-tool-hotfix-agent-providers \
   --from-file=base.py="${PROV_ROOT}/base.py" \
+  --from-file=factory.py="${PROV_ROOT}/factory.py" \
   --from-file=ollama_provider.py="${PROV_ROOT}/ollama_provider.py"
 
 PATCH_FILE="${TOOL_ROOT}/deploy/k8s/coordinator/web-hotfix-volume-patch.yaml"

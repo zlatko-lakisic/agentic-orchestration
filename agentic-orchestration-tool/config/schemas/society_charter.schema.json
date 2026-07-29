@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zlatko-lakisic/agentic-orchestration/schemas/society_charter.schema.json",
+  "title": "Agent society charter",
+  "description": "Declarative roster, turn protocol, budgets, and stop conditions for an agent society (K6.1). Loaded by orchestration/society_charter.py and run with `python main.py --society CHARTER.yaml --goal \"...\"`.",
+  "type": "object",
+  "required": ["society"],
+  "additionalProperties": true,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "description": "Optional documentation block; ignored by the runtime.",
+      "additionalProperties": true,
+      "properties": {
+        "summary": { "type": "string" },
+        "description": { "type": "string" },
+        "good_for": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "society": {
+      "type": "object",
+      "required": ["id", "members"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Society identifier; also the default session slug.",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable purpose of the society."
+        },
+        "goal": {
+          "type": "string",
+          "description": "Default goal used when --goal / TASK is omitted on the CLI."
+        },
+        "protocol": {
+          "type": "string",
+          "description": "Turn protocol. v1 drives round_robin; `hierarchical` is accepted as an alias that still takes round-robin turns (see config/workflows/workflow_society_hierarchical_panel.yaml for a real CrewAI hierarchical crew).",
+          "enum": ["round_robin", "hierarchical"],
+          "default": "round_robin"
+        },
+        "interaction_mode": {
+          "type": "string",
+          "description": "Charter interaction mode (see docs/adr/0001-agent-societies-v1.md). v1 drives `blackboard` and `delegate_rpc`; `handoff`, `crew_delegation`, and `hierarchical` are declarative only.",
+          "enum": [
+            "handoff",
+            "crew_delegation",
+            "hierarchical",
+            "blackboard",
+            "delegate_rpc"
+          ],
+          "default": "blackboard"
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "Hard cap on member turns for one society run.",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 12
+        },
+        "max_delegations": {
+          "type": "integer",
+          "description": "Hard cap on delegate_task calls across the whole run.",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3
+        },
+        "min_turns": {
+          "type": "integer",
+          "description": "Minimum turns before the society controller may stop the run early. Defaults to one full round (roster size).",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "members": {
+          "type": "array",
+          "description": "Society roster. Each member must resolve to an agent-provider catalog entry.",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/member" }
+        },
+        "stop_when": {
+          "type": "array",
+          "description": "Stop conditions evaluated against each turn's output. Any match ends the run.",
+          "items": { "$ref": "#/$defs/stopCondition" }
+        },
+        "tools": {
+          "type": "array",
+          "description": "Tool ids offered to the society. v1 recognizes `delegate_task` (inline child step) and `k8s_delegate_task` (Kubernetes worker Job). Unknown ids are ignored with a warning.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "mcp_providers": {
+          "type": "array",
+          "description": "MCP catalog ids allowed for every member unless a member narrows the list.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "member": {
+      "type": "object",
+      "required": ["agent_provider_id", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "agent_provider_id": {
+          "type": "string",
+          "description": "Catalog id from config/agent_providers (or a merged extra catalog dir). The entry should carry `society_capable: true`.",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "description": "Society role, e.g. facilitator, domain_expert, critic. `facilitator` is the default target of `facilitator_posts` stop conditions.",
+          "minLength": 1
+        },
+        "charge": {
+          "type": "string",
+          "description": "Extra per-member instructions injected into that member's turn description."
+        },
+        "can_delegate": {
+          "type": "boolean",
+          "description": "Attach the delegate_task tool to this member's turns (still bounded by max_delegations).",
+          "default": false
+        },
+        "mcp_providers": {
+          "type": "array",
+          "description": "MCP catalog ids for this member only (overrides the society-level list).",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "stopCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Shorthand form: `<role>_posts: PHRASE` (e.g. `facilitator_posts: FINAL_RECOMMENDATION`) or `any_posts: PHRASE`.",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "patternProperties": {
+            "^[A-Za-z0-9_]+_posts$": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Explicit form.",
+          "required": ["posts"],
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "type": "string",
+              "description": "Role that must post the phrase; omit or use `any` for any member.",
+              "minLength": 1
+            },
+            "posts": {
+              "type": "string",
+              "description": "Case-insensitive substring that ends the run when it appears in a turn's output.",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  }
+}
