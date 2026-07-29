@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-07-29
+
 ### Added
 
 Engine API daemon (KnowBuddy enablement), shipped as slices A–D. Everything here is **additive and
