@@ -272,6 +272,12 @@ def run_optional_live_society() -> tuple[bool, str]:
         "--society-no-controller",
     ]
     print(f"  live: {' '.join(cmd[1:])}")
+    live_env = os.environ.copy()
+    # Host-side smoke must hit native Ollama, not the in-cluster DNS name.
+    if _prefer_jetson_charter() and "host.k3s.internal" in live_env.get("OLLAMA_HOST", ""):
+        live_env["OLLAMA_HOST"] = "http://127.0.0.1:11434"
+        live_env["OLLAMA_API_BASE"] = "http://127.0.0.1:11434"
+    live_env.setdefault("OLLAMA_HOST", "http://127.0.0.1:11434")
     try:
         proc = subprocess.run(
             cmd,
@@ -279,6 +285,7 @@ def run_optional_live_society() -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=live_env,
         )
     except subprocess.TimeoutExpired:
         return False, f"live society timed out after {timeout:.0f}s"
