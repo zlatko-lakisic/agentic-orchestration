@@ -301,13 +301,21 @@ append-only markdown blackboard, whose context grows linearly with turn count.
 
 ---
 
-## Documentation follow-ups (after K6 implementation)
+## Integrating external agents (vs catalog agents)
 
-- [ ] Add section **Integrating external agents (vs catalog agents)** — clarify:
-  - Custom **model** on a compatible API (catalog entry) vs external **agent runtime** (separate platform)
-  - What is seamless today (re-describe in catalog) vs what needs an adapter (OpenAI shim, MCP-as-tool, future A2A on society-broker)
-  - How K6 blackboard/delegation relates to **internal** society members only unless an adapter is built
-  - Honest enterprise pitch: orchestration layer + APIs/MCP, not drop-in foreign agent binaries
+Society members are **catalog agent providers**, not arbitrary foreign processes.
+
+| What you have | How it fits today | Gap |
+|---------------|-------------------|-----|
+| Custom **model** on OpenAI-/Anthropic-/Ollama-compatible API | Add a YAML entry under `config/agent_providers/` (or an extra catalog dir), set `society_capable: true`, reference its `id` in the charter | None for society lite |
+| External **agent runtime** (separate platform, its own tools/memory) | Not a drop-in member. Options: (1) re-describe the capability as a catalog agent + MCP tools; (2) expose it behind an OpenAI-compatible shim and catalog that; (3) wrap it as an MCP server and attach tools to a catalog agent | Native A2A / society-broker adapter is K6.5+ |
+| OpenClaw / other orchestrators | Use the shared orchestrate HTTP bridge or MCP sync; they are **clients** of AO, not society seats | Do not put foreign session IDs in the charter roster |
+
+**Blackboard and `delegate_task`:** both operate on **internal** members that resolve through `load_agent_providers_catalog_merged`. Delegation to an unknown `agent_provider_id` fails fast. Cross-tenant or internet-facing societies without auth remain non-goals (ADR 0001).
+
+**Enterprise pitch (honest):** AO is an orchestration layer over catalogs, APIs, and MCP — not a binary that hosts third-party agent runtimes unchanged. Bring models and tools into the catalog; do not expect foreign agent processes to join a panel without an adapter.
+
+- [x] Section above shipped with K6.1 docs polish (2026-07-29)
 
 ---
 
@@ -328,3 +336,4 @@ append-only markdown blackboard, whose context grows linearly with turn count.
 | 2026-06-29 | Initial K6 roadmap — agent societies plan (wiki page) |
 | 2026-06-29 | Deferred doc: **Integrating external agents (vs catalog agents)** — add after K6 ships |
 | 2026-07-29 | **Phase 0 + K6.1 shipped** — charter schema, ADR 0001, `--society` CLI, round-robin runtime, society sessions, bounded `delegate_task`, society controller, `society_capable` catalog flag, research-panel vertical, hierarchical reference workflow, society smoke |
+| 2026-07-29 | Docs: **Integrating external agents (vs catalog agents)** section added |

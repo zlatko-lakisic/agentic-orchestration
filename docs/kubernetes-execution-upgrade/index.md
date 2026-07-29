@@ -730,5 +730,5 @@ You do not need to complete all phases:
 
 - [x] Cross-check phase checkboxes after F4 subprocess smoke (this page updated 2026-06).
 - [x] Update [Infrastructure]({{ '/infrastructure/' | relative_url }}) with K8s Deployment/Job manifests and networking (K3.7).
-- [ ] Update [Architecture]({{ '/architecture/' | relative_url }}) execution diagram for distributed backends.
+- [x] Update [Architecture]({{ '/architecture/' | relative_url }}) execution diagram for distributed backends.
 - [ ] Update [Configuration]({{ '/configuration/' | relative_url }}) with K8s env vars when K3 lands.

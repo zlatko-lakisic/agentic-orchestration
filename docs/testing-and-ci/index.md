@@ -219,13 +219,13 @@ See [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
 - [x] `main.py --harness-agent` / `--harness-batch` CLI
 - [x] `scripts/run-agent-harness.ps1` / `harness-report.py`
 
-### User agent harness packs (planned)
+### User agent harness packs (shipped v1.5.0+)
 
 See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — adopters maintain scenario libraries outside core; not part of default repo CI.
 
-- [ ] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
-- [ ] Scenario YAML + deterministic assertions + optional rubric
-- [ ] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/`
+- [x] **T-UH1** `--harness-dir` / `AGENTIC_EXTRA_AGENT_HARNESS_DIRS` discovery
+- [x] Scenario YAML + deterministic assertions + optional rubric
+- [x] Healthcare vertical example pack under `examples/verticals/healthcare/harnesses/`
 
 ---
 
