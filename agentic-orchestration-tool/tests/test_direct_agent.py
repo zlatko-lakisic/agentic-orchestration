@@ -142,6 +142,44 @@ def test_run_direct_agent_kicks_off_once_and_returns_text(
 
 
 @requires_crewai
+def test_run_direct_agent_emits_progress_phases(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_KB", "0")
+
+    built = MagicMock(
+        crew=MagicMock(kickoff=MagicMock(return_value="ok")),
+        kickoff_callback_state=None,
+    )
+    seen_on_progress: list[str] = []
+
+    def fake_build(*_a, **kw):
+        cb = kw.get("on_progress")
+        if cb:
+            cb("Ensuring Ollama for agent 'fake_local' (llama3.2)…")
+            seen_on_progress.append("build_forwarded")
+        return built
+
+    monkeypatch.setattr("orchestration.runner.build_workflow", fake_build)
+
+    lines: list[str] = []
+    run_direct_agent(
+        tool_root=tmp_path,
+        agent_provider_id="fake_local",
+        goal="q",
+        on_progress=lines.append,
+    )
+    assert "build_forwarded" in seen_on_progress
+    assert any("ensuring runtime for fake_local" in line for line in lines)
+    assert any("Ensuring Ollama" in line for line in lines)
+    assert any(line == "starting fake_local" for line in lines)
+    assert any(line == "generating" for line in lines)
+
+
+@requires_crewai
 def test_run_direct_agent_persists_to_the_knowledge_base(
     tmp_path: Path,
     catalog: Path,

@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-07-29
+
+### Added
+
+- **Direct-agent progress for daemon clients** — `run_direct_agent(on_progress=…)` emits ensure / start / generating lines; `build_workflow(on_progress=…)` forwards Ollama ensure messages; Ollama pull lines also fan out through `orchestration.progress_sink`. WebSocket `direct_agent` streams them as `chunk` frames with `stream: "stderr"` and `question_id` (same demux as dynamic `chat`), so KnowBuddy can distinguish model download from generation. REST `POST /api/v1/direct-agent` remains final-answer JSON (no SSE in this slice).
+
 ## [1.24.0] - 2026-07-29
 
 ### Added

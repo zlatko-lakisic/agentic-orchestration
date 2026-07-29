@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from crewai import Crew, Process, Task
 
@@ -238,6 +238,7 @@ def build_workflow(
     emit_progress_lines: bool = True,
     task_mcp_overrides: dict[str, list[Any]] | None = None,
     task_skill_overrides: dict[str, list[dict[str, Any]]] | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> BuiltWorkflow:
     """When ``quiet`` is False, Ollama CLI (pull/serve/install) inherits stdout/stderr."""
 
@@ -380,10 +381,10 @@ def build_workflow(
     agent_providers: dict[str, AgentProvider] = {}
     from orchestration.runtime_bootstrap import ensure_provider_payloads
 
-    ensure_provider_payloads(
-        usable_payloads,
-        progress=(None if quiet else (lambda m: print(f"(progress) {m}", file=sys.stderr))),
-    )
+    ensure_cb = on_progress
+    if ensure_cb is None and not quiet:
+        ensure_cb = lambda m: print(f"(progress) {m}", file=sys.stderr)
+    ensure_provider_payloads(usable_payloads, progress=ensure_cb)
     for provider_data in usable_payloads:
         ap = agent_provider_from_dict(provider_data, default_model=default_model)
         if ap.config.id in agent_providers:

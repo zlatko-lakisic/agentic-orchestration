@@ -313,6 +313,12 @@ class WsConnection:
             ).strip()
             if not agent_provider_id:
                 raise ValueError("direct_agent requires agent_provider_id")
+
+            def progress(line: str) -> None:
+                self.send_threadsafe(
+                    {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n", **tag}
+                )
+
             return run_direct_agent(
                 tool_root=self.tool_root,
                 agent_provider_id=agent_provider_id,
@@ -320,6 +326,7 @@ class WsConnection:
                 context=str(message.get("context") or ""),
                 session_slug=session_slug or None,
                 user_id=user_id,
+                on_progress=progress,
             )
 
         from orchestration.dynamic_run import run_dynamic_goal

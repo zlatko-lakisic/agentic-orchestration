@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 DEFAULT_EXPECTED_OUTPUT = (
     "A direct, complete answer in plain prose. No preamble, no restatement of the question."
@@ -114,36 +114,56 @@ def run_direct_agent(
     user_id: str | None = None,
     quiet: bool = True,
     persist: bool = True,
+    on_progress: Callable[[str], None] | None = None,
 ) -> str:
-    """Ask one catalog agent one question and return its answer text."""
+    """Ask one catalog agent one question and return its answer text.
+
+    ``on_progress`` receives short status lines (ensure/pull/start/generating) so a
+    daemon WebSocket can stream them as ``chunk`` frames with ``stream: stderr``.
+    """
     text = str(goal or "").strip()
     if not text:
         raise ValueError("goal is required")
 
     from orchestration.dynamic_run import catalog_paths
-    from orchestration.output_artifacts import workflow_result_to_extractable_text
-    from orchestration.runner import build_workflow, crew_kickoff_context
-    from orchestration.text_normalize import sanitize_user_facing_prose
+    from orchestration.progress_sink import progress_callback
 
     root = tool_root or _tool_root_default()
     paths = catalog_paths(root)
+    pid = str(agent_provider_id or "").strip()
 
+    # Resolve the catalog entry before importing the CrewAI runner so unknown ids
+    # surface as LookupError (HTTP 400) even when crewai is not installed.
     config = build_direct_agent_config(
-        agent_provider_id=agent_provider_id,
+        agent_provider_id=pid,
         goal=text,
         context=context,
         catalog_path=paths.agent_providers,
         mcp_provider_ids=mcp_provider_ids,
     )
-    built = build_workflow(
-        config,
-        crew_verbose=not quiet,
-        quiet=quiet,
-        emit_progress_lines=False,
-        mcp_catalog_path=paths.mcp_providers,
-    )
-    with crew_kickoff_context(built):
-        result = built.crew.kickoff(inputs={"topic": text})
+
+    from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.runner import build_workflow, crew_kickoff_context
+    from orchestration.text_normalize import sanitize_user_facing_prose
+
+    def progress(message: str) -> None:
+        if on_progress is not None:
+            on_progress(message)
+
+    with progress_callback(on_progress):
+        progress(f"ensuring runtime for {pid}")
+        built = build_workflow(
+            config,
+            crew_verbose=not quiet,
+            quiet=quiet,
+            emit_progress_lines=False,
+            mcp_catalog_path=paths.mcp_providers,
+            on_progress=on_progress,
+        )
+        progress(f"starting {pid}")
+        with crew_kickoff_context(built):
+            progress("generating")
+            result = built.crew.kickoff(inputs={"topic": text})
     answer = sanitize_user_facing_prose(workflow_result_to_extractable_text(result))
 
     if persist and answer:

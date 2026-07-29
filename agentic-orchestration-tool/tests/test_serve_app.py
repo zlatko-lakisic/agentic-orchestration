@@ -358,6 +358,46 @@ def test_ws_direct_agent_message_streams_answer(
         assert "direct answer" in texts
 
 
+def test_ws_direct_agent_streams_progress_chunks(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.direct_agent as direct_agent
+
+    def fake_run(*, on_progress=None, **_kw):
+        if on_progress:
+            on_progress("ensuring runtime for ollama_hermes3")
+            on_progress("generating")
+        return "direct answer"
+
+    monkeypatch.setattr(direct_agent, "run_direct_agent", fake_run)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "direct_agent",
+                "agent_provider_id": "ollama_hermes3",
+                "text": "summarize",
+                "question_id": "q-prog",
+            }
+        )
+        stderr_chunks: list[str] = []
+        stdout_chunks: list[str] = []
+        while True:
+            frame = ws.receive_json()
+            assert frame.get("question_id") == "q-prog"
+            if frame["type"] == "chunk":
+                if frame.get("stream") == "stderr":
+                    stderr_chunks.append(frame["text"])
+                else:
+                    stdout_chunks.append(frame["text"])
+            if frame["type"] == "run_end":
+                break
+        assert any("ensuring runtime" in t for t in stderr_chunks)
+        assert any("generating" in t for t in stderr_chunks)
+        assert "direct answer" in stdout_chunks
+
+
 def test_ws_run_failure_emits_error_then_run_end(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

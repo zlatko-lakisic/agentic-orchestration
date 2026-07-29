@@ -292,5 +292,9 @@ def ensure_provider_payloads(
         model = str(data.get("model") or "").strip()
         host = str(data.get("ollama_host") or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"))
         selfcontained = bool(data.get("selfcontained", False))
-        log(f"Ensuring Ollama for agent '{data.get('id', '?')}' ({model})…")
+        msg = f"Ensuring Ollama for agent '{data.get('id', '?')}' ({model})…"
+        log(msg)
+        if progress is not None:
+            # ``progress`` is the daemon sink; still mirror to stderr for CLI logs.
+            _emit(msg)
         ensure_ollama_for_agent(model=model, host=host, selfcontained=selfcontained)

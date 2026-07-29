@@ -51,11 +51,17 @@ def _ollama_pull_progress_stderr_enabled() -> bool:
 
 
 def _emit_pull_progress_line(text: str) -> None:
-    """Emit one `(progress) ...` line on stderr for UIs that stream stderr (e.g. web pinned status)."""
-    if not _ollama_pull_progress_stderr_enabled():
-        return
+    """Emit one `(progress) ...` line on stderr; also fan out to an optional progress sink."""
     msg = str(text or "").strip()
     if not msg:
+        return
+    try:
+        from orchestration.progress_sink import emit_progress
+
+        emit_progress(msg)
+    except Exception:  # noqa: BLE001
+        pass
+    if not _ollama_pull_progress_stderr_enabled():
         return
     try:
         sys.__stderr__.write(f"(progress) {msg}\n")
