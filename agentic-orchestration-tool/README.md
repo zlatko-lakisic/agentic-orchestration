@@ -59,6 +59,8 @@ This “learning” improves *future provider/tool selection* by feeding a short
 
 **Final faithfulness QA (not a Crew agent)**: after `--dynamic` completes or after iterative **synthesis**, an extra LLM pass reviews the final text for likely hallucinations and unsupported claims; the report is printed to stderr under `=== Quality assurance … ===`. Disable with `AGENTIC_FINAL_QA=0`. Model chain: `AGENTIC_QA_MODEL` → `AGENTIC_EVAL_MODEL` → planner defaults (see `.env.example`). The planner may also emit an optional per-step `rationale` field in JSON plans; when present, iterative runs log it as `(dynamic-iter) planner step rationale: …`.
 
+**Impartial QA gate (v1, off by default)**: with `AGENTIC_IMPARTIAL_QA=1`, the same finalization points run one unified check instead — harness assertions, the judge score (`evaluate_run_quality`, optional rubric appended to the goal like harness L3), and the faithfulness review combined into a single pass/fail report under `=== Impartial QA (unified gate) ===`, persisted to `__orchestrator_sessions__/impartial_qa/`. Failing the gate exits `1` (`AGENTIC_IMPARTIAL_QA_FAIL=1`) after artifacts are saved. Nothing is re-executed. See `.env.example` for `AGENTIC_IMPARTIAL_QA_MIN_SCORE`, `_EVAL`, `_RUBRIC`, `_ASSERTIONS_FILE`; smoke via `scripts/smoke_impartial_qa.sh`.
+
 **Local knowledge base (output aggregation)**: finalized answers are stored under `__orchestrator_kb__/kb.sqlite3` (gitignored) and **queried on new runs**. When relevant, the planner receives a short “Local knowledge base” snippet block it can reuse, so you don’t have to re-process the same information every time. Toggle via env: `AGENTIC_KB`, tune with `AGENTIC_KB_MAX_HITS` / `AGENTIC_KB_SNIPPET_CHARS`.
 
 ### Agent provider lifecycle

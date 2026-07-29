@@ -298,6 +298,56 @@ def _update_session_after_final(
     )
 
 
+def _emit_final_qa(
+    *,
+    tool_root: Path,
+    session_slug: str | None,
+    user_goal: str,
+    output_text: str | None,
+) -> bool:
+    """
+    Post-run QA on a finished deliverable.
+
+    With ``AGENTIC_IMPARTIAL_QA=1`` this is the unified gate (assertions + judge score +
+    faithfulness folded into one report); otherwise it stays the legacy faithfulness block.
+    Returns True when an enabled gate failed and the caller should exit non-zero.
+    """
+    from orchestration.impartial_qa import (
+        emit_impartial_qa_report,
+        impartial_qa_enabled,
+        impartial_qa_fail_enabled,
+        load_impartial_qa_config_from_env,
+        run_impartial_qa,
+        write_impartial_qa_json,
+    )
+
+    if not impartial_qa_enabled():
+        emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
+        return False
+
+    try:
+        cfg = load_impartial_qa_config_from_env()
+        report = run_impartial_qa(
+            user_goal=user_goal,
+            output_text=output_text or "",
+            **cfg,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"(impartial-qa) gate failed to run: {exc}", file=sys.stderr, flush=True)
+        emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
+        return False
+
+    emit_impartial_qa_report(report)
+    if report.faithfulness is None and not report.skipped:
+        # The gate did not include a faithfulness pass, so keep the standalone report.
+        emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
+    try:
+        write_impartial_qa_json(tool_root, report, session_slug=session_slug)
+    except Exception:  # noqa: BLE001
+        pass
+    return (not report.passed) and impartial_qa_fail_enabled()
+
+
 def _offer_save_from_execution(
     *,
     tool_root: Path,
@@ -1633,10 +1683,11 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-            emit_faithfulness_qa_report(
+            qa_gate_failed = _emit_final_qa(
+                tool_root=tool_root,
+                session_slug=slug,
                 user_goal=cache_goal,
                 output_text=result_text,
-                model=None,
             )
 
             if result_text:
@@ -1649,6 +1700,8 @@ def main() -> None:
                     prompt_save=prompt_save,
                 )
                 _run_post_save_verify(saved, verify=verify_saved)
+            if qa_gate_failed:
+                sys.exit(1)
         else:
             sess = load_session(orchestrator_session_path)
             last_ex = (sess.last_crew_output_excerpt or "").strip()
@@ -1659,10 +1712,11 @@ def main() -> None:
                     user_goal=cache_goal,
                     result_text=qa_out,
                 )
-            emit_faithfulness_qa_report(
+            qa_gate_failed = _emit_final_qa(
+                tool_root=tool_root,
+                session_slug=slug,
                 user_goal=cache_goal,
                 output_text=qa_out or None,
-                model=None,
             )
             if strict_mr_goal and qa_out:
                 saved = offer_save_extracted_files(
@@ -1674,6 +1728,8 @@ def main() -> None:
                     prompt_save=prompt_save,
                 )
                 _run_post_save_verify(saved, verify=verify_saved)
+            if qa_gate_failed:
+                sys.exit(1)
         return
 
     if args.dynamic:
@@ -1826,10 +1882,11 @@ def main() -> None:
         _update_session_after_final(
             orchestrator_session_path, user_goal=cache_goal, result_text=result_text
         )
-        emit_faithfulness_qa_report(
+        qa_gate_failed = _emit_final_qa(
+            tool_root=tool_root,
+            session_slug=slug,
             user_goal=cache_goal,
             output_text=result_text,
-            model=None,
         )
         try:
             from orchestration.knowledge_base import add_document
@@ -1896,6 +1953,8 @@ def main() -> None:
                 prompt_save=prompt_save,
             )
             _run_post_save_verify(saved, verify=verify_saved)
+        if qa_gate_failed:
+            sys.exit(1)
         return
 
     if args.task:

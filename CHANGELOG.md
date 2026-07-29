@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Impartial QA gate v1 (`AGENTIC_IMPARTIAL_QA`, default off)** — first slice of a single pass/fail check over a *finished* deliverable, replacing the split between the learning-loop eval, harness assertions, and the faithfulness review. `orchestration/impartial_qa.py` scores the user goal plus the final output text by reusing what already exists: deterministic harness assertions (`agent_harness.run_assertions`), the LLM-as-judge score (`dynamic_planner.evaluate_run_quality`, with an optional rubric appended to the goal exactly like harness L3 capability scoring), and `faithfulness_qa_review` — which is reported but only fails the gate under `AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL=1` at high risk. Nothing is re-executed: no crews, no tools, no harness CLI change. When enabled, `--dynamic` and `--dynamic-iterative` finalization emit one `=== Impartial QA (unified gate) ===` block on stderr instead of the separate faithfulness block, persist the report to `__orchestrator_sessions__/impartial_qa/<slug>-<timestamp>.json`, and exit `1` on failure (`AGENTIC_IMPARTIAL_QA_FAIL=1`, after artifacts are saved). Configure with `AGENTIC_IMPARTIAL_QA_MIN_SCORE` (default `0.5`), `AGENTIC_IMPARTIAL_QA_EVAL=0` for assertions-only, `AGENTIC_IMPARTIAL_QA_RUBRIC` / `_RUBRIC_FILE`, `AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE`, and `AGENTIC_IMPARTIAL_QA_MODEL`. Smoke: `scripts/smoke_impartial_qa.sh` (offline by default; `AGENTIC_SMOKE_IMPARTIAL_LIVE=1` for a real judge pass).
+
 ## [1.18.0] - 2026-07-29
 
 ### Added

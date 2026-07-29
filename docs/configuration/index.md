@@ -32,6 +32,7 @@ sidebar:
 | **Progress / step context** | `AGENTIC_PROGRESS`, `AGENTIC_STEP_CONTEXT_*` |
 | **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints: `attachment_fingerprint`; legacy `mcp_fingerprint` alias); user harness: `AGENTIC_USER_HARNESS_RECORD_STATS`, `AGENTIC_USER_HARNESS_FEED_PLANNER` |
 | **Cloud anonymization** | `AGENTIC_ANONYMIZE_CLOUD` (default `1`), `AGENTIC_CLOUD_PROVIDER_TYPES` (default `openai,anthropic,huggingface`), `AGENTIC_ANONYMIZE_PATTERNS_PATH` / `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH` — scrub PII/secrets before cloud LLM egress; YAML custom regexes; privacy/offline goals force local providers. **Tier 3**: `AGENTIC_ANONYMIZE_REVERSIBLE` (default `1`, unique recoverable `[EMAIL:1]`-style tokens), `AGENTIC_ANONYMIZE_NER` (default `0`, optional Presidio PERSON/LOCATION/NRP pass — soft dep, see `requirements-anonymize.txt`), `AGENTIC_ANONYMIZE_TOOL_RESULTS` (default `1`, scrub fetched pages / prior-step handoff), `AGENTIC_ANONYMIZE_VISION_LOCAL` / `AGENTIC_ANONYMIZE_VISION_MODEL` (default `1` / `ollama/llava`, prefer local vision model for video synopsis) |
+| **Impartial QA gate** | `AGENTIC_IMPARTIAL_QA` (default `0`) and `AGENTIC_IMPARTIAL_QA_*` — see below |
 | **Answer cache** | `AGENTIC_ANSWER_CACHE` |
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, controller-related vars |
 | **Iterative stdout behavior** | `AGENTIC_DYNAMIC_ITER_STREAM_STEPS` |
@@ -73,6 +74,37 @@ omits them, or tune the runtime around them.
 
 Charter schema: `config/schemas/society_charter.schema.json`. Example: `examples/verticals/society_research_panel/`
 (`--example society_research_panel`). Design and non-goals: [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}).
+
+## Impartial QA gate (v1)
+
+**Off by default.** Set `AGENTIC_IMPARTIAL_QA=1` to score a *finished* deliverable — the user goal
+plus the final output text — as one pass/fail gate instead of three separate signals. It reuses the
+existing pieces: harness assertions, the LLM-as-judge score (`evaluate_run_quality`, with an
+optional rubric appended to the goal exactly like harness L3), and the faithfulness review. Nothing
+is re-executed; the harness CLI and the learning loop are unchanged.
+
+When enabled, `--dynamic` and `--dynamic-iterative` finalization print one
+`=== Impartial QA (unified gate) ===` block to stderr (replacing the standalone faithfulness block,
+so the faithfulness model is not paid for twice), write the report to
+`__orchestrator_sessions__/impartial_qa/<slug>-<timestamp>.json`, and exit `1` on failure after
+artifacts have been saved.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTIC_IMPARTIAL_QA` | `0` | Master switch. Unset means today's behaviour is unchanged. |
+| `AGENTIC_IMPARTIAL_QA_FAIL` | `1` | Once enabled, a failed gate exits `1`. Set `0` to report only. |
+| `AGENTIC_IMPARTIAL_QA_MIN_SCORE` | `0.5` | Judge score below this fails the gate. |
+| `AGENTIC_IMPARTIAL_QA_EVAL` | `1` | Set `0` for assertions-only (no judge LLM call). |
+| `AGENTIC_IMPARTIAL_QA_RUBRIC` | _(unset)_ | Inline rubric appended to the goal for the judge. |
+| `AGENTIC_IMPARTIAL_QA_RUBRIC_FILE` | _(unset)_ | Rubric file; used when the inline variable is empty. |
+| `AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE` | _(unset)_ | JSON list of harness assertions, e.g. `[{"type":"min_chars","value":400},{"type":"bullet_count","min":3}]`. Same types as the agent harness. |
+| `AGENTIC_IMPARTIAL_QA_FAITHFULNESS` | `1` | Include the faithfulness pass in the report. |
+| `AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL` | `0` | When `1`, a `high` hallucination risk also fails the gate. |
+| `AGENTIC_IMPARTIAL_QA_MODEL` | _(unset)_ | Overrides both reviewers; otherwise each keeps its own chain (`AGENTIC_EVAL_MODEL` for the judge, `AGENTIC_QA_MODEL` for faithfulness, then the planner default). |
+
+With no assertions configured and `AGENTIC_IMPARTIAL_QA_EVAL=0` the gate skips itself and never
+fails a run. Smoke: `scripts/smoke_impartial_qa.sh` (offline; `AGENTIC_SMOKE_IMPARTIAL_LIVE=1` runs
+a real judge pass).
 
 ## Notable runtime toggles
 

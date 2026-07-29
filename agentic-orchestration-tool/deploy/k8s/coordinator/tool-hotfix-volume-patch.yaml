@@ -84,6 +84,9 @@ spec:
               mountPath: /app/tool/orchestration/orchestrator_session.py
               subPath: orchestrator_session.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/impartial_qa.py
+              subPath: impartial_qa.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/society_charter.py
               subPath: society_charter.py
             - name: tool-hotfix-orchestration

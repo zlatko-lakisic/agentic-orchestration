@@ -75,6 +75,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=cloud_anonymize_tier3.py="${ORCH_ROOT}/cloud_anonymize_tier3.py" \
   --from-file=knowledge_base.py="${ORCH_ROOT}/knowledge_base.py" \
   --from-file=orchestrator_session.py="${ORCH_ROOT}/orchestrator_session.py" \
+  --from-file=impartial_qa.py="${ORCH_ROOT}/impartial_qa.py" \
   --from-file=society_charter.py="${ORCH_ROOT}/society_charter.py" \
   --from-file=society_session.py="${ORCH_ROOT}/society_session.py" \
   --from-file=society_controller.py="${ORCH_ROOT}/society_controller.py" \
