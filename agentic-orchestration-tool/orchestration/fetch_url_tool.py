@@ -71,7 +71,11 @@ def fetch_url_text(url: str, *, max_chars: int | None = None) -> str:
     with urlopen(req, timeout=25) as resp:  # noqa: S310 — agent-invoked bounded fetch
         raw = resp.read(cap * 8)
     text = raw.decode("utf-8", errors="replace")
-    return _html_to_plain_text(text, max_chars=cap)
+    plain = _html_to_plain_text(text, max_chars=cap)
+
+    from orchestration.cloud_anonymize import redact_tool_result_for_cloud
+
+    return redact_tool_result_for_cloud(plain)
 
 
 def extract_http_urls_from_text(text: str) -> list[str]:

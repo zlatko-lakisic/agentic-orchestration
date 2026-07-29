@@ -63,6 +63,8 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=mcp_tool_leak_recovery.py="${ORCH_ROOT}/mcp_tool_leak_recovery.py" \
   --from-file=irrigation_minutes.py="${ORCH_ROOT}/irrigation_minutes.py" \
   --from-file=fetch_url_tool.py="${ORCH_ROOT}/fetch_url_tool.py" \
+  --from-file=step_context.py="${ORCH_ROOT}/step_context.py" \
+  --from-file=video_vision_synopsis.py="${ORCH_ROOT}/video_vision_synopsis.py" \
   --from-file=goal_format_hints.py="${ORCH_ROOT}/goal_format_hints.py" \
   --from-file=mcp_providers_catalog.py="${ORCH_ROOT}/mcp_providers_catalog.py" \
   --from-file=output_artifacts.py="${ORCH_ROOT}/output_artifacts.py" \
@@ -70,6 +72,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
   --from-file=cloud_anonymize.py="${ORCH_ROOT}/cloud_anonymize.py" \
+  --from-file=cloud_anonymize_tier3.py="${ORCH_ROOT}/cloud_anonymize_tier3.py" \
   --from-file=knowledge_base.py="${ORCH_ROOT}/knowledge_base.py" \
   --from-file=orchestrator_session.py="${ORCH_ROOT}/orchestrator_session.py" \
   --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \

@@ -28,8 +28,11 @@ def prepare_step_description(description: str, prior_output: str) -> str:
         return description
     if STEP_CONTEXT_MARKER in description:
         return description
+
+    from orchestration.cloud_anonymize import redact_tool_result_for_cloud
+
     cap = step_context_cap_chars()
-    snippet = prior_output.strip()
+    snippet = redact_tool_result_for_cloud(prior_output).strip()
     if len(snippet) > cap:
         snippet = snippet[: cap - 1] + "…"
     return description + STEP_CONTEXT_MARKER + snippet + "\n"

@@ -21,6 +21,7 @@ from orchestration.cloud_anonymize import (
 
 def test_redact_email_phone_ssn_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     raw = (
         "Contact jane.doe@acme.com or +1 (555) 123-4567. "
         "SSN 123-45-6789. Key sk-abcdefghijklmnopqrstuvwxyz012345."
@@ -36,6 +37,7 @@ def test_redact_email_phone_ssn_api_key(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_redact_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "0")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     raw = "email me at a@b.co"
     assert redact_for_cloud(raw) == raw
     assert redact_for_cloud(raw, force=True) == "email me at [EMAIL]"
@@ -43,6 +45,7 @@ def test_redact_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_maybe_redact_skips_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     raw = "a@b.co"
     assert maybe_redact_for_cloud_provider(raw, provider_type="ollama") == raw
     assert maybe_redact_for_cloud_provider(raw, litellm_model="ollama/llama3.2") == raw
@@ -89,6 +92,7 @@ def test_filter_catalog_to_local_providers(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_redact_messages_for_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     msgs = [{"role": "user", "content": "mail a@b.co"}]
     out = redact_messages_for_cloud(msgs, litellm_model="openai/gpt-4o-mini")
     assert out[0]["content"] == "mail [EMAIL]"
@@ -109,6 +113,7 @@ def test_custom_yaml_patterns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     )
 
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     monkeypatch.delenv("AGENTIC_ANONYMIZE_PATTERNS_PATH", raising=False)
     cfg = tmp_path / "custom.yaml"
     cfg.write_text(
@@ -149,6 +154,7 @@ def test_invalid_custom_pattern_skipped(
     from orchestration.cloud_anonymize import clear_custom_anonymize_pattern_cache
 
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     bad = tmp_path / "bad.yaml"
     bad.write_text(
         "patterns:\n  - id: broken\n    pattern: '(unclosed'\n",

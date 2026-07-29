@@ -54,6 +54,12 @@ spec:
               mountPath: /app/tool/orchestration/fetch_url_tool.py
               subPath: fetch_url_tool.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/step_context.py
+              subPath: step_context.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/video_vision_synopsis.py
+              subPath: video_vision_synopsis.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/mcp_providers_catalog.py
               subPath: mcp_providers_catalog.py
             - name: tool-hotfix-orchestration
@@ -68,6 +74,9 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/cloud_anonymize.py
               subPath: cloud_anonymize.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/cloud_anonymize_tier3.py
+              subPath: cloud_anonymize_tier3.py
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/knowledge_base.py
               subPath: knowledge_base.py

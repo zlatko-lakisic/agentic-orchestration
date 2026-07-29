@@ -1,0 +1,5 @@
+# Optional Tier 3 NER (heavy; Jetson may skip)
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+# presidio-analyzer's default NLP engine (spaCy) needs a model, e.g.:
+#   python -m spacy download en_core_web_lg

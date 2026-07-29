@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jetson / edge smoke: cloud anonymization Tier 1 + Tier 2.
+Jetson / edge smoke: cloud anonymization Tier 1 + Tier 2 + Tier 3.
 
 Runs unit tests, then live checks against the tool tree (and optionally
 orchestrate). Designed for recursive runs::
@@ -60,6 +60,7 @@ def run_unit_tests() -> tuple[bool, str]:
         "pytest",
         "tests/test_cloud_anonymize.py",
         "tests/test_cloud_anonymize_planner.py",
+        "tests/test_cloud_anonymize_tier3.py",
         "-q",
         "--tb=line",
     ]
@@ -79,6 +80,8 @@ def run_unit_tests() -> tuple[bool, str]:
 def run_module_self_check() -> tuple[bool, str]:
     sys.path.insert(0, str(_TOOL_ROOT))
     os.environ.setdefault("AGENTIC_ANONYMIZE_CLOUD", "1")
+    # Tier 1+2 static-placeholder check — Tier 3 reversible tokens are covered separately below.
+    os.environ["AGENTIC_ANONYMIZE_REVERSIBLE"] = "0"
     from orchestration.cloud_anonymize import (  # noqa: E402
         clear_custom_anonymize_pattern_cache,
         filter_catalog_to_local_providers,
@@ -119,11 +122,53 @@ def run_module_self_check() -> tuple[bool, str]:
     return True, "module self-check ok"
 
 
+def run_tier3_self_check() -> tuple[bool, str]:
+    sys.path.insert(0, str(_TOOL_ROOT))
+    os.environ.setdefault("AGENTIC_ANONYMIZE_CLOUD", "1")
+    os.environ["AGENTIC_ANONYMIZE_REVERSIBLE"] = "1"
+    os.environ.setdefault("AGENTIC_ANONYMIZE_TOOL_RESULTS", "1")
+    from orchestration.cloud_anonymize import (  # noqa: E402
+        clear_token_map,
+        redact_for_cloud,
+        redact_tool_result_for_cloud,
+        restore_tokens,
+    )
+    from orchestration.cloud_anonymize_tier3 import presidio_available  # noqa: E402
+
+    clear_token_map()
+    raw = "Contact jane.doe@example.com twice: jane.doe@example.com."
+    scrubbed = redact_for_cloud(raw, force=True)
+    if "jane.doe@example.com" in scrubbed:
+        return False, f"reversible scrub missed PII: {scrubbed!r}"
+    if scrubbed.count("[EMAIL:1]") != 2:
+        return False, f"reversible scrub should reuse the same token per value: {scrubbed!r}"
+    restored = restore_tokens(scrubbed)
+    if restored != raw:
+        return False, f"restore_tokens did not recover original: {restored!r} != {raw!r}"
+    clear_token_map()
+
+    tool_out = redact_tool_result_for_cloud("page mentions secret@corp.example")
+    if "secret@corp.example" in tool_out or "[EMAIL" not in tool_out:
+        return False, f"redact_tool_result_for_cloud did not scrub: {tool_out!r}"
+    clear_token_map()
+
+    ner_note = "NER not installed (optional)"
+    if os.getenv("AGENTIC_ANONYMIZE_NER", "0").strip().lower() not in ("0", "false", "no", "off", ""):
+        if presidio_available():
+            ner_note = "NER installed and initialized"
+        else:
+            ner_note = "AGENTIC_ANONYMIZE_NER=1 but Presidio unavailable (soft-skip, ok)"
+
+    return True, f"Tier3 self-check ok ({ner_note})"
+
+
 def run_planner_local_only_enforcement() -> tuple[bool, str]:
     if _env("SMOKE_SKIP_LIVE_LOCAL") in ("1", "true", "yes"):
         return True, "live local-only skipped"
     sys.path.insert(0, str(_TOOL_ROOT))
     os.environ.setdefault("AGENTIC_ANONYMIZE_CLOUD", "1")
+    # Tier 1+2 static-placeholder check — Tier 3 reversible tokens are covered separately below.
+    os.environ["AGENTIC_ANONYMIZE_REVERSIBLE"] = "0"
     from orchestration.dynamic_planner import workflow_config_from_plan  # noqa: E402
     from orchestration.cloud_anonymize import user_wants_local_only  # noqa: E402
 
@@ -268,6 +313,7 @@ def one_round() -> bool:
         ("unit tests", run_unit_tests),
         ("module self-check", run_module_self_check),
         ("planner Tier1+2", run_planner_local_only_enforcement),
+        ("Tier3 self-check", run_tier3_self_check),
         ("orchestrate optional", run_optional_orchestrate_pii),
     ]
     all_ok = True

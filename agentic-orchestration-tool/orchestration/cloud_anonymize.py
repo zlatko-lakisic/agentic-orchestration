@@ -1,12 +1,22 @@
-"""Heuristic redaction for text sent to cloud LLM providers (Tier 1 + Tier 2).
+"""Heuristic redaction for text sent to cloud LLM providers (Tier 1 + Tier 2 + Tier 3).
 
 When ``AGENTIC_ANONYMIZE_CLOUD`` is on (default), emails, phones, SSN-like numbers,
-API keys, and card-like digit runs are replaced with stable placeholders before
-egress to cloud planner/agent models. Local providers (e.g. Ollama) skip redaction
-unless ``force=True``.
+API keys, and card-like digit runs are replaced with placeholders before egress to
+cloud planner/agent models. Local providers (e.g. Ollama) skip redaction unless
+``force=True``.
 
 Operators can add domain-specific regexes via YAML
 (``AGENTIC_ANONYMIZE_PATTERNS_PATH`` / ``AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH``).
+
+Tier 3 (see ``cloud_anonymize_tier3.py``, re-exported here) adds:
+
+- Reversible token maps — ``AGENTIC_ANONYMIZE_REVERSIBLE=1`` (default) replaces PII with
+  unique placeholders like ``[EMAIL:1]`` instead of the static ``[EMAIL]``, and
+  ``restore_tokens()`` can recover the originals from a final answer.
+- Optional Presidio NER — ``AGENTIC_ANONYMIZE_NER=1`` (default off) additionally detects
+  PERSON / LOCATION / NRP entities. Soft dependency; see ``requirements-anonymize.txt``.
+- Tool-result scrubbing — ``AGENTIC_ANONYMIZE_TOOL_RESULTS=1`` (default) via
+  ``redact_tool_result_for_cloud`` for fetched pages / tool output flowing into later steps.
 
 This is **not** a HIPAA/contractual guarantee — heuristic only. Pair with
 ``user_wants_local_only`` catalog filtering for stronger privacy requests.
@@ -23,6 +33,42 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from orchestration.cloud_anonymize_tier3 import (
+    TokenMap,
+    anonymize_ner_enabled,
+    anonymize_reversible_enabled,
+    anonymize_tool_results_enabled,
+    anonymize_vision_local_enabled,
+    anonymize_vision_model,
+    apply_ner_redaction,
+    bind_token_map,
+    clear_token_map,
+    get_token_map,
+    ner_entities,
+    presidio_available,
+    restore_tokens,
+    reversible_sub,
+    set_token_map_session,
+)
+
+__all__ = [
+    "TokenMap",
+    "anonymize_ner_enabled",
+    "anonymize_reversible_enabled",
+    "anonymize_tool_results_enabled",
+    "anonymize_vision_local_enabled",
+    "anonymize_vision_model",
+    "apply_ner_redaction",
+    "bind_token_map",
+    "clear_token_map",
+    "get_token_map",
+    "ner_entities",
+    "presidio_available",
+    "restore_tokens",
+    "reversible_sub",
+    "set_token_map_session",
+]
 
 _DEFAULT_CLOUD_TYPES = frozenset({"openai", "anthropic", "huggingface"})
 
@@ -364,21 +410,49 @@ def redact_for_cloud(text: str, *, force: bool = False) -> str:
     """Replace common PII / secret patterns with placeholders.
 
     When ``force`` is False (default), returns ``text`` unchanged if anonymization
-    is disabled via env. Built-in scrubbers run first; custom YAML patterns after.
+    is disabled via env. Built-in scrubbers run first; custom YAML patterns after;
+    optional Presidio NER pass last. When Tier 3 reversible mode is on (default),
+    placeholders are unique per value (``[EMAIL:1]``) and recoverable via
+    ``restore_tokens()``; otherwise falls back to the static ``[EMAIL]`` style.
     """
     if not force and not anonymize_cloud_enabled():
         return text if isinstance(text, str) else str(text or "")
     s = text if isinstance(text, str) else str(text or "")
     if not s:
         return s
-    s = _API_KEY_RE.sub("[API_KEY]", s)
-    s = _EMAIL_RE.sub("[EMAIL]", s)
-    s = _SSN_RE.sub("[SSN]", s)
-    s = _PHONE_RE.sub("[PHONE]", s)
-    s = _CARD_RE.sub("[CARD]", s)
+    if anonymize_reversible_enabled():
+        s = reversible_sub(_API_KEY_RE, "API_KEY", s)
+        s = reversible_sub(_EMAIL_RE, "EMAIL", s)
+        s = reversible_sub(_SSN_RE, "SSN", s)
+        s = reversible_sub(_PHONE_RE, "PHONE", s)
+        s = reversible_sub(_CARD_RE, "CARD", s)
+    else:
+        s = _API_KEY_RE.sub("[API_KEY]", s)
+        s = _EMAIL_RE.sub("[EMAIL]", s)
+        s = _SSN_RE.sub("[SSN]", s)
+        s = _PHONE_RE.sub("[PHONE]", s)
+        s = _CARD_RE.sub("[CARD]", s)
     for pat in load_custom_anonymize_patterns():
         s = pat.regex.sub(pat.replacement, s)
+    if anonymize_ner_enabled():
+        s = apply_ner_redaction(s)
     return s
+
+
+def redact_tool_result_for_cloud(text: str) -> str:
+    """Scrub tool-call output (fetched pages, prior step results) before it flows onward.
+
+    Distinct from ``maybe_redact_for_cloud_provider``: this scrubs whenever cloud
+    anonymization *and* tool-result scrubbing are both on, regardless of which model
+    the text is destined for next — tool output can flow through several later steps,
+    any of which may hit a cloud model. No-op text passthrough otherwise.
+    """
+    s = text if isinstance(text, str) else str(text or "")
+    if not s:
+        return s
+    if not anonymize_cloud_enabled() or not anonymize_tool_results_enabled():
+        return s
+    return redact_for_cloud(s, force=True)
 
 
 def maybe_redact_for_cloud_provider(

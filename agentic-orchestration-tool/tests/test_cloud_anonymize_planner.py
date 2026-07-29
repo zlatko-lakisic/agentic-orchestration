@@ -29,6 +29,7 @@ def _catalog() -> list[dict]:
 
 def test_workflow_config_redacts_cloud_step_text(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ANONYMIZE_CLOUD", "1")
+    monkeypatch.setenv("AGENTIC_ANONYMIZE_REVERSIBLE", "0")  # Tier 1+2 static placeholder check
     plan = {
         "plan_summary": "s",
         "steps": [

@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Cloud anonymization Tier 3** — reversible token maps (`AGENTIC_ANONYMIZE_REVERSIBLE=1`, default) replace PII with unique, recoverable placeholders like `[EMAIL:1]` / `[PERSON:2]` instead of static `[EMAIL]`, backed by a session `TokenMap` (`orchestration/cloud_anonymize_tier3.py`; ContextVar + optional JSON under `__orchestrator_sessions__/anon_maps/<slug>.json`); `restore_tokens()` recovers originals. Optional Presidio NER pass (`AGENTIC_ANONYMIZE_NER=0` default) detects PERSON/LOCATION/NRP entities — soft dependency (`requirements-anonymize.txt`), never hard-fails when Presidio is missing. Tool-call output (fetched pages via `fetch_url_tool.py`, prior-step handoff via `step_context.py`) is now scrubbed before flowing into later steps (`AGENTIC_ANONYMIZE_TOOL_RESULTS=1`, default). Video-frame synopsis (`video_vision_synopsis.py`) prefers a local Ollama vision model (`AGENTIC_ANONYMIZE_VISION_LOCAL=1`, default; `AGENTIC_ANONYMIZE_VISION_MODEL=ollama/llava`) over cloud when anonymization is active, skipping the synopsis (rather than falling back to cloud) if the local model fails.
+
 ## [1.16.0] - 2026-07-29
 
 ### Added

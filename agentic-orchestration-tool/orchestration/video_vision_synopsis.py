@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import os
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -33,6 +34,27 @@ def resolve_video_vision_model() -> str:
     if "/" in planner:
         return planner
     return f"openai/{planner}"
+
+
+def resolve_vision_model_for_anonymize(intended_model: str) -> tuple[str, bool]:
+    """
+    Apply the Tier 3 "prefer local vision" guard before sending video frames to an LLM.
+
+    Returns ``(model_to_use, is_local_fallback)``. When ``is_local_fallback`` is True,
+    ``intended_model`` was a cloud model and anonymization + vision-local preference are
+    both on — the caller must NOT fall back to ``intended_model`` on failure (that would
+    defeat the guard); skip the synopsis instead.
+    """
+    from orchestration.cloud_anonymize import anonymize_cloud_enabled, is_cloud_litellm_model
+    from orchestration.cloud_anonymize_tier3 import anonymize_vision_local_enabled, anonymize_vision_model
+
+    if (
+        anonymize_cloud_enabled()
+        and is_cloud_litellm_model(intended_model)
+        and anonymize_vision_local_enabled()
+    ):
+        return anonymize_vision_model(), True
+    return intended_model, False
 
 
 def _jpeg_data_url(path: Path) -> str:
@@ -70,7 +92,7 @@ def summarize_video_frames_litellm(
     except Exception:
         return None
 
-    model = resolve_video_vision_model()
+    model, local_fallback = resolve_vision_model_for_anonymize(resolve_video_vision_model())
     hint = (user_goal_hint or "").strip()
     intro = (
         "These JPEG images are evenly spaced frames from a video file, in chronological order.\n"
@@ -116,5 +138,12 @@ def summarize_video_frames_litellm(
                     text_out = c.strip()
         out = text_out.strip()
         return out if out else None
-    except Exception:
+    except Exception as exc:
+        if local_fallback:
+            print(
+                f"(anonymize) note: local vision model {model!r} failed ({exc}); "
+                "skipping video synopsis rather than sending frames to a cloud model "
+                "(AGENTIC_ANONYMIZE_VISION_LOCAL=1).",
+                file=sys.stderr,
+            )
         return None
