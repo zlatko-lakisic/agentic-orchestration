@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-07-29
+
 ### Added
 
 - **Impartial QA gate now covers societies and routed static workflows** — the unified gate is no longer wired only into the dynamic paths. A finished `--society` run scores the panel's `final_recommendation_text` against the society goal (`orchestration/society_runtime.py`), with reports written as `society-<session>-<timestamp>.json`; a routed static workflow (`python main.py "goal"`) scores its final text against `TASK`. Both reuse the new shared `finalize_impartial_qa()` / `impartial_qa_gate_failed()` helpers in `orchestration/impartial_qa.py`, which `main.py`'s `_emit_final_qa` now also calls, so all four entry points produce the same `=== Impartial QA (unified gate) ===` block and the same report JSON. A society that produced no text is left alone, and the static path does **not** inherit the legacy standalone faithfulness block, so disabling the gate there restores the previous output exactly.
