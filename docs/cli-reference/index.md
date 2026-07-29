@@ -26,7 +26,7 @@ All flags below are defined in `agentic-orchestration-tool/main.py` (`parse_args
 | `--interactive` (`-i`) | Interactive loop on a **fixed** `--config` workflow. |
 | `--dynamic` | Plan + run ephemeral multi-step workflow from `TASK`. |
 | `--dynamic-iterative` | Stepwise dynamic runs with replanning. |
-| `--society CHARTER.yaml` | Run an agent society from a charter (round-robin turns on a shared blackboard). Mutually exclusive with `--dynamic*`. |
+| `--society CHARTER.yaml` | Run an agent society from a charter (one member per turn on a threaded message bus). Mutually exclusive with `--dynamic*`. |
 | `--example healthcare|logistics|society_research_panel` | Apply built-in vertical overlay (context + extra catalogs) without manual `.env` path wiring. |
 
 ## Workflow / router

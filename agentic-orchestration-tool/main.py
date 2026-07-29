@@ -107,7 +107,7 @@ def _run_society_cli(
     agent_providers_catalog_path: Path,
     mcp_catalog_path: Path,
 ) -> int:
-    """Resolve --society arguments and hand off to the society runtime (K6.1)."""
+    """Resolve --society arguments and hand off to the society runtime (K6.1–K6.2)."""
     from orchestration.society_runtime import run_society
 
     charter_path = Path(charter_arg).expanduser()
@@ -822,8 +822,8 @@ def parse_args() -> argparse.Namespace:
         metavar="CHARTER.yaml",
         help=(
             "Run an agent society from a charter YAML (see config/schemas/society_charter.schema.json): "
-            "members take round-robin turns on a shared blackboard until a stop condition, the "
-            "society controller, or --society-max-turns ends the run. Goal comes from --goal or TASK. "
+            "members take turns on a threaded message bus until a stop condition, the society "
+            "controller, or --society-max-turns ends the run. Goal comes from --goal or TASK. "
             "Mutually exclusive with --dynamic / --dynamic-iterative."
         ),
     )

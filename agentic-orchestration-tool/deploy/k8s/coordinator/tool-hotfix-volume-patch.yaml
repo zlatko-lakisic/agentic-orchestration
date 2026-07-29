@@ -99,6 +99,15 @@ spec:
               mountPath: /app/tool/orchestration/society_runtime.py
               subPath: society_runtime.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/society_messages.py
+              subPath: society_messages.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/society_message_tools.py
+              subPath: society_message_tools.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/society_protocols.py
+              subPath: society_protocols.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/delegate_task_tool.py
               subPath: delegate_task_tool.py
             - name: tool-hotfix-orchestration

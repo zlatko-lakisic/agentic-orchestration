@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Jetson / edge smoke: agent societies K6.1 (society lite).
+Jetson / edge smoke: agent societies K6.1 (society lite) + K6.2 (message bus and protocols).
 
-Offline by default — unit tests, charter validation against the real catalogs, and a session
-create/append/budget round-trip in a temp directory. No LLM calls unless you opt in::
+Offline by default — unit tests, charter validation against the real catalogs, a session
+create/append/budget round-trip, a message-bus round-trip, and turn-protocol selection, all in
+a temp directory. No LLM calls unless you opt in::
 
   python3 scripts/smoke_society_lite.py
   AGENTIC_SMOKE_SOCIETY_LIVE=1 python3 scripts/smoke_society_lite.py
@@ -107,6 +108,9 @@ def run_unit_tests() -> tuple[bool, str]:
         "tests/test_society_session.py",
         "tests/test_society_controller.py",
         "tests/test_society_runtime.py",
+        "tests/test_society_messages.py",
+        "tests/test_society_message_tools.py",
+        "tests/test_society_protocols.py",
         "tests/test_delegate_task_tool.py",
         "-q",
         "--tb=line",
@@ -125,9 +129,17 @@ def check_schema_present() -> tuple[bool, str]:
     if not schema.is_file():
         return False, f"missing charter schema: {schema}"
     data = json.loads(schema.read_text(encoding="utf-8"))
-    if "society" not in (data.get("properties") or {}):
+    society = ((data.get("properties") or {}).get("society") or {}).get("properties") or {}
+    if not society:
         return False, "charter schema has no 'society' property"
-    return True, f"charter schema ok ({schema.name})"
+
+    from orchestration.society_charter import PROTOCOLS
+
+    schema_protocols = (society.get("protocol") or {}).get("enum") or []
+    missing = sorted(set(PROTOCOLS) - set(schema_protocols))
+    if missing:
+        return False, f"charter schema protocol enum is missing {missing!r}"
+    return True, f"charter schema ok ({schema.name}, protocols {list(PROTOCOLS)})"
 
 
 def check_shipped_charters() -> tuple[bool, str]:
@@ -197,6 +209,8 @@ def check_session_roundtrip() -> tuple[bool, str]:
         for name in ("meta.json", "blackboard.md", "transcript.jsonl"):
             if not (session.directory / name).is_file():
                 return False, f"session missing {name}"
+        if not session.messages_dir.is_dir():
+            return False, "session missing messages/"
 
         session.append_turn(
             turn_index=1,
@@ -222,6 +236,187 @@ def check_session_roundtrip() -> tuple[bool, str]:
         if reloaded.meta.turn != 1 or reloaded.meta.goal != "smoke goal":
             return False, f"reload mismatch: turn={reloaded.meta.turn} goal={reloaded.meta.goal!r}"
     return True, "session create/append/budget/reload ok"
+
+
+def check_message_bus_roundtrip() -> tuple[bool, str]:
+    """K6.2: post → read thread → unread/cursor → ready_for_draft marker, all on disk."""
+    from orchestration.society_charter import load_society_charter
+    from orchestration.society_messages import latest_ready_for_draft
+    from orchestration.society_session import create_society_session, load_society_session
+
+    charter = load_society_charter(_PANEL_CHARTER)
+    ids = charter.agent_provider_ids
+    chair, expert, critic = ids[0], ids[1], ids[2]
+
+    with tempfile.TemporaryDirectory(prefix="society-msg-smoke-") as tmp:
+        root = Path(tmp)
+        session = create_society_session(
+            tool_root=root,
+            charter=charter,
+            goal="smoke goal",
+            session_slug="smoke-messages",
+        )
+        if not session.messages_dir.is_dir():
+            return False, "session has no messages/ directory"
+
+        opening = session.post_message(
+            from_agent=chair, content="Opening the panel.", turn=1, role="facilitator"
+        )
+        question = session.post_message(
+            from_agent=chair,
+            content="Critic, is the latency claim defensible?",
+            to_agent=critic,
+            thread_id="latency",
+            turn=1,
+            role="facilitator",
+        )
+        answer = session.post_message(
+            from_agent=critic,
+            content="Only under 4 GB of index. ready_for_draft",
+            thread_id="latency",
+            refs=[question.msg_id],
+            turn=2,
+            role="critic",
+        )
+
+        thread = session.read_thread("latency")
+        if [m.msg_id for m in thread] != [question.msg_id, answer.msg_id]:
+            return False, f"thread order wrong: {[m.msg_id for m in thread]!r}"
+        if thread[1].refs != [question.msg_id]:
+            return False, f"refs not persisted: {thread[1].refs!r}"
+
+        unread = [m.msg_id for m in session.unread_for(critic)]
+        if unread != [opening.msg_id, question.msg_id]:
+            return False, f"unexpected unread for the critic: {unread!r}"
+        if question.msg_id in [m.msg_id for m in session.unread_for(expert)]:
+            return False, "a directed message leaked to a third member"
+        session.mark_seen(critic)
+        if session.unread_for(critic):
+            return False, "read cursor did not clear unread"
+
+        marker = latest_ready_for_draft(session.directory)
+        if marker is None or marker.from_agent != critic:
+            return False, "ready_for_draft marker not detected"
+
+        summary = session.recent_messages_summary()
+        if "Opening the panel." not in summary or "4 GB" not in summary:
+            return False, "recent-messages digest is missing posts"
+
+        reloaded = load_society_session(root, "smoke-messages")
+        if len(reloaded.messages()) != 3:
+            return False, f"reload lost messages ({len(reloaded.messages())} of 3)"
+    return True, "message bus post/thread/unread/cursor/reload ok (3 messages)"
+
+
+def check_protocol_selection() -> tuple[bool, str]:
+    """K6.2: every protocol picks a seat, and ready_for_draft promotes the drafter."""
+    from orchestration.society_charter import PROTOCOLS, parse_society_charter
+    from orchestration.society_protocols import select_next_member
+    from orchestration.society_session import create_society_session
+
+    charter = parse_society_charter(
+        {
+            "society": {
+                "id": "smoke_protocols",
+                "max_turns": 6,
+                "members": [
+                    {"agent_provider_id": "s_chair", "role": "facilitator"},
+                    {"agent_provider_id": "s_research", "role": "researcher"},
+                    {"agent_provider_id": "s_critic", "role": "critic"},
+                    {"agent_provider_id": "s_writer", "role": "writer"},
+                ],
+            }
+        }
+    )
+    with tempfile.TemporaryDirectory(prefix="society-proto-smoke-") as tmp:
+        root = Path(tmp)
+        session = create_society_session(
+            tool_root=root,
+            charter=charter,
+            goal="smoke goal",
+            session_slug="smoke-protocols",
+        )
+        for protocol in PROTOCOLS:
+            picked = select_next_member(protocol, charter, session, 1)
+            if picked.agent_provider_id not in charter.agent_provider_ids:
+                return False, f"protocol {protocol!r} picked a non-member"
+
+        if select_next_member("round_robin", charter, session, 2).role != "researcher":
+            return False, "round_robin did not advance to the second seat"
+
+        session.post_message(
+            from_agent="s_chair", content="Researcher, open with the evidence.", turn=1
+        )
+        if select_next_member("moderator_picks", charter, session, 2).role != "researcher":
+            return False, "moderator_picks ignored the chair's hand-off"
+
+        session.post_message(
+            from_agent="s_research",
+            content="Two benchmarks disagree.",
+            to_agent="s_critic",
+            thread_id="evidence",
+            turn=2,
+        )
+        if select_next_member("reactive", charter, session, 3).role != "critic":
+            return False, "reactive ignored directed mail"
+
+        session.post_message(
+            from_agent="s_critic",
+            content="Spread is wide but the call holds. ready_for_draft",
+            thread_id="evidence",
+            turn=3,
+        )
+        for protocol in ("reactive", "moderator_picks"):
+            if select_next_member(protocol, charter, session, 4).role != "writer":
+                return False, f"{protocol} did not promote the writer after ready_for_draft"
+    return True, f"protocols ok ({', '.join(PROTOCOLS)}); writer gated on ready_for_draft"
+
+
+def check_message_tools_attach() -> tuple[bool, str]:
+    """The three society_* tools land on a member's agents without a live model."""
+    from orchestration.society_message_tools import (
+        SOCIETY_TOOL_NAMES,
+        attach_society_message_tools,
+        message_tools_enabled_from_env,
+    )
+    from orchestration.society_charter import load_society_charter
+    from orchestration.society_session import create_society_session
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.tools: list = []
+
+    class _Crew:
+        def __init__(self) -> None:
+            self.agents = [_Agent()]
+
+    class _Built:
+        def __init__(self) -> None:
+            self.crew = _Crew()
+
+    charter = load_society_charter(_PANEL_CHARTER)
+    with tempfile.TemporaryDirectory(prefix="society-tools-smoke-") as tmp:
+        session = create_society_session(
+            tool_root=Path(tmp),
+            charter=charter,
+            goal="smoke goal",
+            session_slug="smoke-tools",
+        )
+        built = _Built()
+        if not attach_society_message_tools(
+            built, session=session, member=charter.members[0], turn=1
+        ):
+            return False, "message tools did not attach"
+        names = [getattr(t, "name", "") for t in built.crew.agents[0].tools]
+        if names != list(SOCIETY_TOOL_NAMES):
+            return False, f"unexpected tool set: {names!r}"
+
+        post = built.crew.agents[0].tools[0]
+        out = post._run(content="smoke post", to_agent=charter.agent_provider_ids[1])
+        if "Posted" not in out or len(session.messages()) != 1:
+            return False, f"society_post did not write a message: {out!r}"
+    default_on = "on by default" if message_tools_enabled_from_env() else "disabled by env"
+    return True, f"society_* tools attach and post ({', '.join(SOCIETY_TOOL_NAMES)}; {default_on})"
 
 
 def check_hierarchical_reference_workflow() -> tuple[bool, str]:
@@ -305,13 +500,16 @@ def run_optional_live_society() -> tuple[bool, str]:
 
 
 def one_round() -> bool:
-    print("=== society lite smoke (K6.1) ===")
+    print("=== society smoke (K6.1 lite + K6.2 message bus) ===")
     checks = [
         ("unit tests", run_unit_tests),
         ("charter schema", check_schema_present),
         ("shipped charters", check_shipped_charters),
         ("active catalog", check_active_catalog_can_seat_a_society),
         ("session round-trip", check_session_roundtrip),
+        ("message bus round-trip", check_message_bus_roundtrip),
+        ("turn protocols", check_protocol_selection),
+        ("message tools", check_message_tools_attach),
         ("hierarchical reference", check_hierarchical_reference_workflow),
         ("live society optional", run_optional_live_society),
     ]

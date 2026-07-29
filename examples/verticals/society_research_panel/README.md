@@ -1,7 +1,7 @@
-# Society research panel (K6.1 — society lite)
+# Society research panel (K6.1 society lite + K6.2 message bus)
 
 A three-member **agent society**: a facilitator, a domain expert, and an implementation critic
-take round-robin turns on a shared blackboard until they converge on one recommendation.
+take turns on a threaded message bus until they converge on one recommendation.
 
 Unlike the other verticals, the interesting artifact here is not a workflow YAML — it is the
 **charter** (`society_research_panel.yaml`), validated against
@@ -41,7 +41,8 @@ python main.py --example society_research_panel \
   --society-max-turns 6
 ```
 
-Smoke test (unit tests + charter load + session create, no LLM calls):
+Smoke test (unit tests, charter load, session create, message-bus round-trip, protocol
+selection — no LLM calls):
 
 ```bash
 bash agentic-orchestration-tool/scripts/smoke_society_lite.sh
@@ -57,19 +58,29 @@ AGENTIC_SMOKE_SOCIETY_LIVE=1 bash agentic-orchestration-tool/scripts/smoke_socie
 | `members[].role` | Drives the injected role charge and `<role>_posts` stop conditions |
 | `members[].charge` | Per-member instructions appended to that member's turns |
 | `members[].can_delegate` | Attaches the `delegate_task` tool to that member's turns |
-| `protocol` | `round_robin` (v1 runtime); `hierarchical` is accepted as an alias that still round-robins |
+| `protocol` | `round_robin` (default), `moderator_picks` (the facilitator hands the floor to the member it names), `reactive` (whoever has unread messages speaks next); `hierarchical` is an alias that still round-robins |
 | `max_turns` / `max_delegations` | Hard budgets, enforced outside the LLM's control |
 | `min_turns` | Earliest turn the society controller may stop the run |
 | `stop_when` | Phrases that end the run, e.g. `facilitator_posts: FINAL_RECOMMENDATION` |
+| `tools` | `delegate_task` plus the message bus tools `society_post`, `society_read_thread`, `society_list_agents` |
 
 ## Where the run lands
 
 ```
 agentic-orchestration-tool/__orchestrator_sessions__/societies/research_panel/
   meta.json         roster, turn, delegations_used, status, stop_reason
-  blackboard.md     append-only shared memory injected into each turn
-  transcript.jsonl  one record per turn, delegation, and controller decision
+  blackboard.md     append-only audit trail (and the controller's input)
+  transcript.jsonl  one record per turn, message, delegation, and controller decision
+  messages/         threaded message bus: {msg_id}.json, _index.jsonl, _cursors.json
 ```
+
+Each turn sees a digest of the most recent messages plus anything addressed to it, not the whole
+blackboard — members pull full threads with `society_read_thread` and reply with `society_post`.
+Turn output is broadcast to thread `main` automatically, so the bus stays useful even when a
+small model never calls the tools.
+
+Under `protocol: moderator_picks` or `reactive`, a member posting `ready_for_draft` hands the next
+turn to the seated `writer` (or `domain_expert`).
 
 ## Hierarchical crew reference
 
@@ -95,5 +106,7 @@ much across local and cloud models to be the default runtime.
 | `AGENTIC_SOCIETY_REQUIRE_CAPABLE` | Set `0` to seat catalog entries without `society_capable: true` |
 | `AGENTIC_SOCIETY_CONTROLLER` | Set `0` to run purely on turn budgets and `stop_when` |
 | `AGENTIC_SOCIETY_CONTROLLER_MODEL` | Controller model; falls back to the iterative controller, then the planner model |
-| `AGENTIC_SOCIETY_BLACKBOARD_CHARS` | Blackboard excerpt injected per turn (default `12000`) |
+| `AGENTIC_SOCIETY_BLACKBOARD_CHARS` | Blackboard excerpt (default `12000`); injected per turn only when the message tools are off |
+| `AGENTIC_SOCIETY_MESSAGE_TOOLS` | Set `0` to drop the `society_*` tools and go back to the full blackboard excerpt per turn |
+| `AGENTIC_SOCIETY_MESSAGE_SUMMARY_N` | Recent messages digested into each turn description (default `8`) |
 | `AGENTIC_SOCIETY_DELEGATE` | Set `1` to allow `delegate_task` outside society runs |

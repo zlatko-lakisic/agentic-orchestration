@@ -38,13 +38,13 @@
         },
         "protocol": {
           "type": "string",
-          "description": "Turn protocol. v1 drives round_robin; `hierarchical` is accepted as an alias that still takes round-robin turns (see config/workflows/workflow_society_hierarchical_panel.yaml for a real CrewAI hierarchical crew).",
-          "enum": ["round_robin", "hierarchical"],
+          "description": "Turn protocol (orchestration/society_protocols.py). `round_robin` is the default; `hierarchical` is an alias that still takes round-robin turns (see config/workflows/workflow_society_hierarchical_panel.yaml for a real CrewAI hierarchical crew); `moderator_picks` lets the facilitator hand the floor to the member it names; `reactive` gives the floor to whoever has unread messages. Both K6.2 protocols also promote a writer/domain_expert once a member posts `ready_for_draft`.",
+          "enum": ["round_robin", "hierarchical", "moderator_picks", "reactive"],
           "default": "round_robin"
         },
         "interaction_mode": {
           "type": "string",
-          "description": "Charter interaction mode (see docs/adr/0001-agent-societies-v1.md). v1 drives `blackboard` and `delegate_rpc`; `handoff`, `crew_delegation`, and `hierarchical` are declarative only.",
+          "description": "Charter interaction mode (see docs/adr/0001-agent-societies-v1.md). The runtime drives `blackboard` (threaded message bus since K6.2) and `delegate_rpc`; `handoff`, `crew_delegation`, and `hierarchical` are declarative only.",
           "enum": [
             "handoff",
             "crew_delegation",
@@ -88,7 +88,7 @@
         },
         "tools": {
           "type": "array",
-          "description": "Tool ids offered to the society. v1 recognizes `delegate_task` (inline child step) and `k8s_delegate_task` (Kubernetes worker Job). Unknown ids are ignored with a warning.",
+          "description": "Tool ids offered to the society. Recognized: `delegate_task` (inline child step), `k8s_delegate_task` (Kubernetes worker Job), and the K6.2 message-bus tools `society_post`, `society_read_thread`, `society_list_agents` (attached to every member unless AGENTIC_SOCIETY_MESSAGE_TOOLS=0). Unknown ids are ignored.",
           "items": { "type": "string", "minLength": 1 }
         },
         "mcp_providers": {

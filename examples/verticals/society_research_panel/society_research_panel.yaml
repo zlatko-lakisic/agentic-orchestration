@@ -25,6 +25,8 @@ society:
   goal: >-
     Evaluate the proposal on the table and converge on a single recommendation with the
     main risks named.
+  # round_robin is the safe default. Swap in moderator_picks (the facilitator hands the floor
+  # to the member it names) or reactive (whoever has unread messages speaks next).
   protocol: round_robin
   interaction_mode: blackboard
   max_turns: 12
@@ -49,11 +51,15 @@ society:
     - agent_provider_id: ollama_qwen2_5_coder
       role: critic
       charge: >-
-        You are the implementation critic. Attack the weakest claim on the blackboard, call
-        out anything unsupported or hand-wavy, and say what the team would hit in week one.
+        You are the implementation critic. Attack the weakest claim on the thread, call out
+        anything unsupported or hand-wavy, and say what the team would hit in week one.
 
   stop_when:
     - facilitator_posts: "FINAL_RECOMMENDATION"
 
   tools:
     - delegate_task
+    # K6.2 message bus — attached to every member unless AGENTIC_SOCIETY_MESSAGE_TOOLS=0.
+    - society_post
+    - society_read_thread
+    - society_list_agents

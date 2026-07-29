@@ -40,6 +40,15 @@ CATALOG: list[dict[str, Any]] = [
         "model": "qwen2.5-coder",
         "society_capable": True,
     },
+    {
+        "id": "a_writer",
+        "type": "ollama",
+        "role": "Writer",
+        "goal": "draft",
+        "backstory": "b",
+        "model": "llama3.3",
+        "society_capable": True,
+    },
 ]
 
 
@@ -450,7 +459,7 @@ def test_hierarchical_protocol_still_takes_round_robin_turns(
     assert load_society_session(tmp_path, "panel").meta.protocol == "hierarchical"
 
 
-def test_turn_description_carries_goal_blackboard_and_stop_rule() -> None:
+def test_turn_description_carries_goal_prior_context_and_stop_rule() -> None:
     charter = parse_society_charter(_charter_dict())
     member = charter.member_for_turn(1)
 
@@ -549,3 +558,243 @@ def test_meta_json_is_valid_after_a_run(tmp_path: Path, charter_file, stub_runti
     assert meta["turn"] == 2
     assert meta["charter_path"].endswith("charter.yaml")
     assert meta["updated_at"]
+    assert meta["messages_path"].endswith("messages")
+
+
+# --- K6.2: message bus, protocols, ready_for_draft -----------------------------------------
+
+
+def test_every_turn_is_broadcast_to_the_message_bus(tmp_path: Path, charter_file, stub_runtime) -> None:
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=3),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    session = load_society_session(tmp_path, "panel")
+    messages = session.messages()
+    assert [m.content for m in messages] == ["post for turn 1", "post for turn 2", "post for turn 3"]
+    assert [m.from_agent for m in messages] == ["a_facilitator", "a_expert", "a_critic"]
+    assert {m.thread_id for m in messages} == {"main"}
+    assert all(m.is_broadcast for m in messages)
+    assert [m.turn for m in messages] == [1, 2, 3]
+    # Mirrored on the transcript for audit, and the blackboard still holds every turn.
+    mirrored = [e for e in session.transcript_entries() if e["kind"] == "message"]
+    assert len(mirrored) == 3
+    assert "post for turn 3" in session.blackboard_path.read_text(encoding="utf-8")
+
+
+def test_an_empty_turn_is_not_posted_to_the_bus(tmp_path: Path, charter_file, stub_runtime) -> None:
+    stub_runtime["state"]["reply"] = lambda turn: "" if turn == 1 else f"turn {turn}"
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=2),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    session = load_society_session(tmp_path, "panel")
+    assert [m.content for m in session.messages()] == ["turn 2"]
+
+
+def test_turns_get_the_message_digest_instead_of_the_whole_blackboard(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+) -> None:
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=3),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    third = stub_runtime["turns"][2]["task_description"]
+    assert "## Recent panel messages" in third
+    assert "## Blackboard so far" not in third
+    assert "post for turn 2" in third
+    assert "society_read_thread" in third
+    # The bus tools are attached to every turn.
+    assert stub_runtime["turns"][0]["message_tools"] is True
+    assert stub_runtime["turns"][0]["session"].directory.name == "panel"
+
+
+def test_disabling_the_message_tools_restores_the_blackboard_excerpt(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_SOCIETY_MESSAGE_TOOLS", "0")
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=2),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    second = stub_runtime["turns"][1]["task_description"]
+    assert "## Blackboard so far" in second
+    assert "society_read_thread" not in second
+    assert stub_runtime["turns"][1]["message_tools"] is False
+
+
+def test_reactive_protocol_follows_directed_mail(tmp_path: Path, charter_file, stub_runtime) -> None:
+    def reply(turn: int) -> str:
+        if turn == 1:
+            session = stub_runtime["turns"][-1]["session"]
+            session.post_message(
+                from_agent="a_facilitator",
+                content="Critic, is the latency claim defensible?",
+                to_agent="a_critic",
+                thread_id="latency",
+                turn=turn,
+                role="facilitator",
+            )
+        return f"turn {turn}"
+
+    stub_runtime["state"]["reply"] = reply
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(protocol="reactive", max_turns=3),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    roles = [t["member"].role for t in stub_runtime["turns"]]
+    # Round-robin would run facilitator → domain_expert → critic; the directed message pulls
+    # the critic forward on turn 2.
+    assert roles == ["facilitator", "critic", "domain_expert"]
+    assert load_society_session(tmp_path, "panel").meta.protocol == "reactive"
+
+
+def test_moderator_picks_protocol_honours_the_chair(tmp_path: Path, charter_file, stub_runtime) -> None:
+    stub_runtime["state"]["reply"] = (
+        lambda turn: "Critic, take it from here." if turn == 1 else f"turn {turn}"
+    )
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(protocol="moderator_picks", max_turns=4),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    # Chair opens, hands off to the member it named, takes the floor back once the nomination
+    # is spent, then — naming nobody — passes it on rather than speaking twice in a row.
+    assert [t["member"].role for t in stub_runtime["turns"]] == [
+        "facilitator",
+        "critic",
+        "facilitator",
+        "domain_expert",
+    ]
+
+
+def test_writer_runs_only_after_ready_for_draft(tmp_path: Path, charter_file, stub_runtime) -> None:
+    """K6.2 exit criteria: research posts, critic replies in-thread, then the writer drafts."""
+    members = [
+        {"agent_provider_id": "a_facilitator", "role": "facilitator"},
+        {"agent_provider_id": "a_expert", "role": "researcher"},
+        {"agent_provider_id": "a_critic", "role": "critic"},
+        {"agent_provider_id": "a_writer", "role": "writer"},
+    ]
+
+    def reply(turn: int) -> str:
+        session = stub_runtime["turns"][-1]["session"]
+        if turn == 2:
+            session.post_message(
+                from_agent="a_expert",
+                content="Two benchmarks disagree on edge latency; here is the spread.",
+                to_agent="a_critic",
+                thread_id="evidence",
+                turn=turn,
+                role="researcher",
+            )
+            return "evidence posted"
+        if turn == 3:
+            prior = session.read_thread("evidence")[-1]
+            session.post_message(
+                from_agent="a_critic",
+                content="Spread is wide but the conclusion holds. ready_for_draft",
+                thread_id="evidence",
+                refs=[prior.msg_id],
+                turn=turn,
+                role="critic",
+            )
+            return "objections answered"
+        return f"turn {turn}"
+
+    stub_runtime["state"]["reply"] = reply
+    assert (
+        run_society(
+            tool_root=tmp_path,
+            charter_path=charter_file(protocol="reactive", members=members, max_turns=4),
+            goal="Write up where the index should live",
+            quiet=True,
+            use_controller=False,
+        )
+        == 0
+    )
+
+    assert [t["member"].role for t in stub_runtime["turns"]] == [
+        "facilitator",
+        "researcher",
+        "critic",
+        "writer",
+    ]
+
+    session = load_society_session(tmp_path, "panel")
+    thread = session.read_thread("evidence")
+    assert [m.from_agent for m in thread] == ["a_expert", "a_critic"]
+    assert thread[1].refs == [thread[0].msg_id]
+    assert thread[1].ready_for_draft is True
+    # The writer's turn description tells it the draft is expected.
+    assert "ready_for_draft" in stub_runtime["turns"][3]["task_description"]
+
+
+def test_unread_mail_is_surfaced_to_the_member_it_targets(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+) -> None:
+    def reply(turn: int) -> str:
+        if turn == 1:
+            stub_runtime["turns"][-1]["session"].post_message(
+                from_agent="a_facilitator",
+                content="Expert, give me numbers.",
+                to_agent="a_expert",
+                turn=turn,
+                role="facilitator",
+            )
+        return f"turn {turn}"
+
+    stub_runtime["state"]["reply"] = reply
+    run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=2),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+    second = stub_runtime["turns"][1]["task_description"]
+    assert "## Addressed to you" in second
+    assert "`a_facilitator`" in second
+
+
+def test_turn_description_renders_the_message_digest_and_tools() -> None:
+    charter = parse_society_charter(_charter_dict(protocol="reactive"))
+    member = charter.member_for_turn(2)
+
+    description = build_turn_description(
+        charter=charter,
+        member=member,
+        goal="Edge or cluster?",
+        turn_index=2,
+        messages_summary="[m0001-a_facilitator] a_facilitator → all · thread `main`\nOpening.",
+        unread=[],
+    )
+    assert "## Recent panel messages" in description
+    assert "Opening." in description
+    assert "society_post" in description
+    assert "society_list_agents" in description
+    assert "## Blackboard so far" not in description

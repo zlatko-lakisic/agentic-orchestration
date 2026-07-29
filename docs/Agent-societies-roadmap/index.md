@@ -13,9 +13,9 @@ mermaid: true
 
 Living document for evolving **Agentic Orchestration** from **orchestrated pipelines** (planner → sequential steps → injected prior output) toward **autonomous agent societies**: multiple agents that can initiate work, message each other, and delegate without the planner rewriting the full plan every turn.
 
-**Status:** **In progress — Phase 0 + K6.1 (society lite) shipped** (2026-07). Phase 2 (blackboard message bus) is next; Phases 3–5 are design only.
+**Status:** **In progress — Phase 0 + K6.1 (society lite) + K6.2 (message bus and protocols) shipped** (2026-07). Phase 3 (K8s-native societies) is next; Phases 4–5 are design only.
 
-**Shipped so far:** charter schema + [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}), `python main.py --society CHARTER.yaml --goal "…"`, round-robin turn runtime with an append-only blackboard, society sessions under `__orchestrator_sessions__/societies/`, in-process `delegate_task` with a hard delegation budget, society controller, catalog flag `society_capable`, vertical example `examples/verticals/society_research_panel/`, and a `process: hierarchical` reference workflow.
+**Shipped so far:** charter schema + [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}), `python main.py --society CHARTER.yaml --goal "…"`, protocol-driven turn runtime (`round_robin`, `moderator_picks`, `reactive`), a threaded message bus with the `society_post` / `society_read_thread` / `society_list_agents` tools, society sessions under `__orchestrator_sessions__/societies/`, in-process `delegate_task` with a hard delegation budget, society controller, catalog flag `society_capable`, vertical example `examples/verticals/society_research_panel/`, and a `process: hierarchical` reference workflow.
 
 **Builds on:** [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (K3–K5 complete: coordinator, warm pool, delegation RPC, structured logging), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }})
 
@@ -41,7 +41,8 @@ A **society** is not “one big group chat.” It is:
 | **K8s delegation** | `k8s_delegate_task` tool + delegation broker spawns child Jobs ([Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#phase-5--operational-polish-optional) K5.5) |
 | **CrewAI delegation** | `allow_delegation: false` on virtually all catalog entries (`ollama_hermes3` is the facilitator exception) |
 | **Hierarchical crews** | `process: hierarchical` supported in code; reference workflow shipped (`config/workflows/workflow_society_hierarchical_panel.yaml`) |
-| **Society runtime (K6.1)** | `--society CHARTER.yaml` — round-robin turns, shared blackboard, bounded `delegate_task`, controller stop |
+| **Society runtime (K6.1)** | `--society CHARTER.yaml` — one member speaks per turn, shared blackboard, bounded `delegate_task`, controller stop |
+| **Society message bus (K6.2)** | Threaded messages under `<session>/messages/`; `society_post` / `society_read_thread` / `society_list_agents`; `moderator_picks` and `reactive` turn protocols |
 
 See [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}#non-goals-initial-phases) — in-run CrewAI delegation / hierarchical managers were explicitly deferred until a society use case justified them. **This page is that justification and roadmap.**
 
@@ -111,7 +112,7 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 | `handoff` | Current behavior — sequential steps, prior output injection | Existing behavior |
 | `crew_delegation` | CrewAI `allow_delegation: true` on selected agents | Reference workflow only |
 | `hierarchical` | Manager agent + worker agents (`process: hierarchical`) | Reference workflow only |
-| `blackboard` | Posts to shared memory; agents read it each turn (append-only in v1, threaded in K6.2) | **Shipped (K6.1)** — charter default |
+| `blackboard` | Threaded message bus members post to and read from each turn; `blackboard.md` remains the audit trail | **Shipped (K6.1, threaded in K6.2)** — charter default |
 | `delegate_rpc` | Delegation tool — `delegate_task` inline, `k8s_delegate_task` on K8s | **Shipped (K6.1)** |
 
 ---
@@ -146,24 +147,35 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 
 **CLI (shipped):** `python main.py --society charter.yaml --goal "…"` (plus `--society-session`, `--society-max-turns`, `--society-no-controller`; mutually exclusive with `--dynamic` / `--dynamic-iterative`).
 
-**Turn protocol:** `round_robin` in `orchestration/society_runtime.py`. `protocol: hierarchical` is accepted as an alias that still takes round-robin turns — manager-driven delegation quality varies too much across local and cloud models to be the default runtime (see ADR 0001).
+**Turn protocol:** `round_robin` (K6.2 moved seat selection into `orchestration/society_protocols.py`). `protocol: hierarchical` is accepted as an alias that still takes round-robin turns — manager-driven delegation quality varies too much across local and cloud models to be the default runtime (see ADR 0001).
 
 **Exit criteria:** 3-agent panel with `max_turns: 12`, one bounded delegation path, controller stops cleanly, transcript in the session. Verify with `scripts/smoke_society_lite.sh` (offline) or `AGENTIC_SMOKE_SOCIETY_LIVE=1 scripts/smoke_society_lite.sh` (real short run).
 
 ---
 
-### Phase 2 — Blackboard and message protocol — K6.2
+### Phase 2 — Blackboard and message protocol — K6.2 — **shipped**
 
 **Goal:** Agents communicate **without** only stuffing prior output into the next task description.
 
-| Task | Work |
-|------|------|
-| **2.1** | Message schema: `society/messages/{msg_id}.json` — `from_agent`, `to_agent` \| `broadcast`, `thread_id`, `content`, `refs[]`, `ts` on run-store or session dir |
-| **2.2** | CrewAI tools: `society_post`, `society_read_thread`, `society_list_agents` |
-| **2.3** | Turn protocol engine (Python): `round_robin`, `moderator_picks`, `reactive` (pull unread) |
-| **2.4** | Optional parallel lanes — two agents same round; merge/synthesis step |
+| Task | Work | Status |
+|------|------|--------|
+| **2.1** | Message schema: `<session>/messages/{msg_id}.json` — `from_agent`, `to_agent` \| `broadcast`, `thread_id`, `content`, `refs[]`, `ts` | [x] `orchestration/society_messages.py`; `_index.jsonl` for order, `_cursors.json` for per-agent read cursors |
+| **2.2** | CrewAI tools: `society_post`, `society_read_thread`, `society_list_agents` | [x] `orchestration/society_message_tools.py`; attached to every member turn (`AGENTIC_SOCIETY_MESSAGE_TOOLS=0` to opt out) |
+| **2.3** | Turn protocol engine (Python): `round_robin`, `moderator_picks`, `reactive` (pull unread) | [x] `orchestration/society_protocols.py`; `round_robin` stays the default and every protocol falls back to it |
+| **2.4** | Optional parallel lanes — two agents same round; merge/synthesis step | [ ] **deferred** — ADR 0001 keeps "no parallel turns" as a v1 non-goal |
 
-**Exit criteria:** Research agent posts; critic replies in-thread; writer runs only after critic marks `ready_for_draft`.
+**Turn context:** each member's task description now carries a digest of the last N messages
+(`AGENTIC_SOCIETY_MESSAGE_SUMMARY_N`, default 8) plus the mail addressed to it, instead of the
+whole blackboard — so prompt size stops growing linearly with turn count. Every turn's output is
+also broadcast to thread `main`, so the bus (and therefore the protocols) keep working when a
+small model never calls the tools. `blackboard.md` stays as the audit trail and the controller's
+input.
+
+**Exit criteria met:** research agent posts, the critic replies in-thread, and the writer runs
+only after the critic marks `ready_for_draft` — covered by
+`tests/test_society_runtime.py::test_writer_runs_only_after_ready_for_draft` and the
+`ready_for_draft` gate in `society_protocols.pending_draft_member`. Verify offline with
+`scripts/smoke_society_lite.sh`.
 
 ---
 
@@ -231,7 +243,10 @@ society:
   stop_when:
     - facilitator_posts: "FINAL_RECOMMENDATION"
   tools:
-    - delegate_task     # society_post / society_read_thread arrive in K6.2
+    - delegate_task
+    - society_post          # K6.2 message bus; attached unless
+    - society_read_thread   # AGENTIC_SOCIETY_MESSAGE_TOOLS=0
+    - society_list_agents
 ```
 
 ```bash
@@ -293,11 +308,24 @@ python main.py --example society_research_panel \
 | `scripts/smoke_society_lite.sh` / `.py` | Offline smoke (+ optional live run) |
 | `tests/test_society_*.py`, `tests/test_delegate_task_tool.py` | Unit coverage (no live LLM) |
 
-### Next up (K6.2)
+### Files shipped in K6.2
 
-Message schema under `society/messages/`, `society_post` / `society_read_thread` /
-`society_list_agents` tools, and `moderator_picks` / `reactive` turn protocols — replacing the
-append-only markdown blackboard, whose context grows linearly with turn count.
+| Path | Role |
+|------|------|
+| `orchestration/society_messages.py` | Message bus: `post_message`, `read_thread`, `list_messages`, `unread_for`, `mark_seen`, recent-message digest, `ready_for_draft` detection |
+| `orchestration/society_message_tools.py` | `society_post` / `society_read_thread` / `society_list_agents` CrewAI tools + `attach_society_message_tools(...)` |
+| `orchestration/society_protocols.py` | `select_next_member(protocol, charter, session, turn_index)` — round-robin, moderator picks, reactive, `ready_for_draft` gate |
+| `orchestration/society_session.py` | `messages/` directory on create; thin `post_message` / `read_thread` / `unread_for` / `mark_seen` helpers, each post mirrored onto the transcript |
+| `orchestration/society_runtime.py` | Protocol-driven selection, message tools attached per turn, turn output broadcast to thread `main`, message digest replaces the blackboard dump |
+| `config/schemas/society_charter.schema.json` | `protocol` enum + message-bus tool ids |
+| `tests/test_society_messages.py`, `tests/test_society_message_tools.py`, `tests/test_society_protocols.py` | Unit coverage (no live LLM) |
+| `scripts/smoke_society_lite.py` | Offline message-bus round-trip, protocol selection, and tool-attach checks |
+
+### Next up (K6.3)
+
+Generalize the delegation broker into a **society-broker** so the same charter runs on the
+laptop and on K8s: route messages through the run store, spawn child Jobs, enforce budgets, and
+tag logs with `component=society-broker`.
 
 ---
 
@@ -337,3 +365,4 @@ Society members are **catalog agent providers**, not arbitrary foreign processes
 | 2026-06-29 | Deferred doc: **Integrating external agents (vs catalog agents)** — add after K6 ships |
 | 2026-07-29 | **Phase 0 + K6.1 shipped** — charter schema, ADR 0001, `--society` CLI, round-robin runtime, society sessions, bounded `delegate_task`, society controller, `society_capable` catalog flag, research-panel vertical, hierarchical reference workflow, society smoke |
 | 2026-07-29 | Docs: **Integrating external agents (vs catalog agents)** section added |
+| 2026-07-29 | **Phase 2 (K6.2) shipped** — threaded message bus under `<session>/messages/`, `society_post` / `society_read_thread` / `society_list_agents` tools, `moderator_picks` and `reactive` turn protocols, recent-message digest replacing the blackboard dump, `ready_for_draft` writer gate. Parallel lanes (2.4) stay deferred |

@@ -24,12 +24,26 @@ INTERACTION_MODES: tuple[str, ...] = (
 )
 DEFAULT_INTERACTION_MODE = "blackboard"
 
-# Turn protocols the runtime accepts. ``hierarchical`` is an alias that still takes
-# round-robin turns in v1; a real CrewAI hierarchical crew ships as a reference workflow.
-PROTOCOLS: tuple[str, ...] = ("round_robin", "hierarchical")
+# Turn protocols the runtime accepts (see orchestration/society_protocols.py). ``hierarchical``
+# is an alias that still takes round-robin turns; a real CrewAI hierarchical crew ships as a
+# reference workflow. ``moderator_picks`` and ``reactive`` (K6.2) read the message bus.
+PROTOCOLS: tuple[str, ...] = (
+    "round_robin",
+    "hierarchical",
+    "moderator_picks",
+    "reactive",
+)
 DEFAULT_PROTOCOL = "round_robin"
 
-KNOWN_SOCIETY_TOOLS: frozenset[str] = frozenset({"delegate_task", "k8s_delegate_task"})
+KNOWN_SOCIETY_TOOLS: frozenset[str] = frozenset(
+    {
+        "delegate_task",
+        "k8s_delegate_task",
+        "society_post",
+        "society_read_thread",
+        "society_list_agents",
+    }
+)
 
 DEFAULT_MAX_TURNS = 12
 DEFAULT_MAX_DELEGATIONS = 3
@@ -366,7 +380,7 @@ def parse_society_charter(
             raise SocietyCharterError("society.min_turns must be >= 1")
         min_turns = min(min_turns, turns)
 
-    # Unknown tool ids stay allowed: Phase 2 adds society_post / society_read_thread.
+    # Unknown tool ids stay allowed (they are simply not attached); see KNOWN_SOCIETY_TOOLS.
     tools = _str_list(society.get("tools"), where="society.tools")
 
     return SocietyCharter(

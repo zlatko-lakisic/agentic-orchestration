@@ -1,18 +1,21 @@
-"""Society session state on disk (K6.1).
+"""Society session state on disk (K6.1, message bus in K6.2).
 
 Layout under ``<tool_root>/__orchestrator_sessions__/societies/<slug>/``::
 
     meta.json        society_id, goal, roster, turn, budgets, blackboard path
-    blackboard.md    append-only shared memory injected into each member's turn
-    transcript.jsonl one JSON object per turn (and per delegation)
+    blackboard.md    append-only audit trail (also feeds the controller excerpt)
+    transcript.jsonl one JSON object per turn (and per delegation / message)
+    messages/        threaded message bus (K6.2, orchestration/society_messages.py)
 
-Phase 2 replaces the markdown blackboard with a threaded message bus; this layout stays.
+Since K6.2 members read the bus rather than the whole blackboard; the blackboard stays as the
+audit trail and the controller's input.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +26,19 @@ from orchestration.orchestrator_session import (
     safe_orchestrator_session_slug,
 )
 from orchestration.society_charter import SocietyCharter
+from orchestration.society_messages import (
+    BROADCAST,
+    DEFAULT_THREAD_ID,
+    MESSAGES_DIR_NAME,
+    SocietyMessage,
+    ensure_messages_dir,
+    list_messages,
+    mark_seen,
+    post_message,
+    read_thread,
+    recent_messages_summary,
+    unread_for,
+)
 
 SOCIETIES_DIR_NAME = "societies"
 META_FILENAME = "meta.json"
@@ -85,6 +101,7 @@ class SocietySessionMeta:
     stop_reason: str = ""
     blackboard_path: str = ""
     transcript_path: str = ""
+    messages_path: str = ""
     charter_path: str = ""
     created_at: str = ""
     updated_at: str = ""
@@ -114,6 +131,7 @@ class SocietySessionMeta:
             stop_reason=str(data.get("stop_reason", "")),
             blackboard_path=str(data.get("blackboard_path", "")),
             transcript_path=str(data.get("transcript_path", "")),
+            messages_path=str(data.get("messages_path", "")),
             charter_path=str(data.get("charter_path", "")),
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
@@ -146,6 +164,60 @@ class SocietySession:
     @property
     def transcript_path(self) -> Path:
         return self.directory / TRANSCRIPT_FILENAME
+
+    @property
+    def messages_dir(self) -> Path:
+        return self.directory / MESSAGES_DIR_NAME
+
+    def post_message(
+        self,
+        *,
+        from_agent: str,
+        content: str,
+        to_agent: str = BROADCAST,
+        thread_id: str = DEFAULT_THREAD_ID,
+        refs: list[str] | str | None = None,
+        turn: int = 0,
+        role: str = "",
+    ) -> SocietyMessage:
+        """Post to the session's message bus and mirror the post onto the transcript."""
+        message = post_message(
+            self.directory,
+            from_agent=from_agent,
+            content=content,
+            to_agent=to_agent,
+            thread_id=thread_id,
+            refs=refs,
+            turn=turn,
+            role=role,
+        )
+        self.append_transcript(
+            {
+                "kind": "message",
+                "turn": message.turn,
+                "msg_id": message.msg_id,
+                "from_agent": message.from_agent,
+                "to_agent": message.to_agent,
+                "thread_id": message.thread_id,
+                "refs": list(message.refs),
+            }
+        )
+        return message
+
+    def messages(self, **kwargs: Any) -> list[SocietyMessage]:
+        return list_messages(self.directory, **kwargs)
+
+    def read_thread(self, thread_id: str, *, limit: int = 20) -> list[SocietyMessage]:
+        return read_thread(self.directory, thread_id, limit=limit)
+
+    def unread_for(self, agent_id: str) -> list[SocietyMessage]:
+        return unread_for(self.directory, agent_id)
+
+    def mark_seen(self, agent_id: str, *, up_to_seq: int | None = None) -> int:
+        return mark_seen(self.directory, agent_id, up_to_seq=up_to_seq)
+
+    def recent_messages_summary(self, *, limit: int | None = None) -> str:
+        return recent_messages_summary(self.directory, limit=limit)
 
     def save(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -279,6 +351,10 @@ def create_society_session(
             target = directory / name
             if target.exists():
                 target.unlink()
+        stale = directory / MESSAGES_DIR_NAME
+        if stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+    ensure_messages_dir(directory)
 
     meta = SocietySessionMeta(
         society_id=charter.society_id,
@@ -295,6 +371,7 @@ def create_society_session(
         status=STATUS_RUNNING,
         blackboard_path=str(directory / BLACKBOARD_FILENAME),
         transcript_path=str(directory / TRANSCRIPT_FILENAME),
+        messages_path=str(directory / MESSAGES_DIR_NAME),
         charter_path=charter.source_path,
         created_at=_now(),
     )

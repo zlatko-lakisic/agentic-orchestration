@@ -46,7 +46,14 @@ society:
     - agent_provider_id: soc_jetson_critic
       role: critic
       charge: >-
-        Attack the weakest claim on the blackboard and name what would falsify it. Be brief.
+        Attack the weakest claim on the thread and name what would falsify it. Be brief.
 
   stop_when:
     - facilitator_posts: "FINAL_RECOMMENDATION"
+
+  tools:
+    # K6.2 message bus — attached to every member unless AGENTIC_SOCIETY_MESSAGE_TOOLS=0.
+    # A 3B model will not always call them; turn output is broadcast to thread `main` anyway.
+    - society_post
+    - society_read_thread
+    - society_list_agents

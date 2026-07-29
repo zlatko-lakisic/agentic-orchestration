@@ -71,6 +71,23 @@ def test_parse_minimal_charter_applies_defaults() -> None:
     assert charter.stop_when == []
 
 
+@pytest.mark.parametrize(
+    "protocol",
+    ["round_robin", "hierarchical", "moderator_picks", "reactive"],
+)
+def test_every_documented_protocol_parses(protocol: str) -> None:
+    charter = parse_society_charter(_charter_dict(protocol=protocol))
+    assert charter.protocol == protocol
+
+
+def test_message_bus_tools_are_known() -> None:
+    from orchestration.society_charter import KNOWN_SOCIETY_TOOLS
+
+    assert {"society_post", "society_read_thread", "society_list_agents"} <= KNOWN_SOCIETY_TOOLS
+    charter = parse_society_charter(_charter_dict(tools=["society_post", "society_read_thread"]))
+    assert charter.tools == ["society_post", "society_read_thread"]
+
+
 def test_env_overrides_default_budgets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_SOCIETY_MAX_TURNS", "5")
     monkeypatch.setenv("AGENTIC_SOCIETY_MAX_DELEGATIONS", "0")
@@ -281,7 +298,12 @@ def test_shipped_research_panel_charter_is_valid() -> None:
         "ollama_llama3_3",
         "ollama_qwen2_5_coder",
     ]
-    assert charter.tools == ["delegate_task"]
+    assert charter.tools == [
+        "delegate_task",
+        "society_post",
+        "society_read_thread",
+        "society_list_agents",
+    ]
     facilitator = charter.member_for_turn(1)
     assert facilitator.can_delegate is True
     assert charter.matched_stop_condition(

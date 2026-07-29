@@ -93,7 +93,11 @@ omits them, or tune the runtime around them.
 | `AGENTIC_SOCIETY_CONTROLLER` | `1` | Consult the controller LLM after each completed round (may stop early). Set `0` to rely only on `stop_when` phrases and the turn cap — same as `--society-no-controller`. |
 | `AGENTIC_SOCIETY_CONTROLLER_MODEL` | _(unset)_ | Controller model; falls back to `AGENTIC_ITERATIVE_CONTROLLER_MODEL`, then `AGENTIC_PLANNER_MODEL`, then `gpt-4o-mini`. |
 | `AGENTIC_SOCIETY_CONTROLLER_EXCERPT_CHARS` | `12000` | Blackboard excerpt sent to the controller. |
-| `AGENTIC_SOCIETY_BLACKBOARD_CHARS` | `12000` | Blackboard excerpt injected into each member turn (trimmed from the front, newest posts kept). |
+| `AGENTIC_SOCIETY_BLACKBOARD_CHARS` | `12000` | Blackboard excerpt (trimmed from the front, newest posts kept). Injected into each member turn only when the message tools are off. |
+| `AGENTIC_SOCIETY_MESSAGE_TOOLS` | `1` | Attach the K6.2 message bus tools (`society_post`, `society_read_thread`, `society_list_agents`) to every member turn. Set `0` to fall back to the K6.1 behavior: no tools, full blackboard excerpt in each turn description. |
+| `AGENTIC_SOCIETY_MESSAGE_SUMMARY_N` | `8` | How many recent bus messages are digested into a member's turn description. |
+| `AGENTIC_SOCIETY_MESSAGE_SUMMARY_CHARS` | `700` | Per-message excerpt length inside that digest; full posts stay available through `society_read_thread`. |
+| `AGENTIC_SOCIETY_MESSAGE_CHARS` | `8000` | Per-message content cap on the bus. |
 | `AGENTIC_SOCIETY_SESSION` | _(unset)_ | Session directory name under `__orchestrator_sessions__/societies/`; default is the charter's `society.id`. `--society-session` overrides. |
 | `AGENTIC_SOCIETY_DELEGATE` | `0` | Allow the inline `delegate_task` tool **outside** society runs. Society members with `can_delegate: true` get it regardless. |
 | `AGENTIC_SOCIETY_DELEGATE_RESULT_CHARS` | `6000` | Truncation for a delegated child's answer. |

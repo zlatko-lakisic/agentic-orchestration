@@ -80,6 +80,9 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=society_session.py="${ORCH_ROOT}/society_session.py" \
   --from-file=society_controller.py="${ORCH_ROOT}/society_controller.py" \
   --from-file=society_runtime.py="${ORCH_ROOT}/society_runtime.py" \
+  --from-file=society_messages.py="${ORCH_ROOT}/society_messages.py" \
+  --from-file=society_message_tools.py="${ORCH_ROOT}/society_message_tools.py" \
+  --from-file=society_protocols.py="${ORCH_ROOT}/society_protocols.py" \
   --from-file=delegate_task_tool.py="${ORCH_ROOT}/delegate_task_tool.py" \
   --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
   --from-file=crewai_mcp_normalize.py="${ORCH_ROOT}/crewai_mcp_normalize.py" \

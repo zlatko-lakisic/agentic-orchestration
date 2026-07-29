@@ -10,7 +10,11 @@ sidebar:
 ---
 # ADR 0001 — Agent societies v1
 
-**Status:** Accepted (2026-07-29)
+**Status:** Accepted (2026-07-29). Superseded in part by **K6.2** (2026-07-29): the message bus
+predicted in decision 3 shipped, so `blackboard` mode is now threaded messages under
+`<session>/messages/` with `blackboard.md` kept as the audit trail, and turn selection moved to
+`orchestration/society_protocols.py` (`round_robin`, `moderator_picks`, `reactive`). Every
+non-goal below still holds, including no parallel turns.
 
 **Context:** [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}) (K6), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (K5.5 delegation RPC)
 

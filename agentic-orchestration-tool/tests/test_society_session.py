@@ -61,7 +61,9 @@ def test_create_session_writes_expected_layout(tmp_path: Path) -> None:
     assert meta["status"] == STATUS_RUNNING
     assert meta["charter_path"] == "/charters/panel.yaml"
     assert meta["blackboard_path"].endswith("blackboard.md")
+    assert meta["messages_path"].endswith("messages")
     assert [r["role"] for r in meta["roster"]] == ["facilitator", "critic"]
+    assert session.messages_dir.is_dir()
 
     header = session.blackboard_path.read_text(encoding="utf-8")
     assert "Decide where the index lives" in header
@@ -202,6 +204,7 @@ def test_load_missing_session_raises(tmp_path: Path) -> None:
 def test_recreate_resets_history_by_default(tmp_path: Path) -> None:
     session = _new_session(tmp_path)
     session.append_turn(turn_index=1, role="critic", agent_provider_id="a_critic", text="stale")
+    session.post_message(from_agent="a_critic", content="stale message", turn=1)
     session.increment_delegation(agent_provider_id="a_critic")
 
     fresh = _new_session(tmp_path)
@@ -209,6 +212,47 @@ def test_recreate_resets_history_by_default(tmp_path: Path) -> None:
     assert [e["kind"] for e in fresh.transcript_entries()] == ["society_start"]
     assert fresh.meta.turn == 0
     assert fresh.meta.delegations_used == 0
+    assert fresh.messages() == []
+    assert fresh.messages_dir.is_dir()
+
+
+def test_session_message_helpers_wrap_the_bus(tmp_path: Path) -> None:
+    session = _new_session(tmp_path)
+
+    first = session.post_message(
+        from_agent="a_facilitator",
+        content="Critic, defend the latency claim.",
+        to_agent="a_critic",
+        thread_id="latency",
+        turn=1,
+        role="facilitator",
+    )
+    second = session.post_message(
+        from_agent="a_critic",
+        content="It only holds under 4 GB of index.",
+        thread_id="latency",
+        refs=[first.msg_id],
+        turn=2,
+        role="critic",
+    )
+
+    assert [m.msg_id for m in session.messages()] == [first.msg_id, second.msg_id]
+    assert [m.msg_id for m in session.read_thread("latency")] == [first.msg_id, second.msg_id]
+    assert second.refs == [first.msg_id]
+
+    # Directed mail is unread for its target only, until the cursor moves.
+    assert [m.msg_id for m in session.unread_for("a_critic")] == [first.msg_id]
+    assert session.mark_seen("a_critic") == second.seq
+    assert session.unread_for("a_critic") == []
+
+    summary = session.recent_messages_summary()
+    assert "latency claim" in summary and "4 GB" in summary
+
+    # Every post is mirrored onto the transcript for audit.
+    mirrored = [e for e in session.transcript_entries() if e["kind"] == "message"]
+    assert [e["msg_id"] for e in mirrored] == [first.msg_id, second.msg_id]
+    assert mirrored[0]["to_agent"] == "a_critic"
+    assert mirrored[1]["thread_id"] == "latency"
 
 
 def test_list_sessions_ignores_directories_without_meta(tmp_path: Path) -> None:

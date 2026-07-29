@@ -9,12 +9,15 @@ same process) share the same rules for panel debate.
 - The society is a **decision panel** for technical and product questions: architecture,
   build-vs-buy, sequencing, risk. It produces one recommendation plus named risks.
 - It is **not** a research retrieval tool. Unless a member has an MCP or RAG source attached,
-  everything on the blackboard is reasoning from general knowledge, not looked-up evidence.
+  everything posted is reasoning from general knowledge, not looked-up evidence.
 
 ## Debate rules
 
 - Each turn must add something new: a claim, a challenge, a correction, or a decision.
-  Re-summarizing the blackboard is a wasted turn.
+  Re-summarizing the thread is a wasted turn.
+- Answer the messages addressed to you before opening a new line of argument. Pull the full
+  thread with `society_read_thread` instead of trusting the digest in your prompt, and reply
+  with `society_post` when the point belongs to one member rather than the whole panel.
 - **Disagreement is the point.** The critic should not soften objections for consensus, and the
   facilitator should not declare agreement that did not happen.
 - The panel converges when the critic's material objections are answered — not when everyone
@@ -30,7 +33,7 @@ same process) share the same rules for panel debate.
   fine; unlabeled assumptions are not.
 - When a sub-question genuinely needs a different specialist, the facilitator delegates via
   `delegate_task` with a self-contained task description — the specialist cannot see the
-  blackboard.
+  panel's messages.
 
 ## Controller guidance
 

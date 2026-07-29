@@ -1,9 +1,11 @@
-"""Society runtime — round-robin turn loop (K6.1).
+"""Society runtime — protocol-driven turn loop (K6.1, message bus in K6.2).
 
 One member speaks per turn. Each turn is a single-agent crew built the same way
-``execute_step`` builds one, with the blackboard injected into the task description. Stop
-conditions from the charter and the society controller both end the run early; ``max_turns``
-and ``max_delegations`` end it unconditionally.
+``execute_step`` builds one, with a short digest of the message bus (not the whole
+blackboard) injected into the task description plus the ``society_*`` message tools. Who
+speaks next comes from ``society_protocols.select_next_member``. Stop conditions from the
+charter and the society controller both end the run early; ``max_turns`` and
+``max_delegations`` end it unconditionally.
 """
 
 from __future__ import annotations
@@ -24,6 +26,24 @@ from orchestration.society_charter import (
 from orchestration.society_controller import (
     society_controller_decision,
     society_controller_enabled,
+)
+from orchestration.society_message_tools import (
+    SOCIETY_TOOL_NAMES,
+    attach_society_message_tools,
+    message_tools_enabled_from_env,
+)
+from orchestration.society_messages import (
+    BROADCAST,
+    DEFAULT_THREAD_ID,
+    READY_FOR_DRAFT_MARKER,
+    SocietyMessage,
+    SocietyMessageError,
+)
+from orchestration.society_protocols import (
+    PROTOCOL_MODERATOR_PICKS,
+    PROTOCOL_REACTIVE,
+    drafter_member,
+    select_next_member,
 )
 from orchestration.society_session import (
     STATUS_DONE,
@@ -111,17 +131,71 @@ def _stop_phrase_instruction(charter: SocietyCharter, member: SocietyMember) -> 
     )
 
 
+def _messaging_instructions(charter: SocietyCharter, member: SocietyMember) -> str:
+    tools = ", ".join(f"`{name}`" for name in SOCIETY_TOOL_NAMES)
+    lines = [
+        f"The panel talks over a threaded message bus. Tools: {tools}.",
+        f"- Call `society_read_thread` (thread `{DEFAULT_THREAD_ID}` is the main thread) before "
+        "replying, so you answer what was actually said instead of the digest above.",
+        "- Call `society_post` to reply to one member (`to_agent` = their "
+        "`agent_provider_id`), to open a side thread (`thread_id`), or to cite messages you "
+        "are answering (`refs`).",
+        f"- Your final answer is broadcast to thread `{DEFAULT_THREAD_ID}` automatically, so "
+        "do not re-post it with the tool.",
+    ]
+    drafter = drafter_member(charter)
+    if drafter is not None and charter.protocol in (
+        PROTOCOL_MODERATOR_PICKS,
+        PROTOCOL_REACTIVE,
+    ):
+        if drafter.agent_provider_id == member.agent_provider_id:
+            lines.append(
+                f"- You hold the pen: once a member posts `{READY_FOR_DRAFT_MARKER}`, write the "
+                "draft the panel agreed on."
+            )
+        else:
+            lines.append(
+                f"- When the discussion is settled enough to be written up, post "
+                f"`{READY_FOR_DRAFT_MARKER}` so the {drafter.role} takes the next turn. Do not "
+                "use that marker while substantive questions remain open."
+            )
+    return "## Messaging\n" + "\n".join(lines)
+
+
+def _unread_section(unread: list[SocietyMessage], member: SocietyMember) -> str:
+    directed = [m for m in unread if not m.is_broadcast]
+    if not directed:
+        return ""
+    listed = "\n".join(
+        f"- [{m.msg_id}] from `{m.from_agent}` on thread `{m.thread_id}`" for m in directed
+    )
+    return (
+        "## Addressed to you\n"
+        "These messages were sent to you specifically. Answer them in this turn "
+        f"(read them with `society_read_thread`):\n{listed}"
+    )
+
+
 def build_turn_description(
     *,
     charter: SocietyCharter,
     member: SocietyMember,
     goal: str,
-    blackboard: str,
     turn_index: int,
+    messages_summary: str = "",
+    unread: list[SocietyMessage] | None = None,
+    message_tools: bool = True,
+    blackboard: str = "",
     delegable_ids: list[str] | None = None,
     delegations_remaining: int = 0,
 ) -> str:
-    """Task description for one member turn: role charge, goal, blackboard, stop rule."""
+    """
+    Task description for one member turn: role charge, goal, recent messages, stop rule.
+
+    ``messages_summary`` is the last N posts on the bus rather than the whole blackboard, so
+    the prompt stops growing linearly with turn count. ``blackboard`` is only a fallback for
+    when the bus is empty (e.g. message tools disabled).
+    """
     parts: list[str] = [
         f"You are the **{member.role}** on the agent panel `{charter.society_id}` "
         f"(turn {turn_index} of {charter.max_turns}).",
@@ -135,14 +209,28 @@ def build_turn_description(
         + "\n".join(f"- {m.role}: `{m.agent_provider_id}`" for m in charter.members)
     )
 
+    digest = str(messages_summary or "").strip()
     board = str(blackboard or "").strip()
-    if board:
+    if digest:
+        parts.append(
+            "## Recent panel messages\n"
+            "The most recent posts, newest last. Build on them; do not repeat them.\n\n"
+            + digest
+        )
+    elif board:
         parts.append(
             "## Blackboard so far\n"
             "These are the previous turns. Build on them; do not repeat them.\n\n" + board
         )
     else:
-        parts.append("## Blackboard so far\nEmpty — you are opening the panel.")
+        parts.append("## Recent panel messages\nEmpty — you are opening the panel.")
+
+    addressed = _unread_section(list(unread or []), member)
+    if addressed:
+        parts.append(addressed)
+
+    if message_tools:
+        parts.append(_messaging_instructions(charter, member))
 
     if member.can_delegate and delegations_remaining > 0:
         allowed = ", ".join(f"`{x}`" for x in (delegable_ids or [])) or "any catalog agent"
@@ -158,7 +246,7 @@ def build_turn_description(
         "## Your post\n"
         "Write one focused contribution (roughly 120-250 words) addressed to the panel. Add new "
         "substance: a claim, a challenge, a correction, or a decision. Do not summarize the whole "
-        "blackboard, do not role-play the other members, and do not restate these instructions."
+        "discussion, do not role-play the other members, and do not restate these instructions."
     )
     stop_rule = _stop_phrase_instruction(charter, member)
     if stop_rule:
@@ -180,6 +268,8 @@ def _execute_member_turn(
     mcp_catalog_path: Path | None,
     reserve_delegation: Callable[[str, str], None] | None,
     delegations_remaining: int,
+    session: SocietySession | None = None,
+    message_tools: bool = True,
 ) -> str:
     """Build and kick off the single-agent crew for one turn; returns the member's post."""
     from orchestration.output_artifacts import workflow_result_to_extractable_text
@@ -227,6 +317,14 @@ def _execute_member_turn(
             enabled=True,
             quiet=quiet,
             mcp_catalog_path=mcp_catalog_path,
+        )
+    if session is not None:
+        attach_society_message_tools(
+            built,
+            session=session,
+            member=member,
+            turn=turn_index,
+            enabled=message_tools,
         )
     with crew_kickoff_context(built):
         result = built.crew.kickoff(inputs={"topic": goal})
@@ -315,6 +413,12 @@ def run_society(
             file=sys.stderr,
         )
         print(f"(society) session {session.directory}", file=sys.stderr)
+        if not message_tools_enabled_from_env():
+            print(
+                "(society) message tools disabled (AGENTIC_SOCIETY_MESSAGE_TOOLS=0); turns fall "
+                "back to the full blackboard excerpt",
+                file=sys.stderr,
+            )
         if charter.protocol == "hierarchical":
             print(
                 "(society) protocol 'hierarchical' takes round-robin turns in v1; see "
@@ -326,16 +430,26 @@ def run_society(
     current_goal = effective_goal
     stop_reason = ""
     controller_on = society_controller_enabled() if use_controller is None else bool(use_controller)
+    message_tools_on = message_tools_enabled_from_env()
+    last_posts: dict[str, str] = {}
 
     for turn_index in range(1, turn_cap + 1):
-        member = charter.member_for_turn(turn_index)
+        member = select_next_member(
+            charter.protocol,
+            charter,
+            session,
+            turn_index,
+            last_posts=last_posts,
+        )
         entry = provider_entries[member.agent_provider_id]
         remaining_delegations = session.meta.delegations_remaining
+        unread = session.unread_for(member.agent_provider_id)
 
         if not quiet:
             print(
                 f"(society) turn {turn_index}/{turn_cap}: {member.role} "
-                f"({member.agent_provider_id})",
+                f"({member.agent_provider_id})"
+                + (f", {len(unread)} unread" if unread else ""),
                 file=sys.stderr,
             )
 
@@ -343,11 +457,17 @@ def run_society(
             charter=charter,
             member=member,
             goal=current_goal,
-            blackboard=session.blackboard_text(),
             turn_index=turn_index,
+            messages_summary=session.recent_messages_summary() if message_tools_on else "",
+            unread=unread,
+            message_tools=message_tools_on,
+            blackboard="" if message_tools_on else session.blackboard_text(),
             delegable_ids=_delegable_ids(charter),
             delegations_remaining=remaining_delegations,
         )
+        # The digest above is what this member gets to see, so treat it as read: `reactive`
+        # must not hand it the floor again for the same unread mail.
+        session.mark_seen(member.agent_provider_id)
         reserve = _make_reserve_delegation(session, member)
 
         try:
@@ -363,6 +483,8 @@ def run_society(
                 mcp_catalog_path=mcp_path,
                 reserve_delegation=reserve,
                 delegations_remaining=remaining_delegations,
+                session=session,
+                message_tools=message_tools_on,
             )
         except Exception as exc:  # noqa: BLE001
             session.append_transcript(
@@ -386,6 +508,16 @@ def run_society(
             agent_provider_id=member.agent_provider_id,
             text=text,
             stop_reason=turn_stop,
+        )
+        # Re-inserted so the dict's order is the speaking order.
+        last_posts.pop(member.agent_provider_id, None)
+        last_posts[member.agent_provider_id] = text
+        _broadcast_turn_output(
+            session,
+            member=member,
+            turn_index=turn_index,
+            text=text,
+            quiet=quiet,
         )
 
         if matched:
@@ -443,6 +575,38 @@ def run_society(
 
     _print_society_outcome(session, charter, quiet=quiet)
     return 0
+
+
+def _broadcast_turn_output(
+    session: SocietySession,
+    *,
+    member: SocietyMember,
+    turn_index: int,
+    text: str,
+    quiet: bool,
+) -> SocietyMessage | None:
+    """
+    Mirror a turn's output onto the bus as a broadcast on the main thread.
+
+    Members may also post explicitly with ``society_post``; this keeps the bus populated (and
+    the protocols working) when a model never calls the tool.
+    """
+    body = str(text or "").strip()
+    if not body:
+        return None
+    try:
+        return session.post_message(
+            from_agent=member.agent_provider_id,
+            content=body,
+            to_agent=BROADCAST,
+            thread_id=DEFAULT_THREAD_ID,
+            turn=turn_index,
+            role=member.role,
+        )
+    except (SocietyMessageError, OSError) as exc:
+        if not quiet:
+            print(f"(society) could not post turn {turn_index} to the bus: {exc}", file=sys.stderr)
+        return None
 
 
 def _make_reserve_delegation(
@@ -515,9 +679,11 @@ def _print_society_outcome(
         return
     print(
         f"\n(society) {session.meta.turn} turn(s), "
+        f"{len(session.messages())} message(s), "
         f"{session.meta.delegations_used}/{session.meta.max_delegations} delegation(s), "
         f"status={session.meta.status} ({session.meta.stop_reason})",
         file=sys.stderr,
     )
     print(f"(society) blackboard {session.blackboard_path}", file=sys.stderr)
+    print(f"(society) messages {session.messages_dir}", file=sys.stderr)
     print(f"(society) transcript {session.transcript_path}", file=sys.stderr)
