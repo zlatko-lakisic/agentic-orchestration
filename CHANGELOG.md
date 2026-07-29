@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Impartial QA gate now covers societies and routed static workflows** — the unified gate is no longer wired only into the dynamic paths. A finished `--society` run scores the panel's `final_recommendation_text` against the society goal (`orchestration/society_runtime.py`), with reports written as `society-<session>-<timestamp>.json`; a routed static workflow (`python main.py "goal"`) scores its final text against `TASK`. Both reuse the new shared `finalize_impartial_qa()` / `impartial_qa_gate_failed()` helpers in `orchestration/impartial_qa.py`, which `main.py`'s `_emit_final_qa` now also calls, so all four entry points produce the same `=== Impartial QA (unified gate) ===` block and the same report JSON. A society that produced no text is left alone, and the static path does **not** inherit the legacy standalone faithfulness block, so disabling the gate there restores the previous output exactly.
+
+### Changed
+
+- **Impartial QA gate is on by default, and advisory by default (`AGENTIC_IMPARTIAL_QA` `0` → `1`, `AGENTIC_IMPARTIAL_QA_FAIL` `1` → `0`)** — the gate now runs without being asked for, but it cannot break a run on its own: a failing report is printed and persisted while the exit code stays unchanged until you set `AGENTIC_IMPARTIAL_QA_FAIL=1` for a hard gate. `AGENTIC_IMPARTIAL_QA=0` disables it entirely. The two switches are independent so enabling reporting everywhere carries no rollout risk — in particular the Jetson deployment keeps its current exit codes.
+- **Faithfulness now counts against the gate by default (`AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL` `0` → `1`)** — a `high` `hallucination_risk` from `faithfulness_qa_review` marks the report failed instead of being reported alongside a pass. `medium`, `low`, and `unknown` risk never fail, and `AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL=0` opts out. Combined with the advisory default this surfaces hallucination risk in the verdict without changing exit codes.
+- **Gate soft-skips instead of claiming a pass when nothing could be checked** — if there are no assertions and no reviewer produced a result, the report is now marked `skipped` rather than `passed`. This is the edge profile in `config/env.jetson`, which turns the judge off (`AGENTIC_LEARNING_EVAL=0`) and faithfulness off (`AGENTIC_FINAL_QA=0`) for latency: the gate reports one skip line and never fails the run. A judge that errors or returns no score is still recorded in the report without failing it.
+
 ## [1.21.0] - 2026-07-29
 
 ### Added

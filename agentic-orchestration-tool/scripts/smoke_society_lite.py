@@ -473,6 +473,9 @@ def run_optional_live_society() -> tuple[bool, str]:
         live_env["OLLAMA_HOST"] = "http://127.0.0.1:11434"
         live_env["OLLAMA_API_BASE"] = "http://127.0.0.1:11434"
     live_env.setdefault("OLLAMA_HOST", "http://127.0.0.1:11434")
+    # This check asserts a zero exit code, so the impartial QA gate stays advisory here even if
+    # the operator armed the hard gate in .env.
+    live_env["AGENTIC_IMPARTIAL_QA_FAIL"] = "0"
     try:
         proc = subprocess.run(
             cmd,

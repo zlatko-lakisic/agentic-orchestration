@@ -574,7 +574,37 @@ def run_society(
     session.finish(status=status, stop_reason=stop_reason or "max_turns")
 
     _print_society_outcome(session, charter, quiet=quiet)
+    if _society_impartial_qa_failed(session, charter, tool_root=root, goal=effective_goal):
+        return 1
     return 0
+
+
+def _society_impartial_qa_failed(
+    session: SocietySession,
+    charter: SocietyCharter,
+    *,
+    tool_root: Path,
+    goal: str,
+) -> bool:
+    """
+    Score the society's final recommendation with the unified impartial QA gate.
+
+    Advisory by default: the report is printed and stored either way, and only
+    ``AGENTIC_IMPARTIAL_QA_FAIL=1`` turns a failing report into a non-zero exit code. A society
+    that produced no text is left alone — the outcome printer already said so.
+    """
+    from orchestration.impartial_qa import finalize_impartial_qa, impartial_qa_gate_failed
+
+    final = final_recommendation_text(session, charter).strip()
+    if not final:
+        return False
+    report = finalize_impartial_qa(
+        tool_root=tool_root,
+        session_slug=f"society-{session.directory.name}",
+        user_goal=goal,
+        output_text=final,
+    )
+    return impartial_qa_gate_failed(report)
 
 
 def _broadcast_turn_output(

@@ -304,48 +304,30 @@ def _emit_final_qa(
     session_slug: str | None,
     user_goal: str,
     output_text: str | None,
+    legacy_faithfulness_fallback: bool = True,
 ) -> bool:
     """
     Post-run QA on a finished deliverable.
 
-    With ``AGENTIC_IMPARTIAL_QA=1`` this is the unified gate (assertions + judge score +
-    faithfulness folded into one report); otherwise it stays the legacy faithfulness block.
-    Returns True when an enabled gate failed and the caller should exit non-zero.
+    The unified gate (assertions + judge score + faithfulness in one report) runs unless
+    ``AGENTIC_IMPARTIAL_QA=0``. ``legacy_faithfulness_fallback`` keeps the standalone
+    faithfulness block for the paths that printed it before the gate existed, so turning the
+    gate off there restores the old output instead of dropping QA entirely.
+
+    Returns True when the gate failed *and* ``AGENTIC_IMPARTIAL_QA_FAIL=1``.
     """
-    from orchestration.impartial_qa import (
-        emit_impartial_qa_report,
-        impartial_qa_enabled,
-        impartial_qa_fail_enabled,
-        load_impartial_qa_config_from_env,
-        run_impartial_qa,
-        write_impartial_qa_json,
+    from orchestration.impartial_qa import finalize_impartial_qa, impartial_qa_gate_failed
+
+    report = finalize_impartial_qa(
+        tool_root=tool_root,
+        session_slug=session_slug,
+        user_goal=user_goal,
+        output_text=output_text,
     )
-
-    if not impartial_qa_enabled():
+    needs_legacy = report is None or (report.faithfulness is None and not report.skipped)
+    if legacy_faithfulness_fallback and needs_legacy:
         emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
-        return False
-
-    try:
-        cfg = load_impartial_qa_config_from_env()
-        report = run_impartial_qa(
-            user_goal=user_goal,
-            output_text=output_text or "",
-            **cfg,
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(f"(impartial-qa) gate failed to run: {exc}", file=sys.stderr, flush=True)
-        emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
-        return False
-
-    emit_impartial_qa_report(report)
-    if report.faithfulness is None and not report.skipped:
-        # The gate did not include a faithfulness pass, so keep the standalone report.
-        emit_faithfulness_qa_report(user_goal=user_goal, output_text=output_text, model=None)
-    try:
-        write_impartial_qa_json(tool_root, report, session_slug=session_slug)
-    except Exception:  # noqa: BLE001
-        pass
-    return (not report.passed) and impartial_qa_fail_enabled()
+    return impartial_qa_gate_failed(report)
 
 
 def _offer_save_from_execution(
@@ -1985,6 +1967,15 @@ def main() -> None:
         )
         if exit_code:
             sys.exit(exit_code)
+        qa_gate_failed = False
+        if result_text and str(result_text).strip():
+            qa_gate_failed = _emit_final_qa(
+                tool_root=tool_root,
+                session_slug=entry.id,
+                user_goal=str(args.task),
+                output_text=result_text,
+                legacy_faithfulness_fallback=False,
+            )
         if result_text:
             saved = offer_save_extracted_files(
                 tool_root=tool_root,
@@ -1995,6 +1986,8 @@ def main() -> None:
                 prompt_save=prompt_save,
             )
             _run_post_save_verify(saved, verify=verify_saved)
+        if qa_gate_failed:
+            sys.exit(1)
         return
 
     argv_cli = sys.argv[1:]

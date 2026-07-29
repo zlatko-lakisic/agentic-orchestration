@@ -2,6 +2,9 @@
 """
 Jetson / edge smoke: unified impartial QA gate (v1).
 
+The gate is on by default in advisory mode (``AGENTIC_IMPARTIAL_QA_FAIL`` off), so this smoke
+also asserts that an unset environment cannot break a run.
+
 Offline by default — unit tests plus an assertions-only fixture that exercises pass, fail, and
 skip paths without a single LLM call. Opt in to a live judge pass explicitly::
 
@@ -74,17 +77,57 @@ def run_unit_tests() -> tuple[bool, str]:
     return True, "unit tests passed: " + (tail[-1] if tail else "ok")
 
 
-def check_default_off() -> tuple[bool, str]:
-    from orchestration.impartial_qa import impartial_qa_enabled
+def check_default_on_advisory() -> tuple[bool, str]:
+    """The gate runs by default, but only AGENTIC_IMPARTIAL_QA_FAIL=1 may break a run."""
+    from orchestration.impartial_qa import impartial_qa_enabled, impartial_qa_fail_enabled
 
-    prior = os.environ.pop("AGENTIC_IMPARTIAL_QA", None)
+    prior_enabled = os.environ.pop("AGENTIC_IMPARTIAL_QA", None)
+    prior_fail = os.environ.pop("AGENTIC_IMPARTIAL_QA_FAIL", None)
     try:
+        if not impartial_qa_enabled():
+            return False, "gate reports disabled with AGENTIC_IMPARTIAL_QA unset"
+        if impartial_qa_fail_enabled():
+            return False, "gate would exit non-zero with AGENTIC_IMPARTIAL_QA_FAIL unset"
+        os.environ["AGENTIC_IMPARTIAL_QA"] = "0"
         if impartial_qa_enabled():
-            return False, "gate reports enabled with AGENTIC_IMPARTIAL_QA unset"
+            return False, "AGENTIC_IMPARTIAL_QA=0 did not disable the gate"
+        os.environ["AGENTIC_IMPARTIAL_QA_FAIL"] = "1"
+        if not impartial_qa_fail_enabled():
+            return False, "AGENTIC_IMPARTIAL_QA_FAIL=1 did not arm the hard gate"
     finally:
-        if prior is not None:
-            os.environ["AGENTIC_IMPARTIAL_QA"] = prior
-    return True, "gate is off unless AGENTIC_IMPARTIAL_QA=1"
+        for name, prior in (
+            ("AGENTIC_IMPARTIAL_QA", prior_enabled),
+            ("AGENTIC_IMPARTIAL_QA_FAIL", prior_fail),
+        ):
+            if prior is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = prior
+    return True, "gate on by default, advisory until AGENTIC_IMPARTIAL_QA_FAIL=1"
+
+
+def check_soft_skip_without_reviewers() -> tuple[bool, str]:
+    """The Jetson shape: no assertions, judge off, faithfulness off — must skip, never fail."""
+    from orchestration.impartial_qa import run_impartial_qa
+
+    prior = {
+        name: os.environ.get(name)
+        for name in ("AGENTIC_LEARNING_EVAL", "AGENTIC_FINAL_QA", "AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL")
+    }
+    os.environ["AGENTIC_LEARNING_EVAL"] = "0"
+    os.environ["AGENTIC_FINAL_QA"] = "0"
+    os.environ.pop("AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL", None)
+    try:
+        report = run_impartial_qa(user_goal=_FIXTURE_GOAL, output_text=_FIXTURE_OUTPUT)
+        if not report.skipped or not report.passed:
+            return False, f"expected a soft skip, got passed={report.passed} verdict={report.verdict!r}"
+    finally:
+        for name, value in prior.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    return True, "soft skip when no reviewer can run (Jetson latency profile)"
 
 
 def check_assertions_only_offline() -> tuple[bool, str]:
@@ -181,7 +224,8 @@ def one_round() -> bool:
     print("=== impartial QA smoke (v1) ===")
     checks = [
         ("unit tests", run_unit_tests),
-        ("default off", check_default_off),
+        ("default on, advisory", check_default_on_advisory),
+        ("soft skip without reviewers", check_soft_skip_without_reviewers),
         ("offline assertions fixture", check_assertions_only_offline),
         ("report JSON", check_report_json_roundtrip),
         ("live judge optional", run_optional_live_gate),

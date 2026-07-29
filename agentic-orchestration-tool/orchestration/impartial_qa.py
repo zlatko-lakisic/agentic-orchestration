@@ -7,11 +7,18 @@ combining three mechanisms that already exist in the codebase:
 * deterministic harness assertions (``agent_harness.run_assertions``),
 * the LLM-as-judge score (``dynamic_planner.evaluate_run_quality``, with an optional rubric
   appended to the goal exactly like harness L3 capability scoring), and
-* the faithfulness / hallucination review (``dynamic_planner.faithfulness_qa_review``), which is
-  reported but does not fail the gate unless explicitly opted in.
+* the faithfulness / hallucination review (``dynamic_planner.faithfulness_qa_review``), whose
+  ``high`` risk verdict also fails the report unless
+  ``AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL=0``.
 
-Nothing is re-executed: this reads the deliverable that was already produced. The gate is
-**off by default** and is enabled with ``AGENTIC_IMPARTIAL_QA=1``.
+Nothing is re-executed: this reads the deliverable that was already produced.
+
+The gate is **on by default in advisory mode**: it runs after ``--dynamic``,
+``--dynamic-iterative``, ``--society`` and routed static workflows, prints its report, and stores
+it, but a failing report does *not* change the exit code unless ``AGENTIC_IMPARTIAL_QA_FAIL=1``.
+Set ``AGENTIC_IMPARTIAL_QA=0`` to switch it off entirely. When neither a reviewer nor an assertion
+can run (for example the Jetson env sets ``AGENTIC_LEARNING_EVAL=0`` and ``AGENTIC_FINAL_QA=0``),
+the gate reports itself as skipped instead of failing.
 """
 
 from __future__ import annotations
@@ -66,13 +73,17 @@ def _env_flag(name: str, *, default: bool) -> bool:
 
 
 def impartial_qa_enabled() -> bool:
-    """True when the unified gate should run at all (``AGENTIC_IMPARTIAL_QA``, default off)."""
-    return _env_flag("AGENTIC_IMPARTIAL_QA", default=False)
+    """True when the unified gate should run at all (``AGENTIC_IMPARTIAL_QA``, default on)."""
+    return _env_flag("AGENTIC_IMPARTIAL_QA", default=True)
 
 
 def impartial_qa_fail_enabled() -> bool:
-    """True when a failed gate should make the run exit non-zero (default on once enabled)."""
-    return _env_flag("AGENTIC_IMPARTIAL_QA_FAIL", default=True)
+    """
+    True when a failed gate should make the run exit non-zero (``AGENTIC_IMPARTIAL_QA_FAIL``).
+
+    Default off: the gate is advisory so a low score never breaks a production run on its own.
+    """
+    return _env_flag("AGENTIC_IMPARTIAL_QA_FAIL", default=False)
 
 
 def _eval_enabled() -> bool:
@@ -80,7 +91,8 @@ def _eval_enabled() -> bool:
 
 
 def _faithfulness_can_fail() -> bool:
-    return _env_flag("AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL", default=False)
+    """A ``high`` hallucination risk marks the report failed (default on; ``=0`` opts out)."""
+    return _env_flag("AGENTIC_IMPARTIAL_QA_FAITHFULNESS_FAIL", default=True)
 
 
 def _min_score_from_env() -> float:
@@ -235,8 +247,25 @@ def run_impartial_qa(
                 report.passed = False
                 report.reasons.append("faithfulness review reported high hallucination risk")
 
+    if _nothing_was_checked(report):
+        # Every reviewer opted out at runtime (e.g. AGENTIC_LEARNING_EVAL=0 plus
+        # AGENTIC_FINAL_QA=0 on the Jetson) and there are no assertions, so there is no
+        # evidence to gate on. Soft-skip rather than claim a pass.
+        report.skipped = True
+        report.verdict = "skipped: no assertions and no reviewer produced a result"
+        return report
+
     report.verdict = _compose_verdict(report)
     return report
+
+
+def _nothing_was_checked(report: ImpartialQAReport) -> bool:
+    return (
+        report.passed
+        and not report.assertion_results
+        and report.score is None
+        and report.faithfulness is None
+    )
 
 
 def _safe_evaluate(*, user_goal: str, output_text: str, model: str | None) -> dict[str, Any]:
@@ -322,6 +351,47 @@ def emit_impartial_qa_report(report: ImpartialQAReport) -> None:
 
     lines.extend(["=== End impartial QA ===", ""])
     print("\n".join(lines), file=sys.stderr, flush=True)
+
+
+def finalize_impartial_qa(
+    *,
+    tool_root: Path,
+    session_slug: str | None,
+    user_goal: str,
+    output_text: str | None,
+) -> ImpartialQAReport | None:
+    """
+    Run the gate over a finished deliverable, print the report, and persist it.
+
+    Returns ``None`` when the gate is disabled or could not run at all, so callers can fall back
+    to whatever reporting they did before the gate existed. Never raises.
+    """
+    if not impartial_qa_enabled():
+        return None
+
+    try:
+        report = run_impartial_qa(
+            user_goal=user_goal,
+            output_text=output_text or "",
+            **load_impartial_qa_config_from_env(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"(impartial-qa) gate failed to run: {exc}", file=sys.stderr, flush=True)
+        return None
+
+    emit_impartial_qa_report(report)
+    try:
+        write_impartial_qa_json(tool_root, report, session_slug=session_slug)
+    except Exception:  # noqa: BLE001
+        pass
+    return report
+
+
+def impartial_qa_gate_failed(report: ImpartialQAReport | None) -> bool:
+    """True when a report should make the caller exit non-zero (needs the hard gate armed)."""
+    if report is None or report.skipped or report.passed:
+        return False
+    return impartial_qa_fail_enabled()
 
 
 def impartial_qa_dir(tool_root: Path) -> Path:

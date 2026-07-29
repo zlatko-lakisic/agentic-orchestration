@@ -18,7 +18,7 @@ mermaid: true
 1. **Planner** (dynamic modes) — Reads the user goal, session history, optional KB snippets, and learning summary; outputs a JSON plan: ordered steps with `agent_provider_id`, optional MCP ids, and optional skill ids (see [Agent skills roadmap]({{ '/agent-skills-roadmap/' | relative_url }})).
 2. **Catalog resolution** — Agent templates load from `config/agent_providers/` (or extra paths). MCP templates load from `config/mcp_providers/` plus `AGENTIC_EXTRA_MCP_PROVIDERS_PATH`. Agent skills load from `config/agent_skills/` plus `AGENTIC_EXTRA_AGENT_SKILLS_PATH`. Entries without required credentials (or missing `required_files`) are filtered out before planning. Platform harness verification ([Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }})) and user scenario packs ([User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }})).
 3. **Runner** — Selects execution backend (`AGENTIC_EXECUTION_BACKEND`, default in-process CrewAI). Builds CrewAI `Agent` / `Task` / `Crew` for in-process runs; distributed backends materialize `StepSpec` lists and coordinate per-step workers.
-4. **Post-run** — Optional artifact extraction, verification, session JSON updates, learning traces, KB append, impartial QA (opt-in), web UI progress.
+4. **Post-run** — Optional artifact extraction, verification, session JSON updates, learning traces, KB append, impartial QA (on by default, advisory), web UI progress.
 
 ## Distributed execution backends
 
@@ -74,7 +74,7 @@ Under `agentic-orchestration-tool/orchestration/`:
 - `execute_step.py` — Worker entrypoint for `--execute-step`.
 - `agent_harness.py` — Platform harness tiers — [Agent harness roadmap]({{ '/Agent-harness-roadmap/' | relative_url }}).
 - `user_agent_harness.py` — User scenario packs (`--harness-dir`) — [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}).
-- `impartial_qa.py` — Opt-in unified deliverable gate (`AGENTIC_IMPARTIAL_QA`).
+- `impartial_qa.py` — Unified deliverable gate, on by default and advisory (`AGENTIC_IMPARTIAL_QA`, `AGENTIC_IMPARTIAL_QA_FAIL`).
 - `society_runtime.py` — Agent societies (`--society`) — [Agent societies roadmap]({{ '/Agent-societies-roadmap/' | relative_url }}).
 - `runner.py` — Build workflow, crew lifecycle (in-process path).
 - `dynamic_planner.py` — Planning, iterative rounds, controller, synthesis, eval hooks.

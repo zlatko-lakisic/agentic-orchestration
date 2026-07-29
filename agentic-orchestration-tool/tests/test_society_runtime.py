@@ -83,16 +83,29 @@ def charter_file(tmp_path: Path):
 @pytest.fixture
 def stub_runtime(monkeypatch: pytest.MonkeyPatch):
     """
-    Replace catalog loading, turn execution, and the controller so run_society is exercised
-    end to end without any LLM call.
+    Replace catalog loading, turn execution, the controller, and the impartial QA reviewers so
+    run_society is exercised end to end without any LLM call.
     """
     turns: list[dict[str, Any]] = []
     controller_calls: list[dict[str, Any]] = []
+    qa_calls: list[dict[str, Any]] = []
     state: dict[str, Any] = {
         # Called with the 1-based turn index; return the member's post (or raise).
         "reply": lambda turn: f"post for turn {turn}",
         "controller": None,
+        "qa_eval": {"score": 0.8, "verdict": "solid panel outcome"},
+        "qa_faithfulness": {"skipped": True},
     }
+
+    def fake_eval(*, user_goal: str, output_text: str, model: str | None = None) -> dict[str, Any]:
+        qa_calls.append({"user_goal": user_goal, "output_text": output_text})
+        return dict(state["qa_eval"])
+
+    monkeypatch.setattr("orchestration.dynamic_planner.evaluate_run_quality", fake_eval)
+    monkeypatch.setattr(
+        "orchestration.dynamic_planner.faithfulness_qa_review",
+        lambda **_kwargs: dict(state["qa_faithfulness"]),
+    )
 
     monkeypatch.setattr(
         society_runtime,
@@ -119,7 +132,12 @@ def stub_runtime(monkeypatch: pytest.MonkeyPatch):
         return dict(decision)
 
     monkeypatch.setattr(society_runtime, "society_controller_decision", fake_controller)
-    return {"turns": turns, "controller_calls": controller_calls, "state": state}
+    return {
+        "turns": turns,
+        "controller_calls": controller_calls,
+        "qa_calls": qa_calls,
+        "state": state,
+    }
 
 
 def test_runs_all_turns_and_persists_the_session(
@@ -798,3 +816,94 @@ def test_turn_description_renders_the_message_digest_and_tools() -> None:
     assert "society_post" in description
     assert "society_list_agents" in description
     assert "## Blackboard so far" not in description
+
+
+def _impartial_qa_reports(tool_root: Path) -> list[dict[str, Any]]:
+    directory = tool_root / "__orchestrator_sessions__" / "impartial_qa"
+    return [
+        json.loads(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("society-panel-*.json"))
+    ]
+
+
+def test_impartial_qa_scores_the_final_recommendation_by_default(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+) -> None:
+    def reply(turn: int) -> str:
+        return "FINAL_RECOMMENDATION: run the index on the edge device." if turn == 4 else f"turn {turn}"
+
+    stub_runtime["state"]["reply"] = reply
+    code = run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(),
+        goal="Edge or cluster?",
+        quiet=True,
+        use_controller=False,
+    )
+
+    assert code == 0
+    assert len(stub_runtime["qa_calls"]) == 1
+    call = stub_runtime["qa_calls"][0]
+    assert call["user_goal"] == "Edge or cluster?"
+    assert call["output_text"].startswith("FINAL_RECOMMENDATION:")
+
+    reports = _impartial_qa_reports(tmp_path)
+    assert len(reports) == 1
+    assert reports[0]["passed"] is True
+    assert reports[0]["score"] == pytest.approx(0.8)
+
+
+def test_impartial_qa_can_be_disabled_for_societies(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_IMPARTIAL_QA", "0")
+
+    code = run_society(
+        tool_root=tmp_path,
+        charter_path=charter_file(max_turns=2),
+        goal="g",
+        quiet=True,
+        use_controller=False,
+    )
+
+    assert code == 0
+    assert stub_runtime["qa_calls"] == []
+    assert not (tmp_path / "__orchestrator_sessions__" / "impartial_qa").exists()
+
+
+def test_low_scoring_society_is_advisory_unless_fail_is_set(
+    tmp_path: Path,
+    charter_file,
+    stub_runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_runtime["state"]["qa_eval"] = {"score": 0.05, "verdict": "no decision reached"}
+
+    monkeypatch.delenv("AGENTIC_IMPARTIAL_QA_FAIL", raising=False)
+    assert (
+        run_society(
+            tool_root=tmp_path,
+            charter_path=charter_file(max_turns=2),
+            goal="g",
+            quiet=True,
+            use_controller=False,
+        )
+        == 0
+    )
+    assert _impartial_qa_reports(tmp_path)[0]["passed"] is False
+
+    monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_FAIL", "1")
+    assert (
+        run_society(
+            tool_root=tmp_path,
+            charter_path=charter_file(max_turns=2),
+            goal="g",
+            quiet=True,
+            use_controller=False,
+        )
+        == 1
+    )
