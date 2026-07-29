@@ -69,6 +69,9 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=k8s_mcp_compat.py="${ORCH_ROOT}/k8s_mcp_compat.py" \
   --from-file=workflow_materializer.py="${ORCH_ROOT}/workflow_materializer.py" \
   --from-file=attachments.py="${ORCH_ROOT}/attachments.py" \
+  --from-file=cloud_anonymize.py="${ORCH_ROOT}/cloud_anonymize.py" \
+  --from-file=knowledge_base.py="${ORCH_ROOT}/knowledge_base.py" \
+  --from-file=orchestrator_session.py="${ORCH_ROOT}/orchestrator_session.py" \
   --from-file=media_grounding.py="${ORCH_ROOT}/media_grounding.py" \
   --from-file=crewai_mcp_normalize.py="${ORCH_ROOT}/crewai_mcp_normalize.py" \
   --from-file=runner.py="${ORCH_ROOT}/runner.py" \

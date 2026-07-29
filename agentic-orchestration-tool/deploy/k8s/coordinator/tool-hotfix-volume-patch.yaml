@@ -66,6 +66,15 @@ spec:
               mountPath: /app/tool/orchestration/attachments.py
               subPath: attachments.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/cloud_anonymize.py
+              subPath: cloud_anonymize.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/knowledge_base.py
+              subPath: knowledge_base.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/orchestrator_session.py
+              subPath: orchestrator_session.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/media_grounding.py
               subPath: media_grounding.py
             - name: tool-hotfix-orchestration
