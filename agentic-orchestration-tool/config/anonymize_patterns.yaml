@@ -1,0 +1,25 @@
+# Custom cloud anonymization regexes (applied after built-in scrubbers).
+#
+# Point AGENTIC_ANONYMIZE_PATTERNS_PATH at this file (default when present under
+# config/), or drop additional YAML via AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH
+# (file or directory of *.yaml fragments).
+#
+# Each pattern:
+#   id:           stable name (used only for diagnostics)
+#   pattern:      Python regex (raw string; backslashes as in YAML)
+#   replacement:  placeholder text (default "[REDACTED]")
+#   flags:        optional — string or list of: i, m, s, x (IGNORECASE, MULTILINE, DOTALL, VERBOSE)
+#   enabled:      optional — false to skip without deleting (default true)
+#
+# Examples (uncomment to enable):
+#
+# patterns:
+#   - id: employee_id
+#     pattern: '\bEMP-\d{6}\b'
+#     replacement: '[EMPLOYEE_ID]'
+#   - id: patient_mrn
+#     pattern: '\bMRN[- ]?\d{6,10}\b'
+#     replacement: '[MRN]'
+#     flags: i
+
+patterns: []

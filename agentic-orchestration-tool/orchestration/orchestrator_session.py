@@ -156,12 +156,15 @@ def update_session_after_crew(
     execution_backend: str | None = None,
 ) -> None:
     """Store a truncated crew output so the next planner turn can use it as context."""
+    from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
+
     text = (result_text or "").strip()
     if not text and not execution_backend:
         return
     data = load_session(path)
     if text:
-        data.last_crew_output_excerpt = text[: excerpt_max_chars()]
+        scrubbed = maybe_redact_for_cloud_provider(text)
+        data.last_crew_output_excerpt = scrubbed[: excerpt_max_chars()]
     if execution_backend:
         data.last_execution_backend = execution_backend.strip()
     save_session(path, data)
@@ -175,13 +178,16 @@ def update_session_after_final(
     execution_backend: str | None = None,
 ) -> None:
     """Store the finalized answer for answer caching."""
+    from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
+
     text = (result_text or "").strip()
     if not text and not execution_backend:
         return
     data = load_session(path)
     if text:
-        data.last_user_goal = str(user_goal or "").strip()
-        data.last_final_answer_excerpt = text[: excerpt_max_chars()]
+        data.last_user_goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
+        scrubbed = maybe_redact_for_cloud_provider(text)
+        data.last_final_answer_excerpt = scrubbed[: excerpt_max_chars()]
         # Clear any pending "reprocess" marker once we have a new finalized answer.
         data.pending_reprocess_goal = None
     if execution_backend:

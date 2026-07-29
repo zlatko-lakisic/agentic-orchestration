@@ -17,6 +17,12 @@ from agent_providers.base import AgentProvider
 from agent_providers.factory import agent_provider_from_dict
 from orchestration.agent_provider_entries import resolve_agent_provider_entries
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
+from orchestration.cloud_anonymize import (
+    is_cloud_provider_type,
+    maybe_redact_for_cloud_provider,
+    redact_for_cloud,
+    anonymize_cloud_enabled,
+)
 from orchestration.config_loader import TaskDefinition, WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task, raw_rag_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
@@ -152,11 +158,22 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
     return merged
 
 
-def _inject_previous_output_into_next_task(next_task: Task, prev_output: str) -> None:
+def _inject_previous_output_into_next_task(
+    next_task: Task,
+    prev_output: str,
+    *,
+    next_provider: AgentProvider | None = None,
+) -> None:
     if not prev_output:
         return
+    text = prev_output
+    if next_provider is not None:
+        text = maybe_redact_for_cloud_provider(
+            text,
+            provider_type=str(next_provider.config.provider_type or ""),
+        )
     desc = str(getattr(next_task, "description", "") or "")
-    new_desc = prepare_step_description(desc, prev_output)
+    new_desc = prepare_step_description(desc, text)
     if new_desc != desc:
         setattr(next_task, "description", new_desc)
         _progress("using previous step output to inform next step")
@@ -189,7 +206,11 @@ def _serial_crew_task_callback(output: Any) -> None:
     _progress(f"completed {_task_human_label(task_id, task_ref)}")
     if k + 1 < len(state.task_run_order):
         next_id, next_task, next_ap = state.task_run_order[k + 1]
-        _inject_previous_output_into_next_task(next_task, state.last_output_text)
+        _inject_previous_output_into_next_task(
+            next_task,
+            state.last_output_text,
+            next_provider=next_ap,
+        )
         _progress(f"starting {_task_human_label(next_id, next_task)}")
         next_ap.before_task(next_id, next_task, dict(state.inputs_holder))
 
@@ -444,15 +465,23 @@ def build_workflow(
                 f"'{task_def.agent_provider_id}'."
             )
 
-        tasks_by_id[task_def.id] = Task(
-            description=augment_task_description_for_mcps(
-                augment_description_for_skills(
-                    task_rag_descriptions.get(task_def.id, task_def.description),
-                    task_skill_blocks[task_def.id],
-                ),
-                mcp_ids_from_raw_spec(raw_mcp_spec_for_task(task_def, config)),
+        ptype = str(agent_providers[apid].config.provider_type or "")
+        desc = augment_task_description_for_mcps(
+            augment_description_for_skills(
+                task_rag_descriptions.get(task_def.id, task_def.description),
+                task_skill_blocks[task_def.id],
             ),
-            expected_output=task_def.expected_output,
+            mcp_ids_from_raw_spec(raw_mcp_spec_for_task(task_def, config)),
+        )
+        desc = maybe_redact_for_cloud_provider(desc, provider_type=ptype)
+        expected = maybe_redact_for_cloud_provider(
+            task_def.expected_output,
+            provider_type=ptype,
+        )
+
+        tasks_by_id[task_def.id] = Task(
+            description=desc,
+            expected_output=expected,
             agent=agent,
         )
 
@@ -491,6 +520,11 @@ def build_workflow(
     )
 
     topic = config.topic or os.getenv("WORKFLOW_TOPIC", "Agentic AI orchestration")
+    if anonymize_cloud_enabled() and any(
+        is_cloud_provider_type(str(ap.config.provider_type or ""))
+        for ap in agent_providers.values()
+    ):
+        topic = redact_for_cloud(topic, force=True)
     workflow_context: dict[str, Any] = {
         "workflow_name": config.name,
         "process": config.process,

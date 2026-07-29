@@ -31,6 +31,7 @@ sidebar:
 | **Execution backend** | `AGENTIC_EXECUTION_BACKEND`, `AGENTIC_SUBPROCESS_WORKERS`, `AGENTIC_RUN_STORE_PATH` | See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) |
 | **Progress / step context** | `AGENTIC_PROGRESS`, `AGENTIC_STEP_CONTEXT_*` |
 | **Learning & KB** | `AGENTIC_LEARNING*`, `AGENTIC_KB*` (attachment fingerprints: `attachment_fingerprint`; legacy `mcp_fingerprint` alias); user harness: `AGENTIC_USER_HARNESS_RECORD_STATS`, `AGENTIC_USER_HARNESS_FEED_PLANNER` |
+| **Cloud anonymization** | `AGENTIC_ANONYMIZE_CLOUD` (default `1`), `AGENTIC_CLOUD_PROVIDER_TYPES` (default `openai,anthropic,huggingface`), `AGENTIC_ANONYMIZE_PATTERNS_PATH` / `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH` — scrub PII/secrets before cloud LLM egress; YAML custom regexes; privacy/offline goals force local providers |
 | **Answer cache** | `AGENTIC_ANSWER_CACHE` |
 | **Iterative mode** | `AGENTIC_DYNAMIC_ITERATIVE_*`, controller-related vars |
 | **Iterative stdout behavior** | `AGENTIC_DYNAMIC_ITER_STREAM_STEPS` |
@@ -56,6 +57,8 @@ See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}
 - `AGENTIC_OLLAMA_PULL_PROGRESS_STDERR=1` (default): keep normalized Ollama pull progress lines visible on stderr for web activity/progress UI.
 - `AGENTIC_AUTO_ENSURE_RUNTIME=1` (default): ensure Python `.venv` + `requirements.txt`, and for Ollama agents install/serve/pull models (not only `selfcontained: true`). Set `0` for legacy behaviour.
 - `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1`: allow Ollama auto-ensure inside kubernetes workers (off by default; host Ollama + `host.k3s.internal` is the Jetson path).
+- `AGENTIC_ANONYMIZE_CLOUD=1` (default): redact emails, phones, SSN-like patterns, API keys, and card-like digit runs before cloud planner/agent calls; also scrub attachment excerpts and session/KB writes. Set `0` to disable. Cloud types: `AGENTIC_CLOUD_PROVIDER_TYPES` (comma list). Goals that ask for offline/private/ollama-only drop those cloud types from the planner catalog and require a non-cloud `AGENTIC_PLANNER_MODEL`.
+- Custom regex scrubbers: `config/anonymize_patterns.yaml` (or `AGENTIC_ANONYMIZE_PATTERNS_PATH`) plus optional `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH`. Each entry has `id`, `pattern`, optional `replacement` / `flags` / `enabled`. Applied after built-ins. See `config/anonymize_patterns_examples.yaml`.
 
 ## Web server (`agentic-orchestration-web/.env`)
 

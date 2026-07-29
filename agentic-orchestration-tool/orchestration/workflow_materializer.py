@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
+from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
 from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task, raw_rag_spec_for_task
 from orchestration.mcp_providers_catalog import (
     filter_mcp_entries_by_api_credentials,
@@ -134,6 +135,14 @@ def build_step_specs(
             tool_root=root,
         )
         description = prepare_step_description(description, prior_output)
+        ptype = str(provider.get("type") or "").strip().lower()
+        description = maybe_redact_for_cloud_provider(description, provider_type=ptype)
+        expected = maybe_redact_for_cloud_provider(
+            str(task_def.expected_output or ""),
+            provider_type=ptype,
+        )
+        step_topic = maybe_redact_for_cloud_provider(topic, provider_type=ptype)
+        prior_scrubbed = maybe_redact_for_cloud_provider(prior_output, provider_type=ptype)
         mcp_resolved = task_mcps.get(task_id, [])
         mcp_payload: list[dict[str, Any]] = []
         for i, resolved_mcp in enumerate(mcp_resolved):
@@ -161,14 +170,14 @@ def build_step_specs(
                 step_id=task_id,
                 step_index=index,
                 workflow_name=config.name,
-                topic=topic,
+                topic=step_topic,
                 task_description=description,
-                task_expected_output=task_def.expected_output,
+                task_expected_output=expected,
                 agent_provider=provider_payload,
                 mcp_providers=mcp_payload,
                 skills=list(raw_skills),
-                prior_output=prior_output,
-                inputs={"topic": topic},
+                prior_output=prior_scrubbed,
+                inputs={"topic": step_topic},
                 run_store_path=run_store_path,
                 artifacts_dir=artifacts_dir,
                 agent_skills_catalog_path=(

@@ -14,6 +14,14 @@ from urllib.parse import urlparse
 import httpx
 
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
+from orchestration.cloud_anonymize import (
+    filter_catalog_to_local_providers,
+    is_cloud_litellm_model,
+    is_cloud_provider_type,
+    maybe_redact_for_cloud_provider,
+    redact_messages_for_cloud,
+    user_wants_local_only,
+)
 from orchestration.config_loader import (
     TaskDefinition,
     WorkflowConfig,
@@ -242,9 +250,11 @@ def _planner_chat_completion(
         if "/" not in clean_model:
             clean_model = f"openai/{clean_model}"
 
+        egress_messages = redact_messages_for_cloud(messages, litellm_model=clean_model)
+
         kwargs: dict[str, Any] = {
             "model": clean_model,
-            "messages": messages,
+            "messages": egress_messages,
             "temperature": 0.2,
         }
         if clean_model.lower().startswith("ollama/"):
@@ -273,7 +283,7 @@ def _planner_chat_completion(
             max_retries = 2
         max_retries = max(0, min(8, max_retries))
 
-        _planner_llm_progress_log(resolved_model=clean_model, messages=messages)
+        _planner_llm_progress_log(resolved_model=clean_model, messages=egress_messages)
         _planner_t0 = time.perf_counter()
 
         attempt = 0
@@ -339,9 +349,15 @@ def _planner_chat_completion(
 
     base = _normalize_openai_api_base()
     url = f"{base.rstrip('/')}/chat/completions"
+    legacy_model = model.removeprefix("openai/")
+    # Legacy path is always OpenAI-compatible → treat as cloud openai for redaction.
+    egress_messages = redact_messages_for_cloud(
+        messages,
+        litellm_model=f"openai/{legacy_model}",
+    )
     body: dict[str, Any] = {
-        "model": model.removeprefix("openai/"),
-        "messages": messages,
+        "model": legacy_model,
+        "messages": egress_messages,
         "temperature": 0.2,
     }
     if json_mode is None:
@@ -354,7 +370,7 @@ def _planner_chat_completion(
     if json_mode:
         body["response_format"] = {"type": "json_object"}
 
-    _planner_llm_progress_log(resolved_model=str(body["model"]), messages=messages)
+    _planner_llm_progress_log(resolved_model=str(body["model"]), messages=egress_messages)
     _planner_t0 = time.perf_counter()
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -612,7 +628,7 @@ Rules:
 - **No fake vendor brands:** If the user did **not** name real companies, instruct agents to use **only neutral archetype labels** (e.g. "Story A — …", "Story B — …"). **Do not invent** plausible-sounding vendor names (e.g. "Comprehensive Health Solutions"); those read as real entities and undermine trust.
 - **Medtech / regulated software wording:** Ban vague **"FDA approved"** as a catch-all. Use precise concepts where relevant: **510(k) cleared**, **PMA / class III**, **De Novo**, **registered / listed**, or **non-device wellness** positioning; use **SaMD** when software makes regulated clinical claims; use **CDS** framing only when appropriate and counsel must verify marketing vs cleared intent. When predictive analytics are in scope, flag **locked vs adaptive (learning)** algorithms if marketing implies learning in production. Do **not** invent billing codes, society guideline dates, or study statistics without retrieval-backed sources.
 - **Mixing:** You may combine different `type` values in one plan when different steps call for different capabilities.
-- **Local-only (explicit user request):** If the user asks for private, offline, local, or Ollama-only execution, use only `type: ollama` agent providers.
+- **Local-only (explicit user request):** If the user asks for private/offline/local/Ollama-only execution, use **only** non-cloud agent providers (`type: ollama` / other non-`AGENTIC_CLOUD_PROVIDER_TYPES`). The runtime **enforces** this by removing cloud providers from the catalog before you plan.
 - Each step must assign exactly one `agent_provider_id` from the catalog (legacy key `provider_id` is also accepted if you output it by mistake).
 - Steps run in order; later steps may build on earlier work (sequential crew).
 - Every step "description" MUST include the literal substring "{{topic}}" at least once; runtime replaces it with the user's goal.
@@ -854,26 +870,6 @@ def workflow_config_from_plan(
     rag_catalog_entries: list[dict[str, Any]] | None = None,
     quiet: bool = False,
 ) -> WorkflowConfig:
-    def _user_wants_local_only(text: str) -> bool:
-        t = text.strip().lower()
-        return any(
-            k in t
-            for k in (
-                "offline",
-                "local-only",
-                "local only",
-                "locally",
-                "on my machine",
-                "no cloud",
-                "private",
-                "airgapped",
-                "air-gapped",
-                "ollama-only",
-                "ollama only",
-                "use ollama",
-            )
-        )
-
     catalog_by_id = {str(p["id"]).strip(): p for p in catalog_entries}
     steps_raw = plan.get("steps")
     if not isinstance(steps_raw, list) or not steps_raw:
@@ -945,12 +941,23 @@ def workflow_config_from_plan(
             raise ValueError(
                 f"Unknown agent_provider_id {pid!r} in step {i}. Known: {known}",
             )
+        if user_wants_local_only(user_prompt) and is_cloud_provider_type(
+            str(catalog_by_id[pid].get("type", ""))
+        ):
+            raise ValueError(
+                f"Local-only goal forbids cloud agent_provider_id {pid!r} in step {i}."
+            )
         if not desc:
             raise ValueError(f"Step {i} is missing description")
         if not expected:
             raise ValueError(f"Step {i} is missing expected_output")
         if "{topic}" not in desc:
             desc = f"{{topic}}\n\n{desc}"
+
+        # Scrub PII in step text when the assigned agent is cloud-bound.
+        ptype = str(catalog_by_id[pid].get("type", "")).strip().lower()
+        desc = maybe_redact_for_cloud_provider(desc, provider_type=ptype)
+        expected = maybe_redact_for_cloud_provider(expected, provider_type=ptype)
 
         sm_raw = step.get("mcp_provider_ids", _mcp_step_sentinel)
         per_step_mcp: list[str] | None
@@ -982,6 +989,8 @@ def workflow_config_from_plan(
         rag_query: str | None = None
         if "rag_query" in step and step.get("rag_query") is not None:
             rag_query = str(step.get("rag_query")).strip() or None
+            if rag_query:
+                rag_query = maybe_redact_for_cloud_provider(rag_query, provider_type=ptype)
 
         # NOTE: We intentionally do not "prefer" a backend here.
         # The planner should choose the most relevant agent provider (including Ollama),
@@ -1517,6 +1526,23 @@ def build_dynamic_workflow_config(
             quiet=quiet,
         )
 
+    if user_wants_local_only(user_prompt):
+        before = len(entries)
+        entries = filter_catalog_to_local_providers(entries)
+        if not entries:
+            raise RuntimeError(
+                "Local-only / privacy wording detected, but no non-cloud agent providers remain "
+                "in the catalog (openai/anthropic/huggingface filtered via AGENTIC_CLOUD_PROVIDER_TYPES). "
+                "Add an Ollama provider, pin --dynamic-agent-provider-ids to a local id, or remove "
+                "offline/private/ollama-only wording from the goal."
+            )
+        if not quiet and before != len(entries):
+            print(
+                f"(dynamic) local-only: restricted planner catalog to {len(entries)} non-cloud "
+                f"provider(s) (dropped {before - len(entries)} cloud)",
+                file=sys.stderr,
+            )
+
     limit = max_steps
     if limit is None:
         limit = int(os.getenv("AGENTIC_PLANNER_MAX_STEPS", "8"))
@@ -1525,6 +1551,12 @@ def build_dynamic_workflow_config(
     model = (planner_model or "").strip() or os.getenv(
         "AGENTIC_PLANNER_MODEL", "gpt-4o-mini"
     ).strip()
+    if user_wants_local_only(user_prompt) and is_cloud_litellm_model(model):
+        raise RuntimeError(
+            f"Local-only / privacy wording detected, but planner model {model!r} is a cloud provider. "
+            "Set AGENTIC_PLANNER_MODEL to an Ollama model (e.g. ollama/llama3.2) or remove "
+            "offline/private/ollama-only wording from the goal."
+        )
 
     sess: OrchestratorSessionFile | None = None
     history: list[dict[str, str]] = []
@@ -1761,11 +1793,14 @@ def build_dynamic_workflow_config(
         assert sess is not None
         sess.instance_key = key
         assistant_content = raw_content.strip() + _workflow_snapshot_for_planner_history(cfg)
+        # Tier 2: scrub PII before persisting planner history (may re-enter cloud prompts).
+        stored_user = maybe_redact_for_cloud_provider(user_prompt.strip())
+        stored_assistant = maybe_redact_for_cloud_provider(assistant_content)
         merged = trim_planner_history(
             history
             + [
-                {"role": "user", "content": user_prompt.strip()},
-                {"role": "assistant", "content": assistant_content},
+                {"role": "user", "content": stored_user},
+                {"role": "assistant", "content": stored_assistant},
             ]
         )
         sess.planner_history = merged

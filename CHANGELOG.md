@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Cloud anonymization (Tier 1+2)** — heuristic PII/secret scrubbing (`orchestration/cloud_anonymize.py`) before cloud planner/agent egress; attachment excerpts, session/KB persistence scrubbed when `AGENTIC_ANONYMIZE_CLOUD=1` (default). Privacy/offline/"use ollama" goals filter cloud catalog types (`AGENTIC_CLOUD_PROVIDER_TYPES`, default `openai,anthropic,huggingface`) and refuse a cloud planner model. Local providers skip redaction. Operators can add YAML regex scrubbers via `config/anonymize_patterns.yaml` / `AGENTIC_ANONYMIZE_PATTERNS_PATH` / `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH`. Heuristic only — not a HIPAA guarantee.
+
 ## [1.15.0] - 2026-07-22
 
 ### Added

@@ -86,9 +86,12 @@ def add_document(
 ) -> None:
     if not kb_enabled():
         return
-    text = (content or "").strip()
+    from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
+
+    text = maybe_redact_for_cloud_provider((content or "").strip())
     if not text:
         return
+    goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
     fp = (attachment_fingerprint or mcp_fingerprint or "").strip() or None
     cap = int(os.getenv("AGENTIC_KB_DOC_CHARS", "20000"))
     cap = max(2000, min(200000, cap))
@@ -101,7 +104,7 @@ def add_document(
             (
                 float(time.time()),
                 (session_slug or "").strip() or None,
-                str(user_goal or "").strip(),
+                goal,
                 (provider_id or "").strip() or None,
                 fp,
                 text,

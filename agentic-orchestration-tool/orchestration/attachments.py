@@ -17,6 +17,7 @@ from typing import Any
 
 from orchestration.video_frames import extract_video_frames
 from orchestration.video_vision_synopsis import summarize_video_frames_litellm
+from orchestration.cloud_anonymize import anonymize_cloud_enabled, redact_for_cloud
 
 
 def _env_int(name: str, default: int) -> int:
@@ -279,6 +280,9 @@ def build_attachment_block(
         ]
         if cat in _TEXT_EXCERPT_CATEGORIES or mime.startswith("text/"):
             ex = _read_text_excerpt(validated, per_excerpt)
+            if anonymize_cloud_enabled():
+                # Keep paths intact for tools; scrub PII inside file excerpts only.
+                ex = redact_for_cloud(ex, force=True)
             chunk_lines.append("   - **Excerpt (UTF-8, truncated):**")
             chunk_lines.append("")
             chunk_lines.append("```")
@@ -311,6 +315,8 @@ def build_attachment_block(
                     source_video_name=name,
                 )
                 if synopsis:
+                    if anonymize_cloud_enabled():
+                        synopsis = redact_for_cloud(synopsis, force=True)
                     chunk_lines.append("   - **Automated vision synopsis (sampled frames):**")
                     chunk_lines.append("")
                     for ln in synopsis.split("\n"):

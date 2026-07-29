@@ -1,0 +1,14 @@
+# Example custom scrubbers — copy entries into config/anonymize_patterns.yaml
+# or set AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH to this file / its parent dir.
+#
+# These are NOT loaded by default (_examples is documentation only when using
+# a directory catalog that skips _* stems; this file is a standalone sample).
+
+patterns:
+  - id: employee_id
+    pattern: '\bEMP-\d{6}\b'
+    replacement: '[EMPLOYEE_ID]'
+  - id: internal_ticket
+    pattern: '\bTKT-\d{4,8}\b'
+    replacement: '[TICKET]'
+    flags: i
