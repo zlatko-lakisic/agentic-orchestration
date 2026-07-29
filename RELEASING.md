@@ -40,7 +40,7 @@ After packages are public (or you `docker login ghcr.io`):
 
 ```bash
 export AGENTIC_USE_GHCR=1
-export AGENTIC_IMAGE_TAG=v1.13.1   # or omit to use VERSION file / latest
+export AGENTIC_IMAGE_TAG=v1.16.0   # or omit to use VERSION file / latest
 sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
 ```
 
