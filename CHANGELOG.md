@@ -7,9 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-07-29
+
 ### Added
 
+- **Host metrics portable GPU VRAM** — `sample_host_metrics()` / `GET /api/host-metrics` now include a top-level `gpu` block `{vramTotalGb, vramSource}` from `detect_max_nvidia_vram_gb()` (`nvidia-smi`, or `assume` when `AGENTIC_ASSUME_VRAM_GB` is set). Missing GPU → both fields `null`. Distinct from Jetson `jetson.gpu` (jtop utilization). Enables clients (e.g. KnowBuddy researcher tier pick) to size models without calling the dynamic planner's hardware filter.
+
 - **Jetson Engine API daemon publish** — additive `agentic-engine` Deployment (`deploy/k8s/engine/`) runs `python -m orchestration.serve` beside the Node web UI. hostPort **8765** (KnowBuddy Remote URL `http://<jetson>:8765`) plus NodePort **30765**; web UI stays on **30487**. `scripts/jetson-enable-engine.sh` (called from `jetson-deploy.sh` unless `AGENTIC_JETSON_ENABLE_ENGINE=0`) reuses the coordinator image, hostPath-mounts the git tool tree, and installs `requirements-serve.txt` on first start. Do not point KnowBuddy at `:30487` — `/api/v1/direct-agent` and `/api/v1/kb/*` exist only on the engine.
+
+### Fixed
+
+- **KB FTS5 search no longer 500s on commas / punctuation** — `sanitize_fts5_query()` strips FTS5 syntax characters (`,`, quotes, `:`, etc.) and boolean keywords before `MATCH`. `search()` and RAG sqlite-fts retrieve share the helper; residual `OperationalError` returns empty hits instead of an unhandled FastAPI Internal Server Error (KnowBuddy "Non-JSON response from AO").
 
 ## [1.23.0] - 2026-07-29
 

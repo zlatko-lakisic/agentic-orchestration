@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -10,6 +11,12 @@ from typing import Any
 
 
 KB_DIR_NAME = "__orchestrator_kb__"
+
+#: FTS5 MATCH treats these as operators / syntax — bare user text with commas, quotes,
+#: etc. raises ``sqlite3.OperationalError`` ("syntax error near ','") and bubbles as
+#: a FastAPI 500. Strip them so free-form KB search stays safe.
+_FTS5_SPECIAL = re.compile(r'["*():^\[\]{},\\]')
+_FTS5_BOOLEAN = frozenset({"and", "or", "not", "near"})
 
 #: Default scope for every row, including every legacy row written before the
 #: two-tier columns existed. Deal-scoped rows use ``SCOPE_DEAL``.
@@ -429,6 +436,22 @@ WHERE docs_fts MATCH ?
 """.replace("{global}", SCOPE_GLOBAL)
 
 
+def sanitize_fts5_query(query: str) -> str:
+    """
+    Turn free-form user text into a safe FTS5 MATCH expression (AND of bare tokens).
+
+    Commas, quotes, and other FTS5 syntax characters become whitespace; boolean
+    operator keywords are dropped so they cannot flip MATCH semantics. Returns
+    ``""`` when nothing usable remains.
+    """
+    raw = " ".join(str(query or "").strip().split())
+    if not raw:
+        return ""
+    cleaned = _FTS5_SPECIAL.sub(" ", raw)
+    tokens = [t for t in cleaned.split() if t.lower() not in _FTS5_BOOLEAN]
+    return " ".join(tokens)
+
+
 def search(
     *,
     tool_root: Path,
@@ -448,7 +471,7 @@ def search(
     """
     if not kb_enabled():
         return []
-    q = " ".join(str(query or "").strip().split())
+    q = sanitize_fts5_query(query)
     if not q:
         return []
     limit = max(1, min(12, int(limit)))
@@ -459,10 +482,14 @@ def search(
     requested_scope = (scope or "").strip().lower() or None
 
     def _run(con: sqlite3.Connection, extra_sql: str, params: tuple[Any, ...]) -> list[KBQueryResult]:
-        rows = con.execute(
-            _SEARCH_SQL + extra_sql + " ORDER BY rank ASC LIMIT ?;",
-            (snippet_chars, q, *params, limit),
-        ).fetchall()
+        try:
+            rows = con.execute(
+                _SEARCH_SQL + extra_sql + " ORDER BY rank ASC LIMIT ?;",
+                (snippet_chars, q, *params, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Defence in depth: never 500 the daemon on residual MATCH syntax.
+            return []
         return [_row_to_result(r) for r in rows]
 
     user_sql = " AND (d.user_id IS NULL OR d.user_id = ?)" if uid else ""

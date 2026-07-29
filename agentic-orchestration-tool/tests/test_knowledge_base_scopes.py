@@ -16,6 +16,7 @@ from orchestration.knowledge_base import (
     ensure_schema,
     fast_ingest,
     kb_path,
+    sanitize_fts5_query,
     search,
     upsert_by_source,
 )
@@ -234,3 +235,22 @@ def test_disabled_kb_is_a_no_op(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("AGENTIC_KB", "0")
     assert add_document(tool_root=tmp_path, session_slug=None, user_goal="g", content="x") is None
     assert search(tool_root=tmp_path, query="x") == []
+
+
+def test_sanitize_fts5_query_strips_commas_and_operators() -> None:
+    assert sanitize_fts5_query("Acme Corp, Inc.") == "Acme Corp Inc."
+    assert sanitize_fts5_query('price "quote" AND near') == "price quote"
+    assert sanitize_fts5_query("  ,,,  ") == ""
+    assert sanitize_fts5_query("Falcon pricing") == "Falcon pricing"
+
+
+def test_search_with_commas_does_not_raise(tmp_path: Path) -> None:
+    add_document(
+        tool_root=tmp_path,
+        session_slug=None,
+        user_goal="g",
+        content="Acme Corp uses Falcon pricing at twelve percent",
+    )
+    hits = search(tool_root=tmp_path, query="Acme Corp, Falcon")
+    assert len(hits) == 1
+    assert "Falcon" in hits[0].content_snippet or "Acme" in hits[0].content_snippet

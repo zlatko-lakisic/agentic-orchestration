@@ -32,12 +32,75 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_sample_has_the_node_payload_shape() -> None:
     sample = sample_host_metrics()
     assert set(
-        ["ts", "hostname", "platform", "arch", "scope", "uptimeSec", "loadAvg", "cpu", "memory"]
+        [
+            "ts",
+            "hostname",
+            "platform",
+            "arch",
+            "scope",
+            "uptimeSec",
+            "loadAvg",
+            "cpu",
+            "memory",
+            "gpu",
+        ]
     ) <= set(sample)
     assert set(["percent", "cores"]) <= set(sample["cpu"])
     assert set(["totalBytes", "usedBytes", "availableBytes", "usedPercent"]) <= set(
         sample["memory"]
     )
+    assert set(["vramTotalGb", "vramSource"]) <= set(sample["gpu"])
+
+
+def test_gpu_block_reports_detected_vram(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_max_nvidia_vram_gb",
+        lambda: 8.0,
+    )
+    monkeypatch.delenv("AGENTIC_ASSUME_VRAM_GB", raising=False)
+    sample = sample_host_metrics()
+    assert sample["gpu"] == {"vramTotalGb": 8.0, "vramSource": "nvidia-smi"}
+
+
+def test_gpu_block_null_when_no_nvidia(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_max_nvidia_vram_gb",
+        lambda: None,
+    )
+    monkeypatch.delenv("AGENTIC_ASSUME_VRAM_GB", raising=False)
+    sample = sample_host_metrics()
+    assert sample["gpu"] == {"vramTotalGb": None, "vramSource": None}
+
+
+def test_gpu_block_assume_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_ASSUME_VRAM_GB", "12")
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_max_nvidia_vram_gb",
+        lambda: 12.0,
+    )
+    sample = sample_host_metrics()
+    assert sample["gpu"] == {"vramTotalGb": 12.0, "vramSource": "assume"}
+
+
+def test_jetson_block_keeps_separate_gpu_from_portable_vram(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_max_nvidia_vram_gb",
+        lambda: 8.0,
+    )
+    snapshot = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "gpu": {"percent": 50.0, "freqMhz": 900},
+    }
+    path = tmp_path / "jtop.json"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(path))
+
+    sample = sample_host_metrics()
+    assert sample["gpu"]["vramTotalGb"] == 8.0
+    assert sample["jetson"]["gpu"] == {"percent": 50.0, "freqMhz": 900}
 
 
 def test_first_cpu_sample_has_no_percent_then_a_delta_appears() -> None:

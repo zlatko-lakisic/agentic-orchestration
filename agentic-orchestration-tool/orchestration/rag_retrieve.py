@@ -145,7 +145,9 @@ def search_sqlite_fts_at_path(
     snippet_chars: int = 600,
 ) -> list[KBQueryResult]:
     """FTS search against an arbitrary KB sqlite path (does not check AGENTIC_KB)."""
-    q = " ".join(str(query or "").strip().split())
+    from orchestration.knowledge_base import sanitize_fts5_query
+
+    q = sanitize_fts5_query(query)
     if not q:
         return []
     limit = max(1, min(50, int(limit)))
@@ -171,7 +173,7 @@ def search_sqlite_fts_at_path(
                 (snippet_chars, q, limit),
             ).fetchall()
         except sqlite3.OperationalError:
-            # Empty DB / no MATCH syntax — treat as no hits.
+            # Empty DB / residual MATCH syntax — treat as no hits.
             return []
 
     out: list[KBQueryResult] = []

@@ -226,6 +226,23 @@ def _uptime_sec() -> int:
         return int(round(time.monotonic()))
 
 
+def _gpu_vram_block() -> dict[str, Any]:
+    """
+    Portable NVIDIA VRAM summary for clients that size models from host metrics.
+
+    Uses ``detect_max_nvidia_vram_gb`` (honours ``AGENTIC_ASSUME_VRAM_GB``). Distinct
+    from Jetson ``jetson.gpu`` (jtop utilization), which stays under ``jetson``.
+    """
+    from orchestration.hardware_profile import detect_max_nvidia_vram_gb
+
+    assume = os.getenv("AGENTIC_ASSUME_VRAM_GB", "").strip()
+    vram = detect_max_nvidia_vram_gb()
+    if vram is None:
+        return {"vramTotalGb": None, "vramSource": None}
+    source = "assume" if assume else "nvidia-smi"
+    return {"vramTotalGb": round(float(vram), 3), "vramSource": source}
+
+
 def sample_host_metrics() -> dict[str, Any]:
     """One metrics sample; keys mirror the Node ``sampleHostMetrics()`` payload."""
     cpu_percent = sample_cpu_percent()
@@ -239,5 +256,6 @@ def sample_host_metrics() -> dict[str, Any]:
         "loadAvg": _load_avg(),
         "cpu": {"percent": cpu_percent, "cores": os.cpu_count() or 0},
         "memory": sample_memory(),
+        "gpu": _gpu_vram_block(),
     }
     return merge_jetson_into_metrics(base, read_jetson_jtop_snapshot())
