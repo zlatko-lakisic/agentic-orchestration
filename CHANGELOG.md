@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-07-30
+
 ### Added
 
 - **Session overlay + MCP tunnel (opt-in)** — WebSocket clients can register ephemeral `client.*` agent/MCP/skill dicts (`session_overlay_register` / `clear`) when `AGENTIC_SERVE_SESSION_OVERLAY=1`. Session MCP entries use `tunnel://session-mcp/<alias>`; with `AGENTIC_SERVE_MCP_TUNNEL=1` the daemon proxies HTTP via `mcp_tunnel_request` / `mcp_tunnel_response` on the owning socket (loopback only — never dials the client LAN; stdio rejected in overlays). Evict on disconnect, clear, and TTL. Optional `mcpProviderIds` on REST + WS `direct_agent` forwards to `run_direct_agent`. Flags default off; Node `server.mjs` unchanged.
