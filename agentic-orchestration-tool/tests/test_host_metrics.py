@@ -63,7 +63,7 @@ def test_sample_has_the_node_payload_shape() -> None:
 
 def test_gpu_block_from_nvidia_smi_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "orchestration.host_metrics.sample_nvidia_gpu",
+        "orchestration.host_metrics.sample_gpu",
         lambda: {
             "percent": 23.5,
             "vramTotalGb": 8.0,
@@ -83,7 +83,7 @@ def test_gpu_block_from_nvidia_smi_csv(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_gpu_block_null_when_no_nvidia(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_gpu", lambda: None)
     sample = sample_host_metrics()
     assert sample["gpu"] == {
         "percent": None,
@@ -98,7 +98,7 @@ def test_gpu_block_null_when_no_nvidia(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_gpu_block_assume_overrides_total_keeps_util(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ASSUME_VRAM_GB", "12")
     monkeypatch.setattr(
-        "orchestration.host_metrics.sample_nvidia_gpu",
+        "orchestration.host_metrics.sample_gpu",
         lambda: {
             "percent": 10.0,
             "vramTotalGb": 8.0,
@@ -117,7 +117,7 @@ def test_gpu_block_assume_overrides_total_keeps_util(monkeypatch: pytest.MonkeyP
 
 def test_gpu_block_assume_only_when_no_smi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_ASSUME_VRAM_GB", "12")
-    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_gpu", lambda: None)
     sample = sample_host_metrics()
     assert sample["gpu"]["vramTotalGb"] == 12.0
     assert sample["gpu"]["vramSource"] == "assume"
@@ -146,12 +146,131 @@ def test_parse_nvidia_smi_name_with_commas() -> None:
     assert parsed["vramTotalGb"] == 4.0
 
 
+def test_parse_system_profiler_prefers_dedicated_amd() -> None:
+    from orchestration.host_metrics import parse_system_profiler_gpus
+
+    text = """
+Graphics/Displays:
+
+    Intel UHD Graphics 630:
+
+      Chipset Model: Intel UHD Graphics 630
+      Type: GPU
+      Bus: Built-In
+      VRAM (Dynamic, Max): 1536 MB
+      Vendor: Intel
+
+    AMD Radeon Pro 5500M:
+
+      Chipset Model: AMD Radeon Pro 5500M
+      Type: GPU
+      Bus: PCIe
+      VRAM (Total): 4 GB
+      Vendor: AMD
+"""
+    gpus = parse_system_profiler_gpus(text)
+    assert len(gpus) == 2
+    amd = next(g for g in gpus if "Radeon" in g["name"])
+    assert amd["vramTotalGb"] == 4.0
+    assert amd["dedicated"] is True
+    intel = next(g for g in gpus if "Intel" in g["name"])
+    assert intel["vramTotalGb"] == pytest.approx(1536 / 1024, abs=0.001)
+    assert intel["dedicated"] is False
+
+
+def test_merge_macos_picks_amd_over_intel() -> None:
+    from orchestration.host_metrics import _merge_macos_gpu_candidates
+
+    profiler = [
+        {"name": "Intel UHD Graphics 630", "vramTotalGb": 1.5, "dedicated": False, "dynamic": True},
+        {"name": "AMD Radeon Pro 5500M", "vramTotalGb": 4.0, "dedicated": True, "dynamic": False},
+    ]
+    ioreg = [
+        {
+            "IOClass": "IntelAccelerator",
+            "VRAM,totalMB": 1536,
+            "PerformanceStatistics": {"Device Utilization %": 22, "inUseVidMemoryBytes": 0},
+        },
+        {
+            "IOClass": "AMDRadeonX6000_AMDNavi14GraphicsAccelerator",
+            "PerformanceStatistics": {"inUseVidMemoryBytes": 512 * 1024 * 1024},
+        },
+    ]
+    merged = _merge_macos_gpu_candidates(profiler, ioreg)
+    assert merged is not None
+    assert "Radeon" in (merged["name"] or "")
+    assert merged["vramTotalGb"] == 4.0
+    assert merged["vramUsedGb"] == 0.5
+    assert merged["vramSource"] in ("system_profiler", "system_profiler+ioreg")
+
+
+def test_parse_ioreg_does_not_treat_gart_as_vram() -> None:
+    from orchestration.host_metrics import parse_ioreg_accelerator_gpu
+
+    entry = {
+        "IOClass": "AMDRadeonX6000_AMDNavi14GraphicsAccelerator",
+        "PerformanceStatistics": {
+            "gartSizeBytes": 11811160064,  # aperture — must not become vramTotal
+            "gartUsedBytes": 5931008,
+            "inUseVidMemoryBytes": 0,
+        },
+    }
+    parsed = parse_ioreg_accelerator_gpu(entry)
+    assert parsed is not None
+    assert parsed["vramTotalGb"] is None
+    assert parsed["vramUsedGb"] == 0.0
+
+
+def test_linux_amd_sysfs_gpu(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import orchestration.host_metrics as hm
+
+    drm = tmp_path / "drm"
+    card = drm / "card0"
+    device = card / "device"
+    device.mkdir(parents=True)
+    (device / "vendor").write_text("0x1002\n", encoding="utf-8")
+    (device / "mem_info_vram_total").write_text(str(4 * 1024**3) + "\n", encoding="utf-8")
+    (device / "mem_info_vram_used").write_text(str(1 * 1024**3) + "\n", encoding="utf-8")
+    (device / "gpu_busy_percent").write_text("37\n", encoding="utf-8")
+    (device / "uevent").write_text("DRIVER=amdgpu\n", encoding="utf-8")
+
+    real_path = hm.Path
+
+    def path_factory(p: str | Path = "."):
+        if str(p) == "/sys/class/drm":
+            return drm
+        return real_path(p)
+
+    monkeypatch.setattr(hm, "Path", path_factory)
+    monkeypatch.setattr(sys, "platform", "linux")
+    hit = hm.sample_linux_amd_gpu()
+    assert hit is not None
+    assert hit["percent"] == 37.0
+    assert hit["vramTotalGb"] == 4.0
+    assert hit["vramUsedGb"] == 1.0
+    assert hit["vramSource"] == "amdgpu-sysfs"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="live macOS AMD/Intel GPU")
+def test_macos_gpu_live_prefers_radeon() -> None:
+    from orchestration.host_metrics import sample_macos_gpu
+
+    # Bust cache
+    import orchestration.host_metrics as hm
+
+    hm._gpu_sample_cache = None
+    hit = sample_macos_gpu()
+    assert hit is not None
+    assert hit["vramTotalGb"] == 4.0
+    assert "Radeon" in (hit["name"] or "") or "AMD" in (hit["name"] or "")
+
+
 def test_jetson_block_keeps_separate_gpu_from_portable_vram(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "orchestration.host_metrics.sample_nvidia_gpu",
+        "orchestration.host_metrics.sample_gpu",
         lambda: {
             "percent": 12.0,
             "vramTotalGb": 8.0,
@@ -425,7 +544,7 @@ def test_proc_stat_is_used_when_available(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_jtop_snapshot_is_merged_with_age(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_gpu", lambda: None)
     snapshot = {
         "ts": (datetime.now(timezone.utc) - timedelta(seconds=3)).isoformat(),
         "cpu": {"percent": 42.5},
@@ -455,7 +574,7 @@ def test_missing_or_corrupt_jtop_file_is_ignored(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_gpu", lambda: None)
     missing = tmp_path / "absent.json"
     monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(missing))
     assert read_jetson_jtop_snapshot() is None

@@ -76,7 +76,8 @@ def detect_available_architectures() -> set[str]:
     Detect available local runtimes.
 
     - Always includes CPU.
-    - GPU when NVIDIA tooling is present (or user override).
+    - GPU when NVIDIA tooling, macOS Metal GPU (AMD/Intel/Apple), Linux amdgpu, or
+      ``AGENTIC_ASSUME_GPU`` is set.
     - TPU based on common TPU runtime env markers (or user override).
     """
     override = _parse_architectures(os.getenv("AGENTIC_AVAILABLE_ARCHITECTURES", ""))
@@ -84,7 +85,11 @@ def detect_available_architectures() -> set[str]:
         return override
 
     out = {_ARCH_CPU}
-    if _env_flag("AGENTIC_ASSUME_GPU") or shutil.which("nvidia-smi") is not None:
+    if (
+        _env_flag("AGENTIC_ASSUME_GPU")
+        or shutil.which("nvidia-smi") is not None
+        or _local_non_nvidia_gpu_present()
+    ):
         out.add(_ARCH_GPU)
     if (
         _env_flag("AGENTIC_ASSUME_TPU")
@@ -97,6 +102,24 @@ def detect_available_architectures() -> set[str]:
     ):
         out.add(_ARCH_TPU)
     return out
+
+
+def _local_non_nvidia_gpu_present() -> bool:
+    """True when macOS/Linux expose an AMD/Intel/Apple GPU we can size against."""
+    try:
+        from orchestration.host_metrics import sample_gpu
+
+        hit = sample_gpu()
+    except Exception:  # noqa: BLE001
+        return False
+    if not hit:
+        return False
+    # A named GPU or any VRAM/util signal counts.
+    return bool(
+        hit.get("name")
+        or hit.get("vramTotalGb")
+        or (isinstance(hit.get("percent"), (int, float)))
+    )
 
 
 def provider_min_vram_gb(entry: dict[str, Any]) -> float | None:
@@ -311,9 +334,10 @@ def detect_vram_gb_available() -> float | None:
     VRAM budget available for a *concurrently resident* model set (GiB).
 
     ``AGENTIC_VRAM_GB`` wins when set (explicit budget, useful for unified-memory
-    boards where nvidia-smi lies or is absent). Otherwise falls back to the largest
-    detected NVIDIA GPU with the usual ``AGENTIC_MAX_VRAM_*`` caps applied. ``None``
-    means "unknown" — callers should degrade to a single model rather than guess.
+    boards where nvidia-smi lies or is absent). Otherwise prefers the largest
+    detected GPU (NVIDIA / macOS AMD-Intel / Linux amdgpu) with the usual
+    ``AGENTIC_MAX_VRAM_*`` caps applied. ``None`` means "unknown" — callers should
+    degrade to a single model rather than guess.
     """
     override = os.getenv("AGENTIC_VRAM_GB", "").strip()
     if override:
@@ -325,8 +349,32 @@ def detect_vram_gb_available() -> float | None:
             pass
     detected = detect_max_nvidia_vram_gb()
     if detected is None:
+        detected = detect_max_vram_gb_non_nvidia()
+    if detected is None:
         return None
     return _apply_vram_caps(detected)
+
+
+def detect_max_vram_gb_non_nvidia() -> float | None:
+    """Largest discrete VRAM from macOS/Linux AMD/Intel samplers (not nvidia-smi)."""
+    try:
+        from orchestration.host_metrics import sample_gpu
+
+        hit = sample_gpu()
+    except Exception:  # noqa: BLE001
+        return None
+    if not hit:
+        return None
+    # Skip assume-only / util-only Apple unified samples without a real total.
+    src = str(hit.get("vramSource") or "")
+    if src == "nvidia-smi":
+        return None
+    total = hit.get("vramTotalGb")
+    try:
+        value = float(total) if total is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _resident_headroom_gb() -> float:

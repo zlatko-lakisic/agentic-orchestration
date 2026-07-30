@@ -11,7 +11,9 @@ Host CPU / memory sampling for the daemon (Python port of
   power / temperature (additive overlay).
 
 Payload keys match the Node version so an existing frontend can point at either server.
-Apple Silicon ``gpu.*`` stays null/assume (no fake VRAM from unified memory).
+Apple Silicon: ``gpu.percent`` may come from IORegistry ``Device Utilization %``;
+VRAM fields stay null unless ``AGENTIC_ASSUME_VRAM_GB`` (unified memory is not
+discrete VRAM — do not invent totals from GART aperture / system RAM).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -618,13 +621,487 @@ def sample_nvidia_gpu() -> dict[str, Any] | None:
     return _parse_nvidia_smi_gpu_csv(out.stdout)
 
 
+def _bytes_to_gb(num: float) -> float:
+    return round(float(num) / (1024.0**3), 3)
+
+
+def _parse_vram_size_token(raw: str) -> float | None:
+    """Parse ``4 GB``, ``1536 MB``, ``8192`` (MiB) into GiB."""
+    text = " ".join(str(raw or "").strip().split())
+    if not text:
+        return None
+    m = re.match(r"^([\d.]+)\s*(gb|giB|g|mb|mib|m)?$", text, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        value = float(m.group(1))
+    except ValueError:
+        return None
+    unit = (m.group(2) or "mb").lower()
+    if unit in ("gb", "gib", "g"):
+        return value if value > 0 else None
+    # MB / MiB / bare number treated as MiB (system_profiler / nvidia-smi style).
+    return _mib_to_gb(value) if value > 0 else None
+
+
+def parse_system_profiler_gpus(text: str) -> list[dict[str, Any]]:
+    """
+    Parse ``system_profiler SPDisplaysDataType`` text into GPU candidates.
+
+    Dedicated ``VRAM (Total)`` wins over ``VRAM (Dynamic, Max)`` when ranking.
+    """
+    gpus: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    def flush() -> None:
+        nonlocal current
+        if current and current.get("name"):
+            gpus.append(current)
+        current = None
+
+    for raw in (text or "").splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        # Chipset lines are indented under Graphics/Displays.
+        chip = re.match(r"^(\s+)Chipset Model:\s*(.+)\s*$", line)
+        if chip:
+            flush()
+            current = {
+                "name": chip.group(2).strip(),
+                "vramTotalGb": None,
+                "dedicated": False,
+                "dynamic": False,
+            }
+            continue
+        if current is None:
+            continue
+        total = re.match(r"^\s+VRAM \(Total\):\s*(.+)\s*$", line)
+        if total:
+            gb = _parse_vram_size_token(total.group(1))
+            if gb is not None:
+                current["vramTotalGb"] = gb
+                current["dedicated"] = True
+            continue
+        dynamic = re.match(r"^\s+VRAM \(Dynamic, Max\):\s*(.+)\s*$", line)
+        if dynamic and current.get("vramTotalGb") is None:
+            gb = _parse_vram_size_token(dynamic.group(1))
+            if gb is not None:
+                current["vramTotalGb"] = gb
+                current["dynamic"] = True
+            continue
+    flush()
+    return gpus
+
+
+def _macos_system_profiler_gpus() -> list[dict[str, Any]]:
+    if sys.platform != "darwin" or shutil.which("system_profiler") is None:
+        return []
+    try:
+        out = subprocess.run(
+            ["system_profiler", "SPDisplaysDataType"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0:
+        return []
+    return parse_system_profiler_gpus(out.stdout or "")
+
+
+def _ioreg_accelerator_dicts() -> list[dict[str, Any]]:
+    if sys.platform != "darwin" or shutil.which("ioreg") is None:
+        return []
+    try:
+        out = subprocess.run(
+            ["ioreg", "-r", "-c", "IOAccelerator", "-a"],
+            capture_output=True,
+            timeout=12,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0 or not out.stdout:
+        return []
+    try:
+        import plistlib
+
+        data = plistlib.loads(out.stdout)
+    except Exception:  # noqa: BLE001
+        return []
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
+def _accelerator_vendor_hint(entry: dict[str, Any]) -> str:
+    blob = " ".join(
+        str(entry.get(k) or "")
+        for k in (
+            "IOClass",
+            "IOObjectClass",
+            "IORegistryEntryName",
+            "CFBundleIdentifier",
+            "MetalPluginName",
+        )
+    ).lower()
+    if "amd" in blob or "radeon" in blob or "aty," in blob:
+        return "amd"
+    if "intel" in blob or "kbl" in blob or "icl" in blob or "tgl" in blob:
+        return "intel"
+    if "agx" in blob or "apple" in blob:
+        return "apple"
+    return "unknown"
+
+
+def _accelerator_display_name(entry: dict[str, Any], vendor: str) -> str:
+    for key in ("IORegistryEntryName", "IOClass", "IOObjectClass", "MetalPluginName"):
+        raw = str(entry.get(key) or "").strip()
+        if raw:
+            return raw
+    return f"{vendor}-gpu"
+
+
+def parse_ioreg_accelerator_gpu(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Build a gpu-block candidate from one IOAccelerator plist dict.
+
+    Never treats ``gartSizeBytes`` as discrete VRAM (GART aperture ≠ board VRAM).
+    """
+    if not isinstance(entry, dict):
+        return None
+    vendor = _accelerator_vendor_hint(entry)
+    stats = entry.get("PerformanceStatistics")
+    if not isinstance(stats, dict):
+        stats = {}
+
+    util: float | None = None
+    for key in ("Device Utilization %", "Renderer Utilization %", "Tiler Utilization %"):
+        raw = stats.get(key)
+        if isinstance(raw, (int, float)) and raw >= 0:
+            util = float(raw)
+            break
+
+    total_gb: float | None = None
+    dedicated = False
+    for key in ("VRAM,totalMB", "VRAMTotalMB", "vramTotalMB"):
+        raw = entry.get(key)
+        if isinstance(raw, (int, float)) and raw > 0:
+            total_gb = _mib_to_gb(float(raw))
+            # Intel "Dynamic, Max" style totals are still useful but not discrete.
+            dedicated = vendor == "amd"
+            break
+
+    used_bytes: float | None = None
+    for key in ("inUseVidMemoryBytes", "In use video memory"):
+        raw = stats.get(key)
+        if isinstance(raw, (int, float)) and raw >= 0:
+            used_bytes = float(raw)
+            break
+    if used_bytes is None and vendor != "apple":
+        # Fallback: GART used is an approximation of GPU-mapped memory, not perfect VRAM.
+        raw = stats.get("gartUsedBytes")
+        if isinstance(raw, (int, float)) and raw >= 0:
+            used_bytes = float(raw)
+
+    # Apple Silicon: util OK; do not invent VRAM from unified / GART pools.
+    if vendor == "apple":
+        if util is None:
+            return None
+        return {
+            "percent": util,
+            "vramTotalGb": None,
+            "vramUsedGb": None,
+            "vramFreeGb": None,
+            "vramSource": "ioreg",
+            "name": _accelerator_display_name(entry, vendor),
+            "_vendor": vendor,
+            "_dedicated": False,
+            "_rank_total": 0.0,
+        }
+
+    used_gb = _bytes_to_gb(used_bytes) if used_bytes is not None else None
+    free_gb: float | None = None
+    if total_gb is not None and used_gb is not None:
+        free_gb = round(max(0.0, total_gb - used_gb), 3)
+
+    if util is None and total_gb is None and used_gb is None:
+        return None
+
+    return {
+        "percent": util,
+        "vramTotalGb": total_gb,
+        "vramUsedGb": used_gb,
+        "vramFreeGb": free_gb,
+        "vramSource": "ioreg",
+        "name": _accelerator_display_name(entry, vendor),
+        "_vendor": vendor,
+        "_dedicated": dedicated,
+        "_rank_total": float(total_gb or 0.0) + (1000.0 if dedicated else 0.0),
+    }
+
+
+def _merge_macos_gpu_candidates(
+    profiler: list[dict[str, Any]],
+    ioreg: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Pick the best macOS GPU: prefer dedicated VRAM (AMD), then largest total, then util."""
+    candidates: list[dict[str, Any]] = []
+
+    for p in profiler:
+        name = str(p.get("name") or "").strip()
+        total = p.get("vramTotalGb")
+        if not name:
+            continue
+        dedicated = bool(p.get("dedicated"))
+        vendor = "amd" if "radeon" in name.lower() or "amd" in name.lower() else (
+            "intel" if "intel" in name.lower() else "unknown"
+        )
+        if vendor == "unknown" and not dedicated:
+            # Dynamic-only Intel-style pool — still usable as a name/total hint.
+            vendor = "intel" if p.get("dynamic") else "unknown"
+        candidates.append(
+            {
+                "percent": None,
+                "vramTotalGb": total,
+                "vramUsedGb": None,
+                "vramFreeGb": None,
+                "vramSource": "system_profiler",
+                "name": name,
+                "_vendor": vendor,
+                "_dedicated": dedicated,
+                "_rank_total": float(total or 0.0) + (1000.0 if dedicated else 0.0),
+            }
+        )
+
+    for entry in ioreg:
+        parsed = parse_ioreg_accelerator_gpu(entry)
+        if parsed is None:
+            continue
+        # Merge util/used into a matching profiler row when possible.
+        merged = False
+        for c in candidates:
+            same_vendor = c.get("_vendor") == parsed.get("_vendor")
+            name_hit = (
+                ("radeon" in (c.get("name") or "").lower() and parsed.get("_vendor") == "amd")
+                or ("intel" in (c.get("name") or "").lower() and parsed.get("_vendor") == "intel")
+            )
+            if same_vendor or name_hit:
+                if parsed.get("percent") is not None:
+                    c["percent"] = parsed["percent"]
+                if c.get("vramTotalGb") is None and parsed.get("vramTotalGb") is not None:
+                    c["vramTotalGb"] = parsed["vramTotalGb"]
+                if parsed.get("vramUsedGb") is not None:
+                    c["vramUsedGb"] = parsed["vramUsedGb"]
+                    if c.get("vramTotalGb") is not None:
+                        c["vramFreeGb"] = round(
+                            max(0.0, float(c["vramTotalGb"]) - float(parsed["vramUsedGb"])),
+                            3,
+                        )
+                if parsed.get("percent") is not None or parsed.get("vramUsedGb") is not None:
+                    if str(c.get("vramSource") or "").startswith("system_profiler"):
+                        c["vramSource"] = "system_profiler+ioreg"
+                    elif not c.get("vramSource"):
+                        c["vramSource"] = parsed.get("vramSource")
+                merged = True
+                break
+        if not merged:
+            candidates.append(parsed)
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda c: (
+            1 if c.get("_dedicated") else 0,
+            float(c.get("_rank_total") or 0.0),
+            1 if c.get("percent") is not None else 0,
+            float(c.get("vramTotalGb") or 0.0),
+        ),
+        reverse=True,
+    )
+    best = candidates[0]
+    out = {
+        "percent": best.get("percent"),
+        "vramTotalGb": best.get("vramTotalGb"),
+        "vramUsedGb": best.get("vramUsedGb"),
+        "vramFreeGb": best.get("vramFreeGb"),
+        "vramSource": best.get("vramSource"),
+        "name": best.get("name"),
+    }
+    # Drop empty blocks (Apple util-only is still useful).
+    if (
+        out["percent"] is None
+        and out["vramTotalGb"] is None
+        and out["vramUsedGb"] is None
+    ):
+        return None
+    return out
+
+
+def sample_macos_gpu() -> dict[str, Any] | None:
+    """AMD / Intel / Apple GPU summary via system_profiler + IORegistry (no sudo)."""
+    if sys.platform != "darwin":
+        return None
+    return _merge_macos_gpu_candidates(
+        _macos_system_profiler_gpus(),
+        _ioreg_accelerator_dicts(),
+    )
+
+
+def _read_sysfs_int(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def sample_linux_amd_gpu() -> dict[str, Any] | None:
+    """
+    Linux AMD GPU via sysfs (``mem_info_vram_*``, ``gpu_busy_percent``).
+
+    Prefers the card with the largest ``mem_info_vram_total``. ``rocm-smi`` is not
+    required — the amdgpu sysfs nodes are enough when present.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    drm = Path("/sys/class/drm")
+    if not drm.is_dir():
+        return None
+    best: dict[str, Any] | None = None
+    best_total = -1
+    for card in sorted(drm.glob("card[0-9]*")):
+        if "-" in card.name:  # skip card0-HDMI-A-1 style connectors
+            continue
+        device = card / "device"
+        total = _read_sysfs_int(device / "mem_info_vram_total")
+        if total is None or total <= 0:
+            continue
+        used = _read_sysfs_int(device / "mem_info_vram_used")
+        busy = _read_sysfs_int(device / "gpu_busy_percent")
+        vendor = (device / "vendor").read_text(encoding="utf-8").strip() if (device / "vendor").is_file() else ""
+        # AMD PCI vendor 0x1002
+        if vendor and vendor.lower() not in ("0x1002", "1002"):
+            # Still accept if vram nodes exist (some stacks omit vendor file).
+            if vendor.lower().startswith("0x") and vendor.lower() != "0x1002":
+                continue
+        name = f"amd-{card.name}"
+        uevent = device / "uevent"
+        if uevent.is_file():
+            try:
+                for line in uevent.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("DRIVER="):
+                        name = f"{line.split('=', 1)[1].strip()}-{card.name}"
+                        break
+            except OSError:
+                pass
+        if total <= best_total:
+            continue
+        best_total = total
+        used_gb = _bytes_to_gb(used) if used is not None else None
+        total_gb = _bytes_to_gb(total)
+        free_gb = (
+            round(max(0.0, total_gb - used_gb), 3) if used_gb is not None else None
+        )
+        best = {
+            "percent": float(busy) if busy is not None and busy >= 0 else None,
+            "vramTotalGb": total_gb,
+            "vramUsedGb": used_gb,
+            "vramFreeGb": free_gb,
+            "vramSource": "amdgpu-sysfs",
+            "name": name,
+        }
+    return best
+
+
+def sample_linux_intel_gpu() -> dict[str, Any] | None:
+    """
+    Linux Intel iGPU — util from ``i915`` busy stats when present; VRAM usually shared.
+
+    Does not invent discrete VRAM totals for integrated graphics.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    drm = Path("/sys/class/drm")
+    if not drm.is_dir():
+        return None
+    for card in sorted(drm.glob("card[0-9]*")):
+        if "-" in card.name:
+            continue
+        device = card / "device"
+        vendor = ""
+        try:
+            vendor = (device / "vendor").read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            continue
+        if vendor not in ("0x8086", "8086"):
+            continue
+        # Optional: gt busy from intel_gpu_frequency / actmon — often absent.
+        busy = _read_sysfs_int(device / "gt_act_freq_mhz")  # presence probe only
+        _ = busy
+        # Without a real util counter, still identify the GPU name for clients.
+        name = f"intel-{card.name}"
+        return {
+            "percent": None,
+            "vramTotalGb": None,
+            "vramUsedGb": None,
+            "vramFreeGb": None,
+            "vramSource": "i915-sysfs",
+            "name": name,
+        }
+    return None
+
+
+_gpu_sample_cache: tuple[float, dict[str, Any] | None] | None = None
+_GPU_SAMPLE_TTL_SEC = 2.0
+
+
+def sample_gpu() -> dict[str, Any] | None:
+    """
+    Best available portable GPU sample.
+
+    Priority: nvidia-smi → macOS (AMD/Intel/Apple IORegistry) → Linux AMD sysfs →
+    Linux Intel identity stub. Cached briefly so catalog filters don't re-spawn
+    ``system_profiler`` on every call.
+    """
+    global _gpu_sample_cache
+    now = time.monotonic()
+    if _gpu_sample_cache is not None:
+        ts, cached = _gpu_sample_cache
+        if (now - ts) < _GPU_SAMPLE_TTL_SEC:
+            return dict(cached) if cached is not None else None
+
+    hit: dict[str, Any] | None = None
+    for sampler in (
+        sample_nvidia_gpu,
+        sample_macos_gpu,
+        sample_linux_amd_gpu,
+        sample_linux_intel_gpu,
+    ):
+        try:
+            hit = sampler()
+        except Exception:  # noqa: BLE001
+            hit = None
+        if hit is not None:
+            break
+    _gpu_sample_cache = (now, dict(hit) if hit is not None else None)
+    return dict(hit) if hit is not None else None
+
+
 def _gpu_vram_block() -> dict[str, Any]:
     """
-    Portable NVIDIA GPU summary for clients (util + VRAM + name).
+    Portable GPU summary for clients (util + VRAM + name).
 
     Distinct from Jetson ``jetson.gpu`` (jtop utilization). Honours
     ``AGENTIC_ASSUME_VRAM_GB`` for ``vramTotalGb``; util/used/free may still come
-    from nvidia-smi when available, otherwise stay null under assume-only.
+    from a live sampler when available, otherwise stay null under assume-only.
     """
     assume_raw = os.getenv("AGENTIC_ASSUME_VRAM_GB", "").strip()
     assume_gb: float | None = None
@@ -636,7 +1113,7 @@ def _gpu_vram_block() -> dict[str, Any]:
         except ValueError:
             assume_gb = None
 
-    sampled = sample_nvidia_gpu()
+    sampled = sample_gpu()
     if sampled is None:
         if assume_gb is not None:
             out = _null_gpu_block()
@@ -644,6 +1121,16 @@ def _gpu_vram_block() -> dict[str, Any]:
             out["vramSource"] = "assume"
             return out
         return _null_gpu_block()
+
+    # Strip internal ranking keys if any leaked.
+    sampled = {
+        "percent": sampled.get("percent"),
+        "vramTotalGb": sampled.get("vramTotalGb"),
+        "vramUsedGb": sampled.get("vramUsedGb"),
+        "vramFreeGb": sampled.get("vramFreeGb"),
+        "vramSource": sampled.get("vramSource"),
+        "name": sampled.get("name"),
+    }
 
     if assume_gb is not None:
         sampled = {
