@@ -2,12 +2,16 @@
 Host CPU / memory sampling for the daemon (Python port of
 ``agentic-orchestration-web/host-metrics.mjs``).
 
-Reads ``/proc`` on Linux when available; set ``AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc``
-when the coordinator mounts the node's ``/proc``. On Windows, uses ``GetSystemTimes`` /
-``GlobalMemoryStatusEx``. On Jetson, a jtop writer snapshot
-(``AGENTIC_JETSON_JTOP_METRICS_PATH``) supplies GPU / power / temperature.
+- Linux: ``/proc/stat`` + ``/proc/meminfo`` (set ``AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc``
+  when the coordinator mounts the node's ``/proc``).
+- Windows: ``GetSystemTimes`` / ``GlobalMemoryStatusEx``.
+- Darwin (Intel + Apple Silicon): Mach ``host_statistics`` CPU + ``sysctl hw.memsize`` /
+  ``vm_stat`` memory. Same path under Rosetta; do not fork on ``platform.machine()``.
+- Jetson: optional jtop writer snapshot (``AGENTIC_JETSON_JTOP_METRICS_PATH``) for GPU /
+  power / temperature (additive overlay).
 
 Payload keys match the Node version so an existing frontend can point at either server.
+Apple Silicon ``gpu.*`` stays null/assume (no fake VRAM from unified memory).
 """
 
 from __future__ import annotations
@@ -138,6 +142,52 @@ def _sample_cpu_from_windows() -> float | None:
     return _percent_from(_CpuSample(idle=float(idle_t), total=float(total)))
 
 
+def _sample_cpu_from_macos() -> float | None:
+    """
+    System-wide CPU via Mach ``host_statistics`` / ``HOST_CPU_LOAD_INFO``.
+
+    Tick order: USER=0, SYSTEM=1, IDLE=2, NICE=3. Arch-agnostic (x86_64 + arm64).
+    """
+    import ctypes
+    import ctypes.util
+
+    HOST_CPU_LOAD_INFO = 3
+    HOST_CPU_LOAD_INFO_COUNT = 4
+
+    class host_cpu_load_info_data_t(ctypes.Structure):
+        _fields_ = [("cpu_ticks", ctypes.c_uint32 * HOST_CPU_LOAD_INFO_COUNT)]
+
+    lib_name = ctypes.util.find_library("c")
+    libc = ctypes.CDLL(lib_name or "/usr/lib/libSystem.B.dylib", use_errno=True)
+    mach_host_self = libc.mach_host_self
+    mach_host_self.restype = ctypes.c_uint
+    host_statistics = libc.host_statistics
+    host_statistics.argtypes = [
+        ctypes.c_uint,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_uint),
+    ]
+    host_statistics.restype = ctypes.c_int
+
+    info = host_cpu_load_info_data_t()
+    count = ctypes.c_uint(HOST_CPU_LOAD_INFO_COUNT)
+    kr = host_statistics(
+        mach_host_self(),
+        HOST_CPU_LOAD_INFO,
+        ctypes.cast(ctypes.byref(info), ctypes.POINTER(ctypes.c_int)),
+        ctypes.byref(count),
+    )
+    if kr != 0:
+        return None
+    ticks = info.cpu_ticks
+    idle = float(ticks[2])
+    total = float(ticks[0] + ticks[1] + ticks[2] + ticks[3])
+    if total <= 0:
+        return None
+    return _percent_from(_CpuSample(idle=idle, total=total))
+
+
 def sample_cpu_percent() -> float | None:
     """
     System-wide CPU busy percent, or ``None`` when unknown / first tick.
@@ -154,22 +204,35 @@ def sample_cpu_percent() -> float | None:
             return _sample_cpu_from_windows()
         except Exception:  # noqa: BLE001
             return None
+    if sys.platform == "darwin":
+        try:
+            return _sample_cpu_from_macos()
+        except Exception:  # noqa: BLE001
+            return None
     return None
 
 
-def _mem_total_available_from_proc() -> tuple[int, int] | None:
+def _mem_total_available_from_proc() -> tuple[int, int | None] | None:
+    """
+    Linux ``/proc/meminfo``.
+
+    Returns ``(total, available)``. ``available`` is ``None`` when ``MemAvailable`` is
+    absent so callers can leave ``usedPercent`` null instead of lying at 100%.
+    """
     total = 0
     available = 0
+    saw_available = False
     for line in (proc_root() / "meminfo").read_text(encoding="utf-8").splitlines():
         if line.startswith("MemTotal:"):
             total = int(line.split()[1]) * 1024
         elif line.startswith("MemAvailable:"):
             available = int(line.split()[1]) * 1024
-        if total and available:
+            saw_available = True
+        if total and saw_available:
             break
     if not total:
         return None
-    return total, available
+    return total, available if saw_available else None
 
 
 def _mem_total_available_from_windows() -> tuple[int, int] | None:
@@ -201,29 +264,145 @@ def _mem_total_available_from_windows() -> tuple[int, int] | None:
     return total, max(0, available)
 
 
-def _mem_total_available_from_sysconf() -> tuple[int, int] | None:
+def _mem_total_available_from_sysconf() -> tuple[int, int | None] | None:
     try:
         page_size = os.sysconf("SC_PAGE_SIZE")
         total_bytes = int(page_size * os.sysconf("SC_PHYS_PAGES"))
-        available_bytes = 0
-        if hasattr(os, "sysconf") and "SC_AVPHYS_PAGES" in os.sysconf_names:
-            available_bytes = int(page_size * os.sysconf("SC_AVPHYS_PAGES"))
         if total_bytes <= 0:
             return None
-        return total_bytes, max(0, available_bytes)
+        if hasattr(os, "sysconf") and "SC_AVPHYS_PAGES" in os.sysconf_names:
+            available_bytes = int(page_size * os.sysconf("SC_AVPHYS_PAGES"))
+            return total_bytes, max(0, available_bytes)
+        # Total without a real available counter — do not pretend available=0.
+        return total_bytes, None
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def parse_vm_stat_available_bytes(text: str, *, default_page_size: int = 4096) -> int | None:
+    """
+    Parse Darwin ``vm_stat`` output into an approximate available-bytes figure.
+
+    Uses ``Pages free`` + ``Pages inactive`` + ``Pages speculative`` (Node ``os.freemem``
+    spirit). Page size is taken from the header (``page size of N bytes``) — Apple Silicon
+    often reports 16384; do not hardcode 4096.
+    """
+    page_size = default_page_size
+    counts: dict[str, int] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if "page size of" in lower and "bytes" in lower:
+            # e.g. "Mach Virtual Memory Statistics: (page size of 16384 bytes)"
+            try:
+                after = lower.split("page size of", 1)[1]
+                page_size = int(after.split("bytes", 1)[0].strip())
+            except (IndexError, ValueError):
+                pass
+            continue
+        if ":" not in line:
+            continue
+        key, _, rest = line.partition(":")
+        key = key.strip()
+        num = rest.strip().rstrip(".").replace(",", "")
+        try:
+            counts[key] = int(num)
+        except ValueError:
+            continue
+    if page_size <= 0:
+        return None
+    free = counts.get("Pages free", 0)
+    inactive = counts.get("Pages inactive", 0)
+    speculative = counts.get("Pages speculative", 0)
+    if free == 0 and inactive == 0 and speculative == 0 and not any(
+        k.startswith("Pages ") for k in counts
+    ):
+        return None
+    return int((free + inactive + speculative) * page_size)
+
+
+def _macos_hw_memsize() -> int | None:
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        value = int((out.stdout or "").strip())
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _macos_vm_stat_text() -> str | None:
+    try:
+        out = subprocess.run(
+            ["vm_stat"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    text = out.stdout or ""
+    return text if text.strip() else None
+
+
+def _mem_total_available_from_macos() -> tuple[int, int | None] | None:
+    """Darwin RAM: ``hw.memsize`` total + ``vm_stat`` available (Intel + Apple Silicon)."""
+    total = _macos_hw_memsize()
+    if total is None:
+        # Fall back to SC_PHYS_PAGES when sysctl is unavailable (tests / restricted env).
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            total = int(page_size * os.sysconf("SC_PHYS_PAGES"))
+        except (OSError, ValueError, AttributeError):
+            return None
+    if total <= 0:
+        return None
+    default_page = 4096
+    try:
+        default_page = int(os.sysconf("SC_PAGE_SIZE")) or 4096
+    except (OSError, ValueError, AttributeError):
+        default_page = 4096
+    text = _macos_vm_stat_text()
+    if text is None:
+        return total, None
+    available = parse_vm_stat_available_bytes(text, default_page_size=default_page)
+    if available is None:
+        return total, None
+    return total, max(0, min(total, available))
 
 
 def sample_memory() -> dict[str, Any]:
     total_bytes = 0
     available_bytes = 0
+    available_known = False
     try:
         from_proc = _mem_total_available_from_proc()
     except OSError:
         from_proc = None
     if from_proc is not None:
-        total_bytes, available_bytes = from_proc
+        total_bytes, avail = from_proc
+        if avail is not None:
+            available_bytes = avail
+            available_known = True
     elif sys.platform == "win32":
         try:
             win = _mem_total_available_from_windows()
@@ -231,22 +410,36 @@ def sample_memory() -> dict[str, Any]:
             win = None
         if win is not None:
             total_bytes, available_bytes = win
+            available_known = True
+    elif sys.platform == "darwin":
+        try:
+            mac = _mem_total_available_from_macos()
+        except Exception:  # noqa: BLE001
+            mac = None
+        if mac is not None:
+            total_bytes, avail = mac
+            if avail is not None:
+                available_bytes = avail
+                available_known = True
     else:
         sysconf = _mem_total_available_from_sysconf()
         if sysconf is not None:
-            total_bytes, available_bytes = sysconf
+            total_bytes, avail = sysconf
+            if avail is not None:
+                available_bytes = avail
+                available_known = True
 
-    used_bytes = max(0, total_bytes - available_bytes)
+    used_bytes = max(0, total_bytes - available_bytes) if available_known else 0
     used_percent: float | None
-    if total_bytes > 0:
+    if total_bytes > 0 and available_known:
         used_percent = round((used_bytes / total_bytes) * 1000) / 10
     else:
-        # Do not report 0% when we simply could not measure.
+        # Do not report 0% or 100% when we simply could not measure available.
         used_percent = None
     return {
         "totalBytes": total_bytes,
-        "usedBytes": used_bytes,
-        "availableBytes": available_bytes,
+        "usedBytes": used_bytes if available_known else 0,
+        "availableBytes": available_bytes if available_known else 0,
         "usedPercent": used_percent,
     }
 

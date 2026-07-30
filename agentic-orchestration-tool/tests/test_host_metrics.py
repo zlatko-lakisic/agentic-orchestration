@@ -214,10 +214,124 @@ def test_windows_cpu_mock_idle_machine(monkeypatch: pytest.MonkeyPatch) -> None:
     assert pct < 50.0  # ~10% busy, not stuck at 100
 
 
-def test_non_linux_non_windows_cpu_returns_null(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_non_linux_non_windows_non_darwin_cpu_returns_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "freebsd")
+    reset_cpu_sample()
+    assert sample_cpu_percent() is None
+
+
+def test_macos_cpu_sampler_two_ticks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulated Mach host_statistics deltas produce a percent in [0, 100]."""
+    calls = {"n": 0}
+
+    def fake_macos() -> float | None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _percent_from(_CpuSample(idle=1000.0, total=1100.0))
+        return _percent_from(_CpuSample(idle=1900.0, total=2100.0))
+
+    monkeypatch.setattr("orchestration.host_metrics._sample_cpu_from_macos", fake_macos)
     monkeypatch.setattr(sys, "platform", "darwin")
     reset_cpu_sample()
     assert sample_cpu_percent() is None
+    pct = sample_cpu_percent()
+    assert pct is not None
+    assert 0.0 <= pct <= 100.0
+    assert pct < 50.0
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="live Darwin Mach sampler")
+def test_macos_cpu_live_sampler() -> None:
+    reset_cpu_sample()
+    assert sample_cpu_percent() is None
+    second = sample_cpu_percent()
+    assert second is None or (0.0 <= float(second) <= 100.0)
+
+
+def test_parse_vm_stat_page_size_4096() -> None:
+    from orchestration.host_metrics import parse_vm_stat_available_bytes
+
+    text = (
+        "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+        "Pages free:                               1100000.\n"
+        "Pages active:                             2000000.\n"
+        "Pages inactive:                           2500000.\n"
+        "Pages speculative:                          43000.\n"
+        "Pages wired down:                          500000.\n"
+    )
+    available = parse_vm_stat_available_bytes(text)
+    assert available == (1100000 + 2500000 + 43000) * 4096
+
+
+def test_parse_vm_stat_page_size_16384() -> None:
+    from orchestration.host_metrics import parse_vm_stat_available_bytes
+
+    text = (
+        "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+        "Pages free:                                100000.\n"
+        "Pages inactive:                            200000.\n"
+        "Pages speculative:                          10000.\n"
+    )
+    available = parse_vm_stat_available_bytes(text)
+    assert available == (100000 + 200000 + 10000) * 16384
+
+
+def test_macos_memory_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def boom_proc():
+        raise OSError("no /proc")
+
+    monkeypatch.setattr("orchestration.host_metrics._mem_total_available_from_proc", boom_proc)
+    monkeypatch.setattr(
+        "orchestration.host_metrics._mem_total_available_from_macos",
+        lambda: (32 * 1024**3, 12 * 1024**3),
+    )
+    memory = sample_memory()
+    assert memory["totalBytes"] == 32 * 1024**3
+    assert memory["availableBytes"] == 12 * 1024**3
+    assert memory["usedBytes"] == 20 * 1024**3
+    assert memory["usedPercent"] == 62.5
+
+
+def test_macos_memory_unknown_available_does_not_lie_at_100(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        "orchestration.host_metrics._mem_total_available_from_proc",
+        lambda: (_ for _ in ()).throw(OSError("no")),
+    )
+    monkeypatch.setattr(
+        "orchestration.host_metrics._mem_total_available_from_macos",
+        lambda: (32 * 1024**3, None),
+    )
+    memory = sample_memory()
+    assert memory["totalBytes"] == 32 * 1024**3
+    assert memory["availableBytes"] == 0
+    assert memory["usedPercent"] is None
+
+
+def test_linux_meminfo_without_memavailable_does_not_lie_at_100(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    (proc / "meminfo").write_text("MemTotal:       8000000 kB\n", encoding="utf-8")
+    monkeypatch.setenv("AGENTIC_HOST_METRICS_PROC_ROOT", str(proc))
+    memory = sample_memory()
+    assert memory["totalBytes"] == 8000000 * 1024
+    assert memory["usedPercent"] is None
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="live Darwin memory")
+def test_macos_memory_live_not_stuck_at_100() -> None:
+    memory = sample_memory()
+    assert memory["totalBytes"] > 0
+    assert memory["availableBytes"] > 0
+    assert memory["usedPercent"] is not None
+    assert 0.0 < float(memory["usedPercent"]) < 100.0
 
 
 def test_windows_memory_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,7 +358,7 @@ def test_memory_used_percent_is_null_when_total_unknown(monkeypatch: pytest.Monk
         lambda: (_ for _ in ()).throw(OSError("no")),
     )
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr("orchestration.host_metrics._mem_total_available_from_sysconf", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics._mem_total_available_from_macos", lambda: None)
     memory = sample_memory()
     assert memory["totalBytes"] == 0
     assert memory["usedPercent"] is None
@@ -254,8 +368,8 @@ def test_first_cpu_sample_has_no_percent_then_a_delta_appears() -> None:
     first = sample_host_metrics()
     assert first["cpu"]["percent"] is None
     second = sample_host_metrics()
-    # Linux (/proc) and Windows (GetSystemTimes) produce a delta; others stay null.
-    if sys.platform.startswith("linux") or sys.platform == "win32":
+    # Linux (/proc), Windows (GetSystemTimes), Darwin (Mach host_statistics).
+    if sys.platform.startswith("linux") or sys.platform in ("win32", "darwin"):
         assert isinstance(second["cpu"]["percent"], (int, float))
         assert 0.0 <= float(second["cpu"]["percent"]) <= 100.0
     else:

@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS host metrics (Intel + Apple Silicon)** — Darwin no longer returns permanent `cpu.percent: null` or `memory.usedPercent: 100` with `availableBytes: 0`. CPU uses Mach `host_statistics` / `HOST_CPU_LOAD_INFO` (same idle/total delta as Linux/Windows; arch-agnostic, including Rosetta). Memory uses `sysctl hw.memsize` + `vm_stat` (page size from the header — 4096 or 16384). Apple Silicon `gpu.*` stays null/`assume` (no fake VRAM from unified memory). Linux `/proc`, Windows ctypes, and Jetson jtop paths unchanged.
+- **Linux meminfo without MemAvailable** — when `MemTotal` is present but `MemAvailable` is missing, `usedPercent` is `null` instead of lying at 100% (same “don’t invent” policy as Darwin).
+
 ## [1.25.0] - 2026-07-30
 
 ### Added
