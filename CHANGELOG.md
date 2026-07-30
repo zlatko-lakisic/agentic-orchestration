@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.27.1] - 2026-07-30
+
 ### Added
 
 - **Session-overlay Ollama ensure** — on `session_overlay_register`, AO resolves each `client.*` ollama agent's API base from `OLLAMA_API_BASE` / `OLLAMA_HOST` when `ollama_host` is omitted or `workflow`, checks `/api/tags`, and HTTP-pulls missing models (no install/spawn in the engine pod). Bypasses the k8s `selfcontained` gate that previously skipped pulls. Also runs on first use for `client.*` agents. Disable with `AGENTIC_SERVE_SESSION_OVERLAY_ENSURE_OLLAMA=0`.
