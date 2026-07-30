@@ -253,3 +253,118 @@ def test_persist_failure_never_breaks_the_answer(tmp_path: Path, monkeypatch: py
         provider_id="p",
         user_id=None,
     )
+
+
+def test_wants_json_object() -> None:
+    assert direct_agent.wants_json_object({"type": "json_object"}) is True
+    assert direct_agent.wants_json_object({"type": "JSON_OBJECT"}) is True
+    assert direct_agent.wants_json_object({"type": "text"}) is False
+    assert direct_agent.wants_json_object(None) is False
+
+
+def test_parse_json_object_strict_no_fence_stripping() -> None:
+    assert direct_agent.parse_json_object_strict('{"a":1}') == {"a": 1}
+    with pytest.raises(direct_agent.DirectAgentFormatError) as exc:
+        direct_agent.parse_json_object_strict('```json\n{"a":1}\n```')
+    assert "not valid JSON" in exc.value.message
+    assert exc.value.raw is not None
+
+
+def test_validate_schema_lightweight_meeting_shape() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "technical": {"type": ["string", "null"]},
+            "commercial": {"type": ["string", "null"]},
+        },
+    }
+    direct_agent.validate_against_json_schema(
+        {"technical": "gpu?", "commercial": None}, schema
+    )
+    with pytest.raises(direct_agent.DirectAgentFormatError):
+        direct_agent.validate_against_json_schema(
+            {"technical": 12, "commercial": None}, schema
+        )
+
+
+def test_run_direct_agent_json_success(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_AUTO_ENSURE_RUNTIME", "0")
+
+    monkeypatch.setattr(
+        direct_agent,
+        "_ollama_chat_json",
+        lambda **_kw: '{"technical":"t","commercial":null}',
+    )
+
+    answer = run_direct_agent(
+        tool_root=tmp_path,
+        agent_provider_id="fake_local",
+        goal="split this",
+        response_format={"type": "json_object"},
+        json_schema={
+            "type": "object",
+            "properties": {
+                "technical": {"type": ["string", "null"]},
+                "commercial": {"type": ["string", "null"]},
+            },
+        },
+    )
+    import json
+
+    assert json.loads(answer) == {"technical": "t", "commercial": None}
+
+
+def test_run_direct_agent_json_invalid_raises_format_error(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_AUTO_ENSURE_RUNTIME", "0")
+    monkeypatch.setattr(
+        direct_agent,
+        "_ollama_chat_json",
+        lambda **_kw: "Sure, here is the split.",
+    )
+    with pytest.raises(direct_agent.DirectAgentFormatError) as exc:
+        run_direct_agent(
+            tool_root=tmp_path,
+            agent_provider_id="fake_local",
+            goal="split",
+            response_format={"type": "json_object"},
+        )
+    assert "not valid JSON" in exc.value.message
+    assert exc.value.raw == "Sure, here is the split."
+
+
+def test_run_direct_agent_json_schema_failure(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_AUTO_ENSURE_RUNTIME", "0")
+    monkeypatch.setattr(
+        direct_agent,
+        "_ollama_chat_json",
+        lambda **_kw: '{"technical":1,"commercial":null}',
+    )
+    with pytest.raises(direct_agent.DirectAgentFormatError):
+        run_direct_agent(
+            tool_root=tmp_path,
+            agent_provider_id="fake_local",
+            goal="split",
+            response_format={"type": "json_object"},
+            json_schema={
+                "type": "object",
+                "properties": {
+                    "technical": {"type": ["string", "null"]},
+                    "commercial": {"type": ["string", "null"]},
+                },
+            },
+        )

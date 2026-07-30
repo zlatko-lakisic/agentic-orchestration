@@ -8,17 +8,37 @@ LLM round trip before the answer starts. The dynamic planner path
 
 This is not a second agent runtime: it builds a one-task ``WorkflowConfig`` and kicks
 it off through ``orchestration.runner.build_workflow``, exactly like a society turn.
+
+Optional ``response_format={"type": "json_object"}`` skips CrewAI and calls Ollama
+``/api/chat`` (or LiteLLM) with native JSON mode, then validates with ``json.loads``
+(no fence stripping) and optional ``json_schema``.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_EXPECTED_OUTPUT = (
     "A direct, complete answer in plain prose. No preamble, no restatement of the question."
 )
+
+JSON_EXPECTED_OUTPUT = (
+    "Return a single JSON object only. No markdown fences, no preamble, no trailing prose."
+)
+
+
+class DirectAgentFormatError(Exception):
+    """Model output failed ``json.loads`` or schema validation (JSON mode)."""
+
+    def __init__(self, message: str, *, raw: str | None = None) -> None:
+        super().__init__(message)
+        self.raw = raw
+        self.message = message
 
 
 def _tool_root_default() -> Path:
@@ -103,6 +123,331 @@ def build_direct_agent_config(
     )
 
 
+def wants_json_object(response_format: dict[str, Any] | None) -> bool:
+    if not isinstance(response_format, dict):
+        return False
+    return str(response_format.get("type") or "").strip().lower() == "json_object"
+
+
+def parse_json_object_strict(raw: str) -> Any:
+    """``json.loads`` only — no markdown fence stripping (acceptance requirement)."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise DirectAgentFormatError(
+            f"response is not valid JSON: {exc}",
+            raw=raw,
+        ) from exc
+
+
+def validate_against_json_schema(data: Any, schema: dict[str, Any]) -> None:
+    """Validate ``data`` against ``schema``; raise ``DirectAgentFormatError`` on failure."""
+    try:
+        import jsonschema  # type: ignore[import-untyped]
+
+        jsonschema.validate(instance=data, schema=schema)
+        return
+    except ImportError:
+        pass
+    except Exception as exc:  # noqa: BLE001 — jsonschema.ValidationError etc.
+        raise DirectAgentFormatError(
+            f"response failed jsonSchema validation: {exc}",
+            raw=json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data,
+        ) from exc
+
+    _lightweight_schema_check(data, schema)
+
+
+def _lightweight_schema_check(data: Any, schema: dict[str, Any]) -> None:
+    """Minimal fallback when ``jsonschema`` is not installed."""
+    stype = schema.get("type")
+    types = stype if isinstance(stype, list) else ([stype] if stype else [])
+    if "object" in types or stype == "object" or (not types and "properties" in schema):
+        if not isinstance(data, dict):
+            raise DirectAgentFormatError(
+                f"response must be a JSON object, got {type(data).__name__}",
+                raw=json.dumps(data, ensure_ascii=False),
+            )
+        required = schema.get("required") or []
+        if isinstance(required, list):
+            missing = [k for k in required if k not in data]
+            if missing:
+                raise DirectAgentFormatError(
+                    f"response missing required properties: {', '.join(str(m) for m in missing)}",
+                    raw=json.dumps(data, ensure_ascii=False),
+                )
+        props = schema.get("properties")
+        if isinstance(props, dict):
+            for key, prop_schema in props.items():
+                if key not in data or not isinstance(prop_schema, dict):
+                    continue
+                _check_prop_type(key, data[key], prop_schema)
+        return
+    if types and not _value_matches_types(data, types):
+        raise DirectAgentFormatError(
+            f"response type mismatch: expected {types!r}, got {type(data).__name__}",
+            raw=json.dumps(data, ensure_ascii=False),
+        )
+
+
+def _check_prop_type(key: str, value: Any, prop_schema: dict[str, Any]) -> None:
+    stype = prop_schema.get("type")
+    if stype is None:
+        return
+    types = stype if isinstance(stype, list) else [stype]
+    if not _value_matches_types(value, [str(t) for t in types]):
+        raise DirectAgentFormatError(
+            f"property {key!r} type mismatch: expected {types!r}, got {type(value).__name__}",
+            raw=json.dumps({key: value}, ensure_ascii=False),
+        )
+
+
+def _value_matches_types(value: Any, types: list[Any]) -> bool:
+    for t in types:
+        name = str(t).lower()
+        if name == "null" and value is None:
+            return True
+        if name == "string" and isinstance(value, str):
+            return True
+        if name == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return True
+        if name == "integer" and isinstance(value, int) and not isinstance(value, bool):
+            return True
+        if name == "boolean" and isinstance(value, bool):
+            return True
+        if name == "object" and isinstance(value, dict):
+            return True
+        if name == "array" and isinstance(value, list):
+            return True
+    return False
+
+
+def _json_mode_user_prompt(*, goal: str, context: str, json_schema: dict[str, Any] | None) -> str:
+    parts = [build_direct_task_description(goal=goal, context=context), JSON_EXPECTED_OUTPUT]
+    if json_schema:
+        parts.append(
+            "## JSON schema\n"
+            "Your JSON must conform to this schema:\n"
+            + json.dumps(json_schema, ensure_ascii=False)
+        )
+    return "\n\n".join(parts)
+
+
+def _finalize_json_text(raw: str, *, json_schema: dict[str, Any] | None) -> str:
+    text = str(raw or "")
+    # Preserve exact body for the client; only strip outer whitespace that would
+    # still leave a valid JSON document after loads of the trimmed form — we
+    # validate the trimmed form but return the stripped string so loads succeeds.
+    stripped = text.strip()
+    data = parse_json_object_strict(stripped)
+    if json_schema:
+        validate_against_json_schema(data, json_schema)
+    return stripped
+
+
+def _ollama_chat_json(
+    *,
+    entry: dict[str, Any],
+    prompt: str,
+    json_schema: dict[str, Any] | None,
+    on_progress: Callable[[str], None] | None,
+) -> str:
+    from agent_providers.ollama_provider import (
+        ensure_ollama_runtime,
+        normalize_ollama_host,
+    )
+    from orchestration.runtime_bootstrap import should_ensure_ollama
+
+    model = str(entry.get("model") or "").strip().removeprefix("ollama/")
+    if not model:
+        raise ValueError("ollama agent entry requires model")
+    host = normalize_ollama_host(
+        str(entry.get("ollama_host") or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"))
+    )
+    selfcontained = bool(entry.get("selfcontained", False))
+    if should_ensure_ollama(selfcontained=selfcontained):
+        if on_progress:
+            on_progress(f"ensuring runtime for {entry.get('id')}")
+        ensure_ollama_runtime(model=model, host=host)
+
+    fmt: Any = "json"
+    if isinstance(json_schema, dict) and json_schema:
+        fmt = json_schema
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": JSON_EXPECTED_OUTPUT},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": False,
+        "format": fmt,
+    }
+    if on_progress:
+        on_progress("generating")
+    raw_http = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        f"{host}/api/chat",
+        data=raw_http,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+        # Schema-as-format may be unsupported; retry with plain "json".
+        if fmt != "json":
+            body["format"] = "json"
+            req2 = urllib.request.Request(
+                f"{host}/api/chat",
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req2, timeout=120) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+            except Exception as exc2:  # noqa: BLE001
+                raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
+        else:
+            raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Ollama /api/chat failed: {exc}") from exc
+
+    message = payload.get("message") if isinstance(payload, dict) else None
+    content = ""
+    if isinstance(message, dict):
+        content = str(message.get("content") or "")
+    if not content.strip():
+        raise DirectAgentFormatError("Ollama returned empty content", raw=content or None)
+    return content
+
+
+def _litellm_chat_json(
+    *,
+    entry: dict[str, Any],
+    prompt: str,
+    on_progress: Callable[[str], None] | None,
+) -> str:
+    import litellm
+
+    from agent_providers.ollama_provider import litellm_api_base_for_ollama
+
+    raw_model = str(entry.get("model") or "").strip()
+    ptype = str(entry.get("type") or "").strip().lower()
+    if ptype == "ollama" and not raw_model.startswith("ollama/"):
+        clean_model = f"ollama/{raw_model.removeprefix('ollama/')}"
+    elif "/" not in raw_model:
+        # Best-effort: assume OpenAI-compatible unless type maps better.
+        prefix = {
+            "openai": "openai",
+            "anthropic": "anthropic",
+            "huggingface": "huggingface",
+            "vllm": "openai",
+            "jetstream": "openai",
+        }.get(ptype, "openai")
+        clean_model = f"{prefix}/{raw_model}"
+    else:
+        clean_model = raw_model
+
+    kwargs: dict[str, Any] = {
+        "model": clean_model,
+        "messages": [
+            {"role": "system", "content": JSON_EXPECTED_OUTPUT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+    if clean_model.lower().startswith("ollama/"):
+        kwargs["api_base"] = litellm_api_base_for_ollama()
+
+    if on_progress:
+        on_progress("generating")
+
+    def _content_from(resp_raw: Any) -> str:
+        if hasattr(resp_raw, "model_dump"):
+            resp = resp_raw.model_dump()
+        elif hasattr(resp_raw, "dict"):
+            resp = resp_raw.dict()
+        else:
+            resp = resp_raw
+        if not isinstance(resp, dict):
+            return ""
+        choices = resp.get("choices") or []
+        first = choices[0] if isinstance(choices, list) and choices else {}
+        if isinstance(first, dict):
+            msg = first.get("message")
+            if isinstance(msg, dict):
+                c = msg.get("content")
+                if isinstance(c, str):
+                    return c
+            t = first.get("text")
+            if isinstance(t, str):
+                return t
+        return ""
+
+    try:
+        content = _content_from(litellm.completion(**kwargs))
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc)
+        if "response_format" in detail.lower() or "unsupported" in detail.lower():
+            kwargs.pop("response_format", None)
+            content = _content_from(litellm.completion(**kwargs))
+        else:
+            raise
+
+    if not str(content or "").strip():
+        raise DirectAgentFormatError("LLM returned empty content", raw=content or None)
+    return str(content)
+
+
+def run_direct_agent_json(
+    *,
+    tool_root: Path | None = None,
+    agent_provider_id: str,
+    goal: str,
+    context: str = "",
+    json_schema: dict[str, Any] | None = None,
+    on_progress: Callable[[str], None] | None = None,
+) -> str:
+    """JSON-mode direct agent: native format + strict ``json.loads`` (+ optional schema)."""
+    text = str(goal or "").strip()
+    if not text:
+        raise ValueError("goal is required")
+
+    from orchestration.dynamic_run import catalog_paths
+
+    root = tool_root or _tool_root_default()
+    paths = catalog_paths(root)
+    pid = str(agent_provider_id or "").strip()
+    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
+    prompt = _json_mode_user_prompt(goal=text, context=context, json_schema=json_schema)
+
+    def progress(message: str) -> None:
+        if on_progress is not None:
+            on_progress(message)
+
+    progress(f"starting {pid}")
+    ptype = str(entry.get("type") or "").strip().lower()
+    if ptype == "ollama" or str(entry.get("model") or "").lower().startswith("ollama/"):
+        raw = _ollama_chat_json(
+            entry=entry,
+            prompt=prompt,
+            json_schema=json_schema if isinstance(json_schema, dict) else None,
+            on_progress=on_progress,
+        )
+    else:
+        raw = _litellm_chat_json(entry=entry, prompt=prompt, on_progress=on_progress)
+
+    return _finalize_json_text(
+        raw,
+        json_schema=json_schema if isinstance(json_schema, dict) else None,
+    )
+
+
 def run_direct_agent(
     *,
     tool_root: Path | None = None,
@@ -115,12 +460,28 @@ def run_direct_agent(
     quiet: bool = True,
     persist: bool = True,
     on_progress: Callable[[str], None] | None = None,
+    response_format: dict[str, Any] | None = None,
+    json_schema: dict[str, Any] | None = None,
 ) -> str:
     """Ask one catalog agent one question and return its answer text.
 
     ``on_progress`` receives short status lines (ensure/pull/start/generating) so a
     daemon WebSocket can stream them as ``chunk`` frames with ``stream: stderr``.
+
+    When ``response_format`` is ``{"type": "json_object"}``, uses native JSON mode
+    (no CrewAI, no prose sanitize, no KB persist). Invalid JSON raises
+    ``DirectAgentFormatError``.
     """
+    if wants_json_object(response_format):
+        return run_direct_agent_json(
+            tool_root=tool_root,
+            agent_provider_id=agent_provider_id,
+            goal=goal,
+            context=context,
+            json_schema=json_schema if isinstance(json_schema, dict) else None,
+            on_progress=on_progress,
+        )
+
     text = str(goal or "").strip()
     if not text:
         raise ValueError("goal is required")

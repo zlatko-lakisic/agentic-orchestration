@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-07-30
+
+### Added
+
+- **Direct-agent JSON mode** — optional `responseFormat: { type: "json_object" }` and `jsonSchema` on `POST /api/v1/direct-agent` (and WS). Ollama uses `/api/chat` `format`; other providers use LiteLLM `response_format`. Success `text` is strict `json.loads` (no fence stripping); parse/schema failures return HTTP 200 with `ok: false` so clients can fall back. Documented that `AGENTIC_OLLAMA_KEEPALIVE_MODELS` may include the meeting-router model tag (same tag as meeting agents → VRAM once).
+
 ## [1.24.5] - 2026-07-30
 
 ### Fixed

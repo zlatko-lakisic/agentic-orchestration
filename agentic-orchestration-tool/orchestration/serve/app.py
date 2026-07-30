@@ -34,12 +34,22 @@ def identity_from_request(request: Request) -> Identity:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
+class DirectAgentResponseFormat(BaseModel):
+    type: str = "text"
+
+    model_config = {"populate_by_name": True}
+
+
 class DirectAgentRequest(BaseModel):
     agent_provider_id: str = Field(..., alias="agentProviderId")
     text: str
     context: str = ""
     question_id: str | None = Field(default=None, alias="questionId")
     session_id: str | None = Field(default=None, alias="sessionId")
+    response_format: DirectAgentResponseFormat | dict[str, Any] | None = Field(
+        default=None, alias="responseFormat"
+    )
+    json_schema: dict[str, Any] | None = Field(default=None, alias="jsonSchema")
 
     model_config = {"populate_by_name": True}
 
@@ -169,12 +179,24 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         payload: DirectAgentRequest,
         identity: Identity = Depends(identity_from_request),
     ) -> dict[str, Any]:
-        from orchestration.direct_agent import run_direct_agent
+        from orchestration.direct_agent import DirectAgentFormatError, run_direct_agent
 
         text = (payload.text or "").strip()
         if not text:
             raise HTTPException(status_code=400, detail="text is required")
+        response_format: dict[str, Any] | None = None
+        if payload.response_format is not None:
+            if isinstance(payload.response_format, DirectAgentResponseFormat):
+                response_format = payload.response_format.model_dump()
+            elif isinstance(payload.response_format, dict):
+                response_format = dict(payload.response_format)
         started = time.monotonic()
+        base: dict[str, Any] = {
+            "questionId": payload.question_id,
+            "agentProviderId": payload.agent_provider_id,
+        }
+        if response_format is not None:
+            base["responseFormat"] = response_format
         try:
             answer = await run_in_threadpool(
                 lambda: run_direct_agent(
@@ -184,16 +206,25 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     context=payload.context or "",
                     session_slug=payload.session_id or identity.session_id,
                     user_id=identity.user_id,
+                    response_format=response_format,
+                    json_schema=payload.json_schema,
                 )
             )
+        except DirectAgentFormatError as exc:
+            return {
+                **base,
+                "ok": False,
+                "error": exc.message,
+                "text": exc.raw,
+                "elapsedMs": round((time.monotonic() - started) * 1000, 1),
+            }
         except (LookupError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return {
+            **base,
             "ok": True,
-            "questionId": payload.question_id,
-            "agentProviderId": payload.agent_provider_id,
             "text": answer,
             "elapsedMs": round((time.monotonic() - started) * 1000, 1),
         }

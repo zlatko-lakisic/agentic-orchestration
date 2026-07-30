@@ -189,7 +189,71 @@ def test_direct_agent_route_reports_engine_failures(
     ).json()
     assert body["text"] == "mocked answer"
     assert body["questionId"] == "q-1"
+    assert body["ok"] is True
     assert body["elapsedMs"] >= 0
+
+
+def test_direct_agent_route_json_mode_echoes_format_and_ok(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    import orchestration.direct_agent as direct_agent
+
+    monkeypatch.setattr(
+        direct_agent,
+        "run_direct_agent",
+        lambda **_kw: '{"technical":null,"commercial":"pricing"}',
+    )
+    body = client.post(
+        "/api/v1/direct-agent",
+        json={
+            "agentProviderId": "kb_meeting_router",
+            "text": "What is the list price?",
+            "responseFormat": {"type": "json_object"},
+            "jsonSchema": {
+                "type": "object",
+                "properties": {
+                    "technical": {"type": ["string", "null"]},
+                    "commercial": {"type": ["string", "null"]},
+                },
+            },
+            "questionId": "q-json",
+        },
+    ).json()
+    assert body["ok"] is True
+    assert body["responseFormat"] == {"type": "json_object"}
+    assert json.loads(body["text"])["commercial"] == "pricing"
+
+
+def test_direct_agent_route_json_mode_ok_false_on_format_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.direct_agent as direct_agent
+
+    def boom(**_kw):
+        raise direct_agent.DirectAgentFormatError(
+            "response is not valid JSON",
+            raw="not json at all",
+        )
+
+    monkeypatch.setattr(direct_agent, "run_direct_agent", boom)
+    response = client.post(
+        "/api/v1/direct-agent",
+        json={
+            "agentProviderId": "kb_meeting_router",
+            "text": "split",
+            "responseFormat": {"type": "json_object"},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "not valid JSON" in body["error"]
+    assert body["text"] == "not json at all"
+    assert body["responseFormat"] == {"type": "json_object"}
 
 
 def test_direct_agent_route_rejects_empty_text(client: TestClient) -> None:

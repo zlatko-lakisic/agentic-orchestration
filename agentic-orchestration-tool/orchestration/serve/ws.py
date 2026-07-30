@@ -257,8 +257,13 @@ class WsConnection:
         text: str,
         question_id: str | None,
     ) -> None:
+        from orchestration.direct_agent import DirectAgentFormatError
+
         started = time.monotonic()
         tag: dict[str, Any] = {"question_id": question_id} if question_id else {}
+        response_format = message.get("responseFormat") or message.get("response_format")
+        if isinstance(response_format, dict):
+            tag["responseFormat"] = response_format
         try:
             await self.send(
                 {"type": "preflight", "status": "done", "message": "Engine warm.", **tag}
@@ -278,6 +283,21 @@ class WsConnection:
             )
         except asyncio.CancelledError:
             raise
+        except DirectAgentFormatError as exc:
+            if exc.raw:
+                await self.send({"type": "chunk", "stream": "stdout", "text": exc.raw, **tag})
+            await self.send_error(exc.message, question_id=question_id)
+            await self.send(
+                {
+                    "type": "run_end",
+                    "ok": False,
+                    "exitCode": 0,
+                    "error": exc.message,
+                    "text": exc.raw,
+                    "elapsedMs": round((time.monotonic() - started) * 1000, 1),
+                    **tag,
+                }
+            )
         except Exception as exc:  # noqa: BLE001
             await self.send_error(str(exc) or exc.__class__.__name__, question_id=question_id)
             await self.send(
@@ -319,6 +339,8 @@ class WsConnection:
                     {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n", **tag}
                 )
 
+            response_format = message.get("responseFormat") or message.get("response_format")
+            json_schema = message.get("jsonSchema") or message.get("json_schema")
             return run_direct_agent(
                 tool_root=self.tool_root,
                 agent_provider_id=agent_provider_id,
@@ -327,6 +349,8 @@ class WsConnection:
                 session_slug=session_slug or None,
                 user_id=user_id,
                 on_progress=progress,
+                response_format=response_format if isinstance(response_format, dict) else None,
+                json_schema=json_schema if isinstance(json_schema, dict) else None,
             )
 
         from orchestration.dynamic_run import run_dynamic_goal
