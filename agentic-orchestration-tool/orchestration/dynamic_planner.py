@@ -1488,23 +1488,31 @@ def build_dynamic_workflow_config(
             "AGENTIC_ASSUME_VRAM_GB to your real GPU size, set AGENTIC_VRAM_HEURISTICS=0, "
             "or disable filtering with AGENTIC_DISABLE_HARDWARE_FILTER=1."
         )
-    if excluded_hw and os.getenv("AGENTIC_HARDWARE_FILTER_QUIET", "").strip().lower() not in (
+    if os.getenv("AGENTIC_HARDWARE_FILTER_QUIET", "").strip().lower() not in (
         "1",
         "true",
         "yes",
         "on",
     ):
-        cap = 24
-        show = excluded_hw[:cap]
-        more = len(excluded_hw) - cap
-        suffix = f" (+{more} more)" if more > 0 else ""
+        from orchestration.hardware_profile import hardware_snapshot
+
+        snap = hardware_snapshot()
+        gpu_name = (snap.get("gpu") or {}).get("name") or "unknown GPU"
         vram_txt = f"{vram_g:.1f} GiB" if isinstance(vram_g, (int, float)) else "unknown"
-        print(
-            f"(dynamic) hardware: available={sorted(available_arch)!r}; NVIDIA VRAM ~{vram_txt}; excluded "
-            f"{len(excluded_hw)} provider(s) (architecture/min_vram_gb/heuristic): "
-            f"{', '.join(show)}{suffix}",
-            file=sys.stderr,
+        line = (
+            f"(dynamic) hardware: {gpu_name}; available={sorted(available_arch)!r}; "
+            f"VRAM ~{vram_txt}"
         )
+        if excluded_hw:
+            cap = 24
+            show = excluded_hw[:cap]
+            more = len(excluded_hw) - cap
+            suffix = f" (+{more} more)" if more > 0 else ""
+            line += (
+                f"; excluded {len(excluded_hw)} provider(s) "
+                f"(architecture/min_vram_gb/heuristic): {', '.join(show)}{suffix}"
+            )
+        print(line, file=sys.stderr)
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
     if allowed_ids:
         allowed_set = set(allowed_ids)

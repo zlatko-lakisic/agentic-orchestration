@@ -193,15 +193,11 @@ def effective_min_vram_gb(entry: dict[str, Any]) -> float | None:
 
 
 def detect_max_nvidia_vram_gb() -> float | None:
-    """Largest single-GPU dedicated memory via ``nvidia-smi`` (GiB). None if unavailable."""
-    override = os.getenv("AGENTIC_ASSUME_VRAM_GB", "").strip()
-    if override:
-        try:
-            v = float(override)
-            return v if v > 0 else None
-        except ValueError:
-            pass
+    """Largest single-GPU dedicated memory via ``nvidia-smi`` (GiB). None if unavailable.
 
+    Does not apply ``AGENTIC_ASSUME_VRAM_GB`` — that is handled by
+    :func:`detect_vram_gb_available` so AMD/Intel detection is not skipped.
+    """
     if shutil.which("nvidia-smi") is None:
         return None
     try:
@@ -235,6 +231,14 @@ def detect_max_nvidia_vram_gb() -> float | None:
         return max_mib / 1024.0
     except (OSError, subprocess.TimeoutExpired):
         return None
+
+
+def detect_max_vram_gb() -> float | None:
+    """Largest detected dedicated VRAM across NVIDIA / macOS AMD-Intel / Linux amdgpu."""
+    nvidia = detect_max_nvidia_vram_gb()
+    if nvidia is not None:
+        return nvidia
+    return detect_max_vram_gb_non_nvidia()
 
 
 def _apply_vram_caps(vram_gb: float) -> float:
@@ -279,10 +283,10 @@ def filter_catalog_by_vram(
     ):
         return list(entries), [], None
 
-    vram = detect_max_nvidia_vram_gb()
+    # Use the unified detector (NVIDIA + AMD/Intel macOS/Linux + assume/env caps).
+    vram = detect_vram_gb_available()
     if vram is None:
         return list(entries), [], None
-    vram = _apply_vram_caps(vram)
 
     kept: list[dict[str, Any]] = []
     excluded: list[str] = []
@@ -333,23 +337,22 @@ def detect_vram_gb_available() -> float | None:
     """
     VRAM budget available for a *concurrently resident* model set (GiB).
 
-    ``AGENTIC_VRAM_GB`` wins when set (explicit budget, useful for unified-memory
-    boards where nvidia-smi lies or is absent). Otherwise prefers the largest
-    detected GPU (NVIDIA / macOS AMD-Intel / Linux amdgpu) with the usual
-    ``AGENTIC_MAX_VRAM_*`` caps applied. ``None`` means "unknown" — callers should
-    degrade to a single model rather than guess.
+    ``AGENTIC_VRAM_GB`` then ``AGENTIC_ASSUME_VRAM_GB`` win when set (explicit
+    budget). Otherwise prefers the largest detected GPU (NVIDIA / macOS AMD-Intel /
+    Linux amdgpu) with the usual ``AGENTIC_MAX_VRAM_*`` caps applied. ``None``
+    means "unknown" — callers should degrade to a single model rather than guess.
     """
-    override = os.getenv("AGENTIC_VRAM_GB", "").strip()
-    if override:
+    for env_name in ("AGENTIC_VRAM_GB", "AGENTIC_ASSUME_VRAM_GB"):
+        override = os.getenv(env_name, "").strip()
+        if not override:
+            continue
         try:
             value = float(override)
             if value > 0:
                 return _apply_vram_caps(value)
         except ValueError:
-            pass
-    detected = detect_max_nvidia_vram_gb()
-    if detected is None:
-        detected = detect_max_vram_gb_non_nvidia()
+            continue
+    detected = detect_max_vram_gb()
     if detected is None:
         return None
     return _apply_vram_caps(detected)
@@ -365,7 +368,6 @@ def detect_max_vram_gb_non_nvidia() -> float | None:
         return None
     if not hit:
         return None
-    # Skip assume-only / util-only Apple unified samples without a real total.
     src = str(hit.get("vramSource") or "")
     if src == "nvidia-smi":
         return None
@@ -375,6 +377,61 @@ def detect_max_vram_gb_non_nvidia() -> float | None:
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _gpu_vendor_from_sample(hit: dict[str, Any] | None) -> str | None:
+    if not hit:
+        return None
+    name = str(hit.get("name") or "").lower()
+    src = str(hit.get("vramSource") or "").lower()
+    if "nvidia" in name or src == "nvidia-smi":
+        return "nvidia"
+    if "radeon" in name or "amd" in name or "amdgpu" in src:
+        return "amd"
+    if "intel" in name or "i915" in src:
+        return "intel"
+    if "agx" in name or "apple" in name:
+        return "apple"
+    if src.startswith("system_profiler") or src == "ioreg":
+        return "metal"
+    return None
+
+
+def hardware_snapshot() -> dict[str, Any]:
+    """
+    What AO believes about this host — used by ``/health``, planners, and smokes.
+
+    Always safe to call; missing detectors yield nulls rather than inventing hardware.
+    """
+    import platform
+    import sys
+
+    gpu_hit: dict[str, Any] | None
+    try:
+        from orchestration.host_metrics import sample_gpu
+
+        gpu_hit = sample_gpu()
+    except Exception:  # noqa: BLE001
+        gpu_hit = None
+
+    archs = sorted(detect_available_architectures())
+    vram = detect_vram_gb_available()
+    gpu_block = {
+        "name": (gpu_hit or {}).get("name"),
+        "vendor": _gpu_vendor_from_sample(gpu_hit),
+        "percent": (gpu_hit or {}).get("percent"),
+        "vramTotalGb": (gpu_hit or {}).get("vramTotalGb"),
+        "vramUsedGb": (gpu_hit or {}).get("vramUsedGb"),
+        "vramFreeGb": (gpu_hit or {}).get("vramFreeGb"),
+        "vramSource": (gpu_hit or {}).get("vramSource"),
+    }
+    return {
+        "platform": sys.platform,
+        "arch": platform.machine(),
+        "architectures": archs,
+        "vramGbAvailable": vram,
+        "gpu": gpu_block,
+    }
 
 
 def _resident_headroom_gb() -> float:

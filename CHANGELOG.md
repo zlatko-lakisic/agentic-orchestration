@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Session overlay + MCP tunnel (opt-in)** — WebSocket clients can register ephemeral `client.*` agent/MCP/skill dicts (`session_overlay_register` / `clear`) when `AGENTIC_SERVE_SESSION_OVERLAY=1`. Session MCP entries use `tunnel://session-mcp/<alias>`; with `AGENTIC_SERVE_MCP_TUNNEL=1` the daemon proxies HTTP via `mcp_tunnel_request` / `mcp_tunnel_response` on the owning socket (loopback only — never dials the client LAN; stdio rejected in overlays). Evict on disconnect, clear, and TTL. Optional `mcpProviderIds` on REST + WS `direct_agent` forwards to `run_direct_agent`. Flags default off; Node `server.mjs` unchanged.
+
+### Fixed
+
+- **Catalog VRAM filtering uses AMD/Intel too** — `filter_catalog_by_vram` only consulted `nvidia-smi`, so on a Mac with a Radeon (or Linux amdgpu) AO treated VRAM as unknown and kept oversized Ollama providers. It now uses `detect_vram_gb_available()` (NVIDIA → macOS AMD/Intel → Linux amdgpu → assume/env). Engine `/health` exposes a `hardware` snapshot (`architectures`, `vramGbAvailable`, `gpu.name` / vendor / VRAM) so AO and KnowBuddy can see what the host actually is.
+
 ## [1.26.0] - 2026-07-30
 
 ### Added

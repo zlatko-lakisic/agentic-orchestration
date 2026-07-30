@@ -49,6 +49,10 @@ def test_health_reports_version_and_warm_catalogs(client: TestClient) -> None:
     assert "resident" in body
     assert "keepaliveModels" in body["resident"]
     assert "vramGbAvailable" in body["resident"]
+    assert "hardware" in body
+    assert "architectures" in body["hardware"]
+    assert "gpu" in body["hardware"]
+    assert "vramGbAvailable" in body["hardware"]
 
 
 def test_api_ping_identifies_this_process(client: TestClient) -> None:

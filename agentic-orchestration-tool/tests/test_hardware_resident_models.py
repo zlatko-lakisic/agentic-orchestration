@@ -192,3 +192,52 @@ def test_detect_vram_ignores_a_bad_env_value(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("AGENTIC_VRAM_GB", "not-a-number")
     monkeypatch.setenv("AGENTIC_ASSUME_VRAM_GB", "10")
     assert detect_vram_gb_available() == 10.0
+
+
+def test_filter_catalog_uses_non_nvidia_vram(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestration.hardware_profile import filter_catalog_by_vram
+
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_vram_gb_available",
+        lambda: 4.0,
+    )
+    kept, excluded, vram = filter_catalog_by_vram(
+        [
+            entry("tiny", min_vram_gb=3.0),
+            entry("huge", min_vram_gb=16.0),
+            {"id": "cloud", "type": "openai", "model": "gpt"},
+        ]
+    )
+    assert vram == 4.0
+    assert [e["id"] for e in kept] == ["tiny", "cloud"]
+    assert excluded == ["huge"]
+
+
+def test_hardware_snapshot_includes_gpu_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestration.hardware_profile import hardware_snapshot
+
+    monkeypatch.setattr(
+        "orchestration.host_metrics.sample_gpu",
+        lambda: {
+            "percent": None,
+            "vramTotalGb": 4.0,
+            "vramUsedGb": 0.5,
+            "vramFreeGb": 3.5,
+            "vramSource": "system_profiler+ioreg",
+            "name": "AMD Radeon Pro 5500M",
+        },
+    )
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_vram_gb_available",
+        lambda: 4.0,
+    )
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_available_architectures",
+        lambda: {"cpu", "gpu"},
+    )
+    snap = hardware_snapshot()
+    assert snap["vramGbAvailable"] == 4.0
+    assert "gpu" in snap["architectures"]
+    assert snap["gpu"]["name"] == "AMD Radeon Pro 5500M"
+    assert snap["gpu"]["vendor"] == "amd"
+    assert snap["gpu"]["vramTotalGb"] == 4.0

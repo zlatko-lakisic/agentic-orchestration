@@ -46,6 +46,7 @@ class DirectAgentRequest(BaseModel):
     context: str = ""
     question_id: str | None = Field(default=None, alias="questionId")
     session_id: str | None = Field(default=None, alias="sessionId")
+    mcp_provider_ids: list[str] | None = Field(default=None, alias="mcpProviderIds")
     response_format: DirectAgentResponseFormat | dict[str, Any] | None = Field(
         default=None, alias="responseFormat"
     )
@@ -126,11 +127,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        from orchestration.hardware_profile import detect_vram_gb_available
+        from orchestration.hardware_profile import hardware_snapshot
         from orchestration.ollama_keepalive import keepalive_status, resolve_keepalive_model_tags
 
         warm = dict(app.state.warm or {})
         ka = keepalive_status()
+        hw = await run_in_threadpool(hardware_snapshot)
         return {
             "ok": True,
             "version": engine_version(),
@@ -139,11 +141,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "toolRoot": str(root),
             "bind": f"{serve_host()}:{serve_port()}",
             "catalogs": warm,
+            "hardware": hw,
             "resident": {
                 "keepaliveModels": ka.get("models") or resolve_keepalive_model_tags(),
                 "keepaliveOk": ka.get("ok"),
                 "keepaliveTs": ka.get("ts"),
-                "vramGbAvailable": detect_vram_gb_available(),
+                "vramGbAvailable": hw.get("vramGbAvailable"),
                 "ollamaNumParallel": (
                     os.getenv("AGENTIC_OLLAMA_NUM_PARALLEL", "").strip()
                     or os.getenv("OLLAMA_NUM_PARALLEL", "").strip()
@@ -206,6 +209,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     context=payload.context or "",
                     session_slug=payload.session_id or identity.session_id,
                     user_id=identity.user_id,
+                    mcp_provider_ids=payload.mcp_provider_ids,
                     response_format=response_format,
                     json_schema=payload.json_schema,
                 )
