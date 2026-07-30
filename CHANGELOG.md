@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.27.2] - 2026-07-30
+
+### Fixed
+
+- **Jetson Ollama k8s fix on fresh hosts** — `jetson-fix-ollama-k8s.sh` no longer fails when `agentic-orchestration` namespace is not created yet.
+
+
+
 ## [1.27.1] - 2026-07-30
 
 ### Added
