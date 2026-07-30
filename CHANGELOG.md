@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-07-30
+
 ### Added
 
 - **AMD / Intel GPU metrics (alongside NVIDIA)** — `host_metrics.sample_gpu()` now also samples macOS AMD/Intel via `system_profiler` + IORegistry (`IOAccelerator`), Linux AMD via amdgpu sysfs (`mem_info_vram_*`, `gpu_busy_percent`), and a Linux Intel i915 identity stub. Prefers dedicated `VRAM (Total)` over dynamic Intel pools; never treats GART aperture as board VRAM. nvidia-smi stays first. Resident VRAM planning / architecture detection also see non-NVIDIA GPUs. Apple Silicon may report util only; unified-memory VRAM stays null/`assume`.
