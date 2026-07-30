@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.27.3] - 2026-07-30
+
 ### Fixed
 
 - **REST direct-agent sees session overlays** — `POST /api/v1/direct-agent` binds overlay catalog context from identity headers so `client.*` agents registered over WS resolve on REST too.
