@@ -267,7 +267,11 @@ def start_ollama_server(host: str) -> None:
     # Windows: Job Object kill-on-close so force-killing the sidecar also reaps Ollama runners.
     # POSIX: new session so we can killpg on exit.
     proc, job = spawn_ollama_serve(argv=["ollama", "serve"], env=env)
-    _workflow_ollama_register_serve(host, proc, job=job)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(host if "://" in host else f"http://{host}")
+    port = parsed.port or 11434
+    _workflow_ollama_register_serve(host, proc, job=job, port=port)
 
     timeout_seconds = 30
     start = time.time()

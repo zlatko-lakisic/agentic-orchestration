@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.5] - 2026-07-30
+
+### Fixed
+
+- **Windows Ollama teardown verification** — stop path only force-kills the AO-registered spawn PID if it is still listening (never massacres foreign listeners on `:11434`). `register_serve` records the listen port for that check.
+
+### Added
+
+- **Ollama shutdown e2e** (`tests/test_ollama_serve_shutdown_e2e.py`, opt-in `AGENTIC_OLLAMA_SHUTDOWN_E2E=1`) — start AO-owned `ollama serve` on a dedicated port → query → `taskkill /T /F` the AO process → assert the dedicated Ollama is dead (Job Object path). Optional `AGENTIC_OLLAMA_SHUTDOWN_E2E_SERVE=1` covers start → query → force-stop.
+
 ## [1.24.4] - 2026-07-30
 
 ### Fixed

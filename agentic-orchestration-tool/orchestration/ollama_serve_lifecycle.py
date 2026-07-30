@@ -29,13 +29,21 @@ class _ServeEntry:
     proc: subprocess.Popen
     #: Windows Job Object handle (ctypes), or None on POSIX / when job creation failed.
     job: Any = None
+    #: Listen port we bound Ollama to (for port-based reaping if the PID reparents).
+    port: int | None = None
 
 
 def serve_key(host: str) -> str:
     return str(host or "").rstrip("/")
 
 
-def register_serve(host: str, proc: subprocess.Popen, *, job: Any = None) -> None:
+def register_serve(
+    host: str,
+    proc: subprocess.Popen,
+    *,
+    job: Any = None,
+    port: int | None = None,
+) -> None:
     """Remember an AO-spawned serve. ``job`` is an optional Windows Job Object handle."""
     key = serve_key(host)
     prev = _serve_entries.pop(key, None)
@@ -43,8 +51,29 @@ def register_serve(host: str, proc: subprocess.Popen, *, job: Any = None) -> Non
         _stop_entry(prev)
     if job is None and sys.platform == "win32":
         job = _windows_assign_kill_on_close_job(proc)
-    _serve_entries[key] = _ServeEntry(proc=proc, job=job)
+    if port is None:
+        port = _port_from_host(host)
+    _serve_entries[key] = _ServeEntry(proc=proc, job=job, port=port)
     ensure_shutdown_hooks()
+
+
+def _port_from_host(host: str) -> int | None:
+    raw = str(host or "").strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw)
+        if parsed.port:
+            return int(parsed.port)
+        if (parsed.hostname or "").strip():
+            return 11434
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def stop_serve(host: str) -> None:
@@ -102,23 +131,80 @@ def spawn_ollama_serve(*, argv: list[str], env: dict[str, str]) -> tuple[subproc
 def _stop_entry(entry: _ServeEntry) -> None:
     proc = entry.proc
     pid = getattr(proc, "pid", None)
+    used_job = entry.job is not None
     # Prefer Job Object close on Windows — kills the whole tree atomically.
-    if entry.job is not None:
+    if used_job:
         _windows_close_job(entry.job, terminate=True)
         entry.job = None
         try:
             proc.wait(timeout=5)
-            return
         except Exception:  # noqa: BLE001
             pass
-    if pid and sys.platform == "win32":
+    elif pid and sys.platform == "win32":
         _windows_taskkill_tree(pid)
         try:
             proc.wait(timeout=5)
         except Exception:  # noqa: BLE001
             pass
-        return
-    _stop_proc_posix_or_simple(proc)
+    else:
+        _stop_proc_posix_or_simple(proc)
+
+    # If our spawn PID is still LISTENING on the bound port, force-kill that PID
+    # only (never unrelated listeners — e.g. user tray Ollama on :11434).
+    if pid and entry.port and pid in _listener_pids(entry.port):
+        if sys.platform == "win32":
+            _windows_taskkill_tree(pid)
+        else:
+            try:
+                import signal
+
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
+def _listener_pids(port: int) -> set[int]:
+    pids: set[int] = set()
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=False,
+            ).stdout or ""
+        except Exception:  # noqa: BLE001
+            return pids
+        needle = f"127.0.0.1:{port}"
+        for line in out.splitlines():
+            if needle not in line or "LISTENING" not in line.upper():
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            try:
+                pids.add(int(parts[-1]))
+            except ValueError:
+                continue
+        return pids
+    try:
+        import re
+
+        out = subprocess.run(
+            ["ss", "-ltnp", f"sport = :{port}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout or ""
+        for m in re.finditer(r"pid=(\d+)", out):
+            pids.add(int(m.group(1)))
+    except Exception:  # noqa: BLE001
+        pass
+    return pids
 
 
 def _stop_proc_posix_or_simple(proc: subprocess.Popen) -> None:
