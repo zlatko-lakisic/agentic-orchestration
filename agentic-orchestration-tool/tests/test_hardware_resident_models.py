@@ -104,6 +104,55 @@ def test_a_full_fit_is_not_reported_as_degraded() -> None:
     assert plan["selected"] == ["a", "b"]
     assert plan["skipped"] == []
     assert plan["degraded"] is False
+    assert plan["fit"] is True
+
+
+def test_required_ids_must_all_fit() -> None:
+    plan = plan_resident_models(
+        [
+            entry("tiny", min_vram_gb=2.0),
+            entry("huge", min_vram_gb=20.0),
+        ],
+        vram_gb_available=8.0,
+        required_ids=["tiny", "huge"],
+    )
+    assert plan["fit"] is False
+    assert "huge" in (plan["reason"] or "")
+    assert "tiny" in plan["selected"]
+
+
+def test_required_ids_sharing_one_ollama_model_charge_once() -> None:
+    """Meeting SE + BizDev on the same 3b weights only need one VRAM slot."""
+    se = {
+        "id": "kb_se",
+        "type": "ollama",
+        "model": "qwen2.5:3b",
+        "min_vram_gb": 4.0,
+    }
+    biz = {
+        "id": "kb_biz",
+        "type": "ollama",
+        "model": "qwen2.5:3b",
+        "min_vram_gb": 4.0,
+    }
+    plan = plan_resident_models(
+        [se, biz],
+        vram_gb_available=8.0,
+        required_ids=["kb_se", "kb_biz"],
+    )
+    assert plan["fit"] is True
+    assert set(plan["selected"]) == {"kb_se", "kb_biz"}
+    assert plan["usedGb"] == 4.0
+
+
+def test_required_missing_catalog_id_is_unfit() -> None:
+    plan = plan_resident_models(
+        [entry("a", min_vram_gb=2.0)],
+        vram_gb_available=8.0,
+        required_ids=["a", "missing"],
+    )
+    assert plan["fit"] is False
+    assert "missing" in (plan["reason"] or "")
 
 
 def test_entries_without_an_id_are_ignored() -> None:

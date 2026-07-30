@@ -17,6 +17,11 @@ from urllib.parse import urlparse
 from crewai import Agent
 
 from agent_providers.base import AgentProvider, resolve_agent_backstory
+from orchestration.ollama_serve_lifecycle import (
+    register_serve as _workflow_ollama_register_serve,
+    stop_all_serves as stop_all_workflow_ollama_serves,
+    stop_serve as _workflow_ollama_stop_serve,
+)
 
 try:
     from crewai import LLM
@@ -25,9 +30,6 @@ except ImportError:  # pragma: no cover
 
 # Skip redundant `ollama pull` when multiple providers share the same model and host.
 _ollama_pull_done: set[str] = set()
-
-# `ollama serve` processes started by selfcontained providers (key = normalized base URL).
-_workflow_ollama_serve_procs: dict[str, subprocess.Popen] = {}
 
 # Set by runner.build_workflow when the CLI run is not --quiet (e.g. web "Show crew log").
 def _ollama_cli_inherit_stdio() -> bool:
@@ -149,30 +151,6 @@ def _rewrite_ollama_pull_to_single_line(stream: TextIO) -> None:
         sys.stdout.flush()
 
 
-def _ollama_serve_key(host: str) -> str:
-    return host.rstrip("/")
-
-
-def _workflow_ollama_register_serve(host: str, proc: subprocess.Popen) -> None:
-    _workflow_ollama_serve_procs[_ollama_serve_key(host)] = proc
-
-
-def _workflow_ollama_stop_serve(host: str) -> None:
-    key = _ollama_serve_key(host)
-    proc = _workflow_ollama_serve_procs.pop(key, None)
-    if proc is None:
-        return
-    try:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-    except Exception:
-        return
-
-
 def normalize_ollama_host(raw_host: str) -> str:
     host = raw_host.strip() or "http://127.0.0.1:11434"
     if host.startswith("http://") or host.startswith("https://"):
@@ -274,6 +252,15 @@ def start_ollama_server(host: str) -> None:
     env["OLLAMA_HOST"] = listen
     # Quieter embedded server (default OLLAMA_DEBUG=INFO is very chatty).
     env["OLLAMA_DEBUG"] = os.getenv("AGENTIC_OLLAMA_SERVE_DEBUG", "false").strip()
+    # Concurrent in-flight generations (meeting SE+BizDev fan-out). Prefer
+    # AGENTIC_OLLAMA_NUM_PARALLEL; fall back to OLLAMA_NUM_PARALLEL; default 2 when
+    # AO starts the serve so tagged direct-agent pairs are not serialized to one slot.
+    num_parallel = (
+        os.getenv("AGENTIC_OLLAMA_NUM_PARALLEL", "").strip()
+        or os.getenv("OLLAMA_NUM_PARALLEL", "").strip()
+        or "2"
+    )
+    env["OLLAMA_NUM_PARALLEL"] = num_parallel
 
     # Background daemon: do not inherit logs (GPU discovery, GIN, etc.). Pull shows progress.
     proc = subprocess.Popen(

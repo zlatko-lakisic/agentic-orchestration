@@ -6,9 +6,18 @@ import os
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+
+#: Last keepalive tick — exposed on engine ``/health`` for warm-set diagnostics.
+_last_status: dict[str, Any] = {
+    "models": [],
+    "ok": None,
+    "ts": None,
+    "base": None,
+}
 
 
 def _env_truthy(name: str, *, default: bool = True) -> bool:
@@ -33,20 +42,48 @@ def resolve_ollama_api_base() -> str:
     return f"http://{raw.rstrip('/')}"
 
 
+def _normalize_model_tag(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    lower = text.lower()
+    if lower.startswith("ollama/"):
+        return text[len("ollama/") :].strip()
+    if lower.startswith("ollama:"):
+        return text[len("ollama:") :].strip()
+    return text
+
+
 def resolve_keepalive_model_tag() -> str:
-    """Model tag for /api/generate (no ollama/ prefix)."""
+    """Single model tag for /api/generate (no ollama/ prefix). Prefer multi-model helper."""
     raw = (
         os.getenv("AGENTIC_OLLAMA_KEEPALIVE_MODEL", "").strip()
         or os.getenv("AGENTIC_PLANNER_MODEL", "").strip()
     )
-    if not raw:
-        return ""
-    lower = raw.lower()
-    if lower.startswith("ollama/"):
-        return raw[len("ollama/") :].strip()
-    if lower.startswith("ollama:"):
-        return raw[len("ollama:") :].strip()
-    return raw
+    return _normalize_model_tag(raw)
+
+
+def resolve_keepalive_model_tags() -> list[str]:
+    """
+    Model tags to keep resident.
+
+    ``AGENTIC_OLLAMA_KEEPALIVE_MODELS`` (comma-separated) wins when set — use for a
+    meeting pair that shares or lists small chat models. Otherwise falls back to the
+    single ``AGENTIC_OLLAMA_KEEPALIVE_MODEL`` / planner model.
+    """
+    multi = os.getenv("AGENTIC_OLLAMA_KEEPALIVE_MODELS", "").strip()
+    if multi:
+        out: list[str] = []
+        seen: set[str] = set()
+        for part in multi.split(","):
+            tag = _normalize_model_tag(part)
+            key = tag.casefold()
+            if tag and key not in seen:
+                seen.add(key)
+                out.append(tag)
+        return out
+    single = resolve_keepalive_model_tag()
+    return [single] if single else []
 
 
 def ollama_keepalive_duration() -> str:
@@ -63,26 +100,45 @@ def ollama_keepalive_interval_seconds() -> float:
     return ms / 1000.0
 
 
+def keepalive_status() -> dict[str, Any]:
+    """Snapshot of the last keepalive tick (for ``/health``)."""
+    return dict(_last_status)
+
+
+def _record_status(*, models: list[str], ok: bool | None, base: str) -> None:
+    _last_status["models"] = list(models)
+    _last_status["ok"] = ok
+    _last_status["base"] = base
+    _last_status["ts"] = datetime.now(timezone.utc).isoformat()
+
+
 def ping_ollama_keepalive(*, timeout_seconds: float = 120.0) -> bool:
     if not ollama_keepalive_enabled():
+        _record_status(models=[], ok=None, base=resolve_ollama_api_base())
         return False
-    model = resolve_keepalive_model_tag()
-    if not model:
-        return False
+    models = resolve_keepalive_model_tags()
     base = resolve_ollama_api_base()
-    body: dict[str, Any] = {
-        "model": model,
-        "prompt": " ",
-        "stream": False,
-        "keep_alive": ollama_keepalive_duration(),
-        "options": {"num_predict": 1},
-    }
+    if not models:
+        _record_status(models=[], ok=None, base=base)
+        return False
+    all_ok = True
     try:
         with httpx.Client(timeout=timeout_seconds) as client:
-            res = client.post(f"{base}/api/generate", json=body)
-        return res.is_success
+            for model in models:
+                body: dict[str, Any] = {
+                    "model": model,
+                    "prompt": " ",
+                    "stream": False,
+                    "keep_alive": ollama_keepalive_duration(),
+                    "options": {"num_predict": 1},
+                }
+                res = client.post(f"{base}/api/generate", json=body)
+                if not res.is_success:
+                    all_ok = False
     except httpx.HTTPError:
-        return False
+        all_ok = False
+    _record_status(models=models, ok=all_ok, base=base)
+    return all_ok
 
 
 _timer: threading.Timer | None = None
@@ -97,11 +153,11 @@ def start_ollama_keepalive_loop(*, log_prefix: str | None = None) -> None:
         return
     if not ollama_keepalive_enabled():
         return
-    model = resolve_keepalive_model_tag()
-    if not model:
+    models = resolve_keepalive_model_tags()
+    if not models:
         print(
-            f"{_log_prefix}: skipped (set AGENTIC_PLANNER_MODEL=ollama/... or "
-            "AGENTIC_OLLAMA_KEEPALIVE_MODEL)",
+            f"{_log_prefix}: skipped (set AGENTIC_OLLAMA_KEEPALIVE_MODELS=qwen2.5:3b "
+            "or AGENTIC_PLANNER_MODEL=ollama/...)",
             file=sys.stderr,
         )
         return
@@ -111,7 +167,7 @@ def start_ollama_keepalive_loop(*, log_prefix: str | None = None) -> None:
     interval_s = ollama_keepalive_interval_seconds()
     base = resolve_ollama_api_base()
     print(
-        f"{_log_prefix}: model={model} base={base} interval_s={interval_s:.0f}",
+        f"{_log_prefix}: models={models} base={base} interval_s={interval_s:.0f}",
         file=sys.stderr,
     )
 

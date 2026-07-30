@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.3] - 2026-07-30
+
+### Added
+
+- **Meeting-style concurrent residency** — `plan_resident_models(..., required_ids=)` packs a required provider set first and returns `fit: false` + `reason` when VRAM cannot hold it. Providers that share the same Ollama model tag only charge VRAM once (SE+BizDev on one 3b). Keepalive accepts `AGENTIC_OLLAMA_KEEPALIVE_MODELS` (comma-separated); engine lifespan starts/stops the loop; `/health` exposes `resident.keepaliveModels` / `keepaliveOk` / `vramGbAvailable` / `ollamaNumParallel`.
+- **`OLLAMA_NUM_PARALLEL` when AO starts Ollama** — embedded `ollama serve` gets `AGENTIC_OLLAMA_NUM_PARALLEL` or `OLLAMA_NUM_PARALLEL` or default `2` so tagged parallel `direct_agent` runs are not serialized to one slot. Documented in `.env.example`.
+
+### Fixed
+
+- **AO-spawned Ollama shuts down with AO** — `ollama serve` processes started by this process are tracked in `orchestration.ollama_serve_lifecycle` and terminated on exit via `atexit`, Unix `SIGTERM` chaining, and the engine FastAPI lifespan shutdown. Pre-existing user/systemd Ollama is never touched (only PIDs we `Popen`'d are registered).
+
 ## [1.24.2] - 2026-07-30
 
 ### Fixed

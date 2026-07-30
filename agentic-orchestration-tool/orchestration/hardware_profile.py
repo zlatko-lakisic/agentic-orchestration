@@ -352,6 +352,7 @@ def plan_resident_models(
     catalog_entries: list[dict[str, Any]],
     *,
     vram_gb_available: float | None,
+    required_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Plan a set of models that can stay loaded at the same time without VRAM thrash.
@@ -363,19 +364,58 @@ def plan_resident_models(
     budget too small for anything returns an empty selection with per-provider reasons
     rather than raising.
 
-    Returns ``{selected, skipped, budgetGb, headroomGb, usedGb, degraded}`` where
-    ``skipped`` is a list of ``{id, reason, requiredGb}``.
+    When ``required_ids`` is set, those providers are packed first. If they do not all
+    fit (or an id is missing from the catalog), ``fit`` is ``False`` and ``reason``
+    explains why — callers (e.g. a meeting fan-out that needs two 3b agents resident)
+    can fail fast instead of thrashing.
+
+    Returns ``{selected, skipped, budgetGb, headroomGb, usedGb, degraded, fit, reason,
+    requiredIds}`` where ``skipped`` is a list of ``{id, reason, requiredGb}``.
     """
     headroom = _resident_headroom_gb()
     budget = None if vram_gb_available is None else max(0.0, float(vram_gb_available) - headroom)
     max_models = _max_resident_models()
 
+    by_id: dict[str, dict[str, Any]] = {}
     priced: list[tuple[str, float | None, dict[str, Any]]] = []
     for entry in catalog_entries or []:
         pid = str(entry.get("id", "")).strip()
         if not pid:
             continue
+        by_id[pid] = entry
         priced.append((pid, effective_min_vram_gb(entry), entry))
+
+    required = [str(x).strip() for x in (required_ids or []) if str(x).strip()]
+    # Preserve caller order while de-duplicating.
+    seen_req: set[str] = set()
+    required_unique: list[str] = []
+    for rid in required:
+        if rid not in seen_req:
+            seen_req.add(rid)
+            required_unique.append(rid)
+    required = required_unique
+
+    missing = [rid for rid in required if rid not in by_id]
+    if missing:
+        return {
+            "selected": [],
+            "skipped": [
+                {
+                    "id": rid,
+                    "reason": "required provider id not in catalog",
+                    "requiredGb": None,
+                }
+                for rid in missing
+            ],
+            "budgetGb": budget,
+            "headroomGb": headroom,
+            "usedGb": 0.0,
+            "maxResidentModels": max_models,
+            "degraded": True,
+            "fit": False,
+            "reason": f"required provider id(s) not in catalog: {', '.join(missing)}",
+            "requiredIds": required,
+        }
 
     # Smallest first so a modest budget holds several small models instead of one big one.
     priced.sort(key=lambda item: (item[1] is not None, item[1] or 0.0, item[0]))
@@ -384,50 +424,128 @@ def plan_resident_models(
     skipped: list[dict[str, Any]] = []
     used = 0.0
     local_selected = 0
-    for pid, required, _entry in priced:
-        if required is None:
+    selected_set: set[str] = set()
+    #: Ollama model tags already charged against the resident budget (same weights
+    #: shared by multiple provider ids — e.g. meeting SE + BizDev on qwen2.5:3b).
+    charged_models: set[str] = set()
+
+    def _model_key(entry: dict[str, Any]) -> str | None:
+        typ = str(entry.get("type") or entry.get("provider_type") or "").strip().lower()
+        if typ != "ollama":
+            return None
+        model = str(entry.get("model") or "").removeprefix("ollama/").strip()
+        return model.casefold() if model else None
+
+    def _try_add(pid: str, required_gb: float | None, *, forced: bool) -> bool:
+        nonlocal used, local_selected
+        if pid in selected_set:
+            return True
+        entry = by_id.get(pid) or {}
+        model_key = _model_key(entry)
+        # Second provider sharing an already-resident Ollama weights file costs 0 GiB.
+        charge = 0.0 if (model_key and model_key in charged_models) else (required_gb or 0.0)
+
+        if required_gb is None:
             selected.append(pid)
-            continue
-        if len(selected) >= max_models:
+            selected_set.add(pid)
+            return True
+        if len(selected_set) >= max_models:
             skipped.append(
                 {
                     "id": pid,
                     "reason": f"resident model cap reached (AGENTIC_MAX_RESIDENT_MODELS={max_models})",
-                    "requiredGb": required,
+                    "requiredGb": required_gb,
                 }
             )
-            continue
+            return False
+        if charge <= 0 and model_key and model_key in charged_models:
+            selected.append(pid)
+            selected_set.add(pid)
+            return True
         if budget is None:
-            if local_selected >= 1:
+            if local_selected >= 1 and not forced:
                 skipped.append(
                     {
                         "id": pid,
                         "reason": "VRAM budget unknown; degraded to one resident local model "
                         "(set AGENTIC_VRAM_GB)",
-                        "requiredGb": required,
+                        "requiredGb": required_gb,
                     }
                 )
-                continue
+                return False
+            if local_selected >= 1 and forced and charge > 0:
+                skipped.append(
+                    {
+                        "id": pid,
+                        "reason": "VRAM budget unknown; cannot guarantee concurrent residency "
+                        "for the required set (set AGENTIC_VRAM_GB)",
+                        "requiredGb": required_gb,
+                    }
+                )
+                return False
             selected.append(pid)
-            local_selected += 1
-            used += required
-            continue
-        if used + required <= budget:
+            selected_set.add(pid)
+            if charge > 0:
+                local_selected += 1
+                used += charge
+                if model_key:
+                    charged_models.add(model_key)
+            return True
+        if used + charge <= budget:
             selected.append(pid)
-            local_selected += 1
-            used += required
-            continue
+            selected_set.add(pid)
+            if charge > 0:
+                local_selected += 1
+                used += charge
+                if model_key:
+                    charged_models.add(model_key)
+            return True
         skipped.append(
             {
                 "id": pid,
                 "reason": (
-                    f"needs {required:.1f} GiB; only {max(0.0, budget - used):.1f} GiB of the "
+                    f"needs {required_gb:.1f} GiB; only {max(0.0, budget - used):.1f} GiB of the "
                     f"{budget:.1f} GiB resident budget left"
                 ),
-                "requiredGb": required,
+                "requiredGb": required_gb,
             }
         )
+        return False
 
+    # Required providers first (stable caller order), then the rest by size.
+    unfit_required: list[str] = []
+    for rid in required:
+        req_gb = effective_min_vram_gb(by_id[rid])
+        if not _try_add(rid, req_gb, forced=True):
+            unfit_required.append(rid)
+
+    if unfit_required:
+        return {
+            "selected": list(selected),
+            "skipped": skipped,
+            "budgetGb": budget,
+            "headroomGb": headroom,
+            "usedGb": round(used, 2),
+            "maxResidentModels": max_models,
+            "degraded": True,
+            "fit": False,
+            "reason": (
+                "required resident set does not fit concurrent VRAM budget: "
+                + ", ".join(unfit_required)
+            ),
+            "requiredIds": required,
+        }
+
+    for pid, required_gb, _entry in priced:
+        if pid in selected_set:
+            continue
+        _try_add(pid, required_gb, forced=False)
+
+    fit = True
+    reason = None
+    if required and not set(required).issubset(selected_set):
+        fit = False
+        reason = "required resident set incomplete after packing"
     return {
         "selected": selected,
         "skipped": skipped,
@@ -436,6 +554,9 @@ def plan_resident_models(
         "usedGb": round(used, 2),
         "maxResidentModels": max_models,
         "degraded": budget is None or bool(skipped),
+        "fit": fit,
+        "reason": reason,
+        "requiredIds": required,
     }
 
 

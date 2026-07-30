@@ -46,6 +46,9 @@ def test_health_reports_version_and_warm_catalogs(client: TestClient) -> None:
     assert body["version"]
     assert body["service"] == "agentic-orchestration-engine"
     assert "catalogs" in body
+    assert "resident" in body
+    assert "keepaliveModels" in body["resident"]
+    assert "vramGbAvailable" in body["resident"]
 
 
 def test_api_ping_identifies_this_process(client: TestClient) -> None:

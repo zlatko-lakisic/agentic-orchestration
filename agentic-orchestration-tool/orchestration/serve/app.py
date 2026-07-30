@@ -83,11 +83,24 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        """Load catalogs once at startup so the first request does not pay for it."""
+        """Warm catalogs + optional Ollama keepalive; tear down AO-spawned runtimes on exit."""
         from orchestration.dynamic_run import warm_catalogs
+        from orchestration.ollama_keepalive import (
+            start_ollama_keepalive_loop,
+            stop_ollama_keepalive_loop,
+        )
 
         app.state.warm = await run_in_threadpool(warm_catalogs, root)
-        yield
+        await run_in_threadpool(
+            lambda: start_ollama_keepalive_loop(log_prefix="(engine) ollama keep-alive")
+        )
+        try:
+            yield
+        finally:
+            await run_in_threadpool(stop_ollama_keepalive_loop)
+            from orchestration.ollama_serve_lifecycle import stop_all_serves
+
+            await run_in_threadpool(stop_all_serves)
 
     app = FastAPI(
         title="agentic-orchestration engine daemon",
@@ -103,7 +116,11 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
+        from orchestration.hardware_profile import detect_vram_gb_available
+        from orchestration.ollama_keepalive import keepalive_status, resolve_keepalive_model_tags
+
         warm = dict(app.state.warm or {})
+        ka = keepalive_status()
         return {
             "ok": True,
             "version": engine_version(),
@@ -112,6 +129,17 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "toolRoot": str(root),
             "bind": f"{serve_host()}:{serve_port()}",
             "catalogs": warm,
+            "resident": {
+                "keepaliveModels": ka.get("models") or resolve_keepalive_model_tags(),
+                "keepaliveOk": ka.get("ok"),
+                "keepaliveTs": ka.get("ts"),
+                "vramGbAvailable": detect_vram_gb_available(),
+                "ollamaNumParallel": (
+                    os.getenv("AGENTIC_OLLAMA_NUM_PARALLEL", "").strip()
+                    or os.getenv("OLLAMA_NUM_PARALLEL", "").strip()
+                    or None
+                ),
+            },
         }
 
     @app.get("/api/ping")
