@@ -6,15 +6,22 @@ frontends can migrate at no cost:
 
 ===============  ===========================================================
 Client → server  ``ping``, ``client_hello``, ``host_metrics_subscribe``,
-                 ``host_metrics_unsubscribe``, ``chat``, ``direct_agent``, ``rate``
+                 ``host_metrics_unsubscribe``, ``chat``, ``direct_agent``, ``rate``,
+                 ``session_overlay_register``, ``session_overlay_clear``,
+                 ``mcp_tunnel_response``
 Server → client  ``hello``, ``pong``, ``host_metrics``, ``preflight``,
-                 ``run_start``, ``chunk``, ``run_end``, ``error``, ``rated``
+                 ``run_start``, ``chunk``, ``run_end``, ``error``, ``rated``,
+                 ``session_overlay_ack``, ``session_overlay_cleared``,
+                 ``mcp_tunnel_request``
 ===============  ===========================================================
 
 One deliberate extension: a ``question_id`` on ``chat`` / ``direct_agent`` opts into
 **concurrent** runs, and every ``chunk`` / ``run_end`` carries it back so a client can
 demux interleaved answers. Untagged messages keep the Node behavior — one run per
 connection, guarded by a busy lock.
+
+Optional session overlays (``AGENTIC_SERVE_SESSION_OVERLAY=1``) and MCP tunnels
+(``AGENTIC_SERVE_MCP_TUNNEL=1``) are advertised on ``hello`` when enabled.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +61,17 @@ def _question_id(message: dict[str, Any]) -> str | None:
     return text[:128] or None
 
 
+def _mcp_provider_ids(message: dict[str, Any]) -> list[str] | None:
+    raw = message.get("mcp_provider_ids")
+    if raw is None:
+        raw = message.get("mcpProviderIds")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValueError("mcpProviderIds must be a list of strings")
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
 class WsConnection:
     """One client connection: identity, host-metrics push, and run dispatch."""
 
@@ -60,6 +79,7 @@ class WsConnection:
         self.ws = websocket
         self.tool_root = tool_root
         self.identity: Identity | None = None
+        self.connection_id = str(uuid.uuid4())
         self._send_lock = asyncio.Lock()
         self._busy = False
         self._runs: set[asyncio.Task[None]] = set()
@@ -98,6 +118,8 @@ class WsConnection:
             await self.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
             return
 
+        from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+
         await self.send(
             {
                 "type": "hello",
@@ -106,6 +128,8 @@ class WsConnection:
                 "toolRoot": str(self.tool_root),
                 "protocol": "engine-ws/1",
                 "questionTags": True,
+                "sessionOverlay": session_overlay_enabled(),
+                "mcpTunnel": mcp_tunnel_enabled(),
                 "userName": self.identity.user_name,
                 "sessionId": self.identity.session_id,
                 "userId": self.identity.user_id,
@@ -139,6 +163,11 @@ class WsConnection:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         self._runs.clear()
+        from orchestration.mcp_tunnel import unregister_connection_bridge
+        from orchestration.session_overlay import clear_overlay_for_connection
+
+        clear_overlay_for_connection(self.connection_id)
+        unregister_connection_bridge(self.connection_id)
 
     # ---- dispatch --------------------------------------------------------
 
@@ -148,11 +177,15 @@ class WsConnection:
             await self.send({"type": "pong"})
             return
         if kind == "client_hello":
+            from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+
             await self.send(
                 {
                     "type": "hello",
                     "resume": bool(message.get("resume")),
                     "sessionId": (self.identity.session_id if self.identity else None),
+                    "sessionOverlay": session_overlay_enabled(),
+                    "mcpTunnel": mcp_tunnel_enabled(),
                 }
             )
             return
@@ -165,10 +198,93 @@ class WsConnection:
         if kind == "rate":
             await self.handle_rate(message)
             return
+        if kind == "session_overlay_register":
+            await self.handle_session_overlay_register(message)
+            return
+        if kind == "session_overlay_clear":
+            await self.handle_session_overlay_clear()
+            return
+        if kind == "mcp_tunnel_response":
+            await self.handle_mcp_tunnel_response(message)
+            return
         if kind in ("chat", "direct_agent"):
             await self.handle_run(message, kind)
             return
         await self.send_error(f"Unknown message type: {kind or '(missing)'}")
+
+    async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:
+        from orchestration.mcp_tunnel import register_connection_bridge
+        from orchestration.session_overlay import SessionOverlayError, register_overlay
+
+        if self.identity is None:
+            await self.send_error("identity required for session_overlay_register")
+            return
+        ttl_raw = message.get("ttlSeconds")
+        if ttl_raw is None:
+            ttl_raw = message.get("ttl_seconds")
+        try:
+            ttl = float(ttl_raw) if ttl_raw is not None else None
+        except (TypeError, ValueError):
+            await self.send_error("ttlSeconds must be a number")
+            return
+        try:
+            overlay = register_overlay(
+                user_id=self.identity.user_id,
+                session_id=self.identity.session_id,
+                connection_id=self.connection_id,
+                agents=message.get("agents") if isinstance(message.get("agents"), list) else [],
+                mcps=message.get("mcps") if isinstance(message.get("mcps"), list) else [],
+                skills=message.get("skills") if isinstance(message.get("skills"), list) else [],
+                ttl_seconds=ttl,
+                catalog_root=self.tool_root,
+            )
+        except SessionOverlayError as exc:
+            await self.send_error(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            await self.send_error(f"session_overlay_register failed: {exc}")
+            return
+
+        if overlay.mcps:
+            register_connection_bridge(self.connection_id, self.send_threadsafe)
+        else:
+            from orchestration.mcp_tunnel import unregister_connection_bridge
+
+            unregister_connection_bridge(self.connection_id)
+
+        await self.send(
+            {
+                "type": "session_overlay_ack",
+                "agentIds": [str(e.get("id")) for e in overlay.agents],
+                "mcpIds": [str(e.get("id")) for e in overlay.mcps],
+                "skillIds": [str(e.get("id")) for e in overlay.skills],
+                "expiresAt": overlay.expires_at,
+            }
+        )
+
+    async def handle_session_overlay_clear(self) -> None:
+        from orchestration.mcp_tunnel import unregister_connection_bridge
+        from orchestration.session_overlay import clear_overlay
+
+        if self.identity is None:
+            await self.send_error("identity required for session_overlay_clear")
+            return
+        clear_overlay(
+            user_id=self.identity.user_id,
+            session_id=self.identity.session_id,
+            connection_id=self.connection_id,
+        )
+        unregister_connection_bridge(self.connection_id)
+        await self.send({"type": "session_overlay_cleared"})
+
+    async def handle_mcp_tunnel_response(self, message: dict[str, Any]) -> None:
+        from orchestration.mcp_tunnel import deliver_tunnel_response
+
+        if not deliver_tunnel_response(self.connection_id, message):
+            await self.send_error(
+                "unknown or expired mcp_tunnel_response requestId "
+                "(or tunnel owned by another connection)"
+            )
 
     async def handle_rate(self, message: dict[str, Any]) -> None:
         from orchestration.learning_store import enqueue_user_rating
@@ -321,10 +437,28 @@ class WsConnection:
         tag: dict[str, Any],
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
+        from orchestration.session_overlay import overlay_run_context
+
         user_id = self.identity.user_id if self.identity else None
         session_slug = str(
             message.get("sessionId") or (self.identity.session_id if self.identity else "") or ""
         )
+        with overlay_run_context(
+            user_id=user_id or "",
+            session_id=session_slug or (self.identity.session_id if self.identity else ""),
+            connection_id=self.connection_id,
+        ):
+            return self._execute_inner(message, kind, text, tag, user_id, session_slug)
+
+    def _execute_inner(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        user_id: str | None,
+        session_slug: str,
+    ) -> str:
         if kind == "direct_agent":
             from orchestration.direct_agent import run_direct_agent
 
@@ -348,6 +482,7 @@ class WsConnection:
                 context=str(message.get("context") or ""),
                 session_slug=session_slug or None,
                 user_id=user_id,
+                mcp_provider_ids=_mcp_provider_ids(message),
                 on_progress=progress,
                 response_format=response_format if isinstance(response_format, dict) else None,
                 json_schema=json_schema if isinstance(json_schema, dict) else None,

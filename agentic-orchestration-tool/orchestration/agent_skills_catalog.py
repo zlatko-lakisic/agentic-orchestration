@@ -85,17 +85,18 @@ def load_agent_skills_catalog_merged(primary: Path) -> list[dict[str, Any]]:
     """Load the primary catalog plus optional extra directories from env."""
     out = load_agent_skills_catalog(primary)
     extra_raw = os.getenv(_EXTRA_SKILLS_PATH_ENV, "").strip()
-    if not extra_raw:
-        return _assert_unique_skill_ids(out)
+    if extra_raw:
+        sep = ";" if os.name == "nt" else ":"
+        for part in extra_raw.split(sep):
+            p = Path(part.strip()).expanduser()
+            if not str(p) or not p.exists():
+                continue
+            out.extend(load_agent_skills_catalog(p))
 
-    sep = ";" if os.name == "nt" else ":"
-    for part in extra_raw.split(sep):
-        p = Path(part.strip()).expanduser()
-        if not str(p) or not p.exists():
-            continue
-        out.extend(load_agent_skills_catalog(p))
+    out = _assert_unique_skill_ids(out)
+    from orchestration.session_overlay import merge_session_skills
 
-    return _assert_unique_skill_ids(out)
+    return merge_session_skills(out)
 
 
 def _assert_unique_skill_ids(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

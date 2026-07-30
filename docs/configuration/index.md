@@ -96,6 +96,11 @@ slice-by-slice status.
 | `AGENTIC_JETSON_ENABLE_ENGINE` | `1` | When unset/`1`, `jetson-deploy.sh` applies `scripts/jetson-enable-engine.sh`. Set `0` to leave only the Node web UI. |
 | `AGENTIC_SERVE_LOG_LEVEL` | `info` | uvicorn log level. |
 | `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
+| `AGENTIC_SERVE_SESSION_OVERLAY` | _(unset)_ | `1` enables ephemeral WebSocket `session_overlay_register` / `clear` (in-memory `client.*` agents/MCPs/skills; never written to disk). |
+| `AGENTIC_SERVE_MCP_TUNNEL` | _(unset)_ | `1` enables `mcp_tunnel_*` framing and `tunnel://session-mcp/…` rewrite to a loopback HTTP proxy on the owning WebSocket (no client LAN dial). |
+| `AGENTIC_SERVE_SESSION_OVERLAY_TTL_S` | `3600` | Idle TTL for session overlays (clamped 30–86400). |
+| `AGENTIC_SERVE_SESSION_OVERLAY_MAX_BYTES` | `524288` | Max serialized overlay payload size. |
+| `AGENTIC_SERVE_SESSION_OVERLAY_MAX_ENTRIES` | `64` | Max agent+MCP+skill entries per session overlay. |
 | `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without an identity header (HTTP `401`, WebSocket close `1008`) instead of falling back to the implicit local user. Also switches deal authorization on. |
 | `AGENTIC_WEB_USER_NAME_HEADER` | `x-agentic-user-name,x-user-name` | Comma-separated headers searched for the display name (same variable the Node server uses). |
 | `AGENTIC_WEB_SESSION_ID_HEADER` | `x-agentic-session-id,x-warpgate-session-id` | Comma-separated headers searched for the session id; absent → a generated `web-<hex>` id. |

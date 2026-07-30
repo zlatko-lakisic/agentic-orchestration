@@ -79,17 +79,20 @@ def load_mcp_providers_catalog_merged(primary: Path) -> list[dict[str, Any]]:
 
     out = load_mcp_providers_catalog(primary)
     extra_raw = os.getenv(_EXTRA_MCP_PATH_ENV, "").strip()
-    if not extra_raw:
-        return _assert_unique_mcp_ids(out)
+    if extra_raw:
+        sep = ";" if os.name == "nt" else ":"
+        for part in extra_raw.split(sep):
+            p = Path(part.strip()).expanduser()
+            if not str(p) or not p.exists():
+                continue
+            out.extend(load_mcp_providers_catalog(p))
 
-    sep = ";" if os.name == "nt" else ":"
-    for part in extra_raw.split(sep):
-        p = Path(part.strip()).expanduser()
-        if not str(p) or not p.exists():
-            continue
-        out.extend(load_mcp_providers_catalog(p))
+    out = _assert_unique_mcp_ids(out)
+    from orchestration.session_overlay import merge_session_mcps
 
-    return _assert_unique_mcp_ids(out)
+    # Session ``client.*`` ids are validated at register time against stock/EXTRA;
+    # do not re-run uniqueness across the ephemeral append.
+    return merge_session_mcps(out)
 
 
 def _assert_unique_mcp_ids(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -253,6 +256,10 @@ def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
             f"streamable_http is set",
         )
     url = substitute_mcp_env_vars(raw_url).strip().rstrip("/")
+    if url.startswith("tunnel://session-mcp/"):
+        from orchestration.mcp_tunnel import rewrite_tunnel_url_if_needed
+
+        url = rewrite_tunnel_url_if_needed(url, mcp_id=str(item.get("id") or ""))
 
     headers: dict[str, str] = {}
     headers_raw = raw_sh.get("headers")

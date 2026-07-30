@@ -508,3 +508,140 @@ def test_ws_closes_when_identity_required(
             hello = ws.receive_json()
             assert hello["type"] == "hello"
             assert hello["userId"] == "ada"
+
+
+def test_ws_hello_advertises_session_overlay_flags(
+    kb_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    monkeypatch.setenv("AGENTIC_SERVE_MCP_TUNNEL", "1")
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        with c.websocket_connect("/ws") as ws:
+            hello = ws.receive_json()
+            assert hello["sessionOverlay"] is True
+            assert hello["mcpTunnel"] is True
+
+
+def test_ws_session_overlay_register_ack_and_clear(
+    kb_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestration.session_overlay import get_overlay, reset_overlays_for_tests
+
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    monkeypatch.setenv("AGENTIC_SERVE_MCP_TUNNEL", "1")
+    reset_overlays_for_tests()
+    headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-1"}
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        with c.websocket_connect("/ws", headers=headers) as ws:
+            hello = ws.receive_json()
+            assert hello["userId"] == "ada"
+            ws.send_json(
+                {
+                    "type": "session_overlay_register",
+                    "ttlSeconds": 600,
+                    "agents": [
+                        {
+                            "id": "client.kb_researcher",
+                            "type": "ollama",
+                            "role": "r",
+                            "goal": "g",
+                            "backstory": "b",
+                            "model": "qwen2.5:7b",
+                        }
+                    ],
+                    "mcps": [],
+                    "skills": [],
+                }
+            )
+            ack = ws.receive_json()
+            assert ack["type"] == "session_overlay_ack"
+            assert ack["agentIds"] == ["client.kb_researcher"]
+            assert get_overlay("ada", "sess-1") is not None
+
+            ws.send_json({"type": "session_overlay_clear"})
+            cleared = ws.receive_json()
+            assert cleared["type"] == "session_overlay_cleared"
+            assert get_overlay("ada", "sess-1") is None
+
+
+def test_ws_session_overlay_rejects_when_disabled(
+    kb_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENTIC_SERVE_SESSION_OVERLAY", raising=False)
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        with c.websocket_connect("/ws") as ws:
+            hello = ws.receive_json()
+            assert hello.get("sessionOverlay") is False
+            ws.send_json(
+                {
+                    "type": "session_overlay_register",
+                    "agents": [{"id": "client.x", "type": "ollama"}],
+                }
+            )
+            err = ws.receive_json()
+            assert err["type"] == "error"
+            assert "disabled" in err["message"]
+
+
+def test_ws_direct_agent_forwards_mcp_provider_ids(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.direct_agent as direct_agent
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(direct_agent, "run_direct_agent", fake_run)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "direct_agent",
+                "agentProviderId": "ollama_hermes3",
+                "text": "use tools",
+                "mcpProviderIds": ["client.filesystem_local", "filesystem_local"],
+            }
+        )
+        frames = []
+        while True:
+            frame = ws.receive_json()
+            frames.append(frame)
+            if frame["type"] == "run_end":
+                break
+        assert frames[-1]["ok"] is True
+    assert captured.get("mcp_provider_ids") == [
+        "client.filesystem_local",
+        "filesystem_local",
+    ]
+
+
+def test_direct_agent_rest_forwards_mcp_provider_ids(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.direct_agent as direct_agent
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(direct_agent, "run_direct_agent", fake_run)
+    body = client.post(
+        "/api/v1/direct-agent",
+        json={
+            "agentProviderId": "ollama_hermes3",
+            "text": "hello",
+            "mcpProviderIds": ["search_brave"],
+        },
+    ).json()
+    assert body["ok"] is True
+    assert captured.get("mcp_provider_ids") == ["search_brave"]

@@ -81,25 +81,26 @@ def load_agent_providers_catalog_merged(primary: Path) -> list[dict[str, Any]]:
     """
     merged = load_agent_providers_catalog(primary)
     raw = os.getenv(_EXTRA_AGENT_CATALOG_DIRS_ENV, "").strip()
-    if not raw:
-        return merged
-    for part in raw.split(os.pathsep):
-        chunk = part.strip()
-        if not chunk:
-            continue
-        p = Path(chunk).expanduser()
-        if not p.exists():
-            continue
-        merged.extend(load_agent_providers_catalog(p))
-    ids = [str(x.get("id", "")).strip() for x in merged]
-    if len(set(ids)) != len(ids):
-        from collections import Counter
+    if raw:
+        for part in raw.split(os.pathsep):
+            chunk = part.strip()
+            if not chunk:
+                continue
+            p = Path(chunk).expanduser()
+            if not p.exists():
+                continue
+            merged.extend(load_agent_providers_catalog(p))
+        ids = [str(x.get("id", "")).strip() for x in merged]
+        if len(set(ids)) != len(ids):
+            from collections import Counter
 
-        dup = [k for k, v in Counter(ids).items() if v > 1 and k]
-        raise ValueError(
-            f"Duplicate agent provider 'id' after merging {_EXTRA_AGENT_CATALOG_DIRS_ENV!r}: {dup!r}"
-        )
-    return merged
+            dup = [k for k, v in Counter(ids).items() if v > 1 and k]
+            raise ValueError(
+                f"Duplicate agent provider 'id' after merging {_EXTRA_AGENT_CATALOG_DIRS_ENV!r}: {dup!r}"
+            )
+    from orchestration.session_overlay import merge_session_agents
+
+    return merge_session_agents(merged)
 
 
 def _format_agent_provider_entry(p: dict[str, Any]) -> str:
