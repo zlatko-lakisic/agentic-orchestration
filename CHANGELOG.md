@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.4] - 2026-07-30
+
+### Fixed
+
+- **Windows: AO-started Ollama actually dies with AO** — `ollama serve` is no longer started with a detached session that orphans runners under `taskkill /F` of the sidecar. Children go in a Job Object with `KILL_ON_JOB_CLOSE` (ctypes, no pywin32); stop paths also `taskkill /T /F` the recorded PID. Console Ctrl handler + existing atexit/lifespan/SIGTERM still call `stop_all_serves`.
+
 ## [1.24.3] - 2026-07-30
 
 ### Added

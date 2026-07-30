@@ -19,6 +19,7 @@ from crewai import Agent
 from agent_providers.base import AgentProvider, resolve_agent_backstory
 from orchestration.ollama_serve_lifecycle import (
     register_serve as _workflow_ollama_register_serve,
+    spawn_ollama_serve,
     stop_all_serves as stop_all_workflow_ollama_serves,
     stop_serve as _workflow_ollama_stop_serve,
 )
@@ -263,14 +264,10 @@ def start_ollama_server(host: str) -> None:
     env["OLLAMA_NUM_PARALLEL"] = num_parallel
 
     # Background daemon: do not inherit logs (GPU discovery, GIN, etc.). Pull shows progress.
-    proc = subprocess.Popen(
-        ["ollama", "serve"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    _workflow_ollama_register_serve(host, proc)
+    # Windows: Job Object kill-on-close so force-killing the sidecar also reaps Ollama runners.
+    # POSIX: new session so we can killpg on exit.
+    proc, job = spawn_ollama_serve(argv=["ollama", "serve"], env=env)
+    _workflow_ollama_register_serve(host, proc, job=job)
 
     timeout_seconds = 30
     start = time.time()
