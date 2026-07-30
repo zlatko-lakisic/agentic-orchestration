@@ -39,9 +39,14 @@ fi
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=90s
 
-log "Verify from coordinator pod"
-sleep 5
-kubectl exec -n agentic-orchestration deploy/agentic-coordinator -- \
-  curl -sf --max-time 15 "http://host.k3s.internal:11434/api/tags" | head -c 300
-echo
-echo "OK: pods can reach Ollama at http://host.k3s.internal:11434"
+log "Verify from coordinator pod (optional if not deployed yet)"
+sleep 2
+if kubectl get ns agentic-orchestration >/dev/null 2>&1 \
+  && kubectl get deploy agentic-coordinator -n agentic-orchestration >/dev/null 2>&1; then
+  kubectl exec -n agentic-orchestration deploy/agentic-coordinator -- \
+    curl -sf --max-time 15 "http://host.k3s.internal:11434/api/tags" | head -c 300
+  echo
+  echo "OK: pods can reach Ollama at http://host.k3s.internal:11434"
+else
+  echo "Namespace/coordinator not present yet; Ollama listen + CoreDNS updated. Re-verify after deploy."
+fi
