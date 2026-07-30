@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.24.2] - 2026-07-30
+
+### Fixed
+
+- **Windows host metrics CPU/RAM** — `sample_cpu_percent()` uses `GetSystemTimes` instead of process-relative `os.times()` (which stuck at ~100%). `sample_memory()` uses `GlobalMemoryStatusEx` so `totalBytes` / `usedPercent` are real; unknown totals report `usedPercent: null` rather than fake `0.0`. `scope: "host"` only when a mounted proc root is actually readable (Windows default is `runtime`).
+
+### Added
+
+- **Portable GPU util + VRAM used/free** — top-level `gpu` now includes `percent`, `vramUsedGb`, `vramFreeGb`, and `name` from `nvidia-smi` (largest GPU), alongside existing `vramTotalGb` / `vramSource`. Jetson `jetson.gpu` unchanged. `AGENTIC_ASSUME_VRAM_GB` still overrides total (util/used may remain from smi or null).
+
 ## [1.24.1] - 2026-07-29
 
 ### Added
