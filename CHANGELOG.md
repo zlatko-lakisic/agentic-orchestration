@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **REST direct-agent sees session overlays** — `POST /api/v1/direct-agent` binds overlay catalog context from identity headers so `client.*` agents registered over WS resolve on REST too.
+- **Per-host env template** — `jetson-apply-env.sh` prefers `config/env.host` (gitignored) over `env.jetson` so non-Jetson k8s hosts are not forced onto Jetson catalogs.
+
 ## [1.27.2] - 2026-07-30
 
 ### Fixed

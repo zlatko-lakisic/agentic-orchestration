@@ -201,19 +201,26 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         if response_format is not None:
             base["responseFormat"] = response_format
         try:
-            answer = await run_in_threadpool(
-                lambda: run_direct_agent(
-                    tool_root=root,
-                    agent_provider_id=payload.agent_provider_id,
-                    goal=text,
-                    context=payload.context or "",
-                    session_slug=payload.session_id or identity.session_id,
+            from orchestration.session_overlay import overlay_run_context
+
+            def _run() -> str:
+                with overlay_run_context(
                     user_id=identity.user_id,
-                    mcp_provider_ids=payload.mcp_provider_ids,
-                    response_format=response_format,
-                    json_schema=payload.json_schema,
-                )
-            )
+                    session_id=payload.session_id or identity.session_id,
+                ):
+                    return run_direct_agent(
+                        tool_root=root,
+                        agent_provider_id=payload.agent_provider_id,
+                        goal=text,
+                        context=payload.context or "",
+                        session_slug=payload.session_id or identity.session_id,
+                        user_id=identity.user_id,
+                        mcp_provider_ids=payload.mcp_provider_ids,
+                        response_format=response_format,
+                        json_schema=payload.json_schema,
+                    )
+
+            answer = await run_in_threadpool(_run)
         except DirectAgentFormatError as exc:
             return {
                 **base,

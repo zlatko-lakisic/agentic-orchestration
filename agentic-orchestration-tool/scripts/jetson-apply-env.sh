@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
-# Merge config/env.jetson into agentic-orchestration-tool/.env (gitignored on device).
-# Safe to re-run after git pull — updates keys from the tracked template.
+# Merge a tracked env template into agentic-orchestration-tool/.env (gitignored on device).
+# Safe to re-run after git pull — updates keys from the template.
+#
+# Template resolution (first match wins):
+#   1. $AGENTIC_ENV_TEMPLATE (absolute or relative to tool root)
+#   2. config/env.host (optional per-machine override; gitignored)
+#   3. config/env.jetson (default Jetson / edge template)
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
-TEMPLATE="${TOOL_ROOT}/config/env.jetson"
 ENV_FILE="${TOOL_ROOT}/.env"
+
+if [[ -n "${AGENTIC_ENV_TEMPLATE:-}" ]]; then
+  if [[ "${AGENTIC_ENV_TEMPLATE}" = /* ]]; then
+    TEMPLATE="${AGENTIC_ENV_TEMPLATE}"
+  else
+    TEMPLATE="${TOOL_ROOT}/${AGENTIC_ENV_TEMPLATE}"
+  fi
+elif [[ -f "${TOOL_ROOT}/config/env.host" ]]; then
+  TEMPLATE="${TOOL_ROOT}/config/env.host"
+else
+  TEMPLATE="${TOOL_ROOT}/config/env.jetson"
+fi
 
 if [[ ! -f "${TEMPLATE}" ]]; then
   echo "Missing ${TEMPLATE} — git pull main?" >&2
