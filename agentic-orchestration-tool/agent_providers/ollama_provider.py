@@ -4,7 +4,7 @@ import json
 import os
 import re
 import sys
-from typing import Any, Iterator, TextIO
+from typing import Any, Callable, Iterator, TextIO
 
 import platform
 import shutil
@@ -186,6 +186,78 @@ def is_ollama_healthy(host: str) -> bool:
             return 200 <= response.status < 300
     except (urllib.error.URLError, TimeoutError, ValueError):
         return False
+
+
+def ollama_has_model(host: str, model: str) -> bool:
+    """True when ``model`` (or ``model:latest``) appears in ``GET /api/tags``."""
+    wanted = str(model or "").removeprefix("ollama/").strip()
+    if not wanted:
+        return False
+    base = normalize_ollama_host(host)
+    try:
+        with urllib.request.urlopen(f"{base}/api/tags", timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError, OSError):
+        return False
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return False
+    names: set[str] = set()
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("model") or "").strip()
+        if name:
+            names.add(name)
+            # Ollama often lists ``tag:latest``; accept bare tag matches.
+            if ":" in name:
+                names.add(name.split(":", 1)[0])
+    if wanted in names:
+        return True
+    if ":" not in wanted and f"{wanted}:latest" in names:
+        return True
+    return False
+
+
+def ensure_ollama_model_on_api(
+    *,
+    model: str,
+    host: str,
+    on_progress: Callable[[str], None] | None = None,
+) -> None:
+    """Ensure ``model`` exists on an already-running Ollama HTTP API (tags → pull).
+
+    Never installs Ollama or spawns ``ollama serve``. Used for session-overlay agents
+    on shared hosts (e.g. Jetson ``OLLAMA_API_BASE``) where the daemon is external.
+    """
+    model_clean = str(model or "").removeprefix("ollama/").strip()
+    if not model_clean:
+        raise ValueError("model is required")
+    host_n = normalize_ollama_host(host)
+    log = on_progress or (lambda _m: None)
+
+    if not is_ollama_healthy(host_n):
+        raise RuntimeError(
+            f"Ollama is not reachable at {host_n}. "
+            "Configure OLLAMA_API_BASE / OLLAMA_HOST to a running server "
+            "(session overlays do not spawn a local ollama binary)."
+        )
+    if ollama_has_model(host_n, model_clean):
+        log(f"ollama model ready: {model_clean} at {host_n}")
+        return
+    log(f"ollama model missing: {model_clean}; pulling via {host_n} …")
+    try:
+        pull_ollama_model(model_clean, host_n)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"model {model_clean!r} not available and pull failed: {exc}"
+        ) from exc
+    if not ollama_has_model(host_n, model_clean):
+        raise RuntimeError(
+            f"model {model_clean!r} not available and pull failed: "
+            f"not listed in /api/tags after pull at {host_n}"
+        )
+    log(f"ollama model ready: {model_clean} at {host_n}")
 
 
 def install_ollama_native_linux() -> None:
@@ -496,9 +568,37 @@ class OllamaProvider(AgentProvider):
     """Provider implementation for local Ollama models via CrewAI."""
 
     def initialize(self) -> None:
+        from orchestration.session_overlay_runtime import (
+            ensure_client_agent_ollama_runtime,
+            resolve_overlay_ollama_host,
+        )
+
+        pid = str(self.config.id or "").strip()
+        if pid.startswith("client."):
+            host = resolve_overlay_ollama_host(
+                {
+                    "id": pid,
+                    "type": "ollama",
+                    "ollama_host": self.config.ollama_host,
+                }
+            )
+            os.environ["OLLAMA_HOST"] = host
+            ensure_client_agent_ollama_runtime(
+                {
+                    "id": pid,
+                    "type": "ollama",
+                    "model": self.config.model,
+                    "ollama_host": host,
+                    "selfcontained": self.config.selfcontained,
+                }
+            )
+            return
+
         host = normalize_ollama_host(
             self.config.ollama_host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
         )
+        if str(self.config.ollama_host or "").strip().casefold() == "workflow":
+            host = litellm_api_base_for_ollama()
         os.environ["OLLAMA_HOST"] = host
 
         from orchestration.runtime_bootstrap import should_ensure_ollama

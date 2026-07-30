@@ -531,6 +531,8 @@ def test_ws_session_overlay_register_ack_and_clear(
 
     monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
     monkeypatch.setenv("AGENTIC_SERVE_MCP_TUNNEL", "1")
+    # Avoid hitting a real Ollama during register ensure.
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY_ENSURE_OLLAMA", "0")
     reset_overlays_for_tests()
     headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-1"}
     with TestClient(create_app(tool_root_path=kb_root)) as c:
@@ -564,6 +566,57 @@ def test_ws_session_overlay_register_ack_and_clear(
             cleared = ws.receive_json()
             assert cleared["type"] == "session_overlay_cleared"
             assert get_overlay("ada", "sess-1") is None
+
+
+def test_ws_session_overlay_register_ensures_ollama_model(
+    kb_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestration.session_overlay import reset_overlays_for_tests
+    import orchestration.session_overlay_runtime as sor
+
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    monkeypatch.setenv("AGENTIC_SERVE_MCP_TUNNEL", "1")
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://host.k3s.internal:11434")
+    reset_overlays_for_tests()
+    seen: list[list] = []
+
+    def fake_ensure(agents, *, on_progress=None):
+        seen.append(list(agents))
+        if on_progress:
+            on_progress("ollama model missing: qwen2.5:3b; pulling …")
+
+    monkeypatch.setattr(sor, "ensure_session_overlay_ollama_models", fake_ensure)
+    headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-pull"}
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        with c.websocket_connect("/ws", headers=headers) as ws:
+            ws.receive_json()
+            ws.send_json(
+                {
+                    "type": "session_overlay_register",
+                    "agents": [
+                        {
+                            "id": "client.smoke",
+                            "type": "ollama",
+                            "role": "r",
+                            "goal": "g",
+                            "backstory": "b",
+                            "model": "qwen2.5:3b",
+                            "selfcontained": False,
+                        }
+                    ],
+                }
+            )
+            frames = []
+            while True:
+                frame = ws.receive_json()
+                frames.append(frame)
+                if frame["type"] in ("session_overlay_ack", "error"):
+                    break
+            assert frames[-1]["type"] == "session_overlay_ack"
+            assert any(f.get("type") == "chunk" for f in frames)
+            assert seen
+            assert seen[0][0]["ollama_host"] == "http://host.k3s.internal:11434"
 
 
 def test_ws_session_overlay_rejects_when_disabled(

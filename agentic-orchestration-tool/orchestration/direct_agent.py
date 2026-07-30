@@ -257,18 +257,31 @@ def _ollama_chat_json(
         normalize_ollama_host,
     )
     from orchestration.runtime_bootstrap import should_ensure_ollama
+    from orchestration.session_overlay_runtime import (
+        ensure_client_agent_ollama_runtime,
+        resolve_overlay_ollama_host,
+    )
 
     model = str(entry.get("model") or "").strip().removeprefix("ollama/")
     if not model:
         raise ValueError("ollama agent entry requires model")
-    host = normalize_ollama_host(
-        str(entry.get("ollama_host") or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"))
-    )
-    selfcontained = bool(entry.get("selfcontained", False))
-    if should_ensure_ollama(selfcontained=selfcontained):
-        if on_progress:
-            on_progress(f"ensuring runtime for {entry.get('id')}")
-        ensure_ollama_runtime(model=model, host=host)
+    pid = str(entry.get("id") or "").strip()
+    if pid.startswith("client."):
+        host = resolve_overlay_ollama_host(entry)
+        ensure_client_agent_ollama_runtime(entry, on_progress=on_progress)
+    else:
+        host = normalize_ollama_host(
+            str(entry.get("ollama_host") or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"))
+        )
+        if str(entry.get("ollama_host") or "").strip().casefold() == "workflow":
+            from agent_providers.ollama_provider import litellm_api_base_for_ollama
+
+            host = litellm_api_base_for_ollama()
+        selfcontained = bool(entry.get("selfcontained", False))
+        if should_ensure_ollama(selfcontained=selfcontained):
+            if on_progress:
+                on_progress(f"ensuring runtime for {entry.get('id')}")
+            ensure_ollama_runtime(model=model, host=host)
 
     fmt: Any = "json"
     if isinstance(json_schema, dict) and json_schema:

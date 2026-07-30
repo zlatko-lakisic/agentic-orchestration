@@ -214,7 +214,8 @@ class WsConnection:
 
     async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:
         from orchestration.mcp_tunnel import register_connection_bridge
-        from orchestration.session_overlay import SessionOverlayError, register_overlay
+        from orchestration.session_overlay import SessionOverlayError, clear_overlay, register_overlay
+        from orchestration.session_overlay_runtime import ensure_session_overlay_ollama_models
 
         if self.identity is None:
             await self.send_error("identity required for session_overlay_register")
@@ -243,6 +244,26 @@ class WsConnection:
             return
         except Exception as exc:  # noqa: BLE001
             await self.send_error(f"session_overlay_register failed: {exc}")
+            return
+
+        def progress(line: str) -> None:
+            self.send_threadsafe(
+                {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n"}
+            )
+
+        try:
+            await asyncio.to_thread(
+                ensure_session_overlay_ollama_models,
+                overlay.agents,
+                on_progress=progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            clear_overlay(
+                user_id=self.identity.user_id,
+                session_id=self.identity.session_id,
+                connection_id=self.connection_id,
+            )
+            await self.send_error(str(exc) or exc.__class__.__name__)
             return
 
         if overlay.mcps:

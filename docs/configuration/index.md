@@ -98,6 +98,7 @@ slice-by-slice status.
 | `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
 | `AGENTIC_SERVE_SESSION_OVERLAY` | _(unset)_ | `1` enables ephemeral WebSocket `session_overlay_register` / `clear` (in-memory `client.*` agents/MCPs/skills; never written to disk). |
 | `AGENTIC_SERVE_MCP_TUNNEL` | _(unset)_ | `1` enables `mcp_tunnel_*` framing and `tunnel://session-mcp/…` rewrite to a loopback HTTP proxy on the owning WebSocket (no client LAN dial). |
+| `AGENTIC_SERVE_SESSION_OVERLAY_ENSURE_OLLAMA` | _(on when overlays on)_ | When session overlays are enabled, ensure each registered ollama agent's `model` exists on `OLLAMA_API_BASE` / `OLLAMA_HOST` (HTTP `/api/tags` + `/api/pull`). Never spawns a local `ollama` binary for overlays. Set `0` to skip. |
 | `AGENTIC_SERVE_SESSION_OVERLAY_TTL_S` | `3600` | Idle TTL for session overlays (clamped 30–86400). |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_BYTES` | `524288` | Max serialized overlay payload size. |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_ENTRIES` | `64` | Max agent+MCP+skill entries per session overlay. |

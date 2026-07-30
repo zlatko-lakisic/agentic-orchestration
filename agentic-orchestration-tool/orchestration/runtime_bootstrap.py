@@ -290,7 +290,21 @@ def ensure_provider_payloads(
         if ptype != "ollama":
             continue
         model = str(data.get("model") or "").strip()
+        pid = str(data.get("id") or "").strip()
+        if pid.startswith("client."):
+            from orchestration.session_overlay_runtime import ensure_client_agent_ollama_runtime
+
+            msg = f"Ensuring Ollama for session agent '{pid}' ({model})…"
+            log(msg)
+            if progress is not None:
+                _emit(msg)
+            ensure_client_agent_ollama_runtime(data, on_progress=progress or log)
+            continue
         host = str(data.get("ollama_host") or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"))
+        if str(host).strip().casefold() == "workflow":
+            from agent_providers.ollama_provider import litellm_api_base_for_ollama
+
+            host = litellm_api_base_for_ollama()
         selfcontained = bool(data.get("selfcontained", False))
         msg = f"Ensuring Ollama for agent '{data.get('id', '?')}' ({model})…"
         log(msg)

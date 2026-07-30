@@ -285,6 +285,9 @@ def register_overlay(
         if not isinstance(a, dict):
             raise SessionOverlayError(f"agents[{i}] must be a mapping")
         validated_agents.append(_validate_agent_entry(a, index=i))
+    from orchestration.session_overlay_runtime import rewrite_overlay_ollama_hosts
+
+    validated_agents = rewrite_overlay_ollama_hosts(validated_agents)
 
     validated_mcps: list[dict[str, Any]] = []
     for i, m in enumerate(raw_mcps):
