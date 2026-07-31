@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Block pushes when the default unit test tier fails (same filter as GitHub CI).
+# Bypass: git push --no-verify   or   AGENTIC_SKIP_PREPUSH_TESTS=1 git push
+set -euo pipefail
+
+if [[ "${AGENTIC_SKIP_PREPUSH_TESTS:-}" == "1" ]]; then
+  echo "pre-push: skipping unit tests (AGENTIC_SKIP_PREPUSH_TESTS=1)"
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+TOOL_ROOT="$REPO_ROOT/agentic-orchestration-tool"
+
+if [[ ! -d "$TOOL_ROOT/tests" ]]; then
+  echo "pre-push: no agentic-orchestration-tool/tests — skipping"
+  exit 0
+fi
+
+if [[ -x "$TOOL_ROOT/.venv/bin/python" ]]; then
+  PY="$TOOL_ROOT/.venv/bin/python"
+elif [[ -x "$TOOL_ROOT/.venv/Scripts/python.exe" ]]; then
+  PY="$TOOL_ROOT/.venv/Scripts/python.exe"
+else
+  PY="$(command -v python3 || command -v python || true)"
+fi
+
+if [[ -z "${PY:-}" ]]; then
+  echo "pre-push: no Python found. Run agentic-orchestration-tool/setup.sh first." >&2
+  exit 1
+fi
+
+echo "pre-push: running unit tests (same tier as CI) with $PY ..."
+cd "$TOOL_ROOT"
+if ! "$PY" -m pytest; then
+  echo >&2
+  echo "pre-push: unit tests failed — push aborted." >&2
+  echo "Fix the failures, or bypass with: git push --no-verify" >&2
+  exit 1
+fi
+
+echo "pre-push: unit tests passed"
+exit 0

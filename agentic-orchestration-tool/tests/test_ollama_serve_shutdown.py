@@ -114,6 +114,7 @@ def test_stop_kills_when_terminate_times_out(monkeypatch: pytest.MonkeyPatch) ->
 def test_windows_stop_uses_taskkill_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(life.sys, "platform", "win32")
     monkeypatch.setattr(life, "_windows_assign_kill_on_close_job", lambda _p: None)
+    monkeypatch.setattr(life, "_install_windows_console_handler", lambda: None)
     killed: list[int] = []
     monkeypatch.setattr(life, "_windows_taskkill_tree", lambda pid: killed.append(pid))
 
@@ -127,6 +128,7 @@ def test_windows_stop_uses_taskkill_tree(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_windows_job_close_preferred_over_taskkill(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(life.sys, "platform", "win32")
+    monkeypatch.setattr(life, "_install_windows_console_handler", lambda: None)
     closed: list[object] = []
     monkeypatch.setattr(
         life,
