@@ -10,6 +10,7 @@ from orchestration.k8s_mcp_compat import (
     apply_kubernetes_mcp_catalog_policy,
     filter_mcp_ids_for_kubernetes,
     is_k8s_native_mcp,
+    is_session_tunnel_mcp_entry,
     k8s_filesystem_allowed_directory,
     pod_sidecar_mcp_ids_for_step,
     rewrite_spec_mcps_for_pod_sidecars,
@@ -144,6 +145,153 @@ def test_apply_kubernetes_mcp_catalog_policy(monkeypatch: pytest.MonkeyPatch) ->
     kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
     assert [e["id"] for e in kept] == ["search_tavily"]
     assert excluded == ["fetch_url"]
+
+
+@pytest.mark.unit
+def test_is_session_tunnel_mcp_entry() -> None:
+    assert is_session_tunnel_mcp_entry(
+        {
+            "id": "client.calendar_google",
+            "streamable_http": {"url": "tunnel://session-mcp/calendar_google"},
+        }
+    )
+    assert not is_session_tunnel_mcp_entry(
+        {
+            "id": "client.calendar_google",
+            "streamable_http": {"url": "https://example.com/mcp"},
+        }
+    )
+    assert not is_session_tunnel_mcp_entry(
+        {
+            "id": "fetch_url",
+            "streamable_http": {"url": "tunnel://session-mcp/fetch"},
+        }
+    )
+
+
+@pytest.mark.unit
+def test_apply_k8s_policy_keeps_session_tunnel_mcps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_EXTRA_HTTP_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_POD_SIDECAR_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_MCP_FETCH_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "0")
+    tunnel = {
+        "id": "client.calendar_google",
+        "streamable_http": {
+            "url": "tunnel://session-mcp/calendar_google",
+            "headers": {},
+        },
+    }
+    entries = [
+        {"id": "search_tavily", "streamable_http": {"url": "http://t"}},
+        {"id": "fetch_url", "stdio": {"command": "python", "args": []}},
+        tunnel,
+    ]
+    kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
+    kept_ids = [e["id"] for e in kept]
+    assert "client.calendar_google" in kept_ids
+    assert "search_tavily" in kept_ids
+    assert "fetch_url" not in kept_ids
+    assert excluded == ["fetch_url"]
+    cal = next(e for e in kept if e["id"] == "client.calendar_google")
+    assert cal["streamable_http"]["url"] == "tunnel://session-mcp/calendar_google"
+
+
+@pytest.mark.unit
+def test_apply_k8s_policy_does_not_auto_allow_client_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.delenv("AGENTIC_K8S_EXTRA_HTTP_MCPS", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "0")
+    entries = [
+        {
+            "id": "client.remote_http",
+            "streamable_http": {"url": "https://mcp.example.com/mcp"},
+        }
+    ]
+    kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
+    assert kept == []
+    assert excluded == ["client.remote_http"]
+
+
+@pytest.mark.unit
+def test_apply_k8s_policy_noop_for_inprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "inprocess")
+    entries = [
+        {"id": "fetch_url", "stdio": {"command": "python", "args": []}},
+        {
+            "id": "client.calendar_google",
+            "streamable_http": {"url": "tunnel://session-mcp/calendar_google"},
+        },
+    ]
+    kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
+    assert kept is entries
+    assert excluded == []
+
+
+@pytest.mark.unit
+def test_session_tunnel_survives_merge_and_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Overlay merge + k8s policy + resolve_workflow_mcp_refs (handoff acceptance path)."""
+    import tempfile
+    from pathlib import Path
+
+    from orchestration.mcp_providers_catalog import (
+        load_mcp_providers_catalog_merged,
+        resolve_workflow_mcp_refs,
+    )
+    from orchestration.mcp_tunnel import (
+        register_connection_bridge,
+        unregister_connection_bridge,
+    )
+    from orchestration.session_overlay import (
+        overlay_run_context,
+        register_overlay,
+        reset_overlays_for_tests,
+    )
+
+    monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    monkeypatch.setenv("AGENTIC_SERVE_MCP_TUNNEL", "1")
+    monkeypatch.delenv("AGENTIC_K8S_EXTRA_HTTP_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "0")
+    reset_overlays_for_tests()
+    unregister_connection_bridge("c1")
+    register_connection_bridge("c1", lambda _payload: None)
+    try:
+        register_overlay(
+            user_id="ada",
+            session_id="s1",
+            connection_id="c1",
+            mcps=[
+                {
+                    "id": "client.calendar_google",
+                    "description": "Google Calendar (session tunnel)",
+                    "streamable_http": {
+                        "url": "tunnel://session-mcp/calendar_google",
+                        "headers": {},
+                    },
+                }
+            ],
+            stock_ids={"fetch_url", "search_tavily"},
+        )
+        with overlay_run_context(user_id="ada", session_id="s1", connection_id="c1"):
+            with tempfile.TemporaryDirectory() as td:
+                primary = Path(td)
+                merged = load_mcp_providers_catalog_merged(primary)
+                kept, excluded = apply_kubernetes_mcp_catalog_policy(merged, verbose=False)
+                assert "client.calendar_google" not in excluded
+                assert any(e.get("id") == "client.calendar_google" for e in kept)
+                resolved = resolve_workflow_mcp_refs(["client.calendar_google"], kept)
+                assert resolved
+                assert isinstance(resolved[0], dict)
+                assert str(resolved[0].get("url", "")).startswith("http://127.0.0.1:")
+    finally:
+        unregister_connection_bridge("c1")
+        reset_overlays_for_tests()
 
 
 @pytest.mark.unit

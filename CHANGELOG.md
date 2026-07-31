@@ -7,9 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.27.4] - 2026-07-31
+
 ### Fixed
 
 - **GPU monitor on k8s NVIDIA hosts** — engine pods without `/dev/nvidia*` now read live util + VRAM from a host `nvidia-smi` writer (`agentic-nvidia-metrics.service` → `/var/run/agentic/nvidia-metrics.json`, env `AGENTIC_NVIDIA_HOST_METRICS_PATH`). KnowBuddy system monitor can show GPU % and used/total VRAM instead of assume-only totals.
+- **Session-tunnel MCPs under k8s catalog policy** — `apply_kubernetes_mcp_catalog_policy` no longer strips `client.*` entries whose `streamable_http.url` starts with `tunnel://session-mcp/`, so `direct_agent` `mcpProviderIds` resolve after `session_overlay_ack`. Stock stdio allowlists unchanged; non-tunnel `client.*` HTTPS entries still require `AGENTIC_K8S_EXTRA_HTTP_MCPS`.
 
 ## [1.27.3] - 2026-07-30
 
