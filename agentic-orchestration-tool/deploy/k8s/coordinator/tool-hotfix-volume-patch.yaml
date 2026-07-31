@@ -18,6 +18,9 @@ spec:
               mountPath: /app/tool/orchestration/ollama_keepalive.py
               subPath: ollama_keepalive.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/ollama_serve_lifecycle.py
+              subPath: ollama_serve_lifecycle.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
               subPath: kubernetes_warm_pool.py
             - name: tool-hotfix-orchestration

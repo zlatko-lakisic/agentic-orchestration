@@ -53,6 +53,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
+  --from-file=ollama_serve_lifecycle.py="${ORCH_ROOT}/ollama_serve_lifecycle.py" \
   --from-file=kubernetes_warm_pool.py="${ORCH_ROOT}/backends/kubernetes_warm_pool.py" \
   --from-file=execute_step.py="${ORCH_ROOT}/execute_step.py" \
   --from-file=k8s_delegation_tool.py="${ORCH_ROOT}/k8s_delegation_tool.py" \
