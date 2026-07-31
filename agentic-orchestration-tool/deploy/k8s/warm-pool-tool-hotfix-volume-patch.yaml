@@ -12,6 +12,15 @@ spec:
               mountPath: /app/orchestration/ollama_serve_lifecycle.py
               subPath: ollama_serve_lifecycle.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/session_overlay.py
+              subPath: session_overlay.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/session_overlay_runtime.py
+              subPath: session_overlay_runtime.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/mcp_tunnel.py
+              subPath: mcp_tunnel.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
               subPath: kubernetes_warm_pool.py
             - name: tool-hotfix-orchestration
