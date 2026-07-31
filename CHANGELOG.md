@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **GPU monitor on k8s NVIDIA hosts** — engine pods without `/dev/nvidia*` now read live util + VRAM from a host `nvidia-smi` writer (`agentic-nvidia-metrics.service` → `/var/run/agentic/nvidia-metrics.json`, env `AGENTIC_NVIDIA_HOST_METRICS_PATH`). KnowBuddy system monitor can show GPU % and used/total VRAM instead of assume-only totals.
+
 ## [1.27.3] - 2026-07-30
 
 ### Fixed

@@ -9,6 +9,9 @@ Host CPU / memory sampling for the daemon (Python port of
   ``vm_stat`` memory. Same path under Rosetta; do not fork on ``platform.machine()``.
 - Jetson: optional jtop writer snapshot (``AGENTIC_JETSON_JTOP_METRICS_PATH``) for GPU /
   power / temperature (additive overlay).
+- Discrete NVIDIA (k8s engine without GPU devices): optional host writer snapshot
+  (``AGENTIC_NVIDIA_HOST_METRICS_PATH``, typically written by
+  ``nvidia-host-metrics-writer.py`` on the node) for portable ``gpu.*`` fields.
 
 Payload keys match the Node version so an existing frontend can point at either server.
 Apple Silicon: ``gpu.percent`` may come from IORegistry ``Device Utilization %``;
@@ -51,6 +54,12 @@ def host_scope_mounted() -> bool:
 
 def jtop_metrics_path() -> Path | None:
     raw = os.getenv("AGENTIC_JETSON_JTOP_METRICS_PATH", "").strip()
+    return Path(raw) if raw else None
+
+
+def nvidia_host_metrics_path() -> Path | None:
+    """Path to host-written NVIDIA snapshot (engine mount of ``/var/run/agentic``)."""
+    raw = os.getenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", "").strip()
     return Path(raw) if raw else None
 
 
@@ -448,13 +457,29 @@ def sample_memory() -> dict[str, Any]:
 
 
 def metrics_scope() -> str:
-    if jtop_metrics_path() is not None:
+    jtop_path = jtop_metrics_path()
+    if jtop_path is not None and jtop_path.is_file():
         return "jetson"
+    if nvidia_host_metrics_path() is not None:
+        return "host"
     if host_scope_mounted():
         return "host"
     if sys.platform.startswith("linux") and Path("/.dockerenv").exists():
         return "container"
     return "runtime"
+
+
+def _snapshot_age_ms(raw: dict[str, Any]) -> float | None:
+    ts_raw = raw.get("ts")
+    if not ts_raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - parsed).total_seconds() * 1000.0
+    except ValueError:
+        return None
 
 
 def read_jetson_jtop_snapshot() -> dict[str, Any] | None:
@@ -467,17 +492,66 @@ def read_jetson_jtop_snapshot() -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict):
         return None
-    age_ms: float | None = None
-    ts_raw = raw.get("ts")
-    if ts_raw:
-        try:
-            parsed = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            age_ms = (datetime.now(timezone.utc) - parsed).total_seconds() * 1000.0
-        except ValueError:
-            age_ms = None
+    return {**raw, "ageMs": _snapshot_age_ms(raw)}
+
+
+_NVIDIA_HOST_SNAPSHOT_MAX_AGE_MS = 15_000.0
+
+
+def read_nvidia_host_snapshot() -> dict[str, Any] | None:
+    """
+    Read host-written NVIDIA metrics JSON (``nvidia-host-metrics-writer.py``).
+
+    Stale files (>15s) are ignored so a stopped writer does not freeze the UI.
+    """
+    path = nvidia_host_metrics_path()
+    if path is None:
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    age_ms = _snapshot_age_ms(raw)
+    if age_ms is not None and age_ms > _NVIDIA_HOST_SNAPSHOT_MAX_AGE_MS:
+        return None
     return {**raw, "ageMs": age_ms}
+
+
+def sample_nvidia_host_file_gpu() -> dict[str, Any] | None:
+    """Portable ``gpu.*`` block from the host NVIDIA writer snapshot."""
+    snap = read_nvidia_host_snapshot()
+    if not snap:
+        return None
+    gpu = snap.get("gpu") if isinstance(snap.get("gpu"), dict) else None
+    if not gpu:
+        return None
+    percent = gpu.get("percent")
+    if percent is not None and not isinstance(percent, (int, float)):
+        percent = None
+    total = gpu.get("vramTotalGb")
+    used = gpu.get("vramUsedGb")
+    free = gpu.get("vramFreeGb")
+    if total is not None and not isinstance(total, (int, float)):
+        total = None
+    if used is not None and not isinstance(used, (int, float)):
+        used = None
+    if free is not None and not isinstance(free, (int, float)):
+        free = None
+    name = gpu.get("name")
+    name_s = str(name).strip() if name else None
+    source = gpu.get("vramSource") or snap.get("source") or "nvidia-smi"
+    if total is None and percent is None and used is None and free is None and not name_s:
+        return None
+    return {
+        "percent": float(percent) if percent is not None else None,
+        "vramTotalGb": float(total) if total is not None else None,
+        "vramUsedGb": float(used) if used is not None else None,
+        "vramFreeGb": float(free) if free is not None else None,
+        "vramSource": str(source),
+        "name": name_s or None,
+    }
 
 
 def merge_jetson_into_metrics(
@@ -1067,9 +1141,9 @@ def sample_gpu() -> dict[str, Any] | None:
     """
     Best available portable GPU sample.
 
-    Priority: nvidia-smi → macOS (AMD/Intel/Apple IORegistry) → Linux AMD sysfs →
-    Linux Intel identity stub. Cached briefly so catalog filters don't re-spawn
-    ``system_profiler`` on every call.
+    Priority: nvidia-smi → host NVIDIA writer file → macOS (AMD/Intel/Apple
+    IORegistry) → Linux AMD sysfs → Linux Intel identity stub. Cached briefly so
+    catalog filters don't re-spawn ``system_profiler`` on every call.
     """
     global _gpu_sample_cache
     now = time.monotonic()
@@ -1081,6 +1155,7 @@ def sample_gpu() -> dict[str, Any] | None:
     hit: dict[str, Any] | None = None
     for sampler in (
         sample_nvidia_gpu,
+        sample_nvidia_host_file_gpu,
         sample_macos_gpu,
         sample_linux_amd_gpu,
         sample_linux_intel_gpu,

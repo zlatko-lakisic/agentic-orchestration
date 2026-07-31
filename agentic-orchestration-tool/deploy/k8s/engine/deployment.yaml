@@ -58,6 +58,9 @@ spec:
               value: info
             - name: AGENTIC_JETSON_JTOP_METRICS_PATH
               value: /host/agentic-metrics/jtop-metrics.json
+            # Discrete NVIDIA hosts: written by agentic-nvidia-metrics.service on the node.
+            - name: AGENTIC_NVIDIA_HOST_METRICS_PATH
+              value: /host/agentic-metrics/nvidia-metrics.json
             # One-writer story: this pod owns KB SQLite for KnowBuddy; Node web spawn
             # still writes its own emptyDir KB. Do not point KnowBuddy at :30487.
             - name: PYTHONUNBUFFERED

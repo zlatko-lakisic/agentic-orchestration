@@ -18,10 +18,12 @@ from orchestration.host_metrics import (
     merge_jetson_into_metrics,
     metrics_scope,
     read_jetson_jtop_snapshot,
+    read_nvidia_host_snapshot,
     reset_cpu_sample,
     sample_cpu_percent,
     sample_host_metrics,
     sample_memory,
+    sample_nvidia_host_file_gpu,
 )
 
 pytestmark = pytest.mark.unit
@@ -31,6 +33,7 @@ pytestmark = pytest.mark.unit
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTIC_HOST_METRICS_PROC_ROOT", raising=False)
     monkeypatch.delenv("AGENTIC_JETSON_JTOP_METRICS_PATH", raising=False)
+    monkeypatch.delenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", raising=False)
     monkeypatch.delenv("AGENTIC_WEB_HOST_METRICS_PUSH_MS", raising=False)
     monkeypatch.delenv("AGENTIC_ASSUME_VRAM_GB", raising=False)
     reset_cpu_sample()
@@ -519,12 +522,86 @@ def test_scope_is_runtime_when_proc_root_unreadable(monkeypatch: pytest.MonkeyPa
     assert metrics_scope() == "runtime"
 
 
-def test_scope_is_jetson_when_a_jtop_path_is_set(
+def test_scope_is_jetson_when_jtop_file_exists(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(tmp_path / "jtop.json"))
+    path = tmp_path / "jtop.json"
+    path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(path))
     assert metrics_scope() == "jetson"
+
+
+def test_scope_not_jetson_when_jtop_path_missing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(tmp_path / "missing.json"))
+    assert metrics_scope() != "jetson"
+
+
+def test_gpu_from_nvidia_host_metrics_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "nvidia-metrics.json"
+    path.write_text(
+        json.dumps(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "source": "nvidia-smi",
+                "gpu": {
+                    "percent": 17.0,
+                    "vramTotalGb": 20.0,
+                    "vramUsedGb": 12.5,
+                    "vramFreeGb": 7.5,
+                    "vramSource": "nvidia-smi",
+                    "name": "NVIDIA RTX 4000 SFF Ada Generation",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", str(path))
+    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_macos_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_linux_amd_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_linux_intel_gpu", lambda: None)
+    # Bypass TTL cache from other tests
+    monkeypatch.setattr("orchestration.host_metrics._gpu_sample_cache", None)
+
+    hit = sample_nvidia_host_file_gpu()
+    assert hit is not None
+    assert hit["percent"] == 17.0
+    assert hit["vramTotalGb"] == 20.0
+    assert hit["vramUsedGb"] == 12.5
+    assert "4000" in (hit["name"] or "")
+
+    sample = sample_host_metrics()
+    assert sample["gpu"]["percent"] == 17.0
+    assert sample["gpu"]["vramUsedGb"] == 12.5
+    assert sample["gpu"]["vramSource"] == "nvidia-smi"
+    assert sample["scope"] == "host"
+
+
+def test_nvidia_host_snapshot_ignores_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "nvidia-metrics.json"
+    stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    path.write_text(
+        json.dumps(
+            {
+                "ts": stale_ts,
+                "gpu": {"percent": 99.0, "vramTotalGb": 20.0, "vramSource": "nvidia-smi"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", str(path))
+    assert read_nvidia_host_snapshot() is None
+    assert sample_nvidia_host_file_gpu() is None
 
 
 def test_proc_stat_is_used_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
