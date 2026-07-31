@@ -190,28 +190,21 @@ def adapt_mcp_catalog_entry_for_kubernetes(entry: dict[str, Any]) -> dict[str, A
 
 
 def is_session_tunnel_mcp_entry(entry: dict[str, Any]) -> bool:
-    """
-    True for session-overlay MCPs proxied over the owning WebSocket.
+    """True for session-overlay MCPs proxied over the owning WebSocket (``tunnel://``).
 
-    Shape: ``id`` in the ``client.*`` namespace and ``streamable_http.url`` starting
-    with ``tunnel://session-mcp/``. These must survive k8s catalog policy — they are
-    not in-cluster stdio and must not be rewritten to gateway/sidecar URLs.
+    These are hosted on the client (e.g. KnowBuddy Mac Gmail/Calendar tunnels), not as
+    in-cluster stdio/HTTP sidecars. Kubernetes catalog policy must not strip them —
+    otherwise ``direct_agent`` with ``mcpProviderIds: ["client.…"]`` fails with
+    "unknown catalog id" after a successful ``session_overlay_ack``.
     """
-    if not isinstance(entry, dict):
-        return False
-    mcp_id = str(entry.get("id", "")).strip()
-    if not mcp_id.startswith("client."):
-        return False
-    # Import locally to avoid a hard cycle with serve-only modules at import time.
-    from orchestration.session_overlay import CLIENT_ID_RE, TUNNEL_URL_PREFIX
-
-    if not CLIENT_ID_RE.match(mcp_id):
+    pid = str(entry.get("id", "")).strip()
+    if not pid.startswith("client."):
         return False
     sh = entry.get("streamable_http")
     if not isinstance(sh, dict):
         return False
     url = str(sh.get("url", "")).strip()
-    return url.startswith(TUNNEL_URL_PREFIX)
+    return url.startswith("tunnel://session-mcp/")
 
 
 def apply_kubernetes_mcp_catalog_policy(
@@ -224,18 +217,16 @@ def apply_kubernetes_mcp_catalog_policy(
     if not is_kubernetes_execution_backend():
         return entries, []
 
-    # Session-tunnel MCPs (WS-proxied client.* entries) bypass the stock allowlist.
-    policy_entries: list[dict[str, Any]] = []
+    # Session tunnel overlays are client-proxied; keep them regardless of K8s allowlists.
+    session_tunnel: list[dict[str, Any]] = []
+    rest: list[dict[str, Any]] = []
     for entry in entries:
         if is_session_tunnel_mcp_entry(entry):
-            continue
-        policy_entries.append(entry)
+            session_tunnel.append(copy.deepcopy(entry))
+        else:
+            rest.append(entry)
 
-    ids = [
-        str(e.get("id", "")).strip()
-        for e in policy_entries
-        if str(e.get("id", "")).strip()
-    ]
+    ids = [str(e.get("id", "")).strip() for e in rest if str(e.get("id", "")).strip()]
     allowed_ids, excluded_ids = filter_mcp_ids_for_kubernetes(ids)
     allowed_set = set(allowed_ids)
 
@@ -245,12 +236,8 @@ def apply_kubernetes_mcp_catalog_policy(
             file=sys.stderr,
         )
 
-    kept: list[dict[str, Any]] = []
-    for entry in entries:
-        if is_session_tunnel_mcp_entry(entry):
-            # Keep tunnel URLs intact — never adapt through gateway/sidecar.
-            kept.append(copy.deepcopy(entry))
-            continue
+    kept: list[dict[str, Any]] = list(session_tunnel)
+    for entry in rest:
         mcp_id = str(entry.get("id", "")).strip()
         if mcp_id not in allowed_set:
             continue
