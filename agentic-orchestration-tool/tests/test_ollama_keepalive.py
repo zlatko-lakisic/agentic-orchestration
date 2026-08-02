@@ -22,11 +22,24 @@ def test_resolve_keepalive_model_tags_multi(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.unit
+def test_ollama_keepalive_duration_forever_is_int(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_OLLAMA_KEEP_ALIVE", "-1")
+    assert ok.ollama_keepalive_duration() == -1
+
+
+@pytest.mark.unit
+def test_ollama_keepalive_duration_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_OLLAMA_KEEP_ALIVE", "24h")
+    assert ok.ollama_keepalive_duration() == "24h"
+
+
+@pytest.mark.unit
 def test_ping_ollama_keepalive_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_OLLAMA_KEEPALIVE", "1")
     monkeypatch.delenv("AGENTIC_OLLAMA_KEEPALIVE_MODELS", raising=False)
     monkeypatch.setenv("AGENTIC_PLANNER_MODEL", "ollama/llama3.2:3b")
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+    monkeypatch.setenv("AGENTIC_OLLAMA_KEEP_ALIVE", "-1")
 
     class FakeResp:
         def __init__(self) -> None:
@@ -45,6 +58,8 @@ def test_ping_ollama_keepalive_success(monkeypatch: pytest.MonkeyPatch) -> None:
         def post(self, url: str, json: dict) -> FakeResp:
             assert url.endswith("/api/generate")
             assert json["model"] == "llama3.2:3b"
+            assert json["keep_alive"] == -1
+            assert isinstance(json["keep_alive"], int)
             return FakeResp()
 
     monkeypatch.setattr(ok.httpx, "Client", FakeClient)

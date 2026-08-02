@@ -86,8 +86,19 @@ def resolve_keepalive_model_tags() -> list[str]:
     return [single] if single else []
 
 
-def ollama_keepalive_duration() -> str:
-    return os.getenv("AGENTIC_OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
+def ollama_keepalive_duration() -> str | int:
+    """Value for Ollama ``keep_alive``.
+
+    Ollama 0.21+ parses string durations with Go's ``time.ParseDuration`` and
+    rejects ``"-1"`` (missing unit). A JSON **number** ``-1`` still means
+    "keep forever". Non-numeric values (``5m``, ``24h``) stay strings.
+    """
+    raw = os.getenv("AGENTIC_OLLAMA_KEEP_ALIVE", "-1").strip() or "-1"
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
 
 
 def ollama_keepalive_interval_seconds() -> float:
