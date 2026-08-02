@@ -65,6 +65,13 @@ spec:
             # still writes its own emptyDir KB. Do not point KnowBuddy at :30487.
             - name: PYTHONUNBUFFERED
               value: "1"
+            # CrewAI first-time tracing can block 20s on stdin after every crew when
+            # FirstTimeTraceHandler.is_first_time sticks true. Daemon has no TTY —
+            # skip prompts (see orchestration/crewai_noninteractive.py).
+            - name: CREWAI_TESTING
+              value: "true"
+            - name: CREWAI_TRACING_ENABLED
+              value: "false"
           envFrom:
             - secretRef:
                 name: agentic-orchestrator-env

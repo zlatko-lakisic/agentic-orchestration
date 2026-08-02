@@ -92,6 +92,11 @@ def _check_deal_access(*, root: Path, identity: Identity, deal_id: str | None) -
 def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     root = tool_root_path or tool_root()
 
+    # Before any CrewAI kickoff: never block the daemon on stdin tracing prompts.
+    from orchestration.crewai_noninteractive import configure_crewai_noninteractive
+
+    configure_crewai_noninteractive()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Warm catalogs + optional Ollama keepalive; tear down AO-spawned runtimes on exit."""

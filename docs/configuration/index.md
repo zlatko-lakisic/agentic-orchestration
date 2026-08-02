@@ -102,6 +102,8 @@ slice-by-slice status.
 | `AGENTIC_SERVE_SESSION_OVERLAY_TTL_S` | `3600` | Idle TTL for session overlays (clamped 30–86400). |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_BYTES` | `524288` | Max serialized overlay payload size. |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_ENTRIES` | `64` | Max agent+MCP+skill entries per session overlay. |
+| `CREWAI_TESTING` | _(unset; engine sets `true`)_ | When `true`, CrewAI skips first-time auto-collect and the interactive “view execution traces?” prompt (critical for `orchestration.serve` / k8s — no TTY). |
+| `CREWAI_TRACING_ENABLED` | _(unset; engine sets `false`)_ | Explicit tracing off for the engine Deployment; alone does **not** disable the first-time view prompt if preference is unset. |
 | `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without an identity header (HTTP `401`, WebSocket close `1008`) instead of falling back to the implicit local user. Also switches deal authorization on. |
 | `AGENTIC_WEB_USER_NAME_HEADER` | `x-agentic-user-name,x-user-name` | Comma-separated headers searched for the display name (same variable the Node server uses). |
 | `AGENTIC_WEB_SESSION_ID_HEADER` | `x-agentic-session-id,x-warpgate-session-id` | Comma-separated headers searched for the session id; absent → a generated `web-<hex>` id. |
