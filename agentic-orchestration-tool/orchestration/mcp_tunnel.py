@@ -258,8 +258,10 @@ class McpTunnelHub:
                 raise McpTunnelError(
                     f"no MCP tunnel bridge for connection {cid!r} (register overlay first)"
                 )
+        # CrewAI derives OpenAI function names from the URL host; names must
+        # start with a letter. Prefer localhost over 127.0.0.1.
         # CrewAI appends paths like /mcp; keep a stable mount prefix.
-        return f"http://127.0.0.1:{port}/t/{cid}/{alias}"
+        return f"http://localhost:{port}/t/{cid}/{alias}"
 
     def _serve_http(
         self, handler: BaseHTTPRequestHandler

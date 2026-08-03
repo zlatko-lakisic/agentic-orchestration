@@ -79,6 +79,12 @@ def normalize_mcps_for_crewai(mcps: list[Any] | None) -> list[Any] | None:
         url = str(entry.get("url") or "").strip()
         if not url:
             raise ValueError(f"MCP dict entry missing command or url: {entry!r}")
+        # CrewAI prefixes tool names from the URL host; OpenAI rejects names that
+        # start with a digit (http://127.0.0.1:… → 127_0_0_1_…).
+        if url.startswith("http://127.0.0.1:"):
+            url = "http://localhost:" + url[len("http://127.0.0.1:") :]
+        elif url.startswith("https://127.0.0.1:"):
+            url = "https://localhost:" + url[len("https://127.0.0.1:") :]
         transport = str(entry.get("transport") or "streamable-http").strip().lower()
         headers = entry.get("headers")
         header_map = (
