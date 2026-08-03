@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../agentic-orchestration-openclaw"
+		},
+		{
+			"path": "../agentic-orchestration-reach"
 		}
 	],
 	"settings": {}
