@@ -22,6 +22,8 @@ connection, guarded by a busy lock.
 
 Optional session overlays (``AGENTIC_SERVE_SESSION_OVERLAY=1``) and MCP tunnels
 (``AGENTIC_SERVE_MCP_TUNNEL=1``) are advertised on ``hello`` when enabled.
+Optional speech sidecars (``AGENTIC_SPEECH_ENABLED=1``) add a ``speech`` object
+with OpenAI-compatible STT/TTS base URLs for Reach clients.
 """
 
 from __future__ import annotations
@@ -119,22 +121,25 @@ class WsConnection:
             return
 
         from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+        from orchestration.speech_capability import speech_hello_payload
 
-        await self.send(
-            {
-                "type": "hello",
-                "service": "agentic-orchestration-engine",
-                "version": engine_version(),
-                "toolRoot": str(self.tool_root),
-                "protocol": "engine-ws/1",
-                "questionTags": True,
-                "sessionOverlay": session_overlay_enabled(),
-                "mcpTunnel": mcp_tunnel_enabled(),
-                "userName": self.identity.user_name,
-                "sessionId": self.identity.session_id,
-                "userId": self.identity.user_id,
-            }
-        )
+        hello: dict[str, Any] = {
+            "type": "hello",
+            "service": "agentic-orchestration-engine",
+            "version": engine_version(),
+            "toolRoot": str(self.tool_root),
+            "protocol": "engine-ws/1",
+            "questionTags": True,
+            "sessionOverlay": session_overlay_enabled(),
+            "mcpTunnel": mcp_tunnel_enabled(),
+            "userName": self.identity.user_name,
+            "sessionId": self.identity.session_id,
+            "userId": self.identity.user_id,
+        }
+        speech = speech_hello_payload()
+        if speech is not None:
+            hello["speech"] = speech
+        await self.send(hello)
         try:
             while True:
                 try:
@@ -178,16 +183,19 @@ class WsConnection:
             return
         if kind == "client_hello":
             from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+            from orchestration.speech_capability import speech_hello_payload
 
-            await self.send(
-                {
-                    "type": "hello",
-                    "resume": bool(message.get("resume")),
-                    "sessionId": (self.identity.session_id if self.identity else None),
-                    "sessionOverlay": session_overlay_enabled(),
-                    "mcpTunnel": mcp_tunnel_enabled(),
-                }
-            )
+            reply: dict[str, Any] = {
+                "type": "hello",
+                "resume": bool(message.get("resume")),
+                "sessionId": (self.identity.session_id if self.identity else None),
+                "sessionOverlay": session_overlay_enabled(),
+                "mcpTunnel": mcp_tunnel_enabled(),
+            }
+            speech = speech_hello_payload()
+            if speech is not None:
+                reply["speech"] = speech
+            await self.send(reply)
             return
         if kind == "host_metrics_subscribe":
             await self.start_host_metrics()

@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-08-03
+
+### Added
+
+- **Speech sidecars + hello advertisement** — optional OpenAI-compatible STT/TTS processes under `agentic-orchestration-tool/speech/` (faster-whisper + sherpa Piper). When `AGENTIC_SPEECH_ENABLED=1`, engine WebSocket `hello` includes a `speech` block with client-facing base URLs for AO Reach `SpeechClient`. Default off; existing overlays/tunnels unchanged.
+
 ## [1.27.4] - 2026-07-31
 
 ### Fixed
