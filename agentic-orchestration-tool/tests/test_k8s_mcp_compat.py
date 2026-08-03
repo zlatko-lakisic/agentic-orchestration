@@ -288,7 +288,8 @@ def test_session_tunnel_survives_merge_and_resolve(monkeypatch: pytest.MonkeyPat
                 resolved = resolve_workflow_mcp_refs(["client.calendar_google"], kept)
                 assert resolved
                 assert isinstance(resolved[0], dict)
-                assert str(resolved[0].get("url", "")).startswith("http://127.0.0.1:")
+                # Prefer localhost over 127.0.0.1 so CrewAI tool names start with a letter.
+                assert str(resolved[0].get("url", "")).startswith("http://localhost:")
     finally:
         unregister_connection_bridge("c1")
         reset_overlays_for_tests()
