@@ -642,6 +642,10 @@ def run_direct_agent(
             if recovered:
                 answer = recovered
 
+    if looks_like_unusable_crew_answer(answer or ""):
+        # Recovery failed or non-MCP path still produced meta/tool-stall prose.
+        answer = ""
+
     if not str(answer or "").strip():
         preview = (raw_text or "").strip()[:240]
         raise DirectAgentEmptyAnswerError(

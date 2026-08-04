@@ -32,6 +32,10 @@ def test_looks_like_mcp_tool_call_leak_keeps_deliverable_json() -> None:
 def test_looks_like_unusable_crew_answer_past_results_echo() -> None:
     assert looks_like_unusable_crew_answer("(Don't use past results here.)")
     assert looks_like_unusable_crew_answer("Don't use past results here.")
+    assert looks_like_unusable_crew_answer(
+        "I need to see the tool result first before proceeding with analysis "
+        "and providing an answer. Could you please share it?"
+    )
     assert not looks_like_unusable_crew_answer(
         "/home/zlatko/.openclaw/workspace/AO_MCP_SMOKE.txt"
     )

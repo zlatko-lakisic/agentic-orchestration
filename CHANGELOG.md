@@ -10,6 +10,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 ### Fixed
 
 - **`direct_agent` empty replies** — attaches agent-entry `skills` (and defaults `mcp_providers` when the caller omits `mcpProviderIds`), strips Reach-baked backstory skill text before catalog re-inject, recovers MCP tool-call leaks like `execute_step`, and raises `DirectAgentEmptyAnswerError` so WebSocket `run_end` / REST `ok: false` instead of silent success with no stdout.
+- **Unusable CrewAI tool-stall prose** — answers that ask the user to “share the tool result” are treated as unusable and enter MCP recovery (same path as tool-call leaks).
 - **K8s session-overlay MCPs** — `apply_kubernetes_mcp_catalog_policy` keeps all `client.*` catalog entries (HTTP and tunnel), not only `tunnel://session-mcp/` URLs.
 
 ### Added

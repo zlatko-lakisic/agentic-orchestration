@@ -176,6 +176,21 @@ def looks_like_unusable_crew_answer(text: str) -> bool:
             return True
     if "ignore all previous instructions" in lower and len(t) < 280:
         return True
+    # CrewAI / tool-loop stalls that ask the human for tool output instead of answering.
+    if len(t) < 400 and any(
+        s in lower
+        for s in (
+            "tool result first",
+            "see the tool result",
+            "share the tool result",
+            "please share it",
+            "could you please share",
+            "waiting for the tool",
+            "need the tool output",
+            "need to see the tool",
+        )
+    ):
+        return True
     return False
 
 
