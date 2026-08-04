@@ -188,6 +188,9 @@ def looks_like_unusable_crew_answer(text: str) -> bool:
             "waiting for the tool",
             "need the tool output",
             "need to see the tool",
+            "please provide the tool result",
+            "provide the tool result for analysis",
+            "tool result for analysis",
         )
     ):
         return True
