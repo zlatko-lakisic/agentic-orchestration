@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-08-04
+
 ### Fixed
 
 - **`direct_agent` empty replies** — attaches agent-entry `skills` (and defaults `mcp_providers` when the caller omits `mcpProviderIds`), strips Reach-baked backstory skill text before catalog re-inject, recovers MCP tool-call leaks like `execute_step`, and raises `DirectAgentEmptyAnswerError` so WebSocket `run_end` / REST `ok: false` instead of silent success with no stdout.
