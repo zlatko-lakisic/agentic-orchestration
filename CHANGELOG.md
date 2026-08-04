@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
-- **`direct_agent` empty replies** — attaches agent-entry `skills` (and defaults `mcp_providers` when the caller omits `mcpProviderIds`), strips Reach-baked backstory skill text before catalog re-inject, recovers MCP tool-call leaks like `execute_step`, and raises `DirectAgentEmptyAnswerError` so WebSocket `run_end` is `ok: false` instead of silent success with no stdout.
+- **`direct_agent` empty replies** — attaches agent-entry `skills` (and defaults `mcp_providers` when the caller omits `mcpProviderIds`), strips Reach-baked backstory skill text before catalog re-inject, recovers MCP tool-call leaks like `execute_step`, and raises `DirectAgentEmptyAnswerError` so WebSocket `run_end` / REST `ok: false` instead of silent success with no stdout.
 - **K8s session-overlay MCPs** — `apply_kubernetes_mcp_catalog_policy` keeps all `client.*` catalog entries (HTTP and tunnel), not only `tunnel://session-mcp/` URLs.
 
 ### Added

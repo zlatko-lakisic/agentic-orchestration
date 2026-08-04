@@ -187,7 +187,11 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         payload: DirectAgentRequest,
         identity: Identity = Depends(identity_from_request),
     ) -> dict[str, Any]:
-        from orchestration.direct_agent import DirectAgentFormatError, run_direct_agent
+        from orchestration.direct_agent import (
+            DirectAgentEmptyAnswerError,
+            DirectAgentFormatError,
+            run_direct_agent,
+        )
 
         text = (payload.text or "").strip()
         if not text:
@@ -226,12 +230,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     )
 
             answer = await run_in_threadpool(_run)
-        except DirectAgentFormatError as exc:
+        except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
             return {
                 **base,
                 "ok": False,
                 "error": exc.message,
-                "text": exc.raw,
+                "text": getattr(exc, "raw", None),
                 "elapsedMs": round((time.monotonic() - started) * 1000, 1),
             }
         except (LookupError, ValueError) as exc:
