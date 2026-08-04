@@ -200,7 +200,7 @@ def test_apply_k8s_policy_keeps_session_tunnel_mcps(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.unit
-def test_apply_k8s_policy_does_not_auto_allow_client_https(
+def test_apply_k8s_policy_keeps_client_https_overlay_mcps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
@@ -213,8 +213,9 @@ def test_apply_k8s_policy_does_not_auto_allow_client_https(
         }
     ]
     kept, excluded = apply_kubernetes_mcp_catalog_policy(entries, verbose=False)
-    assert kept == []
-    assert excluded == ["client.remote_http"]
+    assert [e["id"] for e in kept] == ["client.remote_http"]
+    assert excluded == []
+    assert kept[0]["streamable_http"]["url"] == "https://mcp.example.com/mcp"
 
 
 @pytest.mark.unit

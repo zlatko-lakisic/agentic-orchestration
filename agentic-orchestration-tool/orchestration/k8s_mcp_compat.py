@@ -207,6 +207,16 @@ def is_session_tunnel_mcp_entry(entry: dict[str, Any]) -> bool:
     return url.startswith("tunnel://session-mcp/")
 
 
+def is_session_overlay_mcp_entry(entry: dict[str, Any]) -> bool:
+    """True for any Reach/session-overlay MCP (``client.*`` namespace).
+
+    Overlay registration forbids stdio; entries are streamable HTTP (tunnel or remote).
+    Keep all of them under k8s catalog policy so ``direct_agent`` can resolve ids after
+    ``session_overlay_ack`` without ``AGENTIC_K8S_EXTRA_HTTP_MCPS``.
+    """
+    return str(entry.get("id", "")).strip().startswith("client.")
+
+
 def apply_kubernetes_mcp_catalog_policy(
     entries: list[dict[str, Any]],
     *,
@@ -217,12 +227,12 @@ def apply_kubernetes_mcp_catalog_policy(
     if not is_kubernetes_execution_backend():
         return entries, []
 
-    # Session tunnel overlays are client-proxied; keep them regardless of K8s allowlists.
-    session_tunnel: list[dict[str, Any]] = []
+    # Session overlays (Reach client.*) stay regardless of K8s stock allowlists.
+    session_overlay: list[dict[str, Any]] = []
     rest: list[dict[str, Any]] = []
     for entry in entries:
-        if is_session_tunnel_mcp_entry(entry):
-            session_tunnel.append(copy.deepcopy(entry))
+        if is_session_overlay_mcp_entry(entry):
+            session_overlay.append(copy.deepcopy(entry))
         else:
             rest.append(entry)
 
@@ -236,7 +246,7 @@ def apply_kubernetes_mcp_catalog_policy(
             file=sys.stderr,
         )
 
-    kept: list[dict[str, Any]] = list(session_tunnel)
+    kept: list[dict[str, Any]] = list(session_overlay)
     for entry in rest:
         mcp_id = str(entry.get("id", "")).strip()
         if mcp_id not in allowed_set:

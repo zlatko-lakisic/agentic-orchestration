@@ -35,6 +35,16 @@ def test_infer_harness_profile_coder_id() -> None:
     assert infer_harness_profile(entry) == "coding"
 
 
+def test_voice_harness_profile_loads(tool_root: Path) -> None:
+    profiles = HarnessProfileLoader(tool_root / "config" / "agent_harnesses")
+    voice = profiles.get("voice")
+    assert voice is not None
+    assert voice.get("id") == "voice"
+    assert infer_harness_profile({"id": "client.voice_responder", "harness_profile": "voice"}) == (
+        "voice"
+    )
+
+
 def test_filter_providers_by_glob() -> None:
     entries = [{"id": "gpt_research"}, {"id": "ollama_llama3"}]
     out = filter_providers_by_glob(entries, "gpt_*")

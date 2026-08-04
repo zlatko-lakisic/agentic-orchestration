@@ -402,7 +402,7 @@ class WsConnection:
         text: str,
         question_id: str | None,
     ) -> None:
-        from orchestration.direct_agent import DirectAgentFormatError
+        from orchestration.direct_agent import DirectAgentEmptyAnswerError, DirectAgentFormatError
 
         started = time.monotonic()
         tag: dict[str, Any] = {"question_id": question_id} if question_id else {}
@@ -428,8 +428,8 @@ class WsConnection:
             )
         except asyncio.CancelledError:
             raise
-        except DirectAgentFormatError as exc:
-            if exc.raw:
+        except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
+            if getattr(exc, "raw", None):
                 await self.send({"type": "chunk", "stream": "stdout", "text": exc.raw, **tag})
             await self.send_error(exc.message, question_id=question_id)
             await self.send(
@@ -438,7 +438,7 @@ class WsConnection:
                     "ok": False,
                     "exitCode": 0,
                     "error": exc.message,
-                    "text": exc.raw,
+                    "text": getattr(exc, "raw", None),
                     "elapsedMs": round((time.monotonic() - started) * 1000, 1),
                     **tag,
                 }

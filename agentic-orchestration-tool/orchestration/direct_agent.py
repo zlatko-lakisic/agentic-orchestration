@@ -41,8 +41,37 @@ class DirectAgentFormatError(Exception):
         self.message = message
 
 
+class DirectAgentEmptyAnswerError(Exception):
+    """Crew kickoff produced no usable user-facing prose after sanitize/recovery."""
+
+    def __init__(self, message: str, *, raw: str | None = None) -> None:
+        super().__init__(message)
+        self.raw = raw
+        self.message = message
+
+
 def _tool_root_default() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _skill_ids_from_agent_entry(entry: dict[str, Any]) -> list[str]:
+    return [str(x).strip() for x in (entry.get("skills") or []) if str(x).strip()]
+
+
+def _mcp_ids_from_agent_entry(entry: dict[str, Any]) -> list[str]:
+    """Normalize agent YAML ``mcp_providers`` (string ids and/or ``{id: …}`` maps)."""
+    out: list[str] = []
+    for item in entry.get("mcp_providers") or []:
+        if isinstance(item, str):
+            mid = item.strip()
+            if mid:
+                out.append(mid)
+            continue
+        if isinstance(item, dict):
+            mid = str(item.get("id") or "").strip()
+            if mid:
+                out.append(mid)
+    return out
 
 
 def load_agent_entry(
@@ -95,10 +124,26 @@ def build_direct_agent_config(
     mcp_provider_ids: list[str] | None = None,
     expected_output: str | None = None,
 ):
-    """One-task ``WorkflowConfig`` for the direct path (no planner involved)."""
+    """One-task ``WorkflowConfig`` for the direct path (no planner involved).
+
+    Honors agent-entry ``skills`` and, when ``mcp_provider_ids`` is omitted (``None``),
+    agent-entry ``mcp_providers``. An explicit ``mcp_provider_ids`` list (including
+    ``[]``) wins so callers can narrow tools (e.g. voice HA-only).
+    """
+    from copy import deepcopy
+
+    from orchestration.agent_skills_context import strip_client_baked_skill_backstory
     from orchestration.config_loader import TaskDefinition, WorkflowConfig
 
     entry = load_agent_entry(agent_provider_id=agent_provider_id, catalog_path=catalog_path)
+    skill_ids = _skill_ids_from_agent_entry(entry)
+    if skill_ids:
+        entry = deepcopy(entry)
+        entry["backstory"] = strip_client_baked_skill_backstory(
+            str(entry.get("backstory") or "")
+        )
+    agent_mcps = _mcp_ids_from_agent_entry(entry)
+    task_mcps = list(mcp_provider_ids) if mcp_provider_ids is not None else agent_mcps
     pid = str(entry.get("id") or "").strip()
     step_id = f"direct-{pid}"
     return WorkflowConfig(
@@ -108,15 +153,15 @@ def build_direct_agent_config(
         instance_key=f"direct-{pid}",
         agent_providers=[entry],
         mcp_providers=[],
-        skills=[],
+        skills=list(skill_ids),
         tasks=[
             TaskDefinition(
                 id=step_id,
                 agent_provider_id=pid,
                 description=build_direct_task_description(goal=goal, context=context),
                 expected_output=(expected_output or DEFAULT_EXPECTED_OUTPUT),
-                mcp_providers=list(mcp_provider_ids or []),
-                skills=[],
+                mcp_providers=task_mcps,
+                skills=list(skill_ids),
             )
         ],
         task_sequence=[step_id],
@@ -516,6 +561,13 @@ def run_direct_agent(
         mcp_provider_ids=mcp_provider_ids,
     )
 
+    from orchestration.fetch_url_tool import recover_fetch_url_after_tool_leak
+    from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
+    from orchestration.mcp_tool_leak_recovery import (
+        looks_like_unusable_crew_answer,
+        needs_filesystem_recovery,
+        recover_after_mcp_tool_leak,
+    )
     from orchestration.output_artifacts import workflow_result_to_extractable_text
     from orchestration.runner import build_workflow, crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
@@ -523,6 +575,13 @@ def run_direct_agent(
     def progress(message: str) -> None:
         if on_progress is not None:
             on_progress(message)
+
+    mcp_ids = [
+        str(x).strip()
+        for x in (config.tasks[0].mcp_providers or [])
+        if str(x).strip()
+    ]
+    task_description = config.tasks[0].description
 
     with progress_callback(on_progress):
         progress(f"ensuring runtime for {pid}")
@@ -532,13 +591,64 @@ def run_direct_agent(
             quiet=quiet,
             emit_progress_lines=False,
             mcp_catalog_path=paths.mcp_providers,
+            agent_skills_catalog_path=paths.agent_skills,
             on_progress=on_progress,
         )
         progress(f"starting {pid}")
         with crew_kickoff_context(built):
             progress("generating")
             result = built.crew.kickoff(inputs={"topic": text})
-    answer = sanitize_user_facing_prose(workflow_result_to_extractable_text(result))
+    raw_text = workflow_result_to_extractable_text(result)
+    answer = sanitize_user_facing_prose(raw_text)
+    progress(
+        f"sanitize prose raw_len={len(raw_text or '')} answer_len={len(answer or '')}"
+    )
+
+    needs_recovery = bool(mcp_ids) and (
+        looks_like_mcp_tool_call_leak(raw_text)
+        or looks_like_unusable_crew_answer(raw_text)
+        or looks_like_unusable_crew_answer(answer or "")
+        or needs_filesystem_recovery(
+            text=answer or "",
+            raw_text=raw_text,
+            topic=text,
+            mcp_ids=mcp_ids,
+        )
+    )
+    if needs_recovery:
+        progress("recovering unusable MCP answer")
+        if "fetch_url" in mcp_ids:
+            recovered = recover_fetch_url_after_tool_leak(
+                built=built,
+                topic=text,
+                task_description=task_description,
+                leaked_text=raw_text,
+            )
+            if recovered and not looks_like_unusable_crew_answer(recovered):
+                answer = recovered
+        if looks_like_unusable_crew_answer(answer or "") or needs_filesystem_recovery(
+            text=answer or "",
+            raw_text=raw_text,
+            topic=text,
+            mcp_ids=mcp_ids,
+        ):
+            recovered = recover_after_mcp_tool_leak(
+                built=built,
+                topic=text,
+                task_description=task_description,
+                mcp_ids=mcp_ids,
+                leaked_text=raw_text,
+            )
+            if recovered:
+                answer = recovered
+
+    if not str(answer or "").strip():
+        preview = (raw_text or "").strip()[:240]
+        raise DirectAgentEmptyAnswerError(
+            "direct_agent produced an empty user-facing answer"
+            + (f" (raw preview: {preview!r})" if preview else ""),
+            raw=raw_text or None,
+        )
 
     if persist and answer:
         _persist_direct_answer(

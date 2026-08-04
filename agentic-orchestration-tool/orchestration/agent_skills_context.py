@@ -72,6 +72,23 @@ def strip_skills_from_backstory(backstory: str) -> str:
     return backstory[:idx].rstrip()
 
 
+def strip_client_baked_skill_backstory(backstory: str) -> str:
+    """Remove AO and Reach OverlayPacker skill appendages before catalog re-inject.
+
+    Reach bakes skill markdown into ``backstory`` with ``\\n\\n## …`` headings and no
+    ``BACKSTORY_SKILLS_MARKER``. When AO will resolve ``agent.skills`` from the
+    merged catalog, drop those appendages so skills are not double-injected.
+    """
+    t = strip_skills_from_backstory(str(backstory or ""))
+    idx = t.find("\n\n## ")
+    if idx != -1:
+        return t[:idx].rstrip()
+    stripped = t.lstrip()
+    if stripped.startswith("## "):
+        return ""
+    return t
+
+
 def augment_backstory_for_skills(
     backstory: str,
     skill_blocks: Sequence[tuple[str, str]],

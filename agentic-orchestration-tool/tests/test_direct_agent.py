@@ -103,7 +103,7 @@ def test_config_is_a_single_task_with_no_planner_involved(catalog: Path) -> None
     assert config.process == "sequential"
     assert [p["id"] for p in config.agent_providers] == ["fake_local"]
     assert config.tasks[0].agent_provider_id == "fake_local"
-    # No MCP or skills unless the caller asks for them: this path is latency-first.
+    # Agent entry has no skills/mcp_providers → empty defaults.
     assert config.tasks[0].mcp_providers == []
     assert config.tasks[0].skills == []
 
@@ -116,6 +116,172 @@ def test_config_passes_requested_mcp_ids(catalog: Path) -> None:
         mcp_provider_ids=["fetch_url"],
     )
     assert config.tasks[0].mcp_providers == ["fetch_url"]
+
+
+def test_config_attaches_agent_skills_and_strips_baked_backstory(tmp_path: Path) -> None:
+    from orchestration.agent_skills_context import BACKSTORY_SKILLS_MARKER
+
+    path = tmp_path / "agent_providers.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "agent_providers": [
+                    {
+                        "id": "voice_agent",
+                        "type": "ollama",
+                        "model": "llama3.2",
+                        "role": "Voice",
+                        "goal": "Speak",
+                        "backstory": (
+                            "Base voice backstory.\n\n"
+                            "## Home Assistant (voice)\n\n"
+                            "Call HA tools first.\n\n"
+                            f"{BACKSTORY_SKILLS_MARKER}\n\nlegacy inject"
+                        ),
+                        "skills": ["spoken_output", "home_assistant_voice"],
+                        "mcp_providers": ["home_assistant", {"id": "client.google_workspace"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = build_direct_agent_config(
+        agent_provider_id="voice_agent",
+        goal="How much water?",
+        catalog_path=path,
+    )
+    assert config.skills == ["spoken_output", "home_assistant_voice"]
+    assert config.tasks[0].skills == ["spoken_output", "home_assistant_voice"]
+    assert config.tasks[0].mcp_providers == ["home_assistant", "client.google_workspace"]
+    assert config.agent_providers[0]["backstory"] == "Base voice backstory."
+
+
+def test_config_explicit_mcp_ids_override_agent_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "agent_providers.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "agent_providers": [
+                    {
+                        "id": "voice_agent",
+                        "type": "ollama",
+                        "model": "llama3.2",
+                        "role": "Voice",
+                        "goal": "Speak",
+                        "backstory": "Base.",
+                        "mcp_providers": ["home_assistant", "client.google_workspace"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    narrowed = build_direct_agent_config(
+        agent_provider_id="voice_agent",
+        goal="q",
+        catalog_path=path,
+        mcp_provider_ids=["home_assistant"],
+    )
+    assert narrowed.tasks[0].mcp_providers == ["home_assistant"]
+    empty = build_direct_agent_config(
+        agent_provider_id="voice_agent",
+        goal="q",
+        catalog_path=path,
+        mcp_provider_ids=[],
+    )
+    assert empty.tasks[0].mcp_providers == []
+
+@requires_crewai
+def test_run_direct_agent_recovers_mcp_tool_leak(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_KB", "0")
+
+    leaked = (
+        '{"name": "npx_y_modelcontextprotocol_server_filesystem_home_zlatk_81db3643", '
+        '"parameters": {"pattern":"^.txt$"}}'
+    )
+    kickoff = MagicMock(return_value=leaked)
+    built = MagicMock(crew=MagicMock(kickoff=kickoff), kickoff_callback_state=None)
+    monkeypatch.setattr("orchestration.runner.build_workflow", lambda *a, **kw: built)
+    recover = MagicMock(return_value="Garden got zero minutes yesterday.")
+    monkeypatch.setattr(
+        "orchestration.mcp_tool_leak_recovery.recover_after_mcp_tool_leak",
+        recover,
+    )
+
+    answer = run_direct_agent(
+        tool_root=tmp_path,
+        agent_provider_id="fake_local",
+        goal="How much water?",
+        mcp_provider_ids=["home_assistant"],
+    )
+    assert answer == "Garden got zero minutes yesterday."
+    recover.assert_called_once()
+
+
+@requires_crewai
+def test_run_direct_agent_empty_after_recovery_raises(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestration.direct_agent import DirectAgentEmptyAnswerError
+
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_KB", "0")
+
+    leaked = (
+        '{"name": "npx_y_modelcontextprotocol_server_filesystem_home_zlatk_81db3643", '
+        '"parameters": {"pattern":"^.txt$"}}'
+    )
+    built = MagicMock(
+        crew=MagicMock(kickoff=MagicMock(return_value=leaked)),
+        kickoff_callback_state=None,
+    )
+    monkeypatch.setattr("orchestration.runner.build_workflow", lambda *a, **kw: built)
+    monkeypatch.setattr(
+        "orchestration.mcp_tool_leak_recovery.recover_after_mcp_tool_leak",
+        MagicMock(return_value=None),
+    )
+
+    with pytest.raises(DirectAgentEmptyAnswerError) as exc:
+        run_direct_agent(
+            tool_root=tmp_path,
+            agent_provider_id="fake_local",
+            goal="How much water?",
+            mcp_provider_ids=["home_assistant"],
+        )
+    assert "empty user-facing answer" in str(exc.value)
+
+
+@requires_crewai
+def test_run_direct_agent_empty_without_mcp_raises(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestration.direct_agent import DirectAgentEmptyAnswerError
+
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    monkeypatch.setenv("AGENTIC_KB", "0")
+
+    built = MagicMock(
+        crew=MagicMock(kickoff=MagicMock(return_value="   ")),
+        kickoff_callback_state=None,
+    )
+    monkeypatch.setattr("orchestration.runner.build_workflow", lambda *a, **kw: built)
+
+    with pytest.raises(DirectAgentEmptyAnswerError):
+        run_direct_agent(
+            tool_root=tmp_path,
+            agent_provider_id="fake_local",
+            goal="Hello?",
+        )
 
 
 @requires_crewai
