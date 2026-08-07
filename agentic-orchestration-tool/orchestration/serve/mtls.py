@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         "--san",
         action="append",
         default=[],
-        help="DNS SAN (repeatable); localhost always added",
+        help="DNS or IP SAN (repeatable); localhost and 127.0.0.1 always added",
     )
 
     p_token = sub.add_parser("mint-token", help="Mint a one-time enrollment token")

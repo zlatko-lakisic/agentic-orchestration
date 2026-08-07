@@ -169,6 +169,24 @@ def init_ca(
     }
 
 
+def _san_entries(names: list[str]) -> list[x509.GeneralName]:
+    """Build SAN entries; IPv4/IPv6 → IPAddress, everything else → DNSName."""
+    from ipaddress import ip_address
+
+    out: list[x509.GeneralName] = []
+    seen: set[str] = set()
+    for raw in names:
+        name = (raw or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        try:
+            out.append(x509.IPAddress(ip_address(name)))
+        except ValueError:
+            out.append(x509.DNSName(name))
+    return out
+
+
 def issue_server_cert(
     tool_root: Path,
     *,
@@ -176,14 +194,25 @@ def issue_server_cert(
     san_dns: list[str] | None = None,
     days: int = DEFAULT_CLIENT_CERT_DAYS,
 ) -> dict[str, str]:
-    """Issue a TLS server certificate signed by the AO CA."""
+    """Issue a TLS server certificate signed by the AO CA.
+
+    ``san_dns`` may include hostnames **or** IP addresses; IPs are encoded as
+    IP SANs (required for clients that dial by IP, e.g. Dart ``SecurityContext``).
+    """
     if not ca_exists(tool_root):
         raise MtlsCaError("CA not initialized; run init-ca first")
     ca_cert, ca_key = load_ca(tool_root)
     key = _new_rsa_key()
-    names = san_dns or [common_name, "localhost"]
+    names = list(san_dns or [])
+    if common_name and common_name not in names:
+        names.insert(0, common_name)
     if "localhost" not in names:
         names.append("localhost")
+    if "127.0.0.1" not in names:
+        names.append("127.0.0.1")
+    san = _san_entries(names)
+    if not san:
+        raise MtlsCaError("server cert requires at least one SAN")
     now = datetime.now(timezone.utc)
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     builder = (
@@ -214,7 +243,7 @@ def issue_server_cert(
             critical=False,
         )
         .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName(n) for n in names]),
+            x509.SubjectAlternativeName(san),
             critical=False,
         )
     )

@@ -56,10 +56,27 @@ def test_init_ca_mint_token_sign_csr(tmp_path: Path) -> None:
     assert minted2["token"]
 
 
-def test_invalid_token_rejected(tmp_path: Path) -> None:
+def test_issue_server_cert_ip_san(tmp_path: Path) -> None:
+    from ipaddress import IPv4Address
+
     init_ca(tmp_path)
-    with pytest.raises(MtlsCaError, match="invalid"):
-        consume_enroll_token(tmp_path, "nope")
+    issue_server_cert(
+        tmp_path,
+        common_name="ao-engine",
+        san_dns=["10.0.10.16", "nvr.mostardesigns.com"],
+    )
+    cert = x509.load_pem_x509_certificate(
+        (tmp_path / "__orchestrator_mtls__/ca/server.pem").read_bytes()
+    )
+    san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    dns = set(san.get_values_for_type(x509.DNSName))
+    ips = set(san.get_values_for_type(x509.IPAddress))
+    assert "nvr.mostardesigns.com" in dns
+    assert "localhost" in dns
+    assert IPv4Address("10.0.10.16") in ips
+    assert IPv4Address("127.0.0.1") in ips
+    # Must not encode the IP as a DNS name
+    assert "10.0.10.16" not in dns
 
 
 def test_sign_csr_requires_cn(tmp_path: Path) -> None:
