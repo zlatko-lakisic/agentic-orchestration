@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-08-07
+
 ### Added
 
 - **AO Admin Phase 0** — Fuse Angular Control Plane at `/admin/` (read-only). Web Admin API: `/api/v1/admin/config/effective`, `/catalogs/*`, `/health/topology`, `/storage`. Secrets never returned. Chat header links to Admin; Jetson/NVR mounts built SPA via hostPath.
