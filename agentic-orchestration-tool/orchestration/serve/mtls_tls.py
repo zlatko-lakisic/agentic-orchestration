@@ -94,11 +94,26 @@ def build_ssl_context() -> ssl.SSLContext | None:
 
 
 def uvicorn_ssl_kwargs() -> dict[str, Any]:
-    """Kwargs for ``uvicorn.run`` / ``Config`` when TLS is configured."""
-    ctx = build_ssl_context()
-    if ctx is None:
+    """Kwargs for ``uvicorn.run`` when TLS is configured."""
+    cert = tls_certfile()
+    key = tls_keyfile()
+    if not cert or not key:
         return {}
-    return {"ssl": ctx}
+    for label, path in (("cert", cert), ("key", key)):
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"AGENTIC_SERVE_TLS_{label.upper()}FILE not found: {path}")
+    kwargs: dict[str, Any] = {
+        "ssl_certfile": cert,
+        "ssl_keyfile": key,
+    }
+    ca = tls_ca_file()
+    if ca:
+        if not Path(ca).is_file():
+            raise FileNotFoundError(f"AGENTIC_SERVE_TLS_CA_FILE not found: {ca}")
+        kwargs["ssl_ca_certs"] = ca
+        # OPTIONAL so enroll/ca work; app layer enforces when mtls_required().
+        kwargs["ssl_cert_reqs"] = ssl.CERT_OPTIONAL
+    return kwargs
 
 
 def install_peercert_hooks() -> None:
