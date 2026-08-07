@@ -91,8 +91,8 @@ slice-by-slice status.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in, and in server mode the port must be reachable **only** through the identity-terminating proxy. On Jetson, `config/env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
-| `AGENTIC_SERVE_PORT` | `8765` | Bind port. KnowBuddy Remote URL on Jetson: `http://<jetson>:8765` (NodePort alternate **30765**). Web UI remains on **30487**. |
+| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in. On Jetson/NVR, `config/env.host` / `env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
+| `AGENTIC_SERVE_PORT` | `8765` | Bind port. With TLS: `https://<host>:8765` (NodePort **30765**). Web UI remains on **30487**. See [AO Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). |
 | `AGENTIC_JETSON_ENABLE_ENGINE` | `1` | When unset/`1`, `jetson-deploy.sh` applies `scripts/jetson-enable-engine.sh`. Set `0` to leave only the Node web UI. |
 | `AGENTIC_SERVE_LOG_LEVEL` | `info` | uvicorn log level. |
 | `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
@@ -102,9 +102,13 @@ slice-by-slice status.
 | `AGENTIC_SERVE_SESSION_OVERLAY_TTL_S` | `3600` | Idle TTL for session overlays (clamped 30–86400). |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_BYTES` | `524288` | Max serialized overlay payload size. |
 | `AGENTIC_SERVE_SESSION_OVERLAY_MAX_ENTRIES` | `64` | Max agent+MCP+skill entries per session overlay. |
+| `AGENTIC_SERVE_TLS_CERTFILE` | _(unset)_ | Server certificate PEM. When set with `KEYFILE`, the daemon serves HTTPS/WSS. |
+| `AGENTIC_SERVE_TLS_KEYFILE` | _(unset)_ | Server private key PEM. |
+| `AGENTIC_SERVE_TLS_CA_FILE` | _(unset)_ | Client CA PEM. Enables mTLS verify (CERT_OPTIONAL at handshake; app enforces on protected routes). |
+| `AGENTIC_SERVE_TLS_REQUIRE_CLIENT_CERT` | _(on if CA set)_ | `1` require client cert except `/health`, `/api/ping`, `/api/v1/mtls/ca`, `/api/v1/mtls/enroll`. |
 | `CREWAI_TESTING` | _(unset; engine sets `true`)_ | When `true`, CrewAI skips first-time auto-collect and the interactive “view execution traces?” prompt (critical for `orchestration.serve` / k8s — no TTY). |
 | `CREWAI_TRACING_ENABLED` | _(unset; engine sets `false`)_ | Explicit tracing off for the engine Deployment; alone does **not** disable the first-time view prompt if preference is unset. |
-| `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without an identity header (HTTP `401`, WebSocket close `1008`) instead of falling back to the implicit local user. Also switches deal authorization on. |
+| `AGENTIC_REQUIRE_IDENTITY` | _(unset)_ | `1` rejects requests without identity (header **or** verified mTLS cert) — HTTP `401`, WebSocket close `1008`. Also switches deal authorization on. |
 | `AGENTIC_WEB_USER_NAME_HEADER` | `x-agentic-user-name,x-user-name` | Comma-separated headers searched for the display name (same variable the Node server uses). |
 | `AGENTIC_WEB_SESSION_ID_HEADER` | `x-agentic-session-id,x-warpgate-session-id` | Comma-separated headers searched for the session id; absent → a generated `web-<hex>` id. |
 | `AGENTIC_WEB_HOST_METRICS_PUSH_MS` | `2000` | Interval for `host_metrics` pushes after `host_metrics_subscribe` (clamped to 1000–60000). |

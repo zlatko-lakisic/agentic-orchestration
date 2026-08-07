@@ -35,11 +35,9 @@ Default CI command excludes `integration` and `live_llm` markers (see `pytest.in
 
 ---
 
-## Local — before you push
+## Local — before you commit
 
-One-time per clone: `bash scripts/install-git-hooks.sh` — then every `git push` runs the unit tier automatically.
-
-Or manually from **`agentic-orchestration-tool/`**:
+From **`agentic-orchestration-tool/`**:
 
 ```bash
 # One-time (or after dependency changes)
@@ -231,23 +229,16 @@ See [User agent harnesses]({{ '/User-agent-harnesses/' | relative_url }}) — ad
 
 ---
 
-## Local git hooks (pre-push)
+## Optional: pre-commit (local)
 
-GitHub Actions remains the shared gate. To fail fast **before** `git push`:
+Not required for GitHub CI. To run unit tests before every local commit:
 
 ```bash
-# One-time per clone
-bash scripts/install-git-hooks.sh
+pip install pre-commit
+# .pre-commit-config.yaml (future): pytest -m unit from agentic-orchestration-tool
 ```
 
-That sets `core.hooksPath=.githooks`. On every push, `.githooks/pre-push` runs the same default unit pytest tier as CI (`agentic-orchestration-tool/` → `pytest`).
-
-| Bypass | When |
-|--------|------|
-| `git push --no-verify` | Emergency / intentional skip |
-| `AGENTIC_SKIP_PREPUSH_TESTS=1 git push` | Same, without disabling all hooks |
-
-Requires the tool venv (or a Python with pytest): `bash agentic-orchestration-tool/setup.sh`, then `pip install -r requirements-dev.txt` if needed.
+Defer until the team wants local hooks; **GitHub Actions is the shared gate**.
 
 ---
 

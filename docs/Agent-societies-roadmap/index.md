@@ -15,7 +15,7 @@ Living document for evolving **Agentic Orchestration** from **orchestrated pipel
 
 **Status:** **In progress — Phase 0 + K6.1 (society lite) + K6.2 (message bus and protocols) shipped** (2026-07). Phase 3 (K8s-native societies) is next; Phases 4–5 are design only.
 
-**Shipped so far:** charter schema + [ADR 0001]({{ '/adr/0001-agent-societies-v1/' | relative_url }}), `python main.py --society CHARTER.yaml --goal "…"`, protocol-driven turn runtime (`round_robin`, `moderator_picks`, `reactive`), a threaded message bus with the `society_post` / `society_read_thread` / `society_list_agents` tools, society sessions under `__orchestrator_sessions__/societies/`, in-process `delegate_task` with a hard delegation budget, society controller, catalog flag `society_capable`, vertical example `examples/verticals/society_research_panel/`, and a `process: hierarchical` reference workflow.
+**Shipped so far:** charter schema + ADR 0001 (`docs/adr/0001-agent-societies-v1.md`), `python main.py --society CHARTER.yaml --goal "…"`, protocol-driven turn runtime (`round_robin`, `moderator_picks`, `reactive`), a threaded message bus with the `society_post` / `society_read_thread` / `society_list_agents` tools, society sessions under `__orchestrator_sessions__/societies/`, in-process `delegate_task` with a hard delegation budget, society controller, catalog flag `society_capable`, vertical example `examples/verticals/society_research_panel/`, and a `process: hierarchical` reference workflow.
 
 **Builds on:** [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) (K3–K5 complete: coordinator, warm pool, delegation RPC, structured logging), [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }})
 
@@ -125,7 +125,7 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 
 - [x] **Society charter schema** (YAML): `config/schemas/society_charter.schema.json` — `society.id`, members (`agent_provider_id`, `role`, `charge`, `can_delegate`, per-member MCP allowlist), `max_turns`, `max_delegations`, `min_turns`, `protocol`, `interaction_mode`, `tools`, and `stop_when` phrases
 - [x] Interaction modes enum (table above) — `blackboard` and `delegate_rpc` drive the v1 runtime; `handoff`, `crew_delegation`, and `hierarchical` are declarative
-- [x] ADR: [`docs/adr/0001-agent-societies-v1.md`]({{ '/adr/0001-agent-societies-v1/' | relative_url }}) — non-goals v1: no unbounded spend, no internet-facing societies without auth, no nested societies, no cross-tenant/external agents, no parallel turns
+- [x] ADR: `docs/adr/0001-agent-societies-v1.md` — non-goals v1: no unbounded spend, no internet-facing societies without auth, no nested societies, no cross-tenant/external agents, no parallel turns
 
 **Exit criteria met:** `examples/verticals/society_research_panel/society_research_panel.yaml` charter (plus a Jetson-sized variant) and the one-page ADR are in the repo.
 
@@ -339,7 +339,7 @@ Society members are **catalog agent providers**, not arbitrary foreign processes
 | External **agent runtime** (separate platform, its own tools/memory) | Not a drop-in member. Options: (1) re-describe the capability as a catalog agent + MCP tools; (2) expose it behind an OpenAI-compatible shim and catalog that; (3) wrap it as an MCP server and attach tools to a catalog agent | Native A2A / society-broker adapter is K6.5+ |
 | OpenClaw / other orchestrators | Use the shared orchestrate HTTP bridge or MCP sync; they are **clients** of AO, not society seats | Do not put foreign session IDs in the charter roster |
 
-**Blackboard and `delegate_task`:** both operate on **internal** members that resolve through `load_agent_providers_catalog_merged`. Delegation to an unknown `agent_provider_id` fails fast. Cross-tenant or internet-facing societies without auth remain non-goals (ADR 0001).
+**Blackboard and `delegate_task`:** both operate on **internal** members that resolve through the merged agent-provider catalog. Delegation to an unknown `agent_provider_id` fails fast. Cross-tenant or internet-facing societies without auth remain non-goals (ADR 0001).
 
 **Enterprise pitch (honest):** AO is an orchestration layer over catalogs, APIs, and MCP — not a binary that hosts third-party agent runtimes unchanged. Bring models and tools into the catalog; do not expect foreign agent processes to join a panel without an adapter.
 

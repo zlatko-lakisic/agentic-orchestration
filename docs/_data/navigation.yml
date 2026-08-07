@@ -11,6 +11,8 @@ main:
     url: /mcp-catalog/
   - title: "Integrations"
     url: /external-integrations/
+  - title: "Reach + mTLS"
+    url: /reach-and-mtls/
   - title: "Agent Skills"
     url: /agent-skills/
   - title: "RAG Sources"
@@ -81,6 +83,8 @@ docs:
         url: /kubernetes-execution-upgrade/
       - title: "Engine API Daemon"
         url: /engine-daemon-plan/
+      - title: "AO Reach + mTLS"
+        url: /reach-and-mtls/
       - title: "Agent Skills Roadmap"
         url: /agent-skills-roadmap/
       - title: "Agent Societies Roadmap"

@@ -22,7 +22,18 @@ This page describes how **Agentic Orchestration** is deployed in production-styl
 |------|--------|
 | **Bare metal / VM** | Install Python 3.12+ and Node 18+; run the web UI with `npm start` and point `AGENTIC_TOOL_ROOT` at the folder that contains `main.py`. |
 | **Docker Compose** | Multi-container stack at the monorepo root (see below). **Keep this wiki section in sync** when you add, rename, or remove services in `docker-compose.yml`. |
-| **Kubernetes / Jetson k3s** | Coordinator + warm pool + delegation broker on-device. Prefer **GHCR pulls** (`AGENTIC_USE_GHCR=1`) over building images on the edge device. |
+| **Kubernetes / Jetson k3s** | Coordinator + warm pool + delegation broker + **agentic-engine** on-device. Prefer **GHCR pulls** (`AGENTIC_USE_GHCR=1`) over building images on the edge device. |
+
+## Edge engine + mTLS (v1.29+)
+
+After `jetson-deploy.sh`, the engine listens on hostPort **8765** (NodePort **30765**). With TLS enabled:
+
+| Host | Engine | Web UI |
+|------|--------|--------|
+| Jetson Ada `172.16.90.20` | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
+| NVR `10.0.10.16` | `https://10.0.10.16:8765` | `http://10.0.10.16:30487` |
+
+Reach / KnowBuddy use the **engine** URL with client certificates — not Warpgate, not `:30487`. Operator guide: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). Per-host overrides: `config/env.host` (gitignored) over `config/env.jetson`.
 
 ## Docker Compose stack
 
@@ -99,8 +110,6 @@ sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
 Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER` before deploy.
 
 **Web UI:** NodePort **`30487`** (`http://<jetson>:30487`). Traefik / Warpgate should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
-
-**Engine API daemon (KnowBuddy):** separate Deployment `agentic-engine` on hostPort **`8765`** (`http://<jetson>:8765`) and NodePort **`30765`**. Opt-out with `AGENTIC_JETSON_ENABLE_ENGINE=0`. Point KnowBuddy Settings → Remote URL at **`:8765`**, not `:30487` (the Node web process does not serve `/api/v1/direct-agent` or `/api/v1/kb/*`).
 
 Ollama on Jetson is typically **native systemd** on the host; pods reach it via `host.k3s.internal:11434` (CoreDNS NodeHosts). See `jetson-fix-ollama-k8s.sh` / deploy script logs.
 

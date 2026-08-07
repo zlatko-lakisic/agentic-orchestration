@@ -54,6 +54,8 @@ PAGE_TITLES: dict[str, str] = {
     "GitHub-Pages-publish": "GitHub Pages publish",
     "System-architecture": "System architecture (Kubernetes / Jetson)",
     "RAG-sources": "RAG sources",
+    "Reach-and-mTLS": "AO Reach and engine mTLS",
+    "Engine-daemon-plan": "Engine API daemon plan",
 }
 
 # Wiki root filename → docs/ relative path (None = skip sync)
@@ -79,9 +81,11 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "External-integrations.md": "external-integrations/index.md",
     "System-architecture.md": "system-architecture/index.md",
     "RAG-sources.md": "rag-catalog/index.md",
+    "Reach-and-mTLS.md": "reach-and-mtls/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
+    "Engine-daemon-plan.md": None,
     "GitHub-Pages-publish.md": None,
     "GitLab-Wiki-publish.md": None,
     "_Footer.md": None,
@@ -96,6 +100,8 @@ DOCS_PRESERVE = {
     "agent-catalog/index.md",
     "verticals/index.md",
     "GitHub-Pages-publish.md",
+    # Long-form env tables — wiki Configuration.md is a summary; edit docs/ directly.
+    "configuration/index.md",
 }
 
 PAGE_SLUGS: dict[str, str] = {
@@ -121,7 +127,9 @@ PAGE_SLUGS: dict[str, str] = {
     "External-integrations": "external-integrations",
     "System-architecture": "system-architecture",
     "RAG-sources": "rag-catalog",
+    "Reach-and-mTLS": "reach-and-mtls",
     "Releases": "changelog",
+    "Engine-daemon-plan": "engine-daemon-plan",
     "Execution-backends": "execution-backends",
     "features": "features",
     "getting-started": "quick-start",

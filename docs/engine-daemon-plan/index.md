@@ -247,9 +247,11 @@ delete-by-scope completeness, fast-ingest timing.
 ### 3.7 Deployment/config discipline
 
 - Bind address config: default `127.0.0.1`; network binding is an explicit opt-in.
-- Documented requirement: in server mode the engine port must be reachable **only
-  via the proxy** (private interface / network policy / mTLS) — identity-by-header
-  is only safe behind that trust boundary.
+- Documented requirement: in server mode protect the engine port with **network
+  policy and/or mTLS**. As of **v1.29.0**, in-process TLS/mTLS is supported
+  (`AGENTIC_SERVE_TLS_*`, `python -m orchestration.serve.mtls`, Reach enroll).
+  Identity-by-header alone remains unsafe on a shared LAN without a trust
+  boundary. See [AO Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
 - Hardware profile evolution: from per-model *filtering* (`min_vram_gb` in
   `orchestration/hardware_profile.py`) toward planning a **concurrently resident
   model set** (multiple small models loaded simultaneously without VRAM thrash),
@@ -318,6 +320,8 @@ passing existing tests. Prefer config flags for new surfaces.
 | 11 | User dimension on session / KB / learning / run_store | **Shipped** | opt-in namespaces, dual-read of legacy paths |
 | 12 | Deal membership authorization | **Shipped** | `orchestration/deal_auth.py` + route checks |
 | 13 | Concurrent-resident hardware planning | **Shipped** | `hardware_profile.plan_resident_models()` |
+| 14 | Session overlay + MCP tunnel (Reach) | **Shipped** (v1.27+) | `session_overlay.py`, `mcp_tunnel.py` |
+| 15 | Engine TLS / mTLS + enroll API | **Shipped** (v1.29.0) | `serve/mtls_*.py`, `/api/v1/mtls/*` |
 
 **Deliberately deferred to a later slice** (not blockers for the slices above):
 

@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Server cert IP SANs** — `issue-server --san 10.0.10.16` encodes an **IP Address** SAN (not `DNS:10.0.10.16`) so Dart/Reach clients can dial the engine by IP.
+
 ## [1.29.0] - 2026-08-07
 
 ### Added
