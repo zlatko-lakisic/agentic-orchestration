@@ -21,8 +21,10 @@ from orchestration.user_context import (
     session_id_from_request_headers,
     user_display_name_spawn_env,
     user_id_from_display_name,
+    user_name_from_peercert,
     user_name_from_request_headers,
 )
+
 
 pytestmark = pytest.mark.unit
 
@@ -117,6 +119,7 @@ def test_resolve_identity_local_mode_without_headers() -> None:
     assert identity.user_name is None
     assert identity.user_id == LOCAL_USER_ID
     assert identity.local is True
+    assert identity.mtls is False
     assert WEB_SESSION_RE.match(identity.session_id)
 
 
@@ -128,6 +131,7 @@ def test_resolve_identity_server_mode_with_headers() -> None:
     assert identity.session_id == "wg-abc123"
     assert identity.user_id == "zlatko"
     assert identity.local is False
+    assert identity.mtls is False
     assert identity.to_json_dict()["userId"] == "zlatko"
 
 
@@ -145,3 +149,31 @@ def test_resolve_identity_raises_when_identity_required(
 def test_require_identity_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTIC_REQUIRE_IDENTITY", raising=False)
     assert require_identity_enabled() is False
+
+
+def test_user_name_from_peercert_prefers_agentic_uri() -> None:
+    peercert = {
+        "subject": ((("commonName", "ignored"),),),
+        "subjectAltName": (
+            ("DNS", "dns-name"),
+            ("URI", "agentic://user/Alice"),
+        ),
+    }
+    assert user_name_from_peercert(peercert) == "Alice"
+
+
+def test_resolve_identity_mtls_wins_over_headers() -> None:
+    peercert = {
+        "subject": ((("commonName", "cert-user"),),),
+        "subjectAltName": (("URI", "agentic://user/cert-user"),),
+    }
+    identity = resolve_identity(
+        {"x-agentic-user-name": "header-user", "x-agentic-session-id": "sess-1"},
+        peercert=peercert,
+    )
+    assert identity.user_name == "cert-user"
+    assert identity.user_id == "cert-user"
+    assert identity.session_id == "sess-1"
+    assert identity.mtls is True
+    assert identity.local is False
+    assert identity.to_json_dict()["mtls"] is True

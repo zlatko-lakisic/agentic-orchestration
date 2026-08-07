@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-08-07
+
+### Added
+
+- **Engine mTLS + Reach enrollment** — optional TLS on `python -m orchestration.serve` via `AGENTIC_SERVE_TLS_CERTFILE` / `KEYFILE` / `CA_FILE`. When a client CA is set, protected routes and `/ws` require a verified client certificate (enroll/CA/health stay server-TLS-only). Embedded CA + CLI: `python -m orchestration.serve.mtls init-ca|issue-server|mint-token`. `POST /api/v1/mtls/enroll` (token + CSR) and `GET /api/v1/mtls/ca`. Verified peer cert CN/SAN becomes user identity (wins over headers).
+
 ## [1.28.1] - 2026-08-04
 
 ### Fixed

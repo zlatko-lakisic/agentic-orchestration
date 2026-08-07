@@ -91,12 +91,25 @@ def run(host: str | None = None, port: int | None = None) -> None:
     require_serve_deps()
     import uvicorn
 
+    from orchestration.serve.mtls_tls import install_peercert_hooks, tls_configured, uvicorn_ssl_kwargs
+
+    install_peercert_hooks()
+    ssl_kwargs = uvicorn_ssl_kwargs()
     uvicorn.run(
         create_app(),
         host=host or serve_host(),
         port=port if port is not None else serve_port(),
         log_level=os.getenv("AGENTIC_SERVE_LOG_LEVEL", "info").strip() or "info",
+        **ssl_kwargs,
     )
+
+
+# Keep tls_configured importable for __main__ banners without a circular import at module load.
+def serve_tls_enabled() -> bool:
+    from orchestration.serve.mtls_tls import tls_configured
+
+    return tls_configured()
+
 
 
 __all__ = [
@@ -110,5 +123,6 @@ __all__ = [
     "run",
     "serve_host",
     "serve_port",
+    "serve_tls_enabled",
     "tool_root",
 ]

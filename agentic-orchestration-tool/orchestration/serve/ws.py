@@ -38,6 +38,7 @@ from typing import Any
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from orchestration.serve import engine_version
+from orchestration.serve.mtls_tls import peercert_from_scope
 from orchestration.user_context import Identity, IdentityRequiredError, resolve_identity
 
 #: Close code for a policy violation (missing identity under AGENTIC_REQUIRE_IDENTITY).
@@ -114,13 +115,17 @@ class WsConnection:
         self._loop = asyncio.get_running_loop()
         await self.ws.accept()
         try:
-            self.identity = resolve_identity(self.ws.headers)
+            self.identity = resolve_identity(
+                self.ws.headers,
+                peercert=peercert_from_scope(self.ws.scope),
+            )
         except IdentityRequiredError as exc:
             await self.send_error(str(exc))
             await self.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
             return
 
         from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+        from orchestration.serve.mtls_ca import mtls_hello_payload
         from orchestration.speech_capability import speech_hello_payload
 
         hello: dict[str, Any] = {
@@ -135,10 +140,14 @@ class WsConnection:
             "userName": self.identity.user_name,
             "sessionId": self.identity.session_id,
             "userId": self.identity.user_id,
+            "mtls": self.identity.mtls,
         }
         speech = speech_hello_payload()
         if speech is not None:
             hello["speech"] = speech
+        mtls = mtls_hello_payload(self.tool_root)
+        if mtls is not None:
+            hello["mtlsInfo"] = mtls
         await self.send(hello)
         try:
             while True:

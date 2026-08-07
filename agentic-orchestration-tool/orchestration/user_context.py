@@ -1,10 +1,13 @@
 """
-Identity resolution from proxy-forwarded headers (Python port of
-``agentic-orchestration-web/lib/user-context.mjs``).
+Identity resolution from proxy-forwarded headers and optional mTLS client certs.
 
-The engine never authenticates anyone. In server mode an identity-terminating proxy
-(Warpgate) injects ``x-agentic-user-name`` / ``x-agentic-session-id``; in local mode
-there are no headers at all and everything resolves to an implicit local user.
+Header path (Python port of ``agentic-orchestration-web/lib/user-context.mjs``):
+an identity-terminating proxy may inject ``x-agentic-user-name`` /
+``x-agentic-session-id``. In local mode there are no headers and everything
+resolves to an implicit local user.
+
+mTLS path (Reach → AO engine): when a verified peer certificate is present, the
+subject CN / SAN is the authoritative user identity and wins over headers.
 
 ``AGENTIC_REQUIRE_IDENTITY=1`` turns the implicit fallback off so a misconfigured
 server deployment fails loudly instead of silently merging users.
@@ -164,6 +167,8 @@ class Identity:
     user_id: str
     #: True when no identity header was forwarded (local / desktop sidecar mode).
     local: bool = True
+    #: True when identity came from a verified TLS client certificate.
+    mtls: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         return {
@@ -171,23 +176,86 @@ class Identity:
             "sessionId": self.session_id,
             "userId": self.user_id,
             "local": self.local,
+            "mtls": self.mtls,
         }
 
 
-def resolve_identity(headers: Mapping[str, Any] | None = None) -> Identity:
-    """
-    Resolve the caller from proxy-forwarded headers.
+_URI_USER = re.compile(r"^agentic://user/(.+)$", re.IGNORECASE)
 
-    No headers → implicit local user (``user_id="local"``), unless
-    ``AGENTIC_REQUIRE_IDENTITY=1``, which raises :class:`IdentityRequiredError`.
+
+def user_name_from_peercert(peercert: Mapping[str, Any] | None) -> str | None:
     """
+    Derive a display name from an OpenSSL ``getpeercert()`` dict.
+
+    Preference: SAN URI ``agentic://user/<name>``, then DNS SAN, then subject CN.
+    """
+    if not peercert:
+        return None
+    # subjectAltName: (('DNS', 'alice'), ('URI', 'agentic://user/alice'), ...)
+    san = peercert.get("subjectAltName") or ()
+    uri_name: str | None = None
+    dns_name: str | None = None
+    for entry in san:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        kind = str(entry[0]).upper()
+        value = str(entry[1]).strip()
+        if not value:
+            continue
+        if kind == "URI":
+            match = _URI_USER.match(value)
+            if match:
+                uri_name = sanitize_user_display_name(match.group(1))
+                if uri_name:
+                    return uri_name
+        elif kind == "DNS" and dns_name is None:
+            dns_name = sanitize_user_display_name(value)
+    if dns_name:
+        return dns_name
+    # subject: ((('commonName', 'alice'),),)
+    subject = peercert.get("subject") or ()
+    for rdn in subject:
+        if not isinstance(rdn, (list, tuple)):
+            continue
+        for attr in rdn:
+            if not isinstance(attr, (list, tuple)) or len(attr) < 2:
+                continue
+            if str(attr[0]).lower() in ("commonname", "cn"):
+                return sanitize_user_display_name(attr[1])
+    return None
+
+
+def resolve_identity(
+    headers: Mapping[str, Any] | None = None,
+    *,
+    peercert: Mapping[str, Any] | None = None,
+) -> Identity:
+    """
+    Resolve the caller from a verified client cert and/or forwarded headers.
+
+    When ``peercert`` yields a user name, that identity wins (mTLS). Otherwise
+    falls back to headers; no headers → implicit local user unless
+    ``AGENTIC_REQUIRE_IDENTITY=1``.
+    """
+    cert_name = user_name_from_peercert(peercert)
+    if cert_name:
+        session_id = session_id_from_request_headers(headers) or generate_web_session_id()
+        return Identity(
+            user_name=cert_name,
+            session_id=session_id,
+            user_id=user_id_from_display_name(cert_name),
+            local=False,
+            mtls=True,
+        )
+
     user_name = user_name_from_request_headers(headers)
     session_id = session_id_from_request_headers(headers)
     local = user_name is None
     if local and require_identity_enabled():
         raise IdentityRequiredError(
-            "AGENTIC_REQUIRE_IDENTITY=1 but no identity header was forwarded. "
-            "Configure the proxy to inject one of "
+            "AGENTIC_REQUIRE_IDENTITY=1 but no identity header was forwarded "
+            "and no verified client certificate was presented. "
+            "Configure mTLS or inject one of "
             f"{os.getenv('AGENTIC_WEB_USER_NAME_HEADER', DEFAULT_USER_NAME_HEADERS)!r}, "
             "or unset AGENTIC_REQUIRE_IDENTITY for local single-user mode."
         )
@@ -196,4 +264,5 @@ def resolve_identity(headers: Mapping[str, Any] | None = None) -> Identity:
         session_id=session_id or generate_web_session_id(),
         user_id=user_id_from_display_name(user_name),
         local=local,
+        mtls=False,
     )

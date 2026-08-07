@@ -20,6 +20,11 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from orchestration.serve import engine_version, serve_host, serve_port, tool_root
+from orchestration.serve.mtls_tls import (
+    is_public_mtls_path,
+    mtls_required,
+    peercert_from_scope,
+)
 from orchestration.user_context import Identity, IdentityRequiredError, resolve_identity
 
 #: Identifies this process in ``/api/ping`` (proves a client hit this daemon).
@@ -27,11 +32,22 @@ INSTANCE_ID = f"{os.getpid()}-{int(time.time() * 1000):x}"
 
 
 def identity_from_request(request: Request) -> Identity:
-    """Identity dependency: proxy headers in server mode, implicit local user otherwise."""
+    """Identity dependency: mTLS peer cert wins, else headers / local fallback."""
     try:
-        return resolve_identity(request.headers)
+        return resolve_identity(
+            request.headers,
+            peercert=peercert_from_scope(request.scope),
+        )
     except IdentityRequiredError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+class MtlsEnrollRequest(BaseModel):
+    csr_pem: str = Field(..., alias="csrPem")
+    token: str
+    client_name: str | None = Field(default=None, alias="clientName")
+
+    model_config = {"populate_by_name": True}
 
 
 class DirectAgentResponseFormat(BaseModel):
@@ -130,15 +146,28 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     app.state.tool_root = root
     app.state.warm = {}
 
+    @app.middleware("http")
+    async def require_client_cert_when_mtls(request: Request, call_next):
+        """Enforce verified client cert on protected routes when mTLS is required."""
+        if mtls_required() and not is_public_mtls_path(request.url.path):
+            peercert = peercert_from_scope(request.scope)
+            if not peercert:
+                return JSONResponse(
+                    {"ok": False, "error": "client certificate required (mTLS)"},
+                    status_code=401,
+                )
+        return await call_next(request)
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         from orchestration.hardware_profile import hardware_snapshot
         from orchestration.ollama_keepalive import keepalive_status, resolve_keepalive_model_tags
+        from orchestration.serve.mtls_ca import ca_exists, mtls_hello_payload
 
         warm = dict(app.state.warm or {})
         ka = keepalive_status()
         hw = await run_in_threadpool(hardware_snapshot)
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "version": engine_version(),
             "service": "agentic-orchestration-engine",
@@ -159,6 +188,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 ),
             },
         }
+        mtls = mtls_hello_payload(root)
+        if mtls is not None:
+            payload["mtls"] = mtls
+        elif ca_exists(root):
+            payload["mtls"] = {"enroll": True, "required": mtls_required()}
+        return payload
 
     @app.get("/api/ping")
     async def api_ping() -> JSONResponse:
@@ -354,9 +389,48 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         )
         return {"ok": True, "query": q, "hits": [h.to_json_dict() for h in hits]}
 
+    @app.get("/api/v1/mtls/ca")
+    async def api_mtls_ca() -> JSONResponse:
+        from orchestration.serve.mtls_ca import MtlsCaError, read_ca_pem
+
+        try:
+            pem = await run_in_threadpool(lambda: read_ca_pem(root))
+        except MtlsCaError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse({"ok": True, "caPem": pem})
+
+    @app.post("/api/v1/mtls/enroll")
+    async def api_mtls_enroll(payload: MtlsEnrollRequest) -> dict[str, Any]:
+        from orchestration.serve.mtls_ca import (
+            MtlsCaError,
+            consume_enroll_token,
+            sign_client_csr,
+        )
+
+        csr = (payload.csr_pem or "").strip()
+        if not csr:
+            raise HTTPException(status_code=400, detail="csrPem is required")
+
+        def _enroll() -> dict[str, Any]:
+            token_meta = consume_enroll_token(root, payload.token)
+            override = (payload.client_name or "").strip() or token_meta.get("clientName")
+            return sign_client_csr(root, csr, common_name_override=override)
+
+        try:
+            result = await run_in_threadpool(_enroll)
+        except MtlsCaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **result}
+
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
         from orchestration.serve.ws import WsConnection
+
+        if mtls_required():
+            peercert = peercert_from_scope(websocket.scope)
+            if not peercert:
+                await websocket.close(code=1008, reason="client certificate required (mTLS)")
+                return
 
         await WsConnection(websocket, tool_root=root).serve()
 

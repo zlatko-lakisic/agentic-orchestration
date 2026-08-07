@@ -80,6 +80,7 @@ def test_api_session_reads_proxy_headers(client: TestClient) -> None:
         "sessionId": "wg-abc123",
         "userId": "zlatko",
         "local": False,
+        "mtls": False,
     }
 
 
