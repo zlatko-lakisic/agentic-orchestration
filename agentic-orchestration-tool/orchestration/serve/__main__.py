@@ -11,7 +11,9 @@ from orchestration.serve import (
     require_serve_deps,
     serve_host,
     serve_port,
+    serve_tls_enabled,
 )
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -52,18 +54,31 @@ def main(argv: list[str] | None = None) -> int:
 
     host = args.host or serve_host()
     port = args.port if args.port is not None else serve_port()
+    tls = serve_tls_enabled()
+    scheme = "https" if tls else "http"
+    ws_scheme = "wss" if tls else "ws"
     print(
-        f"agentic-orchestration engine daemon http://{host}:{port}/  (engine {engine_version()})",
+        f"agentic-orchestration engine daemon {scheme}://{host}:{port}/  "
+        f"(engine {engine_version()})",
         file=sys.stderr,
     )
     if host not in ("127.0.0.1", "localhost", "::1"):
-        print(
-            "  warning: binding beyond loopback. Identity-by-header is only safe behind an "
-            "identity-terminating proxy on a private interface.",
-            file=sys.stderr,
-        )
-    print(f"  health GET http://{host}:{port}/health", file=sys.stderr)
-    print(f"  websocket ws://{host}:{port}/ws", file=sys.stderr)
+        if tls:
+            print(
+                "  note: TLS enabled. Prefer AGENTIC_SERVE_TLS_CA_FILE + client certs "
+                "(mTLS) for Reach; identity headers alone are spoofable on a shared LAN.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "  warning: binding beyond loopback without TLS. Enable "
+                "AGENTIC_SERVE_TLS_* or restrict the network.",
+                file=sys.stderr,
+            )
+    print(f"  health GET {scheme}://{host}:{port}/health", file=sys.stderr)
+    print(f"  websocket {ws_scheme}://{host}:{port}/ws", file=sys.stderr)
+    if tls:
+        print(f"  mtls enroll POST {scheme}://{host}:{port}/api/v1/mtls/enroll", file=sys.stderr)
 
     from orchestration.serve import run
 
