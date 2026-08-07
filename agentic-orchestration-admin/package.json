@@ -1,0 +1,59 @@
+{
+  "name": "agentic-orchestration-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AO Admin — read-only Control Plane console (Fuse Angular 22)",
+  "scripts": {
+    "build": "ng build",
+    "lint": "ng lint",
+    "ng": "ng",
+    "start": "ng serve --no-hmr --port=3873",
+    "test": "ng test",
+    "watch": "ng build --watch --configuration development"
+  },
+  "dependencies": {
+    "@angular/aria": "22.1.0",
+    "@angular/cdk": "22.1.0",
+    "@angular/common": "22.1.0",
+    "@angular/compiler": "22.1.0",
+    "@angular/core": "22.1.0",
+    "@angular/forms": "22.1.0",
+    "@angular/material": "22.1.0",
+    "@angular/platform-browser": "22.1.0",
+    "@angular/router": "22.1.0",
+    "@jsverse/transloco": "8.4.0",
+    "chroma-js": "3.2.0",
+    "date-fns": "4.4.0",
+    "hsluv": "1.0.2",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.1.2",
+    "@angular/cli": "22.1.2",
+    "@angular/compiler-cli": "22.1.0",
+    "@eslint/js": "10.0.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/chroma-js": "3.1.2",
+    "@types/node": "24.13.3",
+    "angular-eslint": "22.1.0",
+    "eslint": "10.8.0",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-jsdoc": "63.3.3",
+    "eslint-plugin-perfectionist": "5.10.0",
+    "eslint-plugin-unused-imports": "4.4.1",
+    "globals": "17.9.0",
+    "jsdom": "29.1.1",
+    "postcss": "8.5.25",
+    "prettier": "3.9.6",
+    "prettier-plugin-packagejson": "3.0.2",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

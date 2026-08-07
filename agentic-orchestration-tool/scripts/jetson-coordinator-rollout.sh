@@ -34,6 +34,11 @@ _apply_rollout_patch() {
   if [[ -f "${ROLLPATCH}" ]]; then
     kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${ROLLPATCH}" 2>/dev/null || true
   fi
+  local admin_patch="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-admin-hostpath-patch.yaml"
+  if [[ -f "${admin_patch}" ]]; then
+    echo "=== AO Admin SPA hostPath mount ==="
+    kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${admin_patch}" 2>/dev/null || true
+  fi
   if [[ -f "${NODEPORT_SVC}" ]]; then
     kubectl apply -f "${NODEPORT_SVC}"
   fi

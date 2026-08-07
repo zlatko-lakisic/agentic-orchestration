@@ -1,0 +1,1 @@
+export { provideIcons } from './provider';

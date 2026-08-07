@@ -21,6 +21,7 @@ import {
   userNameFromRequestHeaders,
 } from "./lib/user-context.mjs";
 import { startOllamaKeepAliveLoop, beginOrchestrateOllamaBusy, endOrchestrateOllamaBusy } from "./lib/ollama-keepalive.mjs";
+import { handleAdminApi, matchAdminRoute } from "./lib/admin-api.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2060,6 +2061,22 @@ function handleHttp(req, res) {
     });
     return;
   }
+  const adminPath = getRequestPathname(req);
+  if (matchAdminRoute(adminPath)) {
+    handleAdminApi(req, res, {
+      pathname: adminPath,
+      toolRoot: TOOL_ROOT,
+      webRoot: __dirname,
+      webInstanceId: WEB_INSTANCE_ID,
+      webPid: process.pid,
+    }).catch((err) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: clientErrorMessage(err, "Admin API error") }));
+      }
+    });
+    return;
+  }
   serveStatic(req, res);
 }
 
@@ -2067,6 +2084,8 @@ function serveStatic(req, res) {
   const normalizedPath = getRequestPathname(req);
   let p = normalizedPath;
   if (p === "/") p = "/index.html";
+  // Angular Admin SPA under /admin/ — fall back to index.html for client routes.
+  if (p === "/admin" || p === "/admin/") p = "/admin/index.html";
   const filePath = path.join(PUBLIC_DIR, path.normalize(p).replace(/^(\.\.(\/|\\|$))+/, ""));
   if (!filePath.startsWith(PUBLIC_DIR)) {
     res.writeHead(403).end();
@@ -2074,6 +2093,18 @@ function serveStatic(req, res) {
   }
   fs.readFile(filePath, (err, data) => {
     if (err) {
+      if (p.startsWith("/admin/") && !p.includes(".")) {
+        const spaIndex = path.join(PUBLIC_DIR, "admin", "index.html");
+        fs.readFile(spaIndex, (spaErr, spaData) => {
+          if (spaErr) {
+            res.writeHead(404).end("Admin UI not built. Run: cd agentic-orchestration-admin && npm ci && npm run build");
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+          res.end(spaData);
+        });
+        return;
+      }
       res.writeHead(404).end("Not found");
       return;
     }

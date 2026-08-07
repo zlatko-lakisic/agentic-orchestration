@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **AO Admin Phase 0** — Fuse Angular Control Plane at `/admin/` (read-only). Web Admin API: `/api/v1/admin/config/effective`, `/catalogs/*`, `/health/topology`, `/storage`. Secrets never returned. Chat header links to Admin; Jetson/NVR mounts built SPA via hostPath.
+
 ### Fixed
 
 - **Server cert IP SANs** — `issue-server --san 10.0.10.16` encodes an **IP Address** SAN (not `DNS:10.0.10.16`) so Dart/Reach clients can dial the engine by IP.

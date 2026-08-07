@@ -1,0 +1,127 @@
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable, catchError, map, of } from 'rxjs';
+import {
+  AgentProvider,
+  CatalogEntry,
+  CatalogListResponse,
+  ConfigFingerprint,
+  EffectiveConfigEntry,
+  EffectiveConfigResponse,
+  HostMetrics,
+  PingResponse,
+  SessionResponse,
+  StorageResponse,
+  TopologyResponse,
+} from './types';
+
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number; message: string; missing: boolean };
+
+@Injectable({ providedIn: 'root' })
+export class AoApi {
+  private http = inject(HttpClient);
+
+  private get<T>(path: string): Observable<ApiResult<T>> {
+    return this.http.get<T>(path, { observe: 'response' }).pipe(
+      map((res) => ({ ok: true as const, data: res.body as T })),
+      catchError((err: HttpErrorResponse) => {
+        const status = err.status || 0;
+        const message =
+          (err.error && (err.error.error || err.error.message)) ||
+          err.message ||
+          `Request failed (${status || 'network'})`;
+        return of({
+          ok: false as const,
+          status,
+          message: String(message),
+          missing: status === 404,
+        });
+      })
+    );
+  }
+
+  ping() {
+    return this.get<PingResponse>('/api/ping');
+  }
+
+  session() {
+    return this.get<SessionResponse>('/api/session');
+  }
+
+  hostMetrics() {
+    return this.get<HostMetrics>('/api/host-metrics');
+  }
+
+  agentProviders() {
+    return this.get<{ providers: AgentProvider[] }>('/api/agent-providers').pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return { ok: true as const, data: (r.data.providers ?? []) as AgentProvider[] };
+      })
+    );
+  }
+
+  effectiveConfig() {
+    return this.get<EffectiveConfigResponse>('/api/v1/admin/config/effective').pipe(
+      map((r) => (r.ok ? { ok: true as const, data: normalizeEffective(r.data) } : r))
+    );
+  }
+
+  fingerprint() {
+    return this.get<ConfigFingerprint>('/api/v1/admin/config/fingerprint');
+  }
+
+  catalogs(kind: string) {
+    return this.get<CatalogListResponse>(`/api/v1/admin/catalogs/${kind}`).pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        const items = r.data.items ?? r.data.entries ?? r.data.providers ?? [];
+        return { ok: true as const, data: items as CatalogEntry[] };
+      })
+    );
+  }
+
+  catalogDetail(kind: string, id: string) {
+    return this.get<CatalogEntry>(
+      `/api/v1/admin/catalogs/${kind}/${encodeURIComponent(id)}`
+    );
+  }
+
+  topology() {
+    return this.get<TopologyResponse>('/api/v1/admin/health/topology');
+  }
+
+  storage() {
+    return this.get<StorageResponse>('/api/v1/admin/storage');
+  }
+}
+
+function normalizeEffective(raw: EffectiveConfigResponse): EffectiveConfigEntry[] {
+  if (Array.isArray(raw.entries)) {
+    return raw.entries.map(normalizeEntry);
+  }
+  if (raw.entries && typeof raw.entries === 'object') {
+    return Object.values(raw.entries as Record<string, EffectiveConfigEntry>).map(
+      normalizeEntry
+    );
+  }
+  if (raw.keys && typeof raw.keys === 'object') {
+    return Object.entries(raw.keys).map(([key, entry]) =>
+      normalizeEntry({ ...entry, key: entry.key || key })
+    );
+  }
+  return [];
+}
+
+function normalizeEntry(entry: EffectiveConfigEntry): EffectiveConfigEntry {
+  return {
+    ...entry,
+    label: entry.label || entry.key,
+    applyTier: entry.applyTier || entry.tier || 'restart',
+    tier: entry.tier || entry.applyTier || 'restart',
+    source: entry.source || 'unset',
+    sourceFile: entry.sourceFile || entry.sourcePath || null,
+  };
+}

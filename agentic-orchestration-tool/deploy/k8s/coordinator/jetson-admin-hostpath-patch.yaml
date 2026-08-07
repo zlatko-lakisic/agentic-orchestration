@@ -1,0 +1,20 @@
+# Mount built AO Admin SPA from git checkout (large Angular bundle — not ConfigMap).
+# Applied by jetson-coordinator-rollout.sh / deploy scripts on edge hosts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-coordinator
+  namespace: agentic-orchestration
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: web-admin-dist
+              mountPath: /app/web/public/admin
+      volumes:
+        - name: web-admin-dist
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-web/public/admin
+            type: DirectoryOrCreate
