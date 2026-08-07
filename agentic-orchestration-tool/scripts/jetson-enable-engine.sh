@@ -63,12 +63,25 @@ kubectl apply -f "${NP_YAML}"
 echo "=== wait for agentic-engine rollout ==="
 kubectl rollout status deployment/agentic-engine -n "${NS}" --timeout=300s
 
-ENGINE_URL="${AGENTIC_ENGINE_URL:-http://127.0.0.1:8765}"
+ENGINE_URL="${AGENTIC_ENGINE_URL:-}"
 WEB_URL="${AGENTIC_WEB_URL:-http://127.0.0.1:30487}"
+
+# Prefer HTTPS when TLS env is present in the tool .env (mTLS / server TLS).
+if [[ -z "${ENGINE_URL}" ]]; then
+  if grep -qE '^[[:space:]]*AGENTIC_SERVE_TLS_CERTFILE=' "${TOOL_ROOT}/.env" 2>/dev/null; then
+    ENGINE_URL="https://127.0.0.1:8765"
+  else
+    ENGINE_URL="http://127.0.0.1:8765"
+  fi
+fi
+CURL_ENGINE=(curl -sf)
+if [[ "${ENGINE_URL}" == https://* ]]; then
+  CURL_ENGINE=(curl -sfk)
+fi
 
 echo "=== verify engine /health (expect service=agentic-orchestration-engine) ==="
 for i in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -sf "${ENGINE_URL}/health" | tee /tmp/agentic-engine-health.json | grep -q 'agentic-orchestration-engine'; then
+  if "${CURL_ENGINE[@]}" "${ENGINE_URL}/health" | tee /tmp/agentic-engine-health.json | grep -q 'agentic-orchestration-engine'; then
     break
   fi
   sleep 3
@@ -83,7 +96,7 @@ cat /tmp/agentic-engine-health.json
 echo
 
 echo "=== verify engine /api/ping ==="
-curl -sf "${ENGINE_URL}/api/ping"
+"${CURL_ENGINE[@]}" "${ENGINE_URL}/api/ping"
 echo
 
 echo "=== verify web UI still on 30487 (expect agentic-orchestration-web) ==="
@@ -96,7 +109,12 @@ fi
 
 echo
 echo "Engine daemon ready."
-echo "  KnowBuddy Remote URL: http://<jetson-ip>:8765"
-echo "  Alternate NodePort:   http://<jetson-ip>:30765"
+if [[ "${ENGINE_URL}" == https://* ]]; then
+  echo "  KnowBuddy / Reach Remote URL: https://<jetson-ip>:8765  (mTLS when CA configured)"
+  echo "  Alternate NodePort:   https://<jetson-ip>:30765"
+else
+  echo "  KnowBuddy Remote URL: http://<jetson-ip>:8765"
+  echo "  Alternate NodePort:   http://<jetson-ip>:30765"
+fi
 echo "  Web UI (unchanged):   http://<jetson-ip>:30487"
 echo "  Do NOT set KnowBuddy Remote URL to :30487 — /api/v1/* lives only on the engine."
