@@ -25,7 +25,9 @@ import {
 import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
 import { TopologyNodeDetail } from '../data/topology.types';
+import { helpForNode, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';
 import { themeForKind } from '../data/topology.theme';
 
 export type NodeDetailDialogData = {
@@ -43,6 +45,7 @@ type Pt = { x: number; y: number | null };
     MatTabsModule,
     RouterLink,
     NgApexchartsModule,
+    EnvHelp,
   ],
   template: `
     <h2 mat-dialog-title class="flex items-center gap-2">
@@ -50,7 +53,14 @@ type Pt = { x: number; y: number | null };
         class="inline-block h-2.5 w-2.5 rounded-full"
         [style.background]="accent()"
       ></span>
-      {{ detail()?.node?.label || data.nodeId }}
+      <span class="flex-auto">{{ detail()?.node?.label || data.nodeId }}</span>
+      @if (wikiHelp(); as h) {
+        <ao-env-help
+          [key]="h.wikiKey"
+          [help]="h.blurb"
+          [wikiPage]="wikiPage"
+        />
+      }
     </h2>
     <mat-dialog-content class="min-w-[340px] max-w-lg">
       @if (data.offlineBanner) {
@@ -229,9 +239,17 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
   readonly trafficActive = signal(false);
   readonly trafficInstrumented = signal(false);
 
+  readonly wikiPage = TOPOLOGY_WIKI_PAGE;
+
   readonly accent = computed(() => {
     const n = this.detail()?.node;
     return themeForKind(n?.kind || 'engine', n?.band).accent;
+  });
+
+  readonly wikiHelp = computed(() => {
+    const n = this.detail()?.node;
+    if (n) return helpForNode(n);
+    return helpForNode({ id: this.data.nodeId, kind: 'endpoint' });
   });
 
   readonly latestLatency = computed(() => {

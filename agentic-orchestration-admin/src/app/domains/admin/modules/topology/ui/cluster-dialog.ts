@@ -2,13 +2,22 @@ import { Component, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { RouterLink } from '@angular/router';
+import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
+import { helpForNode, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';
 import { TopologyNode } from '../data/topology.types';
 
 @Component({
   selector: 'ao-cluster-dialog',
-  imports: [MatDialogModule, MatButtonModule, RouterLink],
+  imports: [MatDialogModule, MatButtonModule, RouterLink, EnvHelp],
   template: `
-    <h2 mat-dialog-title>{{ data.node.label }} cluster</h2>
+    <h2 mat-dialog-title class="flex items-center gap-2">
+      <span class="flex-auto">{{ data.node.label }} cluster</span>
+      <ao-env-help
+        [key]="wikiHelp.wikiKey"
+        [help]="wikiHelp.blurb"
+        [wikiPage]="wikiPage"
+      />
+    </h2>
     <mat-dialog-content class="text-sm">
       <div>Count: {{ data.node.count ?? 0 }}</div>
       @if (data.node.breakdown; as b) {
@@ -38,6 +47,8 @@ import { TopologyNode } from '../data/topology.types';
 })
 export class ClusterDialog {
   readonly data = inject<{ node: TopologyNode }>(MAT_DIALOG_DATA);
+  readonly wikiPage = TOPOLOGY_WIKI_PAGE;
+  readonly wikiHelp = helpForNode(this.data.node);
 
   breakdownEntries(b: Record<string, number>) {
     return Object.entries(b);

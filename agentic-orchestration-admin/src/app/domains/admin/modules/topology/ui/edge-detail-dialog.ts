@@ -22,15 +22,30 @@ import {
 } from 'ng-apexcharts';
 import { Subscription } from 'rxjs';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
+import { helpForEdge, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';
 import { TopologyEdge } from '../data/topology.types';
 
 type Pt = { x: number; y: number | null };
 
 @Component({
   selector: 'ao-edge-detail-dialog',
-  imports: [MatDialogModule, MatButtonModule, MatTabsModule, NgApexchartsModule],
+  imports: [
+    MatDialogModule,
+    MatButtonModule,
+    MatTabsModule,
+    NgApexchartsModule,
+    EnvHelp,
+  ],
   template: `
-    <h2 mat-dialog-title>Edge</h2>
+    <h2 mat-dialog-title class="flex items-center gap-2">
+      <span class="flex-auto">Edge</span>
+      <ao-env-help
+        [key]="wikiHelp.wikiKey"
+        [help]="wikiHelp.blurb"
+        [wikiPage]="wikiPage"
+      />
+    </h2>
     <mat-dialog-content class="min-w-[320px] max-w-lg text-sm">
       <div class="font-mono text-xs break-all">{{ data.edge.id }}</div>
       <div class="mt-2">{{ data.edge.from }} → {{ data.edge.to }}</div>
@@ -125,6 +140,9 @@ export class EdgeDetailDialog implements OnInit, OnDestroy {
   readonly data = inject<{ edge: TopologyEdge }>(MAT_DIALOG_DATA);
   readonly ref = inject(MatDialogRef<EdgeDetailDialog>);
   private readonly live = inject(AoLiveWs);
+
+  readonly wikiPage = TOPOLOGY_WIKI_PAGE;
+  readonly wikiHelp = helpForEdge(this.data.edge);
 
   readonly instrumented = signal(Boolean(this.data.edge.instrumented));
   readonly liveStatus = signal<string | null>(null);
