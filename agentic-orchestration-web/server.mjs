@@ -285,6 +285,7 @@ const MIME = {
   ".ico": "image/x-icon",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".woff2": "font/woff2",
   ".webmanifest": "application/manifest+json",
 };
 
@@ -2091,27 +2092,48 @@ function serveStatic(req, res) {
     res.writeHead(403).end();
     return;
   }
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      if (p.startsWith("/admin/") && !p.includes(".")) {
-        const spaIndex = path.join(PUBLIC_DIR, "admin", "index.html");
-        fs.readFile(spaIndex, (spaErr, spaData) => {
-          if (spaErr) {
-            res.writeHead(404).end("Admin UI not built. Run: cd agentic-orchestration-admin && npm ci && npm run build");
+  const sendFile = (resolvedPath) => {
+    fs.readFile(resolvedPath, (err, data) => {
+      if (err) {
+        // Fuse typography uses /fonts/...; edge hostPath also mounts them under /admin/fonts.
+        if (p.startsWith("/fonts/")) {
+          const alt = path.join(PUBLIC_DIR, "admin", p.replace(/^\//, ""));
+          if (alt.startsWith(PUBLIC_DIR + path.sep) && alt !== resolvedPath) {
+            fs.readFile(alt, (altErr, altData) => {
+              if (altErr) {
+                res.writeHead(404).end("Not found");
+                return;
+              }
+              const ext = path.extname(alt);
+              res.writeHead(200, {
+                "Content-Type": MIME[ext] || "application/octet-stream",
+              });
+              res.end(altData);
+            });
             return;
           }
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
-          res.end(spaData);
-        });
+        }
+        if (p.startsWith("/admin/") && !p.includes(".")) {
+          const spaIndex = path.join(PUBLIC_DIR, "admin", "index.html");
+          fs.readFile(spaIndex, (spaErr, spaData) => {
+            if (spaErr) {
+              res.writeHead(404).end("Admin UI not built. Run: cd agentic-orchestration-admin && npm ci && npm run build");
+              return;
+            }
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+            res.end(spaData);
+          });
+          return;
+        }
+        res.writeHead(404).end("Not found");
         return;
       }
-      res.writeHead(404).end("Not found");
-      return;
-    }
-    const ext = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
-    res.end(data);
-  });
+      const ext = path.extname(resolvedPath);
+      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+      res.end(data);
+    });
+  };
+  sendFile(filePath);
 }
 
 const MAX_UPLOAD_FILES = 8;
