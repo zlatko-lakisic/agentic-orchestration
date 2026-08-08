@@ -1,4 +1,5 @@
-const HISTORY_MAX = 180;
+const HISTORY_MAX = 90;
+const UI_UPDATE_MIN_MS = 1000;
 const COLORS = {
   cpu: "#f59e0b",
   mem: "#60a5fa",
@@ -85,10 +86,13 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
   const cssW = Math.max(1, Math.floor(width));
   const cssH = Math.max(1, Math.floor(height));
   const dpr = window.devicePixelRatio || 1;
-  // Keep CSS width as % for fluid layouts. Setting absolute px from clientWidth causes a
-  // shrink feedback loop (scrollbar / layout churn on hover redraws).
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
+  const nextW = Math.round(cssW * dpr);
+  const nextH = Math.round(cssH * dpr);
+  // Avoid reallocating the GPU backing store on every 2s sample when size is stable.
+  if (canvas.width !== nextW || canvas.height !== nextH) {
+    canvas.width = nextW;
+    canvas.height = nextH;
+  }
   if (lockCssWidthPct) {
     canvas.style.width = "100%";
     canvas.style.height = `${cssH}px`;
@@ -206,6 +210,7 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
 /** @param {Record<string, unknown>} data */
 export function handleHostMetricsMessage(data) {
   if (!data || data.type !== "host_metrics") return;
+  if (typeof document !== "undefined" && document.hidden) return;
   const { type: _type, ...sample } = data;
   applyHostMetricsSample?.(sample);
 }
@@ -215,6 +220,16 @@ export function subscribeHostMetrics(ws) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   try {
     ws.send(JSON.stringify({ type: "host_metrics_subscribe" }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @param {WebSocket | null | undefined} ws */
+export function unsubscribeHostMetrics(ws) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    ws.send(JSON.stringify({ type: "host_metrics_unsubscribe" }));
   } catch {
     /* ignore */
   }
@@ -250,6 +265,8 @@ export function initHostMetricsUi() {
   let modalOpen = false;
   let lastSample = null;
   let chartHoverIndex = null;
+  let lastUiPaintMs = 0;
+  let pendingPaint = false;
 
   function chartOptions() {
     // Measure the wrap, not the canvas — canvas style px from prior draws would feedback-shrink.
@@ -366,12 +383,17 @@ export function initHostMetricsUi() {
   }
 
   function pushHistory(sample) {
-    if (sample?.cpu?.percent == null) return;
+    const cpu = sample?.cpu?.percent;
+    if (cpu == null && sample?.memory?.usedPercent == null) return;
+    const gpu =
+      sample?.gpu?.percent ??
+      sample?.jetson?.gpu?.percent ??
+      null;
     history.push({
       t: Date.now(),
-      cpu: sample.cpu.percent,
+      cpu: Number.isFinite(cpu) ? cpu : null,
       mem: sample.memory?.usedPercent ?? null,
-      gpu: sample.jetson?.gpu?.percent ?? null,
+      gpu: Number.isFinite(gpu) ? gpu : null,
     });
     if (history.length > HISTORY_MAX) history.shift();
   }
@@ -380,7 +402,7 @@ export function initHostMetricsUi() {
     drawLineChart(spark, history, { width: 92, height: 30, pad: 2, showGrid: false });
     const cpu = lastSample?.cpu?.percent;
     const mem = lastSample?.memory?.usedPercent;
-    const gpu = lastSample?.jetson?.gpu?.percent;
+    const gpu = lastSample?.gpu?.percent ?? lastSample?.jetson?.gpu?.percent;
     const parts = [];
     if (Number.isFinite(cpu)) parts.push(`CPU ${cpu.toFixed(0)}%`);
     if (Number.isFinite(mem)) parts.push(`RAM ${mem.toFixed(0)}%`);
@@ -446,7 +468,9 @@ export function initHostMetricsUi() {
       memDetailEl.textContent = `${formatBytes(m.usedBytes)} used · ${formatBytes(m.availableBytes)} available · ${formatBytes(m.totalBytes)} total`;
     }
     if (gpuNowEl) {
-      gpuNowEl.textContent = formatPercent(lastSample.jetson?.gpu?.percent);
+      gpuNowEl.textContent = formatPercent(
+        lastSample.gpu?.percent ?? lastSample.jetson?.gpu?.percent,
+      );
     }
     if (gpuStatsEl) {
       gpuStatsEl.textContent = `min ${formatPercent(gpuS.min)} · avg ${formatPercent(gpuS.avg)} · max ${formatPercent(gpuS.max)}`;
@@ -473,9 +497,26 @@ export function initHostMetricsUi() {
     lastSample = sample;
     pushHistory(sample);
     btn.classList.remove("stale");
+    // Throttle paints so background tabs / 2s WS pushes do not thrash the GPU.
+    const now = Date.now();
+    if (now - lastUiPaintMs < UI_UPDATE_MIN_MS) {
+      pendingPaint = true;
+      return;
+    }
+    lastUiPaintMs = now;
+    pendingPaint = false;
     updateHeader();
     updateModal();
   }
+
+  // Flush a deferred paint shortly after a burst of samples.
+  setInterval(() => {
+    if (!pendingPaint || document.hidden) return;
+    pendingPaint = false;
+    lastUiPaintMs = Date.now();
+    updateHeader();
+    updateModal();
+  }, UI_UPDATE_MIN_MS);
 
   applyHostMetricsSample = applySample;
 

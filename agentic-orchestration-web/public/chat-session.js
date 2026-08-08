@@ -1,6 +1,6 @@
 const SESSION_ID_KEY = "agentic.orchestrator.sessionId";
 const TRANSCRIPT_PREFIX = "agentic.chat.transcript.";
-const MAX_TRANSCRIPT_ENTRIES = 200;
+export const MAX_TRANSCRIPT_ENTRIES = 200;
 const LEGACY_LOCAL_SESSION_ID_KEY = "agentic.orchestrator.sessionId";
 const LEGACY_LOCAL_TRANSCRIPT_PREFIX = "agentic.chat.transcript.";
 

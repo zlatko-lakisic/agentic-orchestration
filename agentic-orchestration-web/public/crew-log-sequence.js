@@ -239,6 +239,8 @@ export class CrewLogSequenceDiagram {
     /** @type {{ from: string, to: string, label: string, kind: string }[]} */
     this.events = [];
     this._laneWidth = 720;
+    /** Cap SVG row count so long runs do not grow without bound. */
+    this.maxEvents = 100;
     if (this.root) this._render();
   }
 
@@ -255,6 +257,9 @@ export class CrewLogSequenceDiagram {
     this._ensureParticipant(ev.from);
     this._ensureParticipant(ev.to);
     this.events.push(ev);
+    if (this.events.length > this.maxEvents) {
+      this.events = this.events.slice(-this.maxEvents);
+    }
     this._render();
     this._scrollToBottom();
   }

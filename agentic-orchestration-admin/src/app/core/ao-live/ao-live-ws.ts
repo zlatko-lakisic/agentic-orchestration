@@ -17,9 +17,10 @@ export interface AdminLogEntry {
   line: string;
 }
 
-const HISTORY_MAX = 180;
-const LOG_MAX = 400;
+const HISTORY_MAX = 90;
+const LOG_MAX = 200;
 const RECONNECT_MS = 2500;
+const HISTORY_UI_MIN_MS = 1000;
 
 @Injectable({ providedIn: 'root' })
 export class AoLiveWs implements OnDestroy {
@@ -31,6 +32,8 @@ export class AoLiveWs implements OnDestroy {
   private logSources: string[] | null = null;
   private logSeq = 0;
   private refCount = 0;
+  private lastHistoryPushMs = 0;
+  private visibilityHandler: (() => void) | null = null;
 
   readonly connected = signal(false);
   readonly metrics = signal<HostMetrics | null>(null);
@@ -105,6 +108,7 @@ export class AoLiveWs implements OnDestroy {
     if (opts.metrics) this.wantMetrics = true;
     if (opts.logs) this.wantLogs = true;
     if (opts.logSources) this.logSources = [...opts.logSources];
+    this.bindVisibility();
     this.ensureConnected();
     this.pushSubscriptions();
   }
@@ -115,6 +119,7 @@ export class AoLiveWs implements OnDestroy {
     if (this.refCount === 0) {
       this.wantMetrics = false;
       this.wantLogs = false;
+      this.unbindVisibility();
       this.closeSocket();
     }
   }
@@ -186,8 +191,11 @@ export class AoLiveWs implements OnDestroy {
   private pushSubscriptions() {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    if (this.wantMetrics) {
+    if (this.wantMetrics && !this.tabHidden()) {
       ws.send(JSON.stringify({ type: 'host_metrics_subscribe' }));
+    }
+    if (this.wantMetrics && this.tabHidden()) {
+      ws.send(JSON.stringify({ type: 'host_metrics_unsubscribe' }));
     }
     if (this.wantLogs) {
       ws.send(
@@ -199,6 +207,25 @@ export class AoLiveWs implements OnDestroy {
     }
   }
 
+  private tabHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden;
+  }
+
+  private bindVisibility() {
+    if (this.visibilityHandler || typeof document === 'undefined') return;
+    this.visibilityHandler = () => {
+      if (this.refCount <= 0) return;
+      this.pushSubscriptions();
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  private unbindVisibility() {
+    if (!this.visibilityHandler || typeof document === 'undefined') return;
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
+    this.visibilityHandler = null;
+  }
+
   private onMessage(ev: MessageEvent) {
     let msg: Record<string, unknown>;
     try {
@@ -208,6 +235,7 @@ export class AoLiveWs implements OnDestroy {
     }
     const type = String(msg['type'] || '');
     if (type === 'host_metrics') {
+      if (this.tabHidden()) return;
       const sample = msg as unknown as HostMetrics;
       this.metrics.set(sample);
       this.pushHistory(sample);
@@ -233,7 +261,13 @@ export class AoLiveWs implements OnDestroy {
   }
 
   private pushHistory(sample: HostMetrics) {
-    const t = Date.parse(String(sample.ts || '')) || Date.now();
+    const now = Date.now();
+    // Throttle chart series updates (~1 Hz) even when the server pushes every 2s.
+    if (now - this.lastHistoryPushMs < HISTORY_UI_MIN_MS) {
+      return;
+    }
+    this.lastHistoryPushMs = now;
+    const t = Date.parse(String(sample.ts || '')) || now;
     const cpu =
       sample.cpu?.percent == null || Number.isNaN(Number(sample.cpu.percent))
         ? null

@@ -1,11 +1,13 @@
 import "./ws-singleton.js";
 import { closeActiveWebSocket, getActiveWebSocket, isActiveWebSocket } from "./ws-singleton.js";
-import { initHostMetricsUi, handleHostMetricsMessage, subscribeHostMetrics } from "./host-metrics-ui.js";
+import { initHostMetricsUi, handleHostMetricsMessage, subscribeHostMetrics, unsubscribeHostMetrics } from "./host-metrics-ui.js";
+
 import { initPwaInstall } from "./install-prompt.js";
 import {
   clearChatTranscript,
   getOrCreateBrowserSessionId,
   loadChatTranscript,
+  MAX_TRANSCRIPT_ENTRIES,
   saveChatTranscript,
   setBrowserSessionId,
   transcriptHasConversation,
@@ -636,6 +638,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
     if (crewLogText) crewLogText.hidden = isDiagram;
   }
 
+  const CREW_LOG_TEXT_MAX_CHARS = 120_000;
+  const CREW_LOG_TEXT_TRIM_TO = 80_000;
+
   function clearCrewLog() {
     crewLogLineBuf = "";
     if (crewLogText) crewLogText.textContent = "";
@@ -654,6 +659,11 @@ if (globalThis.__agenticOrchestratorUiInit) {
     crewLogSequence.appendLine(line);
     if (!crewLogText) return;
     crewLogText.textContent += formatCrewLogTimestamp() + line + "\n";
+    // Cap in-memory text so multi-hour verbose runs cannot balloon the DOM.
+    if (crewLogText.textContent.length > CREW_LOG_TEXT_MAX_CHARS) {
+      const t = crewLogText.textContent;
+      crewLogText.textContent = t.slice(t.length - CREW_LOG_TEXT_TRIM_TO);
+    }
     crewLogText.scrollTop = crewLogText.scrollHeight;
   }
 
@@ -819,8 +829,23 @@ if (globalThis.__agenticOrchestratorUiInit) {
     saveChatTranscript(browserSessionId, chatTranscript);
   }
 
+  function pruneChatDom(maxEntries) {
+    const root = chatScroll || chat;
+    if (!root) return;
+    const nodes = root.querySelectorAll(".msg");
+    const overflow = nodes.length - maxEntries;
+    if (overflow <= 0) return;
+    for (let i = 0; i < overflow; i += 1) {
+      nodes[i]?.remove();
+    }
+  }
+
   function recordTranscriptEntry(entry) {
     chatTranscript.push(entry);
+    if (chatTranscript.length > MAX_TRANSCRIPT_ENTRIES) {
+      chatTranscript = chatTranscript.slice(-MAX_TRANSCRIPT_ENTRIES);
+      pruneChatDom(MAX_TRANSCRIPT_ENTRIES);
+    }
     persistTranscript();
   }
 
@@ -1692,6 +1717,17 @@ if (globalThis.__agenticOrchestratorUiInit) {
   initComposerGrow();
   initHostMetricsUi();
   initPwaInstall();
+
+  // Pause host-metrics paint + unsubscribe while the tab is hidden to keep Chrome light overnight.
+  document.addEventListener("visibilitychange", () => {
+    const socket = getActiveWebSocket();
+    if (document.hidden) {
+      unsubscribeHostMetrics(socket);
+    } else if (socket?.readyState === WebSocket.OPEN) {
+      subscribeHostMetrics(socket);
+    }
+  });
+
   function bootWebSocket() {
     if (globalThis.__agenticWsConnectBooted) return;
     globalThis.__agenticWsConnectBooted = true;

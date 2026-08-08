@@ -806,7 +806,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   protected utilChart = {
     chart: {
-      animations: { enabled: false },
+      animations: { enabled: false, dynamicAnimation: { enabled: false } },
       fontFamily: 'inherit',
       foreColor: 'inherit',
       height: '100%',
@@ -865,7 +865,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   protected sparkChart = {
     chart: {
-      animations: { enabled: false },
+      animations: { enabled: false, dynamicAnimation: { enabled: false } },
       fontFamily: 'inherit',
       foreColor: 'inherit',
       height: '101%',
