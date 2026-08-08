@@ -13,6 +13,7 @@ from orchestration.session_overlay import (
     clear_overlay,
     clear_overlay_for_connection,
     get_overlay,
+    list_active_overlays,
     overlay_run_context,
     register_overlay,
     reset_overlays_for_tests,
@@ -185,3 +186,20 @@ def test_mcp_requires_tunnel_flag(monkeypatch: pytest.MonkeyPatch) -> None:
             mcps=[_mcp()],
             stock_ids=set(),
         )
+
+
+def test_list_active_overlays_summarizes_sessions() -> None:
+    register_overlay(
+        user_id="ada",
+        session_id="s1",
+        connection_id="c1",
+        agents=[_agent()],
+        mcps=[_mcp()],
+        stock_ids=set(),
+    )
+    rows = list_active_overlays()
+    assert len(rows) == 1
+    assert rows[0]["sessionId"] == "s1"
+    assert rows[0]["agentCount"] == 1
+    assert rows[0]["mcpCount"] == 1
+    assert rows[0]["tunnelMcpCount"] == 1

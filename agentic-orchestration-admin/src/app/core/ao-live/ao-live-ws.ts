@@ -1,4 +1,5 @@
 import { Injectable, OnDestroy, computed, signal } from '@angular/core';
+import { Subject } from 'rxjs';
 import { HostMetrics } from '@/app/core/ao-api/types';
 
 export interface MetricsPoint {
@@ -29,11 +30,15 @@ export class AoLiveWs implements OnDestroy {
   private destroyed = false;
   private wantMetrics = false;
   private wantLogs = false;
+  private wantTopology = false;
   private logSources: string[] | null = null;
   private logSeq = 0;
   private refCount = 0;
   private lastHistoryPushMs = 0;
   private visibilityHandler: (() => void) | null = null;
+
+  /** Topology WS events (snapshot / delta / health). */
+  readonly topologyEvents = new Subject<{ type: string; [k: string]: unknown }>();
 
   readonly connected = signal(false);
   readonly metrics = signal<HostMetrics | null>(null);
@@ -103,14 +108,26 @@ export class AoLiveWs implements OnDestroy {
   });
 
   /** Acquire a shared live connection (call from component ngOnInit). */
-  acquire(opts: { metrics?: boolean; logs?: boolean; logSources?: string[] }) {
+  acquire(opts: {
+    metrics?: boolean;
+    logs?: boolean;
+    topology?: boolean;
+    logSources?: string[];
+  }) {
     this.refCount += 1;
     if (opts.metrics) this.wantMetrics = true;
     if (opts.logs) this.wantLogs = true;
+    if (opts.topology) this.wantTopology = true;
     if (opts.logSources) this.logSources = [...opts.logSources];
     this.bindVisibility();
     this.ensureConnected();
     this.pushSubscriptions();
+  }
+
+  resyncTopology() {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'topology_resync' }));
   }
 
   /** Release one consumer (call from component ngOnDestroy). */
@@ -118,6 +135,7 @@ export class AoLiveWs implements OnDestroy {
     this.refCount = Math.max(0, this.refCount - 1);
     if (this.refCount === 0) {
       this.wantMetrics = false;
+      this.wantTopology = false;
       this.wantLogs = false;
       this.unbindVisibility();
       this.closeSocket();
@@ -205,6 +223,12 @@ export class AoLiveWs implements OnDestroy {
         })
       );
     }
+    if (this.wantTopology && !this.tabHidden()) {
+      ws.send(JSON.stringify({ type: 'topology_subscribe' }));
+    }
+    if (this.wantTopology && this.tabHidden()) {
+      ws.send(JSON.stringify({ type: 'topology_unsubscribe' }));
+    }
   }
 
   private tabHidden(): boolean {
@@ -257,6 +281,15 @@ export class AoLiveWs implements OnDestroy {
         const next = [...prev, entry];
         return next.length > LOG_MAX ? next.slice(next.length - LOG_MAX) : next;
       });
+      return;
+    }
+    if (
+      type === 'topology_snapshot' ||
+      type === 'topology_delta' ||
+      type === 'topology_health'
+    ) {
+      if (this.tabHidden() && type === 'topology_health') return;
+      this.topologyEvents.next({ ...msg, type });
     }
   }
 
@@ -315,6 +348,7 @@ export class AoLiveWs implements OnDestroy {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'host_metrics_unsubscribe' }));
         ws.send(JSON.stringify({ type: 'admin_logs_unsubscribe' }));
+        ws.send(JSON.stringify({ type: 'topology_unsubscribe' }));
       }
       ws.close();
     } catch {

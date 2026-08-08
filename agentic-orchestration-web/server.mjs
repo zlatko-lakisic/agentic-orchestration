@@ -21,12 +21,22 @@ import {
   userNameFromRequestHeaders,
 } from "./lib/user-context.mjs";
 import { startOllamaKeepAliveLoop, beginOrchestrateOllamaBusy, endOrchestrateOllamaBusy } from "./lib/ollama-keepalive.mjs";
-import { handleAdminApi, matchAdminRoute } from "./lib/admin-api.mjs";
+import {
+  handleAdminApi,
+  matchAdminRoute,
+  buildCatalogs,
+  fetchJson,
+} from "./lib/admin-api.mjs";
 import {
   adminLog,
   startAdminLogsPush,
   stopAdminLogsPush,
 } from "./lib/admin-logs.mjs";
+import {
+  startTopologyPush,
+  stopTopologyPush,
+  resyncTopology,
+} from "./lib/admin-topology-ws.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2933,6 +2943,32 @@ wss.on("connection", (ws, req) => {
       stopAdminLogsPush(ws);
       return;
     }
+    if (msg.type === "topology_subscribe") {
+      startTopologyPush(ws, sendJson, {
+        toolRoot: TOOL_ROOT,
+        webRoot: __dirname,
+        webInstanceId: WEB_INSTANCE_ID,
+        webPid: process.pid,
+        fetchJson,
+        buildCatalogs,
+      });
+      return;
+    }
+    if (msg.type === "topology_unsubscribe") {
+      stopTopologyPush(ws);
+      return;
+    }
+    if (msg.type === "topology_resync") {
+      resyncTopology(ws, sendJson, {
+        toolRoot: TOOL_ROOT,
+        webRoot: __dirname,
+        webInstanceId: WEB_INSTANCE_ID,
+        webPid: process.pid,
+        fetchJson,
+        buildCatalogs,
+      });
+      return;
+    }
     if (msg.type === "client_hello") {
       const resume = Boolean(msg.resume);
       if (!resume && webPlannerGreetEnabled()) {
@@ -3024,6 +3060,7 @@ wss.on("connection", (ws, req) => {
   ws.on("close", (code, reason) => {
     stopHostMetricsPush(ws);
     stopAdminLogsPush(ws);
+    stopTopologyPush(ws);
     const r = reason?.toString?.() || "";
     if (code !== 1000 && code !== 1001) {
       console.error(`[agentic-orchestration-web] ws close code=${code} reason=${r.slice(0, 120)}`);

@@ -458,3 +458,39 @@ def overlays_for_connection(connection_id: str) -> list[SessionOverlay]:
         return []
     with _lock:
         return [o for o in _overlays.values() if o.connection_id == cid]
+
+
+def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
+    """Admin/read snapshot of live Reach session overlays (no catalog bodies)."""
+    ts = now if now is not None else time.time()
+    out: list[dict[str, Any]] = []
+    with _lock:
+        sweep_expired_locked(now=ts)
+        for overlay in _overlays.values():
+            if overlay.is_expired(now=ts):
+                continue
+            tunnel_mcps = 0
+            for mcp in overlay.mcps:
+                url = ""
+                http = mcp.get("streamable_http") if isinstance(mcp, dict) else None
+                if isinstance(http, dict):
+                    url = str(http.get("url") or "")
+                elif isinstance(mcp, dict):
+                    url = str(mcp.get("url") or "")
+                if url.startswith(TUNNEL_URL_PREFIX):
+                    tunnel_mcps += 1
+            out.append(
+                {
+                    "userId": overlay.user_id,
+                    "sessionId": overlay.session_id,
+                    "connectionId": overlay.connection_id,
+                    "agentCount": len(overlay.agents),
+                    "mcpCount": len(overlay.mcps),
+                    "skillCount": len(overlay.skills),
+                    "tunnelMcpCount": tunnel_mcps,
+                    "expiresAt": overlay.expires_at,
+                    "byteSize": overlay.byte_size,
+                }
+            )
+    out.sort(key=lambda row: (row["userId"], row["sessionId"]))
+    return out

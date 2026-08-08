@@ -22,6 +22,7 @@ MTLS_PUBLIC_PATHS = frozenset(
     {
         "/health",
         "/api/ping",
+        "/api/v1/admin/reach-sessions",
         "/api/v1/mtls/ca",
         "/api/v1/mtls/enroll",
     }

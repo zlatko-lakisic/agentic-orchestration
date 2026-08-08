@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -206,6 +207,28 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             },
             headers={"X-Agentic-Engine": "1"},
         )
+
+    @app.get("/api/v1/admin/reach-sessions")
+    async def api_reach_sessions() -> dict[str, Any]:
+        """Read-only Reach session overlay registry for Admin topology."""
+        from orchestration.session_overlay import (
+            list_active_overlays,
+            mcp_tunnel_enabled,
+            session_overlay_enabled,
+        )
+        from orchestration.speech_capability import speech_enabled
+
+        sessions = await run_in_threadpool(list_active_overlays)
+        return {
+            "ok": True,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "sessionOverlayEnabled": session_overlay_enabled(),
+            "mcpTunnelEnabled": mcp_tunnel_enabled(),
+            "speechEnabled": speech_enabled(),
+            "mtlsRequired": mtls_required(),
+            "sessions": sessions,
+            "count": len(sessions),
+        }
 
     @app.get("/api/session")
     async def api_session(identity: Identity = Depends(identity_from_request)) -> dict[str, Any]:

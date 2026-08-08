@@ -18,6 +18,10 @@ import {
   SupportBundle,
   TopologyResponse,
 } from './types';
+import type {
+  TopologyGraph,
+  TopologyNodeDetail,
+} from '@/app/domains/admin/modules/topology/data/topology.types';
 
 export type ApiResult<T> =
   | { ok: true; data: T }
@@ -98,6 +102,16 @@ export class AoApi {
 
   topology() {
     return this.get<TopologyResponse>('/api/v1/admin/health/topology');
+  }
+
+  topologyGraph() {
+    return this.get<TopologyGraph>('/api/v1/admin/topology/graph');
+  }
+
+  topologyNode(id: string) {
+    return this.get<TopologyNodeDetail>(
+      `/api/v1/admin/topology/node/${encodeURIComponent(id)}`
+    );
   }
 
   storage() {

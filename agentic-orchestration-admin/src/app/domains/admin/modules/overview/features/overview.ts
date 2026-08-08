@@ -525,80 +525,43 @@ const DEPENDENCY_ORDER = [
         }
       </div>
 
-      <div class="mt-2 w-full">
-        <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
-          Topology
-        </div>
-        <div class="text-neutral-500">
-          Ordered by dependency: web → engine → execution → ollama
-        </div>
-      </div>
-
-      <mat-card
-        class="overflow-hidden"
-        appearance="outlined"
-      >
-        @for (c of orderedComponents(); track c.id; let last = $last) {
-          <div class="flex items-start gap-x-3 px-5 py-3">
-            <div class="flex flex-col items-center self-stretch pt-2">
-              <span
-                class="size-2.5 shrink-0 rounded-full"
-                [ngClass]="statusDotClass(c.status)"
-              ></span>
-              @if (!last) {
-                <span
-                  class="mt-1 w-px flex-auto bg-neutral-200 dark:bg-neutral-700"
-                ></span>
-              }
-            </div>
-            <div class="min-w-0 flex-auto">
-              <div class="flex flex-wrap items-baseline gap-x-2">
-                <a
-                  class="font-medium hover:underline"
-                  [routerLink]="['/components', c.id]"
-                >
-                  {{ c.label }}
-                </a>
-                <span
-                  class="text-sm font-medium"
-                  [ngClass]="statusTextClass(c.status)"
-                >
-                  {{ statusLabel(c.status) }}
-                </span>
+      <mat-card class="overflow-hidden" appearance="outlined">
+        <mat-card-header>
+          <div class="flex w-full items-start justify-between gap-3">
+            <div>
+              <div class="text-lg font-medium tracking-tight">
+                Deployment topology
               </div>
-              <div class="mt-0.5 truncate text-sm text-neutral-500">
-                {{ c.fact || c.detail || '—' }}
+              <div class="text-sm text-neutral-500">
+                Live three-band graph of what is deployed and healthy
               </div>
             </div>
-            <div class="flex shrink-0 items-center gap-x-3">
-              @if (c.port || c.nodePort) {
-                <span class="font-mono text-xs text-neutral-500 tabular-nums">
-                  {{ c.port ?? '—' }}@if (c.nodePort) {
-                    · {{ c.nodePort }}
-                  }
-                </span>
-              }
-              @if (componentHref(c); as href) {
-                <a
-                  matIconButton
-                  aria-label="Open component URL"
-                  [href]="href"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  <mat-icon svgIcon="external-link" />
-                </a>
-              }
-            </div>
+            <a matButton="filled" routerLink="/topology">
+              <mat-icon svgIcon="share-2" />
+              Open Topology
+            </a>
           </div>
-          @if (!last) {
-            <mat-divider />
-          }
-        } @empty {
-          <div class="px-5 py-8 text-neutral-500">
-            No topology components reported
+        </mat-card-header>
+        <mat-card-content class="pt-2">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span>
+              {{ orderedComponents().length }} components reported
+            </span>
+            <span
+              class="font-medium"
+              [ngClass]="
+                topologyUnhealthyCount() > 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-neutral-500'
+              "
+            >
+              {{ topologyUnhealthyCount() }} unhealthy
+            </span>
+            @if (topology()?.generatedAt; as ts) {
+              <span class="text-neutral-500">Snapshot {{ ts }}</span>
+            }
           </div>
-        }
+        </mat-card-content>
       </mat-card>
 
       <!-- Live logs (collapsed by default for triage) -->
@@ -693,6 +656,15 @@ export class OverviewPage implements OnInit, OnDestroy {
     };
     return [...this.components()].sort((a, b) => rank(a.id) - rank(b.id));
   });
+
+  readonly topologyUnhealthyCount = computed(
+    () =>
+      this.components().filter((c) =>
+        ['failed', 'degraded', 'blocking', 'warning'].includes(
+          String(c.status || '').toLowerCase()
+        )
+      ).length
+  );
 
   readonly filteredLogs = computed(() => {
     const allow = new Set(this.selectedSources());

@@ -15,6 +15,13 @@ const routes: Routes = [
           ),
       },
       {
+        path: 'topology',
+        loadComponent: () =>
+          import('./modules/topology/features/topology-page').then(
+            (m) => m.TopologyPage
+          ),
+      },
+      {
         path: 'components',
         loadComponent: () =>
           import('./modules/components/features/components').then(

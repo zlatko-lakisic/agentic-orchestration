@@ -25,6 +25,12 @@ export const NAVIGATION: NavigationItem[] = [
         icon: 'activity',
         route: '/overview',
       },
+      {
+        id: 'topology',
+        label: 'Topology',
+        icon: 'share-2',
+        route: '/topology',
+      },
     ],
   },
   {

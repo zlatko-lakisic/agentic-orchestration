@@ -7,6 +7,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
+import {
+  buildTopologyGraph,
+  buildTopologyNodeDetail,
+} from "./admin-topology-graph.mjs";
 
 // Path-like TLS keys are not secrets — operators need to see the path + existence.
 const SECRET_KEY_RE =
@@ -1727,12 +1731,17 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/config/effective") return { name: "config_effective" };
   if (p === "/api/v1/admin/config/fingerprint") return { name: "config_fingerprint" };
   if (p === "/api/v1/admin/health/topology") return { name: "topology" };
+  if (p === "/api/v1/admin/topology/graph") return { name: "topology_graph" };
+  let m = p.match(/^\/api\/v1\/admin\/topology\/node\/(.+)$/);
+  if (m) return { name: "topology_node", id: decodeURIComponent(m[1]) };
+  m = p.match(/^\/api\/v1\/admin\/topology\/edge\/([^/]+)\/metrics$/);
+  if (m) return { name: "topology_edge_metrics", id: decodeURIComponent(m[1]) };
   if (p === "/api/v1/admin/storage") return { name: "storage" };
   if (p === "/api/v1/admin/meta") return { name: "meta" };
   if (p === "/api/v1/admin/access/posture") return { name: "access_posture" };
   if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
-  let m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
+  m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
   if (m) return { name: "runs_detail", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)\/([^/]+)$/);
   if (m) return { name: "catalog_detail", kind: m[1], id: decodeURIComponent(m[2]) };
@@ -1783,6 +1792,38 @@ async function handleAdminApi(req, res, ctx) {
     }
     if (route.name === "topology") {
       send(200, await buildTopology(ctx));
+      return true;
+    }
+    if (route.name === "topology_graph") {
+      send(
+        200,
+        await buildTopologyGraph({
+          ...ctx,
+          fetchJson,
+          buildCatalogs,
+        }),
+      );
+      return true;
+    }
+    if (route.name === "topology_node") {
+      const detail = await buildTopologyNodeDetail(route.id, {
+        ...ctx,
+        fetchJson,
+        buildCatalogs,
+      });
+      if (!detail) {
+        send(404, { error: "Topology node not found" });
+        return true;
+      }
+      send(200, detail);
+      return true;
+    }
+    if (route.name === "topology_edge_metrics") {
+      send(501, {
+        error: "Edge metrics not instrumented in Phase 1",
+        instrumented: false,
+        edgeId: route.id || null,
+      });
       return true;
     }
     if (route.name === "storage") {
@@ -1857,11 +1898,14 @@ export {
   buildEffectiveConfig,
   buildCatalogs,
   buildTopology,
+  buildTopologyGraph,
+  buildTopologyNodeDetail,
   buildStorageInventory,
   buildAccessPosture,
   buildSupportBundle,
   listRecentRuns,
   buildRunDetail,
+  fetchJson,
   isSecretKey,
   isInjectedK8sEnvKey,
   KEY_META,
