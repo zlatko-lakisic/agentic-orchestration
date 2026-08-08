@@ -23,6 +23,7 @@ MTLS_PUBLIC_PATHS = frozenset(
         "/health",
         "/api/ping",
         "/api/v1/admin/reach-sessions",
+        "/api/v1/admin/mtls/clients",
         "/api/v1/mtls/ca",
         "/api/v1/mtls/enroll",
     }
@@ -195,6 +196,11 @@ def peercert_from_scope(scope: dict[str, Any]) -> dict[str, Any] | None:
 def is_public_mtls_path(path: str) -> bool:
     cleaned = (path or "").split("?", 1)[0].rstrip("/") or "/"
     if cleaned in MTLS_PUBLIC_PATHS:
+        return True
+    # Admin mTLS client registry (list / revoke / unrevoke) — coordinator proxy, no client cert.
+    if cleaned == "/api/v1/admin/mtls/clients" or cleaned.startswith(
+        "/api/v1/admin/mtls/clients/"
+    ):
         return True
     # Allow trailing-slash variants already normalized above.
     return cleaned in {p.rstrip("/") for p in MTLS_PUBLIC_PATHS}

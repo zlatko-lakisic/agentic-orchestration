@@ -114,10 +114,11 @@ class WsConnection:
     async def serve(self) -> None:
         self._loop = asyncio.get_running_loop()
         await self.ws.accept()
+        peercert = peercert_from_scope(self.ws.scope)
         try:
             self.identity = resolve_identity(
                 self.ws.headers,
-                peercert=peercert_from_scope(self.ws.scope),
+                peercert=peercert,
             )
         except IdentityRequiredError as exc:
             await self.send_error(str(exc))
@@ -125,8 +126,13 @@ class WsConnection:
             return
 
         from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
-        from orchestration.serve.mtls_ca import mtls_hello_payload
+        from orchestration.serve.mtls_ca import is_peercert_revoked, mtls_hello_payload
         from orchestration.speech_capability import speech_hello_payload
+
+        if peercert and is_peercert_revoked(self.tool_root, peercert):
+            await self.send_error("client certificate revoked")
+            await self.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
+            return
 
         hello: dict[str, Any] = {
             "type": "hello",

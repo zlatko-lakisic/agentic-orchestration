@@ -14,10 +14,14 @@ from orchestration.serve.mtls_ca import (
     MtlsCaError,
     consume_enroll_token,
     init_ca,
+    is_peercert_revoked,
     issue_server_cert,
+    list_mtls_clients,
     mint_enroll_token,
     read_ca_pem,
+    revoke_mtls_client,
     sign_client_csr,
+    unrevoke_mtls_client,
 )
 
 pytestmark = pytest.mark.unit
@@ -88,3 +92,35 @@ def test_sign_csr_requires_cn(tmp_path: Path) -> None:
     pem = csr.public_bytes(serialization.Encoding.PEM).decode("utf-8")
     with pytest.raises(MtlsCaError, match="Common Name"):
         sign_client_csr(tmp_path, pem)
+
+
+def test_revoke_client_by_serial_blocks_peercert(tmp_path: Path) -> None:
+    init_ca(tmp_path)
+    signed = sign_client_csr(tmp_path, _csr_pem("comstar"), common_name_override="comstar")
+    serial = signed["serial"]
+    clients = list_mtls_clients(tmp_path)
+    assert any(c["serial"] == serial and c["subject"] == "comstar" and not c["revoked"] for c in clients)
+
+    peercert = {"serialNumber": serial, "subject": ((("commonName", "comstar"),),)}
+    assert is_peercert_revoked(tmp_path, peercert) is False
+
+    revoke_mtls_client(tmp_path, serial=serial, reason="kick comstar")
+    assert is_peercert_revoked(tmp_path, peercert) is True
+    assert any(c["serial"] == serial and c["revoked"] for c in list_mtls_clients(tmp_path))
+
+    # Other CN stays allowed.
+    other = sign_client_csr(tmp_path, _csr_pem("knowbuddy"), common_name_override="knowbuddy")
+    other_peer = {"serialNumber": other["serial"], "subject": ((("commonName", "knowbuddy"),),)}
+    assert is_peercert_revoked(tmp_path, other_peer) is False
+
+    unrevoke_mtls_client(tmp_path, serial=serial)
+    assert is_peercert_revoked(tmp_path, peercert) is False
+
+
+def test_revoke_by_cn_bans_subject(tmp_path: Path) -> None:
+    init_ca(tmp_path)
+    revoke_mtls_client(tmp_path, subject="legacy-app", reason="cn ban")
+    peer = {"serialNumber": "DEADBEEF", "subject": ((("commonName", "legacy-app"),),)}
+    assert is_peercert_revoked(tmp_path, peer) is True
+    peer_other = {"serialNumber": "CAFE", "subject": ((("commonName", "other"),),)}
+    assert is_peercert_revoked(tmp_path, peer_other) is False

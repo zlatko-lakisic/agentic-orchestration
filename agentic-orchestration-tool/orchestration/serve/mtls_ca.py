@@ -6,6 +6,8 @@ Material lives under ``<tool_root>/__orchestrator_mtls__/``:
 - ``ca/ca.pem``, ``ca/ca.key`` — CA certificate and key
 - ``ca/server.pem``, ``ca/server.key`` — optional AO-issued server cert
 - ``tokens.json`` — hashed single-use enrollment tokens
+- ``clients.json`` — issued client cert registry (serial + CN)
+- ``revoked.json`` — deny-list by serial and/or subject CN (non-nuclear kick)
 """
 
 from __future__ import annotations
@@ -46,8 +48,282 @@ def tokens_path(tool_root: Path) -> Path:
     return mtls_root(tool_root) / "tokens.json"
 
 
+def clients_path(tool_root: Path) -> Path:
+    return mtls_root(tool_root) / "clients.json"
+
+
+def revoked_path(tool_root: Path) -> Path:
+    return mtls_root(tool_root) / "revoked.json"
+
+
 def ca_cert_path(tool_root: Path) -> Path:
     return ca_dir(tool_root) / "ca.pem"
+
+
+def normalize_serial(raw: Any) -> str | None:
+    """Normalize a cert serial to uppercase hex (no ``0x`` / colons)."""
+    if raw is None:
+        return None
+    if isinstance(raw, int):
+        return format(raw, "X")
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.lower().startswith("0x"):
+        text = text[2:]
+    text = text.replace(":", "").replace(" ", "")
+    try:
+        return format(int(text, 16), "X")
+    except ValueError:
+        try:
+            return format(int(text, 10), "X")
+        except ValueError:
+            return text.upper() or None
+
+
+def _load_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return raw if isinstance(raw, list) else []
+
+
+def _save_json_list(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def record_issued_client(
+    tool_root: Path,
+    *,
+    serial_hex: str,
+    subject: str,
+    expires_at: float | None = None,
+) -> dict[str, Any]:
+    """Upsert an issued client leaf into ``clients.json``."""
+    serial = normalize_serial(serial_hex)
+    cn = (subject or "").strip()
+    if not serial or not cn:
+        raise MtlsCaError("serial and subject are required to record a client")
+    now = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "serial": serial,
+        "subject": cn,
+        "issuedAt": now,
+        "expiresAt": (
+            datetime.fromtimestamp(float(expires_at), tz=timezone.utc).isoformat()
+            if expires_at
+            else None
+        ),
+    }
+    clients = [c for c in _load_json_list(clients_path(tool_root)) if str(c.get("serial")) != serial]
+    clients.append(entry)
+    _save_json_list(clients_path(tool_root), clients)
+    return entry
+
+
+def list_mtls_clients(tool_root: Path) -> list[dict[str, Any]]:
+    """Issued clients with revoke status (plus CN-only revoke rows not in registry)."""
+    revoked = _load_json_list(revoked_path(tool_root))
+    revoked_serials = {
+        normalize_serial(r.get("serial")) for r in revoked if r.get("serial")
+    }
+    revoked_serials.discard(None)
+    revoked_subjects = {
+        str(r.get("subject") or "").strip().lower()
+        for r in revoked
+        if r.get("subject") and not r.get("serial")
+    }
+    revoked_by_serial = {
+        normalize_serial(r.get("serial")): r for r in revoked if r.get("serial")
+    }
+
+    out: list[dict[str, Any]] = []
+    seen_serials: set[str] = set()
+    for c in _load_json_list(clients_path(tool_root)):
+        serial = normalize_serial(c.get("serial"))
+        subject = str(c.get("subject") or "").strip()
+        if not serial:
+            continue
+        seen_serials.add(serial)
+        subject_key = subject.lower()
+        is_rev = serial in revoked_serials or subject_key in revoked_subjects
+        row = {
+            "serial": serial,
+            "subject": subject,
+            "issuedAt": c.get("issuedAt"),
+            "expiresAt": c.get("expiresAt"),
+            "revoked": is_rev,
+            "revokedAt": (revoked_by_serial.get(serial) or {}).get("revokedAt"),
+            "revokeReason": (revoked_by_serial.get(serial) or {}).get("reason"),
+        }
+        if is_rev and not row["revokedAt"] and subject_key in revoked_subjects:
+            for r in revoked:
+                if str(r.get("subject") or "").strip().lower() == subject_key and not r.get("serial"):
+                    row["revokedAt"] = r.get("revokedAt")
+                    row["revokeReason"] = r.get("reason")
+                    break
+        out.append(row)
+
+    # CN-only bans with no issued registry row still appear as revoke targets.
+    for r in revoked:
+        if r.get("serial"):
+            continue
+        subject = str(r.get("subject") or "").strip()
+        if not subject:
+            continue
+        if any(c.get("subject", "").lower() == subject.lower() for c in out):
+            continue
+        out.append(
+            {
+                "serial": None,
+                "subject": subject,
+                "issuedAt": None,
+                "expiresAt": None,
+                "revoked": True,
+                "revokedAt": r.get("revokedAt"),
+                "revokeReason": r.get("reason"),
+            }
+        )
+    out.sort(key=lambda r: str(r.get("issuedAt") or r.get("revokedAt") or ""), reverse=True)
+    return out
+
+
+def revoke_mtls_client(
+    tool_root: Path,
+    *,
+    serial: str | None = None,
+    subject: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """
+    Deny one client without rotating the CA.
+
+    Prefer ``serial`` (kicks that leaf only). ``subject`` alone bans every cert
+    with that CN (useful when the leaf was issued before clients.json existed).
+    """
+    serial_n = normalize_serial(serial)
+    subject_n = (subject or "").strip()
+    if not serial_n and not subject_n:
+        raise MtlsCaError("serial or subject is required to revoke")
+
+    # Resolve subject from registry when only serial is provided.
+    if serial_n and not subject_n:
+        for c in _load_json_list(clients_path(tool_root)):
+            if normalize_serial(c.get("serial")) == serial_n:
+                subject_n = str(c.get("subject") or "").strip()
+                break
+
+    entry = {
+        "serial": serial_n,
+        "subject": subject_n or None,
+        "revokedAt": datetime.now(timezone.utc).isoformat(),
+        "reason": (reason or "").strip() or None,
+    }
+    rows = _load_json_list(revoked_path(tool_root))
+    # Replace matching prior entry.
+    kept: list[dict[str, Any]] = []
+    for r in rows:
+        same_serial = serial_n and normalize_serial(r.get("serial")) == serial_n
+        same_cn_ban = (
+            not serial_n
+            and not r.get("serial")
+            and str(r.get("subject") or "").strip().lower() == subject_n.lower()
+        )
+        if same_serial or same_cn_ban:
+            continue
+        kept.append(r)
+    kept.append(entry)
+    _save_json_list(revoked_path(tool_root), kept)
+    return entry
+
+
+def unrevoke_mtls_client(
+    tool_root: Path,
+    *,
+    serial: str | None = None,
+    subject: str | None = None,
+) -> bool:
+    """Remove a revoke entry. Returns True if something was removed."""
+    serial_n = normalize_serial(serial)
+    subject_n = (subject or "").strip().lower()
+    if not serial_n and not subject_n:
+        raise MtlsCaError("serial or subject is required to unrevoke")
+    rows = _load_json_list(revoked_path(tool_root))
+    kept: list[dict[str, Any]] = []
+    removed = False
+    for r in rows:
+        if serial_n and normalize_serial(r.get("serial")) == serial_n:
+            removed = True
+            continue
+        if (
+            not serial_n
+            and not r.get("serial")
+            and str(r.get("subject") or "").strip().lower() == subject_n
+        ):
+            removed = True
+            continue
+        kept.append(r)
+    if removed:
+        _save_json_list(revoked_path(tool_root), kept)
+    return removed
+
+
+def peercert_serial(peercert: dict[str, Any] | None) -> str | None:
+    if not peercert:
+        return None
+    return normalize_serial(peercert.get("serialNumber"))
+
+
+def peercert_subject_cn(peercert: dict[str, Any] | None) -> str | None:
+    """Best-effort CN from an OpenSSL peercert dict."""
+    if not peercert:
+        return None
+    from orchestration.user_context import user_name_from_peercert
+
+    name = user_name_from_peercert(peercert)
+    if name:
+        return name
+    subject = peercert.get("subject") or ()
+    for rdn in subject:
+        if not isinstance(rdn, (list, tuple)):
+            continue
+        for attr in rdn:
+            if (
+                isinstance(attr, (list, tuple))
+                and len(attr) >= 2
+                and str(attr[0]).lower() in ("commonname", "cn")
+            ):
+                cleaned = str(attr[1]).strip()
+                if cleaned:
+                    return cleaned
+    return None
+
+
+def is_peercert_revoked(tool_root: Path, peercert: dict[str, Any] | None) -> bool:
+    """True when the peer leaf serial or CN is on the deny-list."""
+    if not peercert:
+        return False
+    serial = peercert_serial(peercert)
+    subject = (peercert_subject_cn(peercert) or "").strip().lower()
+    for r in _load_json_list(revoked_path(tool_root)):
+        r_serial = normalize_serial(r.get("serial"))
+        if serial and r_serial and r_serial == serial:
+            return True
+        r_subject = str(r.get("subject") or "").strip().lower()
+        if subject and r_subject and r_subject == subject and not r_serial:
+            # CN-wide ban
+            return True
+        if subject and r_subject and r_subject == subject and r_serial == serial:
+            return True
+    return False
 
 
 def ca_key_path(tool_root: Path) -> Path:
@@ -402,11 +678,19 @@ def sign_client_csr(
         )
     )
     cert = builder.sign(ca_key, hashes.SHA256())
+    serial_hex = format(cert.serial_number, "X")
+    record_issued_client(
+        tool_root,
+        serial_hex=serial_hex,
+        subject=cn,
+        expires_at=expires.timestamp(),
+    )
     return {
         "certificatePem": _pem_cert(cert).decode("utf-8"),
         "caPem": _pem_cert(ca_cert).decode("utf-8"),
         "expiresAt": expires.timestamp(),
         "subject": cn,
+        "serial": serial_hex,
     }
 
 

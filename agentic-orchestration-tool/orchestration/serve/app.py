@@ -157,6 +157,13 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     {"ok": False, "error": "client certificate required (mTLS)"},
                     status_code=401,
                 )
+            from orchestration.serve.mtls_ca import is_peercert_revoked
+
+            if is_peercert_revoked(root, peercert):
+                return JSONResponse(
+                    {"ok": False, "error": "client certificate revoked"},
+                    status_code=403,
+                )
         return await call_next(request)
 
     @app.get("/health")
@@ -229,6 +236,72 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "sessions": sessions,
             "count": len(sessions),
         }
+
+    @app.get("/api/v1/admin/mtls/clients")
+    async def api_mtls_clients() -> dict[str, Any]:
+        """Issued / revoked mTLS client leaves for Admin Access."""
+        from orchestration.serve.mtls_ca import list_mtls_clients
+
+        clients = await run_in_threadpool(list_mtls_clients, root)
+        return {
+            "ok": True,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "clients": clients,
+            "count": len(clients),
+        }
+
+    @app.post("/api/v1/admin/mtls/clients/revoke")
+    async def api_mtls_clients_revoke(request: Request) -> dict[str, Any]:
+        """Deny one client cert (serial and/or subject CN) without rotating the CA."""
+        from orchestration.serve.mtls_ca import MtlsCaError, revoke_mtls_client
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+
+        def _revoke() -> dict[str, Any]:
+            return revoke_mtls_client(
+                root,
+                serial=body.get("serial"),
+                subject=body.get("subject"),
+                reason=body.get("reason"),
+            )
+
+        try:
+            entry = await run_in_threadpool(_revoke)
+        except MtlsCaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "revoked": entry}
+
+    @app.post("/api/v1/admin/mtls/clients/unrevoke")
+    async def api_mtls_clients_unrevoke(request: Request) -> dict[str, Any]:
+        """Remove a deny-list entry so the client can reconnect with the same cert."""
+        from orchestration.serve.mtls_ca import MtlsCaError, unrevoke_mtls_client
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+
+        def _unrevoke() -> bool:
+            return unrevoke_mtls_client(
+                root,
+                serial=body.get("serial"),
+                subject=body.get("subject"),
+            )
+
+        try:
+            removed = await run_in_threadpool(_unrevoke)
+        except MtlsCaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not removed:
+            raise HTTPException(status_code=404, detail="revoke entry not found")
+        return {"ok": True, "unrevoked": True}
 
     @app.get("/api/session")
     async def api_session(identity: Identity = Depends(identity_from_request)) -> dict[str, Any]:

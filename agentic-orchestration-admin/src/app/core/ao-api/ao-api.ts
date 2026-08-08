@@ -6,6 +6,7 @@ import {
   AgentProvider,
   ApiAccessToken,
   ApiAccessTokenUsage,
+  MtlsClient,
   CatalogEntry,
   CatalogListResponse,
   ConfigFingerprint,
@@ -181,6 +182,29 @@ export class AoApi {
         if (!r.ok) return r;
         return { ok: true as const, data: r.data.usage ?? [] };
       })
+    );
+  }
+
+  listMtlsClients() {
+    return this.get<{ clients: MtlsClient[] }>('/api/v1/admin/mtls/clients').pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return { ok: true as const, data: r.data.clients ?? [] };
+      })
+    );
+  }
+
+  revokeMtlsClient(body: { serial?: string | null; subject?: string | null; reason?: string }) {
+    return this.post<{ ok: boolean; revoked: MtlsClient }>(
+      '/api/v1/admin/mtls/clients/revoke',
+      body
+    );
+  }
+
+  unrevokeMtlsClient(body: { serial?: string | null; subject?: string | null }) {
+    return this.post<{ ok: boolean; unrevoked: boolean }>(
+      '/api/v1/admin/mtls/clients/unrevoke',
+      body
     );
   }
 }

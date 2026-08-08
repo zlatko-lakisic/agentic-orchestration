@@ -202,6 +202,16 @@ export interface ApiAccessTokenUsage {
   promptChars?: number | null;
 }
 
+export interface MtlsClient {
+  serial?: string | null;
+  subject?: string;
+  issuedAt?: string | null;
+  expiresAt?: string | null;
+  revoked?: boolean;
+  revokedAt?: string | null;
+  revokeReason?: string | null;
+}
+
 export interface AdminRun {
   id: string;
   scope?: string;

@@ -12,9 +12,12 @@ from orchestration.serve.mtls_ca import (
     MtlsCaError,
     init_ca,
     issue_server_cert,
+    list_mtls_clients,
     mint_enroll_token,
     read_ca_pem,
+    revoke_mtls_client,
     sign_client_csr,
+    unrevoke_mtls_client,
 )
 
 
@@ -55,6 +58,20 @@ def main(argv: list[str] | None = None) -> int:
     p_sign.add_argument("--out", type=Path, default=None, help="Write cert PEM here")
 
     p_ca = sub.add_parser("print-ca", help="Print CA certificate PEM")
+
+    p_list = sub.add_parser("list-clients", help="List issued / revoked mTLS client certs")
+
+    p_revoke = sub.add_parser(
+        "revoke-client",
+        help="Deny one client (serial and/or CN) without rotating the CA",
+    )
+    p_revoke.add_argument("--serial", default=None, help="Certificate serial (hex)")
+    p_revoke.add_argument("--cn", "--subject", dest="subject", default=None, help="Client CN")
+    p_revoke.add_argument("--reason", default=None, help="Optional reason")
+
+    p_unrevoke = sub.add_parser("unrevoke-client", help="Remove a deny-list entry")
+    p_unrevoke.add_argument("--serial", default=None, help="Certificate serial (hex)")
+    p_unrevoke.add_argument("--cn", "--subject", dest="subject", default=None, help="Client CN")
 
     args = parser.parse_args(argv)
     root = (args.tool_root or tool_root()).resolve()
@@ -97,6 +114,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "print-ca":
             sys.stdout.write(read_ca_pem(root))
+            return 0
+        if args.cmd == "list-clients":
+            print(json.dumps({"ok": True, "clients": list_mtls_clients(root)}, indent=2))
+            return 0
+        if args.cmd == "revoke-client":
+            result = revoke_mtls_client(
+                root,
+                serial=args.serial,
+                subject=args.subject,
+                reason=args.reason,
+            )
+            print(json.dumps({"ok": True, "revoked": result}, indent=2))
+            return 0
+        if args.cmd == "unrevoke-client":
+            removed = unrevoke_mtls_client(root, serial=args.serial, subject=args.subject)
+            if not removed:
+                print(json.dumps({"ok": False, "error": "revoke entry not found"}), file=sys.stderr)
+                return 1
+            print(json.dumps({"ok": True, "unrevoked": True}, indent=2))
             return 0
     except MtlsCaError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)

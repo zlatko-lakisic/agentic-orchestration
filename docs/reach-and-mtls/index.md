@@ -104,10 +104,27 @@ python3 -m orchestration.serve.mtls issue-server --cn ao-engine --san <ip> --san
 kubectl -n agentic-orchestration rollout restart deployment/agentic-engine
 ```
 
+## Revoke one client (non-nuclear)
+
+After enroll, kick a single client without rotating the CA:
+
+- **Admin:** Access → **mTLS clients** → Revoke (or Revoke by CN…)
+- **CLI on the engine host:**
+
+```bash
+python3 -m orchestration.serve.mtls list-clients
+python3 -m orchestration.serve.mtls revoke-client --cn comstar --reason "kick"
+# or: --serial <hex>
+python3 -m orchestration.serve.mtls unrevoke-client --cn comstar
+```
+
+Deny-list lives in `__orchestrator_mtls__/revoked.json`. The next HTTP/WS request from that cert gets **403** / policy close; other clients keep working.
+
 ## Gaps
 
 - Speech sidecars (STT/TTS) remain cleartext HTTP in v1.
 - No automatic client-cert renewal — re-enroll near expiry.
 - Engine k8s probes use **TCP** (not HTTP) so TLS rollouts stay healthy.
+- Clients issued before the registry only appear after re-enroll; use **Revoke by CN** for those.
 
 See also: [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [External integrations]({{ '/external-integrations/' | relative_url }}), Reach repo `CHANGELOG.md`.

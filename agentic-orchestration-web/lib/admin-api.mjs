@@ -1320,24 +1320,39 @@ function buildStorageInventory({ toolRoot }) {
 }
 
 function fetchJson(url, timeoutMs = 2000, tlsInsecure = false) {
+  return fetchJsonRequest(url, { timeoutMs, tlsInsecure });
+}
+
+function fetchJsonRequest(url, { method = "GET", body = null, timeoutMs = 2000, tlsInsecure = false } = {}) {
   return new Promise((resolve) => {
     try {
       const u = new URL(url);
       const lib = u.protocol === "https:" ? https : http;
-      const opts = { timeout: timeoutMs };
+      const payload = body == null ? null : Buffer.from(JSON.stringify(body), "utf8");
+      const opts = {
+        method,
+        timeout: timeoutMs,
+        headers: payload
+          ? { "Content-Type": "application/json", "Content-Length": String(payload.length) }
+          : {},
+      };
       if (u.protocol === "https:" && tlsInsecure) {
         opts.rejectUnauthorized = false;
       }
-      const req = lib.get(url, opts, (res) => {
-        let body = "";
+      const req = lib.request(url, opts, (res) => {
+        let text = "";
         res.on("data", (c) => {
-          body += c;
+          text += c;
         });
         res.on("end", () => {
           try {
-            resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: JSON.parse(body) });
+            resolve({
+              ok: res.statusCode >= 200 && res.statusCode < 300,
+              status: res.statusCode,
+              json: text ? JSON.parse(text) : null,
+            });
           } catch {
-            resolve({ ok: false, status: res.statusCode, json: null, raw: body.slice(0, 200) });
+            resolve({ ok: false, status: res.statusCode, json: null, raw: text.slice(0, 200) });
           }
         });
       });
@@ -1346,10 +1361,33 @@ function fetchJson(url, timeoutMs = 2000, tlsInsecure = false) {
         req.destroy();
         resolve({ ok: false, error: "timeout" });
       });
+      if (payload) req.write(payload);
+      req.end();
     } catch (err) {
       resolve({ ok: false, error: err.message });
     }
   });
+}
+
+async function resolveEngineBase() {
+  const enginePort = Number(process.env.AGENTIC_SERVE_PORT || 8765);
+  const engineHost = String(process.env.AGENTIC_SERVE_HOST || "127.0.0.1");
+  const engineTls = Boolean(
+    process.env.AGENTIC_SERVE_TLS_CERTFILE && process.env.AGENTIC_SERVE_TLS_KEYFILE,
+  );
+  const engineScheme = engineTls ? "https" : "http";
+  const health = await probeEngineHealth(engineScheme, enginePort, engineHost);
+  if (!health.ok || !health.probeHost) {
+    return {
+      ok: false,
+      error: health.error || `engine unreachable (HTTP ${health.status || "?"})`,
+    };
+  }
+  return {
+    ok: true,
+    base: `${engineScheme}://${health.probeHost}:${enginePort}`,
+    tlsInsecure: engineTls,
+  };
 }
 
 /**
@@ -1766,6 +1804,9 @@ function matchAdminRoute(pathname) {
   if (m) return { name: "token_usage", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)$/);
   if (m) return { name: "token_item", id: decodeURIComponent(m[1]) };
+  if (p === "/api/v1/admin/mtls/clients") return { name: "mtls_clients" };
+  if (p === "/api/v1/admin/mtls/clients/revoke") return { name: "mtls_clients_revoke" };
+  if (p === "/api/v1/admin/mtls/clients/unrevoke") return { name: "mtls_clients_unrevoke" };
   return null;
 }
 
@@ -1802,6 +1843,8 @@ function isTokenWriteRoute(route, method) {
   if (!route) return false;
   if (route.name === "tokens" && method === "POST") return true;
   if (route.name === "token_item" && method === "DELETE") return true;
+  if (route.name === "mtls_clients_revoke" && method === "POST") return true;
+  if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
   return false;
 }
 
@@ -1831,10 +1874,97 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: { tokens: true },
+        writeApi: { tokens: true, mtlsClients: true },
         title: "AO Administration",
-        readOnlyMessage: "Read-only except API access token mint/revoke",
+        readOnlyMessage: "Read-only except API tokens and mTLS client revoke",
       });
+      return true;
+    }
+    if (route.name === "mtls_clients" && (method === "GET" || method === "HEAD")) {
+      const engine = await resolveEngineBase();
+      if (!engine.ok) {
+        send(502, { error: engine.error || "Engine unreachable" });
+        return true;
+      }
+      const result = await fetchJsonRequest(`${engine.base}/api/v1/admin/mtls/clients`, {
+        timeoutMs: 5000,
+        tlsInsecure: engine.tlsInsecure,
+      });
+      if (!result.ok) {
+        send(result.status || 502, {
+          error: result.json?.detail || result.json?.error || result.error || "Engine mTLS clients failed",
+        });
+        return true;
+      }
+      send(200, result.json);
+      return true;
+    }
+    if (route.name === "mtls_clients_revoke" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        send(err?.code === "too_large" ? 413 : 400, {
+          error: err instanceof Error ? err.message : "Invalid body",
+        });
+        return true;
+      }
+      const engine = await resolveEngineBase();
+      if (!engine.ok) {
+        send(502, { error: engine.error || "Engine unreachable" });
+        return true;
+      }
+      const result = await fetchJsonRequest(`${engine.base}/api/v1/admin/mtls/clients/revoke`, {
+        method: "POST",
+        body,
+        timeoutMs: 5000,
+        tlsInsecure: engine.tlsInsecure,
+      });
+      if (!result.ok) {
+        send(result.status || 502, {
+          error:
+            result.json?.detail ||
+            result.json?.error ||
+            result.error ||
+            "Engine mTLS revoke failed",
+        });
+        return true;
+      }
+      send(200, result.json);
+      return true;
+    }
+    if (route.name === "mtls_clients_unrevoke" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        send(err?.code === "too_large" ? 413 : 400, {
+          error: err instanceof Error ? err.message : "Invalid body",
+        });
+        return true;
+      }
+      const engine = await resolveEngineBase();
+      if (!engine.ok) {
+        send(502, { error: engine.error || "Engine unreachable" });
+        return true;
+      }
+      const result = await fetchJsonRequest(`${engine.base}/api/v1/admin/mtls/clients/unrevoke`, {
+        method: "POST",
+        body,
+        timeoutMs: 5000,
+        tlsInsecure: engine.tlsInsecure,
+      });
+      if (!result.ok) {
+        send(result.status || 502, {
+          error:
+            result.json?.detail ||
+            result.json?.error ||
+            result.error ||
+            "Engine mTLS unrevoke failed",
+        });
+        return true;
+      }
+      send(200, result.json);
       return true;
     }
     if (route.name === "tokens") {
