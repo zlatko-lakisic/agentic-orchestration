@@ -250,6 +250,42 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "count": len(clients),
         }
 
+    @app.post("/api/v1/admin/mtls/enroll-tokens")
+    async def api_mtls_mint_enroll_token(request: Request) -> dict[str, Any]:
+        """Mint a one-time Reach enrollment token (plaintext returned once)."""
+        from orchestration.serve.mtls_ca import MtlsCaError, mint_enroll_token
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+
+        def _mint() -> dict[str, Any]:
+            ttl = body.get("ttlSeconds", body.get("ttl", 86400))
+            try:
+                ttl_i = int(ttl)
+            except (TypeError, ValueError):
+                ttl_i = 86400
+            max_uses = body.get("maxUses", 1)
+            try:
+                max_uses_i = int(max_uses)
+            except (TypeError, ValueError):
+                max_uses_i = 1
+            return mint_enroll_token(
+                root,
+                ttl_seconds=ttl_i,
+                client_name=body.get("clientName") or body.get("subject"),
+                max_uses=max_uses_i,
+            )
+
+        try:
+            minted = await run_in_threadpool(_mint)
+        except MtlsCaError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **minted}
+
     @app.post("/api/v1/admin/mtls/clients/revoke")
     async def api_mtls_clients_revoke(request: Request) -> dict[str, Any]:
         """Deny one client cert (serial and/or subject CN) without rotating the CA."""

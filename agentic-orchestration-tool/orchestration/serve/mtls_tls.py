@@ -197,10 +197,12 @@ def is_public_mtls_path(path: str) -> bool:
     cleaned = (path or "").split("?", 1)[0].rstrip("/") or "/"
     if cleaned in MTLS_PUBLIC_PATHS:
         return True
-    # Admin mTLS client registry (list / revoke / unrevoke) — coordinator proxy, no client cert.
+    # Admin mTLS client registry + enroll-token mint — coordinator proxy, no client cert.
     if cleaned == "/api/v1/admin/mtls/clients" or cleaned.startswith(
         "/api/v1/admin/mtls/clients/"
     ):
+        return True
+    if cleaned == "/api/v1/admin/mtls/enroll-tokens":
         return True
     # Allow trailing-slash variants already normalized above.
     return cleaned in {p.rstrip("/") for p in MTLS_PUBLIC_PATHS}

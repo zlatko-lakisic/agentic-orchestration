@@ -11,6 +11,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **Admin API access tokens** — mint/revoke Bearer tokens on Access (`GET/POST/DELETE /api/v1/admin/tokens`) with hashed store under `__orchestrator_api_tokens__/` (hostPath `var/agentic-api-tokens` on edge). Orchestrate / chat / responses accept minted tokens or the env shared-secret fallback; usage ledger records appId, IP, path, status, latency.
 - **mTLS per-client revoke** — deny one enrolled Reach client by cert serial or CN (`revoked.json`) without rotating the CA. Enforced on engine HTTP + WebSocket; Admin Access → mTLS clients; CLI `revoke-client` / `unrevoke-client`.
+- **Admin mTLS enroll-token mint** — Access → mTLS clients → **Mint enroll token** (one-time Reach/KnowBuddy cert enroll; not an `ao_…` API token).
 - **Topology Application band by appId** — each connected Reach product (`knowbuddy`, `comstar`, …) is a group with instance count plus Client UI / Domain overlays / Local tools. Reach and AO node modals show an **Owned by app** label when session overlays currently use that component (bridge, catalogs, sidecars, planner, speech, etc.).
 
 ## [2.0.0] - 2026-08-08

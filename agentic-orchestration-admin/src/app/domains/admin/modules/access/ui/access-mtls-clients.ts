@@ -2,12 +2,14 @@ import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { MtlsClient } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
+import { MintEnrollTokenDialog } from './mint-enroll-token-dialog';
 
 @Component({
   selector: 'ao-access-mtls-clients',
@@ -17,6 +19,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
     MatCard,
     MatCardHeader,
     MatCardContent,
+    MatDialogModule,
     MatTableModule,
     EmptyState,
     ErrorState,
@@ -29,10 +32,18 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           <div>
             <div class="text-lg font-medium tracking-tight">mTLS clients</div>
             <div class="text-sm text-neutral-500">
-              Kick one enrolled Reach client without rotating the CA
+              Mint one-time enroll tokens for Reach / KnowBuddy; revoke a single
+              client without rotating the CA
             </div>
           </div>
-          <button matButton="outlined" type="button" (click)="reload()">Refresh</button>
+          <div class="flex flex-wrap gap-2">
+            <button matButton="outlined" type="button" (click)="reload()">
+              Refresh
+            </button>
+            <button matButton="filled" type="button" (click)="openMintEnroll()">
+              Mint enroll token
+            </button>
+          </div>
         </div>
       </mat-card-header>
       <mat-card-content class="pt-3">
@@ -41,7 +52,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         } @else if (!clients().length) {
           <ao-empty-state
             title="No enrolled clients recorded"
-            message="Clients appear here after they redeem an enroll token. You can also revoke by CN if the cert was issued before this registry."
+            message="Mint an enroll token, redeem it from KnowBuddy against the engine (:8765). Clients appear here after enroll."
           />
           <div class="mt-3 flex flex-wrap gap-2">
             <button matButton="outlined" type="button" (click)="revokeByCn()">
@@ -74,7 +85,11 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               </ng-container>
               <ng-container matColumnDef="issued">
                 <th mat-header-cell *matHeaderCellDef>Issued</th>
-                <td mat-cell *matCellDef="let c" class="text-sm text-neutral-600 dark:text-neutral-400">
+                <td
+                  mat-cell
+                  *matCellDef="let c"
+                  class="text-sm text-neutral-600 dark:text-neutral-400"
+                >
                   {{ c.issuedAt ? (c.issuedAt | date: 'short') : '—' }}
                 </td>
               </ng-container>
@@ -119,6 +134,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 })
 export class AccessMtlsClients implements OnInit {
   private readonly api = inject(AoApi);
+  private readonly dialog = inject(MatDialog);
 
   readonly columns = ['subject', 'serial', 'status', 'issued', 'actions'];
   readonly clients = signal<MtlsClient[]>([]);
@@ -144,9 +160,17 @@ export class AccessMtlsClients implements OnInit {
     });
   }
 
+  openMintEnroll() {
+    this.dialog.open(MintEnrollTokenDialog, { width: '480px' });
+  }
+
   revoke(c: MtlsClient) {
     const label = c.subject || c.serial || 'client';
-    if (!confirm(`Revoke mTLS access for "${label}"? Other clients stay connected.`)) {
+    if (
+      !confirm(
+        `Revoke mTLS access for "${label}"? Other clients stay connected.`
+      )
+    ) {
       return;
     }
     this.busyKey.set(this.rowKey(c));
@@ -185,7 +209,10 @@ export class AccessMtlsClients implements OnInit {
     if (!subject?.trim()) return;
     if (!confirm(`Revoke all mTLS certs for CN "${subject.trim()}"?`)) return;
     this.api
-      .revokeMtlsClient({ subject: subject.trim(), reason: 'CN ban from Admin' })
+      .revokeMtlsClient({
+        subject: subject.trim(),
+        reason: 'CN ban from Admin',
+      })
       .subscribe((r) => {
         if (!r.ok) {
           this.error.set(r.message);

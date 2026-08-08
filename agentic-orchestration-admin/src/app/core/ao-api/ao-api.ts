@@ -7,6 +7,7 @@ import {
   ApiAccessToken,
   ApiAccessTokenUsage,
   MtlsClient,
+  MtlsEnrollToken,
   CatalogEntry,
   CatalogListResponse,
   ConfigFingerprint,
@@ -206,6 +207,14 @@ export class AoApi {
       '/api/v1/admin/mtls/clients/unrevoke',
       body
     );
+  }
+
+  mintMtlsEnrollToken(body: {
+    clientName?: string;
+    ttlSeconds?: number;
+    maxUses?: number;
+  }) {
+    return this.post<MtlsEnrollToken>('/api/v1/admin/mtls/enroll-tokens', body);
   }
 }
 

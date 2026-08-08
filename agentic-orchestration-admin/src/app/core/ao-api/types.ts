@@ -212,6 +212,14 @@ export interface MtlsClient {
   revokeReason?: string | null;
 }
 
+export interface MtlsEnrollToken {
+  ok?: boolean;
+  token: string;
+  expiresAt?: number | string | null;
+  maxUses?: number;
+  clientName?: string | null;
+}
+
 export interface AdminRun {
   id: string;
   scope?: string;

@@ -1807,6 +1807,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/mtls/clients") return { name: "mtls_clients" };
   if (p === "/api/v1/admin/mtls/clients/revoke") return { name: "mtls_clients_revoke" };
   if (p === "/api/v1/admin/mtls/clients/unrevoke") return { name: "mtls_clients_unrevoke" };
+  if (p === "/api/v1/admin/mtls/enroll-tokens") return { name: "mtls_enroll_tokens" };
   return null;
 }
 
@@ -1845,6 +1846,7 @@ function isTokenWriteRoute(route, method) {
   if (route.name === "token_item" && method === "DELETE") return true;
   if (route.name === "mtls_clients_revoke" && method === "POST") return true;
   if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
+  if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
   return false;
 }
 
@@ -1965,6 +1967,40 @@ async function handleAdminApi(req, res, ctx) {
         return true;
       }
       send(200, result.json);
+      return true;
+    }
+    if (route.name === "mtls_enroll_tokens" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        send(err?.code === "too_large" ? 413 : 400, {
+          error: err instanceof Error ? err.message : "Invalid body",
+        });
+        return true;
+      }
+      const engine = await resolveEngineBase();
+      if (!engine.ok) {
+        send(502, { error: engine.error || "Engine unreachable" });
+        return true;
+      }
+      const result = await fetchJsonRequest(`${engine.base}/api/v1/admin/mtls/enroll-tokens`, {
+        method: "POST",
+        body,
+        timeoutMs: 5000,
+        tlsInsecure: engine.tlsInsecure,
+      });
+      if (!result.ok) {
+        send(result.status || 502, {
+          error:
+            result.json?.detail ||
+            result.json?.error ||
+            result.error ||
+            "Engine mTLS enroll-token mint failed",
+        });
+        return true;
+      }
+      send(201, result.json);
       return true;
     }
     if (route.name === "tokens") {
