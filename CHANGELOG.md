@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Topology Reach / Application bands** — when the engine is up, Reach components (SessionBridge, OverlayPacker, …) always appear; Application shows a waiting placeholder until a Reach client registers a session overlay (mTLS enroll alone is not enough).
+
+### Changed
+
+- **Topology band labels** — band 2 uses the AO mark + “Reach” (no text “AO”); band 3 shows the AO mark left of “Agentic Orchestration”.
+
 ### Added
 
 - **Admin API access tokens** — mint/revoke Bearer tokens on Access (`GET/POST/DELETE /api/v1/admin/tokens`) with hashed store under `__orchestrator_api_tokens__/` (hostPath `var/agentic-api-tokens` on edge). Orchestrate / chat / responses accept minted tokens or the env shared-secret fallback; usage ledger records appId, IP, path, status, latency.

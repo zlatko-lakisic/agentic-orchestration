@@ -67,8 +67,8 @@ const MODEL_LANE: Record<string, number> = {
 
 const NODE_W = 140;
 const NODE_H = 52;
-/** Wide header spanning the three child columns (UI · overlays · local tools). */
-const APP_HEADER_W = NODE_W * 3 + 52 * 2;
+/** Minimized Application panel (horizontal accordion row). */
+const APP_PANEL_W = 168;
 const COL_GAP = 52;
 const ROW_GAP = 64;
 const BAND_PAD_Y = 28;
@@ -86,13 +86,21 @@ const APP_CHILD_LANE: Record<string, number> = {
   'local-tools': 2,
 };
 
+export type LayoutTopologyOpts = {
+  showNotDeployed?: boolean;
+  /** When set, only that appId's child components are laid out (others stay minimized panels). */
+  expandedAppId?: string | null;
+};
+
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.map((v) => v.trim()).filter(Boolean))].sort();
 }
 
 const BAND_LABELS: Record<TopologyBand, string> = {
   application: '1 · Application',
-  reach: '2 · AO Reach',
+  /** Canvas renders AO mark + "Reach" (no text "AO"). */
+  reach: '2 · Reach',
+  /** Canvas renders AO mark left of the product name. */
   ao: '3 · Agentic Orchestration',
 };
 
@@ -102,7 +110,8 @@ type Side = 'top' | 'bottom' | 'left' | 'right';
 
 function slotFor(
   node: TopologyNode,
-  appRankBase?: Map<string, number>
+  appLaneById?: Map<string, number>,
+  expandedAppId?: string | null
 ): {
   band: TopologyBand;
   rank: number;
@@ -119,25 +128,31 @@ function slotFor(
   let order = base.order;
   let rank = base.rank;
 
-  // Per-app Application groups: header row + child trio under each appId.
-  if (node.band === 'application' && node.appId && appRankBase) {
-    const baseRank = appRankBase.get(node.appId) ?? 0;
+  // Application accordion: all app panels on rank 0 (LTR); expanded children on rank 1.
+  if (node.band === 'application' && node.appId && appLaneById) {
     if (node.kind === 'app') {
-      return { band: 'application', rank: baseRank, lane: 0, order: 0 };
+      const appLane = appLaneById.get(node.appId) ?? 0;
+      return { band: 'application', rank: 0, lane: appLane, order: appLane };
     }
     if (APP_CHILD_LANE[node.kind] != null) {
+      // Only the expanded app's children are present; park under lanes 0–2.
       return {
         band: 'application',
-        rank: baseRank + 1,
+        rank: 1,
         lane: APP_CHILD_LANE[node.kind],
         order: APP_CHILD_LANE[node.kind],
       };
     }
   }
 
-  if (node.kind === 'openclaw' && appRankBase && appRankBase.size) {
-    const maxBase = Math.max(...appRankBase.values());
-    return { band: 'application', rank: maxBase + 2, lane: 3, order: 0 };
+  if (node.kind === 'openclaw') {
+    const hasApps = Boolean(appLaneById?.size);
+    return {
+      band: 'application',
+      rank: hasApps && expandedAppId ? 2 : hasApps ? 1 : 0,
+      lane: 3,
+      order: 0,
+    };
   }
 
   if (node.kind === 'endpoint' && ENDPOINT_LANE[node.id] != null) {
@@ -164,6 +179,20 @@ function slotFor(
     lane,
     order,
   };
+}
+
+/** Hide other apps' components while one panel is expanded (or all when collapsed). */
+function filterApplicationAccordion(
+  nodes: TopologyNode[],
+  expandedAppId: string | null | undefined
+): TopologyNode[] {
+  return nodes.filter((n) => {
+    if (n.band !== 'application' || !n.appId) return true;
+    if (n.kind === 'app' || n.kind === 'openclaw') return true;
+    if (APP_CHILD_LANE[n.kind] == null) return true;
+    // Children only when their app panel is expanded.
+    return Boolean(expandedAppId) && n.appId === expandedAppId;
+  });
 }
 
 function displayStatus(n: TopologyNode): string {

@@ -58,13 +58,71 @@ type AppGroupFrame = {
             class="band-rect"
             [attr.data-band]="b.id"
           />
-          <text
-            [attr.x]="28"
-            [attr.y]="b.y + 18"
-            class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
-          >
-            {{ b.label }}
-          </text>
+          @if (b.id === 'reach') {
+            <text
+              [attr.x]="28"
+              [attr.y]="b.y + 18"
+              class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
+            >
+              2 ·
+            </text>
+            <foreignObject
+              [attr.x]="48"
+              [attr.y]="b.y + 6"
+              width="14"
+              height="14"
+            >
+              <div
+                xmlns="http://www.w3.org/1999/xhtml"
+                class="ao-band-mark"
+                role="img"
+                aria-label="AO"
+              ></div>
+            </foreignObject>
+            <text
+              [attr.x]="66"
+              [attr.y]="b.y + 18"
+              class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
+            >
+              Reach
+            </text>
+          } @else if (b.id === 'ao') {
+            <text
+              [attr.x]="28"
+              [attr.y]="b.y + 18"
+              class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
+            >
+              3 ·
+            </text>
+            <foreignObject
+              [attr.x]="48"
+              [attr.y]="b.y + 6"
+              width="14"
+              height="14"
+            >
+              <div
+                xmlns="http://www.w3.org/1999/xhtml"
+                class="ao-band-mark"
+                role="img"
+                aria-label="AO"
+              ></div>
+            </foreignObject>
+            <text
+              [attr.x]="66"
+              [attr.y]="b.y + 18"
+              class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
+            >
+              Agentic Orchestration
+            </text>
+          } @else {
+            <text
+              [attr.x]="28"
+              [attr.y]="b.y + 18"
+              class="band-label fill-neutral-500 text-[11px] font-medium tracking-wide uppercase"
+            >
+              {{ b.label }}
+            </text>
+          }
         }
 
         @for (g of appFrames(); track g.appId) {
@@ -247,6 +305,20 @@ type AppGroupFrame = {
     }
     .topo-node[data-status='degraded'] .node-fill {
       stroke-width: 2;
+    }
+    .ao-band-mark {
+      display: block;
+      width: 14px;
+      height: 14px;
+      background: currentColor;
+      color: #737373;
+      -webkit-mask: url('/admin/images/logo/ao-mark-small.svg') center / contain
+        no-repeat;
+      mask: url('/admin/images/logo/ao-mark-small.svg') center / contain no-repeat;
+    }
+    :host-context(.dark) .ao-band-mark,
+    .dark .ao-band-mark {
+      color: #a3a3a3;
     }
     .topo-node[data-status='unknown'] .node-fill {
       stroke-dasharray: 4 3;

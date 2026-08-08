@@ -197,8 +197,8 @@ export async function buildTopologyGraph(ctx) {
     process.env.AGENTIC_SERVE_TLS_CERTFILE && process.env.AGENTIC_SERVE_TLS_KEYFILE,
   );
   const engineScheme = engineTls ? "https" : "http";
-  const overlaysOn = truthy(process.env.AGENTIC_SERVE_SESSION_OVERLAY);
-  const tunnelOn = truthy(process.env.AGENTIC_SERVE_MCP_TUNNEL);
+  const overlaysOnEnv = truthy(process.env.AGENTIC_SERVE_SESSION_OVERLAY);
+  const tunnelOnEnv = truthy(process.env.AGENTIC_SERVE_MCP_TUNNEL);
   const speechOn = truthy(process.env.AGENTIC_SPEECH_ENABLED);
   const engineDisabled = process.env.AGENTIC_JETSON_ENABLE_ENGINE === "0";
   const backend = String(process.env.AGENTIC_EXECUTION_BACKEND || "inprocess");
@@ -226,6 +226,10 @@ export async function buildTopologyGraph(ctx) {
   const engineJson = engineHealth.json || {};
   const sessionList = reachSessions.ok ? reachSessions.sessions || [] : [];
   const hasReachClients = sessionList.length > 0;
+  // Prefer live engine capability flags when the web pod env is incomplete.
+  const overlaysOn =
+    overlaysOnEnv || Boolean(reachSessions.sessionOverlayEnabled);
+  const tunnelOn = tunnelOnEnv || Boolean(reachSessions.mcpTunnelEnabled);
 
   const a = buildCatalogs("agents", { toolRoot }) || {};
   const m = buildCatalogs("mcp", { toolRoot }) || {};
@@ -248,107 +252,123 @@ export async function buildTopologyGraph(ctx) {
   const appsWithSkills = appGroups.filter((g) => g.skillCount > 0).map((g) => g.appId);
   const totalTunnels = sessionList.reduce((n, s) => n + (s.tunnelMcpCount || 0), 0);
 
-  // —— Application band (per appId: header + UI / overlays / local tools) ——
+  // —— Application + Reach bands (Reach always when engine is up) ——
   if (!engineOk) {
     notes.push("Engine unreachable — Application and Reach bands empty");
-  } else if (!hasReachClients) {
-    notes.push("No connected Reach clients");
   } else {
     const openclawHint = sessionList.some((s) =>
       String(s.sessionId || "").toLowerCase().includes("openclaw"),
     );
 
-    for (const g of appGroups) {
-      const parentId = `app/${g.appId}`;
-      const nInst = g.instanceCount;
+    if (!hasReachClients) {
+      notes.push("No connected Reach clients");
       nodes.push(
         node({
-          id: parentId,
+          id: "app/waiting",
           kind: "app",
           band: "application",
-          label: g.appId,
-          sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}`,
-          status: "healthy",
-          instrumented: true,
+          label: "No Reach clients",
+          sublabel: "waiting",
+          status: "unknown",
+          instrumented: false,
           deployed: true,
-          appId: g.appId,
-          instanceCount: nInst,
-          count: nInst,
-          statusReason: `${nInst} Reach session${nInst === 1 ? "" : "s"} advertising appId=${g.appId}`,
+          statusReason:
+            "Engine is up, but no active session overlays. Connect KnowBuddy / ao_reach with appId to populate Application groups.",
         }),
       );
-      nodes.push(
-        node({
-          id: `${parentId}/ui`,
-          kind: "ui",
-          band: "application",
-          label: "Client UI",
-          sublabel: `${nInst} session${nInst === 1 ? "" : "s"}`,
-          status: "healthy",
-          instrumented: true,
-          deployed: true,
-          parent: parentId,
-          appId: g.appId,
-          ownedByApps: [g.appId],
-          statusReason: "Derived from Reach session registry",
-        }),
-      );
-      nodes.push(
-        node({
-          id: `${parentId}/overlays`,
-          kind: "overlay-source",
-          band: "application",
-          label: "Domain overlays",
-          sublabel: `${g.agentCount} client.*`,
-          status: g.agentCount > 0 ? "healthy" : "unknown",
-          instrumented: true,
-          deployed: g.agentCount > 0,
-          parent: parentId,
-          appId: g.appId,
-          ownedByApps: [g.appId],
-        }),
-      );
-      nodes.push(
-        node({
-          id: `${parentId}/local-tools`,
-          kind: "local-tools",
-          band: "application",
-          label: "Local tools",
-          sublabel: `${g.tunnelMcpCount || g.mcpCount} MCP`,
-          status: g.mcpCount > 0 ? "healthy" : "unknown",
-          instrumented: true,
-          deployed: g.mcpCount > 0,
-          parent: parentId,
-          appId: g.appId,
-          ownedByApps: [g.appId],
-        }),
-      );
+    } else {
+      for (const g of appGroups) {
+        const parentId = `app/${g.appId}`;
+        const nInst = g.instanceCount;
+        nodes.push(
+          node({
+            id: parentId,
+            kind: "app",
+            band: "application",
+            label: g.appId,
+            sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}`,
+            status: "healthy",
+            instrumented: true,
+            deployed: true,
+            appId: g.appId,
+            instanceCount: nInst,
+            count: nInst,
+            statusReason: `${nInst} Reach session${nInst === 1 ? "" : "s"} advertising appId=${g.appId}`,
+          }),
+        );
+        nodes.push(
+          node({
+            id: `${parentId}/ui`,
+            kind: "ui",
+            band: "application",
+            label: "Client UI",
+            sublabel: `${nInst} session${nInst === 1 ? "" : "s"}`,
+            status: "healthy",
+            instrumented: true,
+            deployed: true,
+            parent: parentId,
+            appId: g.appId,
+            ownedByApps: [g.appId],
+            statusReason: "Derived from Reach session registry",
+          }),
+        );
+        nodes.push(
+          node({
+            id: `${parentId}/overlays`,
+            kind: "overlay-source",
+            band: "application",
+            label: "Domain overlays",
+            sublabel: `${g.agentCount} client.*`,
+            status: g.agentCount > 0 ? "healthy" : "unknown",
+            instrumented: true,
+            deployed: g.agentCount > 0,
+            parent: parentId,
+            appId: g.appId,
+            ownedByApps: [g.appId],
+          }),
+        );
+        nodes.push(
+          node({
+            id: `${parentId}/local-tools`,
+            kind: "local-tools",
+            band: "application",
+            label: "Local tools",
+            sublabel: `${g.tunnelMcpCount || g.mcpCount} MCP`,
+            status: g.mcpCount > 0 ? "healthy" : "unknown",
+            instrumented: true,
+            deployed: g.mcpCount > 0,
+            parent: parentId,
+            appId: g.appId,
+            ownedByApps: [g.appId],
+          }),
+        );
 
-      edges.push(
-        edge({
-          id: `${parentId}/ui->reach/session-bridge`,
-          from: `${parentId}/ui`,
-          to: "reach/session-bridge",
-          kind: "request",
-          protocol: "https",
-        }),
-      );
-      edges.push(
-        edge({
-          id: `${parentId}/overlays->reach/overlay-packer`,
-          from: `${parentId}/overlays`,
-          to: "reach/overlay-packer",
-          kind: "request",
-        }),
-      );
-      edges.push(
-        edge({
-          id: `${parentId}/local-tools->reach/local-mcp-host`,
-          from: `${parentId}/local-tools`,
-          to: "reach/local-mcp-host",
-          kind: "request",
-        }),
-      );
+        edges.push(
+          edge({
+            id: `${parentId}/ui->reach/session-bridge`,
+            from: `${parentId}/ui`,
+            to: "reach/session-bridge",
+            kind: "request",
+            protocol: "https",
+          }),
+        );
+        edges.push(
+          edge({
+            id: `${parentId}/overlays->reach/overlay-packer`,
+            from: `${parentId}/overlays`,
+            to: "reach/overlay-packer",
+            kind: "request",
+          }),
+        );
+        edges.push(
+          edge({
+            id: `${parentId}/local-tools->reach/local-mcp-host`,
+            from: `${parentId}/local-tools`,
+            to: "reach/local-mcp-host",
+            kind: "request",
+          }),
+        );
+      }
     }
 
     nodes.push(
@@ -367,17 +387,21 @@ export async function buildTopologyGraph(ctx) {
       }),
     );
 
-    // —— Reach band ——
+    // —— Reach band (always when engine reachable) ——
     nodes.push(
       node({
         id: "reach/session-bridge",
         kind: "session-bridge",
         band: "reach",
         label: "SessionBridge",
-        sublabel: "ao_reach",
-        status: "healthy",
+        sublabel: hasReachClients ? "ao_reach" : "idle",
+        status: hasReachClients ? "healthy" : "unknown",
         instrumented: true,
+        deployed: true,
         ownedByApps: connectedAppIds,
+        statusReason: hasReachClients
+          ? `${sessionList.length} active Reach session${sessionList.length === 1 ? "" : "s"}`
+          : "No active Reach session overlays (mTLS enroll alone does not populate this)",
       }),
     );
     nodes.push(
@@ -414,7 +438,7 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "SpeechClient",
         sublabel: speechNegotiated ? "STT/TTS" : "off",
-        status: speechNegotiated ? "unknown" : "unknown",
+        status: "unknown",
         instrumented: false,
         deployed: speechNegotiated,
         ownedByApps: speechNegotiated ? connectedAppIds : [],
@@ -747,8 +771,8 @@ export async function buildTopologyGraph(ctx) {
     );
   }
 
-  // —— AO edges ——
-  if (hasReachClients && engineOk) {
+  // —— AO edges (Reach → Engine whenever engine is up) ——
+  if (engineOk) {
     edges.push(
       edge({
         id: "reach/session-bridge->engine",
