@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { layoutTopology, pathClosure, slotForKind } from './topology.layout';
+import {
+  layoutTopology,
+  nodesOverlap,
+  pathClosure,
+  slotForKind,
+} from './topology.layout';
 import { TopologyEdge, TopologyNode } from './topology.types';
 
 function n(
@@ -54,7 +59,7 @@ describe('topology.layout', () => {
       }),
     ];
     const layout = layoutTopology(nodes, []);
-    expect(layout.nodes[0].lane).toBe(5);
+    expect(layout.nodes[0].lane).toBe(7);
   });
 
   it('computes path closure upstream and downstream', () => {
@@ -107,5 +112,56 @@ describe('topology.layout', () => {
         (x) => x.id
       )
     ).toContain('speech/stt');
+  });
+
+  it('never overlaps node cards in a dense AO row', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'catalog/agents', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/mcp', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/skills', kind: 'catalog', band: 'ao' }),
+      n({ id: 'models/backends', kind: 'model-backend', band: 'ao' }),
+      n({ id: 'models/ollama', kind: 'model-runtime', band: 'ao' }),
+      n({ id: 'models/remote', kind: 'model-runtime', band: 'ao' }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    for (let i = 0; i < layout.nodes.length; i++) {
+      for (let j = i + 1; j < layout.nodes.length; j++) {
+        expect(nodesOverlap(layout.nodes[i], layout.nodes[j])).toBe(false);
+      }
+    }
+  });
+
+  it('routes edges with orthogonal (right-angle) segments only', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'planner', kind: 'planner', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+      n({ id: 'catalog/agents', kind: 'catalog', band: 'ao' }),
+    ];
+    const edges: TopologyEdge[] = [
+      {
+        id: 'engine->planner',
+        from: 'engine',
+        to: 'planner',
+        kind: 'request',
+      },
+      {
+        id: 'web-ui->planner',
+        from: 'web-ui',
+        to: 'planner',
+        kind: 'request',
+      },
+      {
+        id: 'planner->catalog/agents',
+        from: 'planner',
+        to: 'catalog/agents',
+        kind: 'request',
+      },
+    ];
+    const layout = layoutTopology(nodes, edges);
+    for (const e of layout.edges) {
+      expect(e.pathD).not.toMatch(/[CcQqSsAa]/);
+      expect(e.pathD).toMatch(/^M /);
+    }
   });
 });

@@ -36,6 +36,8 @@ import {
   startTopologyPush,
   stopTopologyPush,
   resyncTopology,
+  subscribeTopologyWatch,
+  unsubscribeTopologyWatch,
 } from "./lib/admin-topology-ws.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2967,6 +2969,26 @@ wss.on("connection", (ws, req) => {
         fetchJson,
         buildCatalogs,
       });
+      return;
+    }
+    if (msg.type === "topology_watch_subscribe") {
+      subscribeTopologyWatch(
+        ws,
+        sendJson,
+        {
+          toolRoot: TOOL_ROOT,
+          webRoot: __dirname,
+          webInstanceId: WEB_INSTANCE_ID,
+          webPid: process.pid,
+          fetchJson,
+          buildCatalogs,
+        },
+        msg,
+      ).catch(() => {});
+      return;
+    }
+    if (msg.type === "topology_watch_unsubscribe") {
+      unsubscribeTopologyWatch(ws, msg);
       return;
     }
     if (msg.type === "client_hello") {

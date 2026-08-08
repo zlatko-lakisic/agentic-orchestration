@@ -48,7 +48,8 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=admin-api.mjs="${WEB_ROOT}/lib/admin-api.mjs" \
   --from-file=admin-logs.mjs="${WEB_ROOT}/lib/admin-logs.mjs" \
   --from-file=admin-topology-graph.mjs="${WEB_ROOT}/lib/admin-topology-graph.mjs" \
-  --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs"
+  --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
+  --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"

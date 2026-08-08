@@ -52,32 +52,37 @@ const ENDPOINT_LANE: Record<string, number> = {
   'speech/tts': 4,
 };
 
-const CATALOG_ORDER: Record<string, number> = {
+const CATALOG_LANE: Record<string, number> = {
   'catalog/agents': 0,
   'catalog/mcp': 1,
   'catalog/skills': 2,
 };
 
-const MODEL_ORDER: Record<string, number> = {
-  'models/backends': 0,
-  'models/ollama': 1,
-  'models/remote': 2,
+const MODEL_LANE: Record<string, number> = {
+  'models/backends': 3,
+  'models/ollama': 4,
+  'models/remote': 5,
 };
 
-const NODE_W = 128;
-const NODE_H = 48;
-const COL_GAP = 28;
-const ROW_GAP = 36;
+const NODE_W = 140;
+const NODE_H = 52;
+const COL_GAP = 52;
+const ROW_GAP = 64;
 const BAND_PAD_Y = 28;
 const BAND_LABEL_H = 22;
-const MARGIN = 24;
-const MAX_LANES = 6;
+const MARGIN = 32;
+const ROUTE_MARGIN = 56;
+const MAX_LANES = 8;
+const CLEARANCE = 8;
 
 const BAND_LABELS: Record<TopologyBand, string> = {
   application: '1 · Application',
   reach: '2 · AO Reach',
   ao: '3 · Agentic Orchestration',
 };
+
+type Pt = { x: number; y: number };
+type Rect = { x: number; y: number; w: number; h: number; id?: string };
 
 function slotFor(node: TopologyNode): {
   band: TopologyBand;
@@ -96,18 +101,19 @@ function slotFor(node: TopologyNode): {
   if (node.kind === 'endpoint' && ENDPOINT_LANE[node.id] != null) {
     lane = ENDPOINT_LANE[node.id];
   }
-  if (node.kind === 'catalog' && CATALOG_ORDER[node.id] != null) {
-    order = CATALOG_ORDER[node.id];
+  if (node.kind === 'catalog' && CATALOG_LANE[node.id] != null) {
+    lane = CATALOG_LANE[node.id];
+    order = CATALOG_LANE[node.id];
   }
-  if (node.kind === 'model-runtime' && MODEL_ORDER[node.id] != null) {
-    lane = 2 + (MODEL_ORDER[node.id] || 0);
-    order = MODEL_ORDER[node.id] || 0;
-  }
-  if (node.kind === 'model-backend') {
-    lane = 1;
+  if (node.kind === 'model-runtime' || node.kind === 'model-backend') {
+    if (MODEL_LANE[node.id] != null) {
+      lane = MODEL_LANE[node.id];
+      order = MODEL_LANE[node.id];
+    } else if (node.kind === 'model-backend') {
+      lane = 3;
+    }
   }
   if (node.id === 'speech/stt' || node.id === 'speech/tts') {
-    // Keep speech sidecars on edge rank near advertise lane
     return { band: 'ao', rank: 0, lane: ENDPOINT_LANE[node.id] ?? 3, order: 10 };
   }
   return {
@@ -120,59 +126,224 @@ function slotFor(node: TopologyNode): {
 
 function displayStatus(n: TopologyNode): string {
   if (n.instrumented === false && n.status === 'healthy') {
-    // Honesty: uninstrumented must not read as healthy green
     return 'unknown';
   }
   if (!n.instrumented && n.status === 'healthy') return 'unknown';
   return n.status || 'unknown';
 }
 
-function trimPath(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  hw: number,
-  hh: number
-): { x1: number; y1: number; x2: number; y2: number } {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
+function inflate(n: PositionedNode, pad: number): Rect {
   return {
-    x1: x1 + ux * hw,
-    y1: y1 + uy * hh,
-    x2: x2 - ux * hw,
-    y2: y2 - uy * hh,
+    x: n.x - pad,
+    y: n.y - pad,
+    w: n.width + pad * 2,
+    h: n.height + pad * 2,
+    id: n.id,
   };
 }
 
-function routeEdge(
+/** Orthogonal segment vs axis-aligned rect (inclusive). */
+function segHitsRect(a: Pt, b: Pt, r: Rect): boolean {
+  const minX = Math.min(a.x, b.x);
+  const maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxY = Math.max(a.y, b.y);
+  const rx2 = r.x + r.w;
+  const ry2 = r.y + r.h;
+  if (Math.abs(a.x - b.x) < 0.5) {
+    // vertical
+    return a.x >= r.x && a.x <= rx2 && maxY >= r.y && minY <= ry2;
+  }
+  if (Math.abs(a.y - b.y) < 0.5) {
+    // horizontal
+    return a.y >= r.y && a.y <= ry2 && maxX >= r.x && minX <= rx2;
+  }
+  return false;
+}
+
+function pathHitsObstacles(pts: Pt[], obstacles: Rect[]): boolean {
+  for (let i = 0; i < pts.length - 1; i++) {
+    for (const o of obstacles) {
+      if (segHitsRect(pts[i], pts[i + 1], o)) return true;
+    }
+  }
+  return false;
+}
+
+function simplifyOrtho(pts: Pt[]): Pt[] {
+  if (pts.length < 3) return pts;
+  const out: Pt[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const prev = out[out.length - 1];
+    const cur = pts[i];
+    const next = pts[i + 1];
+    const colinear =
+      (Math.abs(prev.x - cur.x) < 0.5 && Math.abs(cur.x - next.x) < 0.5) ||
+      (Math.abs(prev.y - cur.y) < 0.5 && Math.abs(cur.y - next.y) < 0.5);
+    if (!colinear) out.push(cur);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+function toPathD(pts: Pt[]): string {
+  const clean = simplifyOrtho(pts);
+  return clean
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${round(p.x)} ${round(p.y)}`)
+    .join(' ');
+}
+
+function round(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+function ports(
+  from: PositionedNode,
+  to: PositionedNode
+): { s: Pt; t: Pt; vertical: boolean } {
+  const fromCx = from.x + from.width / 2;
+  const fromCy = from.y + from.height / 2;
+  const toCx = to.x + to.width / 2;
+  const toCy = to.y + to.height / 2;
+  const dy = toCy - fromCy;
+  const dx = toCx - fromCx;
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    return {
+      vertical: true,
+      s: { x: fromCx, y: dy >= 0 ? from.y + from.height : from.y },
+      t: { x: toCx, y: dy >= 0 ? to.y : to.y + to.height },
+    };
+  }
+  return {
+    vertical: false,
+    s: { x: dx >= 0 ? from.x + from.width : from.x, y: fromCy },
+    t: { x: dx >= 0 ? to.x : to.x + to.width, y: toCy },
+  };
+}
+
+/** Build orthogonal candidates and pick the first that clears obstacles. */
+export function routeEdgeOrthogonal(
   from: PositionedNode,
   to: PositionedNode,
-  kind: string
+  kind: string,
+  allNodes: PositionedNode[],
+  canvasWidth: number
 ): string {
-  const fx = from.x + from.width / 2;
-  const fy = from.y + from.height / 2;
-  const tx = to.x + to.width / 2;
-  const ty = to.y + to.height / 2;
-  const trimmed = trimPath(fx, fy, tx, ty, from.width / 2 - 4, from.height / 2 - 4);
+  const { s, t } = ports(from, to);
+  const obstacles = allNodes
+    .filter((n) => n.id !== from.id && n.id !== to.id)
+    .map((n) => inflate(n, CLEARANCE));
+
+  const leftX = MARGIN / 2;
+  const rightX = canvasWidth - MARGIN / 2;
+  const midY = (s.y + t.y) / 2;
+  const midX = (s.x + t.x) / 2;
+  const gutterAbove = Math.min(s.y, t.y) - ROW_GAP / 3;
+  const gutterBelow = Math.max(s.y, t.y) + ROW_GAP / 3;
+
+  const offset = kind === 'reverse-tunnel' ? 16 : 0;
+  const sx = s.x + offset;
+  const tx = t.x + offset;
+
+  const candidates: Pt[][] = [];
 
   if (kind === 'bypass') {
-    const right = Math.max(fx, tx) + 80;
-    return `M ${trimmed.x1} ${trimmed.y1} L ${right} ${trimmed.y1} L ${right} ${trimmed.y2} L ${trimmed.x2} ${trimmed.y2}`;
+    candidates.push([
+      { x: sx, y: s.y },
+      { x: rightX, y: s.y },
+      { x: rightX, y: t.y },
+      { x: tx, y: t.y },
+    ]);
   }
-  if (kind === 'reverse-tunnel') {
-    const midY = (trimmed.y1 + trimmed.y2) / 2;
-    const offset = 18;
-    return `M ${trimmed.x1 + offset} ${trimmed.y1} C ${trimmed.x1 + offset} ${midY}, ${trimmed.x2 + offset} ${midY}, ${trimmed.x2 + offset} ${trimmed.y2}`;
+
+  // Same column: straight vertical (or with slight side jog if blocked)
+  if (Math.abs(sx - tx) < 1) {
+    candidates.push([
+      { x: sx, y: s.y },
+      { x: tx, y: t.y },
+    ]);
+    candidates.push([
+      { x: sx, y: s.y },
+      { x: sx + 24, y: s.y },
+      { x: sx + 24, y: t.y },
+      { x: tx, y: t.y },
+    ]);
   }
-  if (Math.abs(from.rank - to.rank) <= 1 && Math.abs(from.lane - to.lane) <= 1) {
-    return `M ${trimmed.x1} ${trimmed.y1} L ${trimmed.x2} ${trimmed.y2}`;
+
+  // Same row: straight horizontal
+  if (Math.abs(s.y - t.y) < 1) {
+    candidates.push([
+      { x: sx, y: s.y },
+      { x: tx, y: t.y },
+    ]);
+    candidates.push([
+      { x: sx, y: s.y },
+      { x: sx, y: gutterAbove },
+      { x: tx, y: gutterAbove },
+      { x: tx, y: t.y },
+    ]);
   }
-  const midY = (trimmed.y1 + trimmed.y2) / 2;
-  return `M ${trimmed.x1} ${trimmed.y1} C ${trimmed.x1} ${midY}, ${trimmed.x2} ${midY}, ${trimmed.x2} ${trimmed.y2}`;
+
+  // Elbows — right-angle only
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: sx, y: midY },
+    { x: tx, y: midY },
+    { x: tx, y: t.y },
+  ]);
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: midX, y: s.y },
+    { x: midX, y: t.y },
+    { x: tx, y: t.y },
+  ]);
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: sx, y: gutterBelow },
+    { x: tx, y: gutterBelow },
+    { x: tx, y: t.y },
+  ]);
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: sx, y: gutterAbove },
+    { x: tx, y: gutterAbove },
+    { x: tx, y: t.y },
+  ]);
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: leftX, y: s.y },
+    { x: leftX, y: t.y },
+    { x: tx, y: t.y },
+  ]);
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: rightX, y: s.y },
+    { x: rightX, y: t.y },
+    { x: tx, y: t.y },
+  ]);
+  // Two-gutter detour (go around a mid-row cluster)
+  candidates.push([
+    { x: sx, y: s.y },
+    { x: sx, y: gutterBelow },
+    { x: rightX, y: gutterBelow },
+    { x: rightX, y: gutterAbove },
+    { x: tx, y: gutterAbove },
+    { x: tx, y: t.y },
+  ]);
+
+  for (const c of candidates) {
+    if (!pathHitsObstacles(c, obstacles)) {
+      return toPathD(c);
+    }
+  }
+
+  // Last resort: right margin corridor (canvas includes ROUTE_MARGIN)
+  return toPathD([
+    { x: sx, y: s.y },
+    { x: rightX, y: s.y },
+    { x: rightX, y: t.y },
+    { x: tx, y: t.y },
+  ]);
 }
 
 export function layoutTopology(
@@ -200,7 +371,7 @@ export function layoutTopology(
   });
 
   const colWidth = NODE_W + COL_GAP;
-  const canvasContentW = MAX_LANES * colWidth;
+  const canvasContentW = MAX_LANES * colWidth + ROUTE_MARGIN;
   const width = canvasContentW + MARGIN * 2;
 
   type RowKey = string;
@@ -222,14 +393,13 @@ export function layoutTopology(
       .sort((a, b) => Number(a[0].split(':')[1]) - Number(b[0].split(':')[1]));
 
     if (bandRows.length === 0) {
-      // Empty band still shown with a note strip
       bands.push({
         id: band,
         label: BAND_LABELS[band],
         y,
         height: BAND_PAD_Y + BAND_LABEL_H + 40,
       });
-      y += BAND_PAD_Y + BAND_LABEL_H + 40 + 12;
+      y += BAND_PAD_Y + BAND_LABEL_H + 40 + 16;
       continue;
     }
 
@@ -237,15 +407,28 @@ export function layoutTopology(
     y += BAND_PAD_Y + BAND_LABEL_H;
 
     for (const [, rowNodes] of bandRows) {
+      const usedLanes = new Set<number>();
       for (const e of rowNodes) {
-        const x = MARGIN + e.lane * colWidth;
+        let lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
+        while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;
+        // If still colliding at the end, wrap search leftward
+        if (usedLanes.has(lane)) {
+          for (let i = 0; i < MAX_LANES; i++) {
+            if (!usedLanes.has(i)) {
+              lane = i;
+              break;
+            }
+          }
+        }
+        usedLanes.add(lane);
+        const x = MARGIN + lane * colWidth;
         positioned.push({
           ...e.node,
           x,
           y,
           width: NODE_W,
           height: NODE_H,
-          lane: e.lane,
+          lane,
           rank: e.rank,
           order: e.order,
           displayStatus: displayStatus(e.node),
@@ -261,7 +444,7 @@ export function layoutTopology(
       y: bandTop,
       height: bandHeight,
     });
-    y += 12;
+    y += 16;
   }
 
   const byId = new Map(positioned.map((n) => [n.id, n]));
@@ -270,7 +453,13 @@ export function layoutTopology(
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
-    const pathD = routeEdge(from, to, String(e.kind || 'request'));
+    const pathD = routeEdgeOrthogonal(
+      from,
+      to,
+      String(e.kind || 'request'),
+      positioned,
+      width
+    );
     positionedEdges.push({
       ...e,
       points: '',
@@ -327,7 +516,6 @@ export function pathClosure(
   walk(nodeId, outs, true);
   walk(nodeId, ins, false);
 
-  // Include all edges between members
   for (const e of edges) {
     if (nodes.has(e.from) && nodes.has(e.to)) edgeIds.add(e.id);
   }
@@ -337,4 +525,14 @@ export function pathClosure(
 
 export function slotForKind(kind: TopologyNodeKind) {
   return KIND_SLOT[kind] || null;
+}
+
+/** Test helper: axis-aligned bounding boxes of nodes must not overlap. */
+export function nodesOverlap(a: PositionedNode, b: PositionedNode): boolean {
+  return !(
+    a.x + a.width <= b.x ||
+    b.x + b.width <= a.x ||
+    a.y + a.height <= b.y ||
+    b.y + b.height <= a.y
+  );
 }

@@ -1,11 +1,13 @@
 /**
- * Live Topology graph builder (Admin Phase 1).
+ * Live Topology graph builder (Admin).
  *
  * Produces the three-band deployment graph consumed by GET /api/v1/admin/topology/graph
- * and the topology_* WebSocket channel. Edges are structural only — instrumented:false.
+ * and the topology_* WebSocket channel. Probe RTT feeds metrics ingestion.
  *
  * Catalog loading is injected via ctx.buildCatalogs to avoid a circular import with admin-api.
  */
+
+import { ingestTopologySample } from "./admin-topology-metrics.mjs";
 
 let _seq = 1;
 
@@ -76,19 +78,24 @@ export async function probeEngineForGraph({
   let health = { ok: false, error: "no probe candidates" };
   let sessions = { ok: false, sessions: [], count: 0 };
   let probeHost = null;
+  let engineLatencyMs = null;
 
   for (const host of candidates) {
+    const t0 = Date.now();
     const result = await fetchJson(
       `${engineScheme}://${host}:${enginePort}/health`,
       2000,
       tlsInsecure,
     );
+    const elapsed = Date.now() - t0;
     if (result.ok) {
       health = { ...result, probeHost: host };
       probeHost = host;
+      engineLatencyMs = elapsed;
       break;
     }
     health = { ...result, probeHost: host };
+    engineLatencyMs = elapsed;
   }
 
   if (probeHost) {
@@ -107,7 +114,7 @@ export async function probeEngineForGraph({
     }
   }
 
-  return { health, sessions, probeHost };
+  return { health, sessions, probeHost, engineLatencyMs };
 }
 
 /**
@@ -154,13 +161,17 @@ export async function buildTopologyGraph(ctx) {
     process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY,
   );
 
-  const { health: engineHealth, sessions: reachSessions, probeHost } =
-    await probeEngineForGraphFn({
-      fetchJson,
-      engineScheme,
-      enginePort,
-      configuredHost: engineHost,
-    });
+  const {
+    health: engineHealth,
+    sessions: reachSessions,
+    probeHost,
+    engineLatencyMs,
+  } = await probeEngineForGraphFn({
+    fetchJson,
+    engineScheme,
+    enginePort,
+    configuredHost: engineHost,
+  });
 
   const engineOk = Boolean(engineHealth.ok);
   const engineJson = engineHealth.json || {};
@@ -807,13 +818,14 @@ export async function buildTopologyGraph(ctx) {
         reachable: engineOk,
         role: "daemon",
         probeHost: probeHost || null,
+        latencyMs: engineLatencyMs,
       },
       k8s: { reachable: false, role: "cluster", note: "not probed in Phase 1" },
     },
   };
 
   const seq = nextSeq();
-  return {
+  const graph = {
     seq,
     generatedAt: new Date().toISOString(),
     nodes,
@@ -825,6 +837,7 @@ export async function buildTopologyGraph(ctx) {
       toolRoot,
       environment: process.env.AGENTIC_EDGE_PLATFORM || "local",
       hostname: process.env.HOSTNAME || null,
+      engineLatencyMs,
       ports: {
         web: webPort,
         webNodePort: 30487,
@@ -833,6 +846,14 @@ export async function buildTopologyGraph(ctx) {
       },
     },
   };
+
+  ingestTopologySample(graph, {
+    engineLatencyMs,
+    engineOk,
+    sessionCount: sessionList.length,
+  });
+
+  return graph;
 }
 
 /**

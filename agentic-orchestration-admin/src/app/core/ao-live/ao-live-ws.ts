@@ -39,7 +39,7 @@ export class AoLiveWs implements OnDestroy {
   private lastHistoryPushMs = 0;
   private visibilityHandler: (() => void) | null = null;
 
-  /** Topology WS events (snapshot / delta / health). */
+  /** Topology WS events (snapshot / delta / health / metrics / watch). */
   readonly topologyEvents = new Subject<{ type: string; [k: string]: unknown }>();
 
   readonly connected = signal(false);
@@ -157,6 +157,22 @@ export class AoLiveWs implements OnDestroy {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'topology_resync' }));
+  }
+
+  /** Focused live series for a node/edge modal — pair with unsubscribeTopologyWatch. */
+  subscribeTopologyWatch(target: 'node' | 'edge', id: string) {
+    this.wantTopology = true;
+    this.ensureConnected();
+    this.pushSubscriptions();
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'topology_watch_subscribe', target, id }));
+  }
+
+  unsubscribeTopologyWatch(target: 'node' | 'edge', id: string) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'topology_watch_unsubscribe', target, id }));
   }
 
   /** Release one consumer (call from component ngOnDestroy). */
@@ -315,9 +331,19 @@ export class AoLiveWs implements OnDestroy {
     if (
       type === 'topology_snapshot' ||
       type === 'topology_delta' ||
-      type === 'topology_health'
+      type === 'topology_health' ||
+      type === 'topology_metrics' ||
+      type === 'topology_watch_snapshot' ||
+      type === 'topology_watch_tick'
     ) {
-      if (this.tabHidden() && type === 'topology_health') return;
+      if (
+        this.tabHidden() &&
+        (type === 'topology_health' ||
+          type === 'topology_metrics' ||
+          type === 'topology_watch_tick')
+      ) {
+        return;
+      }
       this.topologyEvents.next({ ...msg, type });
     }
   }

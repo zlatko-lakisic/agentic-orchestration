@@ -1819,10 +1819,15 @@ async function handleAdminApi(req, res, ctx) {
       return true;
     }
     if (route.name === "topology_edge_metrics") {
-      send(501, {
-        error: "Edge metrics not instrumented in Phase 1",
-        instrumented: false,
-        edgeId: route.id || null,
+      const { watchPayload } = await import("./admin-topology-metrics.mjs");
+      const payload = watchPayload("edge", route.id);
+      send(200, {
+        edgeId: route.id,
+        instrumented: payload.instrumented,
+        window: "15m",
+        latest: payload.latest,
+        series: payload.series,
+        generatedAt: new Date().toISOString(),
       });
       return true;
     }
