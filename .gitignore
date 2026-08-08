@@ -44,3 +44,6 @@ _site/
 docs/.jekyll-cache/
 docs/.sass-cache/
 docs/vendor/config/env.host
+
+# Host-written live metrics (Jetson jtop/tegrastats, etc.)
+/var/

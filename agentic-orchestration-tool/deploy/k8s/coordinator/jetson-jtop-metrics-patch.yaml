@@ -16,5 +16,6 @@ spec:
       volumes:
         - name: host-agentic-metrics
           hostPath:
-            path: /var/run/agentic
+            # User-writable on Jetson (tegrastats/jtop writer); avoids /var/run/agentic root-only dir.
+            path: /var/projects/agentic-orchestration/var/agentic-metrics
             type: DirectoryOrCreate

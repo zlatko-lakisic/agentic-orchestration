@@ -1,0 +1,9 @@
+# Mount Jetson metrics JSON (jtop / tegrastats writer on the node).
+spec:
+  template:
+    spec:
+      volumes:
+        - name: jtop-metrics
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/agentic-metrics
+            type: DirectoryOrCreate

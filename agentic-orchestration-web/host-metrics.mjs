@@ -186,7 +186,7 @@ export function mergeJetsonIntoMetrics(base, jtop) {
   const temp =
     jtop.temperature && typeof jtop.temperature === "object" ? jtop.temperature : {};
   const jetson = {
-    source: "jtop",
+    source: jtop.source || "jtop",
     ageMs: jtop.ageMs ?? null,
     gpu: {
       percent: typeof gpu.percent === "number" ? gpu.percent : null,
@@ -198,18 +198,20 @@ export function mergeJetsonIntoMetrics(base, jtop) {
   };
   const out = { ...base, jetson, scope: "jetson" };
   if (typeof jtop.cpu?.percent === "number" && jtop.cpu.percent >= 0) {
-    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source: "jtop" };
+    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source: jtop.source || "jtop" };
   }
   // Promote jtop GPU into the portable top-level gpu block when NVIDIA file is absent.
   if (!out.gpu) {
+    const gpuName =
+      (typeof gpu.name === "string" && gpu.name.trim()) || "Jetson GPU";
     const fromJtop = normalizeGpuBlock(
       {
         percent: jetson.gpu.percent,
         freqMhz: jetson.gpu.freqMhz,
-        name: "Jetson GPU",
-        vramSource: "jtop",
+        name: gpuName,
+        vramSource: jtop.source || "jtop",
       },
-      "jtop",
+      jtop.source || "jtop",
     );
     // Prefer parsing ramText "used/totalGB" as unified memory / VRAM proxy.
     if (fromJtop && jtop.ramText) {

@@ -14,6 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Jetson GPU metrics** — writer falls back to `tegrastats` when jtop group/socket is unavailable; metrics JSON lives under `var/agentic-metrics` (user-writable) and is mounted into coordinator/engine instead of empty `/var/run/agentic`.
 - **Admin topology engine probe** — check in-cluster `agentic-engine` / `host.k3s.internal` (not coordinator loopback); TLS health probes allow the cluster self-signed cert.
 - **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.
 

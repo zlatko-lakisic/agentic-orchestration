@@ -1,15 +1,12 @@
 [Unit]
-Description=Agentic orchestration — Jetson GPU metrics for web UI
-After=network-online.target
-Wants=network-online.target
-# jtop.service is optional; writer falls back to tegrastats when jtop is unavailable.
+Description=Agentic orchestration — Jetson GPU metrics for web UI (user)
+After=default.target
 
 [Service]
 Type=simple
-User=root
 ExecStart=/usr/bin/python3 /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/jetson-jtop-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/jtop-metrics.json --interval 1 --source auto
 Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

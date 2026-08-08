@@ -30,6 +30,8 @@ kubectl apply -n "${NS}" \
   2>/dev/null || true
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
+# GPU metrics writer (jtop if available, else tegrastats). Non-root uses systemd --user.
+bash "${TOOL_ROOT}/scripts/jetson-install-jtop-metrics.sh" "${PROJECT_ROOT}" || true
 
 # Additive Engine API daemon (KnowBuddy /api/v1/*). Opt out with AGENTIC_JETSON_ENABLE_ENGINE=0.
 # Web UI stays on :30487; daemon publishes :8765 (hostPort) + NodePort 30765.

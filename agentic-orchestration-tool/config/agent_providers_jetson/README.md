@@ -51,16 +51,17 @@ Orchestrator logs `(agentic) platform=jetson; ollama_runtime=...` on startup and
 
 ### Host metrics (jtop / GPU)
 
-The web UI header sparkline reads **jtop** (jetson-stats) on Jetson for CPU, RAM, **GPU %**, temperature, and power — not btop (btop is a terminal UI with no API).
-
-One-time on the Jetson host (requires sudo):
+The web UI reads Jetson GPU util from a host JSON writer (`jtop` when the process can use `jtop.service`, otherwise **tegrastats** — no jtop group required).
 
 ```bash
+# Non-root (systemd --user + tegrastats). Also runs from jetson-deploy.sh.
+bash agentic-orchestration-tool/scripts/jetson-install-jtop-metrics.sh
+
+# Or with sudo for a system unit (same output path):
 sudo bash agentic-orchestration-tool/scripts/jetson-install-jtop-metrics.sh
-bash agentic-orchestration-tool/scripts/jetson-hotfix-web.sh   # mounts /var/run/agentic into coordinator
 ```
 
-This runs `agentic-jtop-metrics.service`, which writes `/var/run/agentic/jtop-metrics.json` every second via the jtop Python API.
+Writes `/var/projects/agentic-orchestration/var/agentic-metrics/jtop-metrics.json`; coordinator/engine mount that directory as `/host/agentic-metrics`.
 
 ```bash
 AGENTIC_PLANNER_MODEL=ollama/llama3.2:3b
