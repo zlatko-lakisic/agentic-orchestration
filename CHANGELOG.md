@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [1.30.1] - 2026-08-08
+
 ### Fixed
 
 - **Coordinator crash on `/api/session`** — `generateWebSessionId` now uses `node:crypto` so Node 18 images no longer throw `ReferenceError: crypto is not defined` (CrashLoopBackOff).
