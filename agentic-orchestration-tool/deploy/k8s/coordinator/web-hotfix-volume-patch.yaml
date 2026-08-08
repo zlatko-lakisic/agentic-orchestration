@@ -83,6 +83,12 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/admin-logs.mjs
               subPath: admin-logs.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/admin-topology-graph.mjs
+              subPath: admin-topology-graph.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/admin-topology-ws.mjs
+              subPath: admin-topology-ws.mjs
       volumes:
         - name: web-hotfix-public
           configMap:
