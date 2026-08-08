@@ -511,6 +511,16 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     url = str(mcp.get("url") or "")
                 if url.startswith(TUNNEL_URL_PREFIX):
                     tunnel_mcps += 1
+            def _ids(items: list[dict[str, Any]]) -> list[str]:
+                out_ids: list[str] = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    pid = str(item.get("id") or "").strip()
+                    if pid:
+                        out_ids.append(pid)
+                return out_ids
+
             out.append(
                 {
                     "appId": overlay.app_id,
@@ -521,6 +531,9 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     "mcpCount": len(overlay.mcps),
                     "skillCount": len(overlay.skills),
                     "tunnelMcpCount": tunnel_mcps,
+                    "agentIds": _ids(overlay.agents),
+                    "mcpIds": _ids(overlay.mcps),
+                    "skillIds": _ids(overlay.skills),
                     "expiresAt": overlay.expires_at,
                     "byteSize": overlay.byte_size,
                 }

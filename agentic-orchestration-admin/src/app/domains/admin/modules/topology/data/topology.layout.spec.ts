@@ -52,6 +52,64 @@ describe('topology.layout', () => {
     expect(oc.x).toBeGreaterThan(ui.x + ui.width);
   });
 
+  it('stacks each appId group: header then UI/overlays/local-tools', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'app/knowbuddy',
+        kind: 'app',
+        band: 'application',
+        appId: 'knowbuddy',
+        instanceCount: 2,
+      }),
+      n({
+        id: 'app/knowbuddy/ui',
+        kind: 'ui',
+        band: 'application',
+        appId: 'knowbuddy',
+        parent: 'app/knowbuddy',
+      }),
+      n({
+        id: 'app/knowbuddy/overlays',
+        kind: 'overlay-source',
+        band: 'application',
+        appId: 'knowbuddy',
+        parent: 'app/knowbuddy',
+      }),
+      n({
+        id: 'app/knowbuddy/local-tools',
+        kind: 'local-tools',
+        band: 'application',
+        appId: 'knowbuddy',
+        parent: 'app/knowbuddy',
+      }),
+      n({
+        id: 'app/comstar',
+        kind: 'app',
+        band: 'application',
+        appId: 'comstar',
+        instanceCount: 1,
+      }),
+      n({
+        id: 'app/comstar/ui',
+        kind: 'ui',
+        band: 'application',
+        appId: 'comstar',
+        parent: 'app/comstar',
+      }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    const kb = layout.nodes.find((x) => x.id === 'app/knowbuddy')!;
+    const kbUi = layout.nodes.find((x) => x.id === 'app/knowbuddy/ui')!;
+    const kbOv = layout.nodes.find((x) => x.id === 'app/knowbuddy/overlays')!;
+    const cs = layout.nodes.find((x) => x.id === 'app/comstar')!;
+    expect(kb.kind).toBe('app');
+    expect(kb.width).toBeGreaterThan(kbUi.width);
+    expect(kbUi.y).toBeGreaterThan(kb.y);
+    expect(kbOv.x).toBeGreaterThan(kbUi.x);
+    // comstar sorts before knowbuddy alphabetically → earlier ranks
+    expect(cs.y).toBeLessThan(kb.y);
+  });
+
   it('routes unknown kinds to trailing other lane', () => {
     const nodes: TopologyNode[] = [
       n({

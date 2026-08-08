@@ -20,6 +20,16 @@ import { TopologyNode } from '../data/topology.types';
     </h2>
     <mat-dialog-content class="text-sm">
       <div>Count: {{ data.node.count ?? 0 }}</div>
+      @if (ownerLabel(); as owners) {
+        <div
+          class="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-teal-950 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100"
+        >
+          <span class="text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300"
+            >Owned by app</span
+          >
+          <div class="mt-0.5 font-medium">{{ owners }}</div>
+        </div>
+      }
       @if (data.node.breakdown; as b) {
         <ul class="mt-2 text-neutral-500">
           @for (entry of breakdownEntries(b); track entry[0]) {
@@ -52,6 +62,11 @@ export class ClusterDialog {
 
   breakdownEntries(b: Record<string, number>) {
     return Object.entries(b);
+  }
+
+  ownerLabel(): string | null {
+    const apps = this.data.node.ownedByApps || [];
+    return apps.length ? apps.join(', ') : null;
   }
 
   catalogLink(): string {

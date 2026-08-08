@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Topology Application band by appId** — each connected Reach product (`knowbuddy`, `comstar`, …) is a group with instance count plus Client UI / Domain overlays / Local tools. Reach and AO node modals show an **Owned by app** label when session overlays currently use that component (bridge, catalogs, sidecars, planner, speech, etc.).
+
 ## [2.0.0] - 2026-08-08
 
 ### Breaking

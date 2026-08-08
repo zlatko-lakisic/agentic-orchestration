@@ -13,9 +13,10 @@ const KIND_SLOT: Record<
   string,
   { band: TopologyBand; rank: number; lane: number; order: number }
 > = {
-  ui: { band: 'application', rank: 0, lane: 0, order: 0 },
-  'overlay-source': { band: 'application', rank: 0, lane: 1, order: 0 },
-  'local-tools': { band: 'application', rank: 0, lane: 2, order: 0 },
+  app: { band: 'application', rank: 0, lane: 0, order: 0 },
+  ui: { band: 'application', rank: 1, lane: 0, order: 0 },
+  'overlay-source': { band: 'application', rank: 1, lane: 1, order: 0 },
+  'local-tools': { band: 'application', rank: 1, lane: 2, order: 0 },
   openclaw: { band: 'application', rank: 0, lane: 3, order: 0 },
 
   'session-bridge': { band: 'reach', rank: 0, lane: 0, order: 0 },
@@ -66,6 +67,8 @@ const MODEL_LANE: Record<string, number> = {
 
 const NODE_W = 140;
 const NODE_H = 52;
+/** Wide header spanning the three child columns (UI · overlays · local tools). */
+const APP_HEADER_W = NODE_W * 3 + 52 * 2;
 const COL_GAP = 52;
 const ROW_GAP = 64;
 const BAND_PAD_Y = 28;
@@ -77,6 +80,16 @@ const CLEARANCE = 8;
 /** Perpendicular stub so wires leave/enter side centers, never run along card edges. */
 const PORT_STUB = 14;
 
+const APP_CHILD_LANE: Record<string, number> = {
+  ui: 0,
+  'overlay-source': 1,
+  'local-tools': 2,
+};
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.map((v) => v.trim()).filter(Boolean))].sort();
+}
+
 const BAND_LABELS: Record<TopologyBand, string> = {
   application: '1 · Application',
   reach: '2 · AO Reach',
@@ -87,7 +100,10 @@ type Pt = { x: number; y: number };
 type Rect = { x: number; y: number; w: number; h: number; id?: string };
 type Side = 'top' | 'bottom' | 'left' | 'right';
 
-function slotFor(node: TopologyNode): {
+function slotFor(
+  node: TopologyNode,
+  appRankBase?: Map<string, number>
+): {
   band: TopologyBand;
   rank: number;
   lane: number;
@@ -101,6 +117,29 @@ function slotFor(node: TopologyNode): {
   };
   let lane = base.lane;
   let order = base.order;
+  let rank = base.rank;
+
+  // Per-app Application groups: header row + child trio under each appId.
+  if (node.band === 'application' && node.appId && appRankBase) {
+    const baseRank = appRankBase.get(node.appId) ?? 0;
+    if (node.kind === 'app') {
+      return { band: 'application', rank: baseRank, lane: 0, order: 0 };
+    }
+    if (APP_CHILD_LANE[node.kind] != null) {
+      return {
+        band: 'application',
+        rank: baseRank + 1,
+        lane: APP_CHILD_LANE[node.kind],
+        order: APP_CHILD_LANE[node.kind],
+      };
+    }
+  }
+
+  if (node.kind === 'openclaw' && appRankBase && appRankBase.size) {
+    const maxBase = Math.max(...appRankBase.values());
+    return { band: 'application', rank: maxBase + 2, lane: 3, order: 0 };
+  }
+
   if (node.kind === 'endpoint' && ENDPOINT_LANE[node.id] != null) {
     lane = ENDPOINT_LANE[node.id];
   }
@@ -121,7 +160,7 @@ function slotFor(node: TopologyNode): {
   }
   return {
     band: (node.band || base.band) as TopologyBand,
-    rank: base.rank,
+    rank,
     lane,
     order,
   };
@@ -410,8 +449,15 @@ export function layoutTopology(
   const showNotDeployed = opts?.showNotDeployed ?? false;
   const visible = nodes.filter((n) => showNotDeployed || n.deployed !== false);
 
+  const appIds = uniqueSorted(
+    visible
+      .filter((n) => n.band === 'application' && n.appId)
+      .map((n) => String(n.appId))
+  );
+  const appRankBase = new Map(appIds.map((id, i) => [id, i * 2]));
+
   const enriched = visible.map((n) => {
-    const s = slotFor(n);
+    const s = slotFor(n, appRankBase);
     return { node: n, ...s };
   });
 
@@ -477,12 +523,19 @@ export function layoutTopology(
           }
         }
         usedLanes.add(lane);
+        const isAppHeader = e.node.kind === 'app';
+        const width = isAppHeader ? APP_HEADER_W : NODE_W;
+        // Header spans lanes 0–2; do not place other nodes in those lanes on this row.
+        if (isAppHeader) {
+          usedLanes.add(1);
+          usedLanes.add(2);
+        }
         const x = MARGIN + lane * colWidth;
         positioned.push({
           ...e.node,
           x,
           y,
-          width: NODE_W,
+          width,
           height: NODE_H,
           lane,
           rank: e.rank,

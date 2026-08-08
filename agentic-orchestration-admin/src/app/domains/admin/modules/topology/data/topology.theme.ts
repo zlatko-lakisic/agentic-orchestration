@@ -10,6 +10,7 @@ export type TopologyKindTheme = {
 };
 
 const BY_KIND: Record<string, TopologyKindTheme> = {
+  app: { accent: '#0f766e', icon: 'app-window', aspect: 'App' },
   ui: { accent: '#0d9488', icon: 'monitor', aspect: 'Client' },
   'overlay-source': { accent: '#0891b2', icon: 'layers', aspect: 'Overlays' },
   'local-tools': { accent: '#059669', icon: 'wrench', aspect: 'Local tools' },

@@ -85,6 +85,16 @@ type Pt = { x: number; y: number | null };
                   <span class="text-neutral-500"> · not instrumented</span>
                 }
               </div>
+              @if (ownerLabel(d); as owners) {
+                <div
+                  class="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-teal-950 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100"
+                >
+                  <span class="text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300"
+                    >Owned by app</span
+                  >
+                  <div class="mt-0.5 font-medium">{{ owners }}</div>
+                </div>
+              }
               @if (d.probe?.statusReason || d.node.statusReason) {
                 <div class="text-neutral-500">
                   {{ d.probe?.statusReason || d.node.statusReason }}
@@ -332,6 +342,29 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
     } else if (this.trafficWatch) {
       this.trafficActive.set(false);
     }
+  }
+
+  ownerLabel(d: TopologyNodeDetail): string | null {
+    const apps =
+      d.ownedByApps?.length
+        ? d.ownedByApps
+        : d.node.ownedByApps?.length
+          ? d.node.ownedByApps
+          : d.node.appId
+            ? [d.node.appId]
+            : [];
+    if (!apps.length) return null;
+    // Only surface ownership on Reach / AO layers (and app children for clarity).
+    if (d.node.band === 'application' && d.node.kind === 'app') {
+      return apps.join(', ');
+    }
+    if (d.node.band === 'reach' || d.node.band === 'ao') {
+      return apps.join(', ');
+    }
+    if (d.node.band === 'application' && d.node.appId) {
+      return d.node.appId;
+    }
+    return null;
   }
 
   healthChartSeries(): ApexAxisChartSeries {

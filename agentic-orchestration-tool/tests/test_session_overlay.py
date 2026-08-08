@@ -217,6 +217,8 @@ def test_list_active_overlays_summarizes_sessions() -> None:
     assert rows[0]["agentCount"] == 1
     assert rows[0]["mcpCount"] == 1
     assert rows[0]["tunnelMcpCount"] == 1
+    assert rows[0]["agentIds"] == ["client.kb_researcher"]
+    assert rows[0]["mcpIds"] == ["client.filesystem_local"]
 
 
 def test_register_overlay_requires_app_id() -> None:

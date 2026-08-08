@@ -12,6 +12,10 @@ export type TopologyHelp = {
 };
 
 const NODE_BY_KIND: Record<string, TopologyHelp> = {
+  app: {
+    wikiKey: 'app',
+    blurb: 'Product appId group — how many Reach instances are connected under this name.',
+  },
   ui: {
     wikiKey: 'ui',
     blurb: 'Client or kiosk UI that connected through AO Reach.',

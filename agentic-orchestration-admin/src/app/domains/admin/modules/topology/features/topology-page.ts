@@ -30,6 +30,18 @@ import {
 import { EdgeDetailDialog } from '../ui/edge-detail-dialog';
 import { ClusterDialog } from '../ui/cluster-dialog';
 
+/** Format topology `generatedAt` with the runtime locale (medium date + short time). */
+export function formatTopologyGeneratedAt(raw: string | null | undefined): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(d);
+}
+
 @Component({
   selector: 'ao-topology-page',
   providers: [TopologyStore],
@@ -72,9 +84,9 @@ import { ClusterDialog } from '../ui/cluster-dialog';
               Paused
             } @else if (store.snapshotOnly()) {
               Not live — snapshot
-              {{ store.generatedAt() || '' }}
+              {{ generatedAtLabel() || '' }}
             } @else if (live.connected()) {
-              Live · {{ store.generatedAt() || '…' }}
+              Live · {{ generatedAtLabel() || '…' }}
             } @else {
               Reconnecting…
             }
@@ -188,6 +200,11 @@ export class TopologyPage implements OnInit, OnDestroy {
     const notes = this.store.notes().join('. ');
     return `Topology with ${n} nodes, ${bad} unhealthy. ${notes}`;
   });
+
+  /** Locale-friendly stamp next to Live (not raw ISO). */
+  readonly generatedAtLabel = computed(() =>
+    formatTopologyGeneratedAt(this.store.generatedAt())
+  );
 
   ngOnInit() {
     this.store.start();

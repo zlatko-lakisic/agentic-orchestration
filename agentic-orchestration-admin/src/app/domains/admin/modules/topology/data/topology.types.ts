@@ -17,6 +17,7 @@ export type TopologyEdgeKind =
   | 'bypass';
 
 export type TopologyNodeKind =
+  | 'app'
   | 'ui'
   | 'overlay-source'
   | 'local-tools'
@@ -53,6 +54,12 @@ export interface TopologyNode {
   count?: number;
   breakdown?: Record<string, number>;
   parent?: string;
+  /** Reach product id (e.g. knowbuddy) when this node belongs to an app group. */
+  appId?: string;
+  /** Connected Reach sessions for this appId (Application header). */
+  instanceCount?: number;
+  /** Apps currently owning / using this Reach or AO component. */
+  ownedByApps?: string[];
   lastProbeAt?: string | null;
 }
 
@@ -94,6 +101,8 @@ export interface TopologyNodeDetail {
   outbound: TopologyEdge[];
   logSource?: string;
   configKeys?: string[];
+  /** Apps that currently own or use this component (Reach overlays / sidecars). */
+  ownedByApps?: string[];
   probe?: {
     lastProbeAt?: string | null;
     instrumented?: boolean;

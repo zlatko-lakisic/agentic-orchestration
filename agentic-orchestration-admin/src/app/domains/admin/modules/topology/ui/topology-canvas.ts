@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import {
   LayoutResult,
@@ -6,6 +6,14 @@ import {
   PositionedNode,
 } from '../data/topology.types';
 import { themeForKind } from '../data/topology.theme';
+
+type AppGroupFrame = {
+  appId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 @Component({
   selector: 'ao-topology-canvas',
@@ -59,6 +67,17 @@ import { themeForKind } from '../data/topology.theme';
           </text>
         }
 
+        @for (g of appFrames(); track g.appId) {
+          <rect
+            [attr.x]="g.x"
+            [attr.y]="g.y"
+            [attr.width]="g.width"
+            [attr.height]="g.height"
+            rx="12"
+            class="app-group-frame"
+          />
+        }
+
         @for (e of edges(); track e.id) {
           <path
             [attr.d]="e.pathD"
@@ -83,7 +102,7 @@ import { themeForKind } from '../data/topology.theme';
             [attr.data-kind]="n.kind"
             tabindex="0"
             role="button"
-            [attr.aria-label]="n.label + ' ' + n.displayStatus"
+            [attr.aria-label]="ariaLabel(n)"
             (mouseenter)="hover.emit(n.id)"
             (mouseleave)="hover.emit(null)"
             (focus)="hover.emit(n.id)"
@@ -119,7 +138,7 @@ import { themeForKind } from '../data/topology.theme';
               y="22"
               class="fill-neutral-900 text-[12px] font-medium dark:fill-neutral-100"
             >
-              {{ truncate(n.label, 14) }}
+              {{ truncate(n.label, labelMax(n)) }}
             </text>
             <text
               [attr.x]="38"
@@ -127,7 +146,7 @@ import { themeForKind } from '../data/topology.theme';
               class="fill-neutral-500 text-[10px]"
             >
               {{ statusGlyph(n.displayStatus) }}
-              {{ truncate(n.sublabel || n.displayStatus, 14) }}
+              {{ truncate(n.sublabel || n.displayStatus, labelMax(n)) }}
             </text>
           </g>
         }
@@ -147,6 +166,13 @@ import { themeForKind } from '../data/topology.theme';
     .band-rect[data-band='application'] {
       fill: color-mix(in oklab, #0d9488 8%, transparent);
       stroke: color-mix(in oklab, #0d9488 28%, transparent);
+    }
+    .app-group-frame {
+      fill: color-mix(in oklab, #0f766e 6%, transparent);
+      stroke: color-mix(in oklab, #0f766e 32%, transparent);
+      stroke-width: 1.25;
+      stroke-dasharray: 5 4;
+      pointer-events: none;
     }
     .band-rect[data-band='reach'] {
       fill: color-mix(in oklab, #2563eb 8%, transparent);
@@ -266,6 +292,40 @@ export class TopologyCanvas {
   readonly nodeClick = output<PositionedNode>();
   readonly edgeClick = output<PositionedEdge>();
 
+  /** Bounding frames grouping each appId's header + three components. */
+  readonly appFrames = computed(() => {
+    const byApp = new Map<string, PositionedNode[]>();
+    for (const n of this.nodes()) {
+      if (n.band !== 'application' || !n.appId) continue;
+      const list = byApp.get(n.appId) || [];
+      list.push(n);
+      byApp.set(n.appId, list);
+    }
+    const frames: AppGroupFrame[] = [];
+    const pad = 10;
+    for (const [appId, list] of byApp) {
+      if (!list.length) continue;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const n of list) {
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + n.width);
+        maxY = Math.max(maxY, n.y + n.height);
+      }
+      frames.push({
+        appId,
+        x: minX - pad,
+        y: minY - pad,
+        width: maxX - minX + pad * 2,
+        height: maxY - minY + pad * 2,
+      });
+    }
+    return frames;
+  });
+
   isDimmedEdge(id: string): boolean {
     const c = this.closure();
     return !!c && !c.edges.has(id);
@@ -292,6 +352,16 @@ export class TopologyCanvas {
 
   icon(n: PositionedNode): string {
     return themeForKind(n.kind, n.band).icon;
+  }
+
+  labelMax(n: PositionedNode): number {
+    return n.kind === 'app' ? 28 : 14;
+  }
+
+  ariaLabel(n: PositionedNode): string {
+    const owners =
+      n.ownedByApps?.length ? ` owned by ${n.ownedByApps.join(', ')}` : '';
+    return `${n.label} ${n.displayStatus}${owners}`;
   }
 
   truncate(s: string, max: number): string {
