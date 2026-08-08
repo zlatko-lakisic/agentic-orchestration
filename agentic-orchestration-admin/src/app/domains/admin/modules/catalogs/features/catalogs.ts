@@ -1,16 +1,20 @@
 import { I18nPluralPipe } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  MatButtonToggle,
+  MatButtonToggleGroup,
+} from '@angular/material/button-toggle';
 import { MatIcon } from '@angular/material/icon';
 import { MatFormField, MatInput, MatPrefix } from '@angular/material/input';
+import { MatOption, MatSelect } from '@angular/material/select';
 import {
   MatSidenav,
   MatSidenavContainer,
   MatSidenavContent,
 } from '@angular/material/sidenav';
-import { MatTabLink, MatTabNav, MatTabNavPanel } from '@angular/material/tabs';
-import { MatPaginator } from '@angular/material/paginator';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatTabLink, MatTabNav, MatTabNavPanel } from '@angular/material/tabs';
 import {
   ActivatedRoute,
   NavigationEnd,
@@ -20,9 +24,9 @@ import {
   RouterOutlet,
 } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-import { Media } from '@/app/core/media';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { CatalogEntry } from '@/app/core/ao-api/types';
+import { Media } from '@/app/core/media';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
@@ -53,6 +57,10 @@ const KINDS = [
     MatTabNav,
     MatTabLink,
     MatTabNavPanel,
+    MatButtonToggle,
+    MatButtonToggleGroup,
+    MatSelect,
+    MatOption,
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
@@ -92,7 +100,7 @@ const KINDS = [
             <div class="flex items-center gap-x-4">
               <div class="flex flex-col gap-y-0.5">
                 <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
-                  Catalogs
+                  Capabilities
                 </div>
                 <div class="text-neutral-500">
                   {{
@@ -104,7 +112,7 @@ const KINDS = [
                             other: '# entries',
                           }
                   }}
-                  · availability and credential gates
+                  · what this deployment can do, and what is gated
                 </div>
               </div>
               <div class="flex-auto"></div>
@@ -114,12 +122,69 @@ const KINDS = [
                   svgIcon="search"
                 />
                 <input
-                  placeholder="Search catalogs"
+                  placeholder="Search capabilities"
                   matInput
                   [value]="search()"
                   (input)="onSearch($any($event.target).value)"
                 />
               </mat-form-field>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <button
+                type="button"
+                class="rounded-full px-3 py-1 font-medium"
+                [class]="
+                  statusFilter() === 'all'
+                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                    : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+                "
+                (click)="onStatusFilter('all')"
+              >
+                {{ entries().length }} total
+              </button>
+              @for (c of counts(); track c.status) {
+                <button
+                  type="button"
+                  class="rounded-full px-3 py-1 font-medium"
+                  [class]="
+                    statusFilter() === c.status
+                      ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                      : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+                  "
+                  (click)="onStatusFilter(c.status)"
+                >
+                  {{ c.count }} {{ c.status }}
+                </button>
+              }
+            </div>
+
+            <div class="flex flex-wrap items-center gap-4">
+              <mat-button-toggle-group
+                aria-label="Availability"
+                [value]="statusFilter()"
+                (change)="onStatusFilter($any($event).value)"
+              >
+                <mat-button-toggle value="all">All</mat-button-toggle>
+                <mat-button-toggle value="available">
+                  Available
+                </mat-button-toggle>
+                <mat-button-toggle value="gated">Gated</mat-button-toggle>
+              </mat-button-toggle-group>
+
+              @if (providers().length > 1) {
+                <mat-form-field class="w-48">
+                  <mat-select
+                    [value]="providerFilter()"
+                    (selectionChange)="onProviderFilter($any($event).value)"
+                  >
+                    <mat-option value="all">All providers</mat-option>
+                    @for (p of providers(); track p) {
+                      <mat-option [value]="p">{{ p }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
             </div>
 
             <nav
@@ -277,7 +342,28 @@ export class CatalogsPage implements OnInit {
   readonly entries = signal<CatalogEntry[]>([]);
   readonly error = signal<string | null>(null);
   readonly search = signal('');
+  readonly statusFilter = signal('all');
+  readonly providerFilter = signal('all');
   readonly columns = ['id', 'type', 'status', 'gate'];
+
+  readonly counts = computed(() => {
+    const tally = new Map<string, number>();
+    for (const e of this.entries()) {
+      const s = String(e.status || 'available');
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+    }
+    return [...tally.entries()]
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count);
+  });
+
+  readonly providers = computed(() => {
+    const set = new Set<string>();
+    for (const e of this.entries()) {
+      if (e.type) set.add(String(e.type));
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  });
   readonly dataSource: MatTableDataSource<CatalogEntry> =
     new MatTableDataSource<CatalogEntry>([]);
 
@@ -301,6 +387,8 @@ export class CatalogsPage implements OnInit {
     this.route.paramMap.subscribe((pm) => {
       const k = pm.get('kind') || 'agents';
       this.kind.set(k);
+      this.statusFilter.set('all');
+      this.providerFilter.set('all');
       this.load(k);
     });
   }
@@ -315,17 +403,30 @@ export class CatalogsPage implements OnInit {
         return;
       }
       this.entries.set(r.data);
-      this.applyFilter(r.data, this.search());
+      this.applyFilter();
     });
   }
 
   onSearch(value: string) {
     this.search.set(value);
-    this.applyFilter(this.entries(), value);
+    this.applyFilter();
   }
 
-  private applyFilter(rows: CatalogEntry[], q: string) {
-    const needle = q.trim().toLowerCase();
+  onStatusFilter(value: string) {
+    this.statusFilter.set(value || 'all');
+    this.applyFilter();
+  }
+
+  onProviderFilter(value: string) {
+    this.providerFilter.set(value || 'all');
+    this.applyFilter();
+  }
+
+  private applyFilter() {
+    const rows = this.entries();
+    const needle = this.search().trim().toLowerCase();
+    const status = this.statusFilter();
+    const provider = this.providerFilter();
     let filtered = !needle
       ? [...rows]
       : rows.filter(
@@ -341,6 +442,16 @@ export class CatalogsPage implements OnInit {
               .toLowerCase()
               .includes(needle)
         );
+    if (status !== 'all') {
+      filtered = filtered.filter((e) => {
+        const s = String(e.status || 'available');
+        if (status === 'gated') return Boolean(e.gateReason) || s !== 'available';
+        return s === status;
+      });
+    }
+    if (provider !== 'all') {
+      filtered = filtered.filter((e) => String(e.type || '') === provider);
+    }
     // Gated / non-available first — those are the actionable rows.
     filtered.sort((a, b) => {
       const ag = a.gateReason || (a.status && a.status !== 'available') ? 0 : 1;

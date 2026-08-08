@@ -22,8 +22,13 @@ import {
   MatChipOption,
 } from '@angular/material/chips';
 import { MatDivider } from '@angular/material/divider';
+import {
+  MatExpansionPanel,
+  MatExpansionPanelDescription,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
 import {
@@ -39,13 +44,6 @@ import {
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
-import {
-  MatAccordion,
-  MatExpansionPanel,
-  MatExpansionPanelDescription,
-  MatExpansionPanelHeader,
-  MatExpansionPanelTitle,
-} from '@angular/material/expansion';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import {
   PingResponse,
@@ -57,6 +55,18 @@ import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 
+/** Topology reads top-down: each entry depends on the ones above it. */
+const DEPENDENCY_ORDER = [
+  'web',
+  'engine',
+  'execution',
+  'ollama',
+  'mcp',
+  'speech',
+  'openclaw',
+  'reach',
+];
+
 /**
  * Overview — live host metrics (WS) + Fuse Apex charts + filterable live logs.
  */
@@ -67,7 +77,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     ErrorState,
     MatButtonModule,
     MatIconModule,
-    MatMenuModule,
     MatCard,
     MatCardHeader,
     MatCardContent,
@@ -521,99 +530,76 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           Topology
         </div>
         <div class="text-neutral-500">
-          Runtime components and how they are exposed on this host
+          Ordered by dependency: web → engine → execution → ollama
         </div>
       </div>
 
-      <div class="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-2">
-        @for (c of components(); track c.id) {
-          <mat-card
-            class="relative overflow-hidden px-5 py-4"
-            appearance="outlined"
-          >
-            <div class="absolute right-0 bottom-0 -m-6 h-24 w-24">
-              <mat-icon
-                class="size-24"
-                [ngClass]="watermarkClass(c.status)"
-                [svgIcon]="watermarkIcon(c.status)"
-              />
+      <mat-card
+        class="overflow-hidden"
+        appearance="outlined"
+      >
+        @for (c of orderedComponents(); track c.id; let last = $last) {
+          <div class="flex items-start gap-x-3 px-5 py-3">
+            <div class="flex flex-col items-center self-stretch pt-2">
+              <span
+                class="size-2.5 shrink-0 rounded-full"
+                [ngClass]="statusDotClass(c.status)"
+              ></span>
+              @if (!last) {
+                <span
+                  class="mt-1 w-px flex-auto bg-neutral-200 dark:bg-neutral-700"
+                ></span>
+              }
             </div>
-            <div class="flex items-center">
-              <div class="flex min-w-0 flex-col">
-                <div class="truncate text-lg font-medium tracking-tight">
+            <div class="min-w-0 flex-auto">
+              <div class="flex flex-wrap items-baseline gap-x-2">
+                <a
+                  class="font-medium hover:underline"
+                  [routerLink]="['/components', c.id]"
+                >
                   {{ c.label }}
-                </div>
-                <div
+                </a>
+                <span
                   class="text-sm font-medium"
                   [ngClass]="statusTextClass(c.status)"
                 >
                   {{ statusLabel(c.status) }}
-                </div>
+                </span>
               </div>
-              <div class="-mt-2 ml-auto">
-                @if (componentHref(c); as href) {
-                  <button
-                    mat-icon-button
-                    type="button"
-                    [matMenuTriggerFor]="compMenu"
-                  >
-                    <mat-icon svgIcon="ellipsis" />
-                  </button>
-                  <mat-menu #compMenu="matMenu">
-                    <a
-                      mat-menu-item
-                      [href]="href"
-                      target="_blank"
-                      rel="noopener"
-                    >
-                      Open
-                    </a>
-                  </mat-menu>
-                }
+              <div class="mt-0.5 truncate text-sm text-neutral-500">
+                {{ c.fact || c.detail || '—' }}
               </div>
             </div>
-            <div class="mt-4 flex flex-row flex-wrap gap-6">
-              <div class="flex flex-col">
-                <div class="text-sm font-medium text-neutral-500">Port</div>
-                <div class="text-3xl font-medium tabular-nums">
-                  {{ c.port ?? '—' }}
-                </div>
-              </div>
-              <div class="flex flex-col">
-                <div class="text-sm font-medium text-neutral-500">NodePort</div>
-                <div class="text-3xl font-medium tabular-nums">
-                  {{ c.nodePort ?? '—' }}
-                </div>
-              </div>
-              <div class="flex min-w-0 flex-col">
-                <div class="text-sm font-medium text-neutral-500">Detail</div>
-                <div class="max-w-56 truncate text-sm text-neutral-500">
-                  {{ c.fact || c.detail || '—' }}
-                </div>
-              </div>
-            </div>
-            @if (componentHref(c); as href) {
-              <div class="mt-3">
+            <div class="flex shrink-0 items-center gap-x-3">
+              @if (c.port || c.nodePort) {
+                <span class="font-mono text-xs text-neutral-500 tabular-nums">
+                  {{ c.port ?? '—' }}@if (c.nodePort) {
+                    · {{ c.nodePort }}
+                  }
+                </span>
+              }
+              @if (componentHref(c); as href) {
                 <a
-                  matButton
+                  matIconButton
+                  aria-label="Open component URL"
                   [href]="href"
                   target="_blank"
                   rel="noopener"
                 >
-                  Open
+                  <mat-icon svgIcon="external-link" />
                 </a>
-              </div>
-            }
-          </mat-card>
+              }
+            </div>
+          </div>
+          @if (!last) {
+            <mat-divider />
+          }
         } @empty {
-          <mat-card
-            class="px-5 py-8"
-            appearance="outlined"
-          >
-            <div class="text-neutral-500">No topology components reported</div>
-          </mat-card>
+          <div class="px-5 py-8 text-neutral-500">
+            No topology components reported
+          </div>
         }
-      </div>
+      </mat-card>
 
       <!-- Live logs (collapsed by default for triage) -->
       <mat-expansion-panel class="!rounded-xl !border !shadow-none">
@@ -625,8 +611,16 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         </mat-expansion-panel-header>
         <div class="flex flex-col gap-3 pb-2 sm:flex-row sm:items-center">
           <div class="min-w-0 flex-auto text-sm text-neutral-500">
-            Filter sources · follow newest
+            Filter sources · errors red, warnings amber
           </div>
+          <button
+            matButton="outlined"
+            type="button"
+            (click)="followLogs.set(!followLogs())"
+          >
+            <mat-icon [svgIcon]="followLogs() ? 'circle-check' : 'circle'" />
+            {{ followLogs() ? 'Following' : 'Follow' }}
+          </button>
           <button
             matButton="outlined"
             type="button"
@@ -685,10 +679,20 @@ export class OverviewPage implements OnInit, OnDestroy {
   readonly session = signal<SessionResponse | null>(null);
   readonly error = signal<string | null>(null);
   readonly selectedSources = signal<string[]>([]);
+  readonly followLogs = signal(true);
 
   readonly components = computed(
     () => (this.topology()?.components || []) as TopologyComponent[]
   );
+
+  /** Dependency order for the topology list; unknown ids keep API order at the end. */
+  readonly orderedComponents = computed(() => {
+    const rank = (id: string) => {
+      const i = DEPENDENCY_ORDER.indexOf(id);
+      return i === -1 ? DEPENDENCY_ORDER.length : i;
+    };
+    return [...this.components()].sort((a, b) => rank(a.id) - rank(b.id));
+  });
 
   readonly filteredLogs = computed(() => {
     const allow = new Set(this.selectedSources());
@@ -885,6 +889,7 @@ export class OverviewPage implements OnInit, OnDestroy {
     effect(() => {
       // Auto-scroll log viewport when new lines arrive.
       this.filteredLogs();
+      if (!this.followLogs()) return;
       queueMicrotask(() => {
         const el = this.logViewport()?.nativeElement;
         if (!el) return;
@@ -990,22 +995,14 @@ export class OverviewPage implements OnInit, OnDestroy {
     return 'text-neutral-500';
   }
 
-  watermarkIcon(status: string | undefined): string {
+  statusDotClass(status: string | undefined): string {
     const s = String(status || '').toLowerCase();
-    if (['healthy', 'available', 'succeeded'].includes(s)) return 'circle-check';
-    if (['failed', 'blocking'].includes(s)) return 'circle-x';
-    return 'circle-alert';
-  }
-
-  watermarkClass(status: string | undefined): string {
-    const s = String(status || '').toLowerCase();
-    if (['healthy', 'available', 'succeeded'].includes(s)) {
-      return 'text-green-600/25 dark:text-green-500/25';
+    if (['healthy', 'available', 'succeeded'].includes(s)) return 'bg-green-500';
+    if (['failed', 'blocking'].includes(s)) return 'bg-red-500';
+    if (['degraded', 'warning', 'running', 'reconciling'].includes(s)) {
+      return 'bg-amber-500';
     }
-    if (['failed', 'blocking'].includes(s)) {
-      return 'text-red-600/25 dark:text-red-500/25';
-    }
-    return 'text-amber-600/25 dark:text-amber-500/25';
+    return 'bg-neutral-400';
   }
 
   formatUptime(sec?: number): string {

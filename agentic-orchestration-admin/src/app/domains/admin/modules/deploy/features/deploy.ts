@@ -5,7 +5,6 @@ import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { EffectiveConfigEntry } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
@@ -108,6 +107,50 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
         </mat-card-content>
       </mat-card>
 
+      <mat-card appearance="outlined">
+        <mat-card-header>
+          <div class="flex w-full items-center justify-between gap-2">
+            <div class="font-medium">Compare to profile</div>
+            <button
+              matButton="outlined"
+              type="button"
+              (click)="showDrift.set(!showDrift())"
+            >
+              {{ showDrift() ? 'Hide' : 'Show' }} differences
+            </button>
+          </div>
+        </mat-card-header>
+        <mat-card-content class="pt-2">
+          <p class="text-sm text-neutral-500">
+            {{ drift().length }} of {{ configuredCount() }} configured keys
+            differ from their code default. Read-only — apply changes through
+            the deploy path above.
+          </p>
+          @if (showDrift()) {
+            <div class="mt-3 flex flex-col gap-2">
+              @for (e of drift(); track e.key) {
+                <div
+                  class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 py-2 dark:border-neutral-800"
+                >
+                  <div class="font-mono text-xs">{{ e.key }}</div>
+                  <div class="font-mono text-sm">
+                    <span class="text-neutral-500 line-through">{{
+                      e.default
+                    }}</span>
+                    <span class="mx-2 text-neutral-400">→</span>
+                    <span>{{ e.effective ?? e.value }}</span>
+                  </div>
+                </div>
+              } @empty {
+                <p class="text-sm text-neutral-500">
+                  No configured key overrides a code default.
+                </p>
+              }
+            </div>
+          }
+        </mat-card-content>
+      </mat-card>
+
       <ao-config-settings-page
         [groups]="['deployments']"
         sectionTitle="Deploy settings"
@@ -124,6 +167,25 @@ export class DeployPage implements OnInit {
     const e = this.config.byKey().get('AGENTIC_EDGE_PLATFORM');
     return String(e?.effective ?? e?.value ?? '');
   });
+
+  readonly showDrift = signal(false);
+
+  readonly configuredCount = computed(
+    () => this.config.entries().filter((e) => e.set).length
+  );
+
+  readonly drift = computed(() =>
+    this.config
+      .entries()
+      .filter(
+        (e) =>
+          e.set &&
+          !e.secret &&
+          e.default != null &&
+          String(e.effective ?? e.value ?? '') !== String(e.default)
+      )
+      .sort((a, b) => a.key.localeCompare(b.key))
+  );
 
   readonly tracked = computed(() =>
     this.config
