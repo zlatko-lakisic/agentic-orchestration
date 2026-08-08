@@ -20,6 +20,14 @@ git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
 bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
+# Ensure coordinator can stream pods/log for Admin live logs.
+export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
+kubectl apply -n "${NS}" \
+  -f "${TOOL_ROOT}/deploy/k8s/coordinator/serviceaccount.yaml" \
+  -f "${TOOL_ROOT}/deploy/k8s/coordinator/role.yaml" \
+  -f "${TOOL_ROOT}/deploy/k8s/coordinator/rolebinding.yaml" \
+  2>/dev/null || true
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 

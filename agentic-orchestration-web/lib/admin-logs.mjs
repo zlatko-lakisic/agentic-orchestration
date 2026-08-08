@@ -1,27 +1,55 @@
 /**
- * Admin live log bus + optional kubectl tails for edge pods.
+ * Admin live log bus + in-cluster Kubernetes pod log tails.
  * WS protocol:
  *   client → { type: "admin_logs_subscribe", sources?: string[] }
  *   client → { type: "admin_logs_unsubscribe" }
  *   server → { type: "admin_log", source, level, ts, line }
  *   server → { type: "admin_logs_sources", sources: string[] }
  */
-import { spawn } from "node:child_process";
+import fs from "node:fs";
+import https from "node:https";
 import { EventEmitter } from "node:events";
 
 const MAX_BUFFER = 500;
 const SOURCES = ["web", "coordinator", "engine", "warm-pool", "broker"];
+const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
+const TAIL_SPECS = [
+  {
+    source: "coordinator",
+    labelSelector: "app.kubernetes.io/name=agentic-coordinator",
+    container: "coordinator",
+    tailLines: 80,
+  },
+  {
+    source: "engine",
+    labelSelector: "app.kubernetes.io/name=agentic-engine",
+    container: null,
+    tailLines: 80,
+  },
+  {
+    source: "warm-pool",
+    labelSelector: "app.kubernetes.io/name=agentic-warm-pool",
+    container: null,
+    tailLines: 40,
+  },
+  {
+    source: "broker",
+    labelSelector: "app.kubernetes.io/name=agentic-delegation-broker",
+    container: null,
+    tailLines: 40,
+  },
+];
 
 /** @type {{ source: string, level: string, ts: string, line: string }[]} */
 const ring = [];
 const bus = new EventEmitter();
 bus.setMaxListeners(50);
 
-/** @type {Map<string, import('node:child_process').ChildProcess>} */
-const kubectlTails = new Map();
+/** @type {Map<string, { req: import('http').ClientRequest, abort: () => void }>} */
+const activeTails = new Map();
 
-let kubectlProbeDone = false;
-let kubectlOk = false;
+let k8sReady = null;
+let ensureStarted = false;
 
 export function adminLogSources() {
   return [...SOURCES];
@@ -81,7 +109,7 @@ export function startAdminLogsPush(ws, sendJson, opts = {}) {
   bus.on("log", onLog);
   ws._adminLogListener = onLog;
 
-  ensureKubectlTails();
+  void ensureK8sLogTails();
   adminLog("web", "Admin log stream subscribed", "info");
 }
 
@@ -94,74 +122,215 @@ export function stopAdminLogsPush(ws) {
   ws._adminLogSources = null;
 }
 
-function ensureKubectlTails() {
-  if (kubectlProbeDone && !kubectlOk) return;
-  if (!kubectlProbeDone) {
-    kubectlProbeDone = true;
-    try {
-      const probe = spawn("kubectl", ["version", "--client", "--output=json"], {
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      probe.on("close", (code) => {
-        kubectlOk = code === 0;
-        if (kubectlOk) startAllKubectlTails();
-      });
-      probe.on("error", () => {
-        kubectlOk = false;
-      });
-      return;
-    } catch {
-      kubectlOk = false;
-      return;
-    }
-  }
-  if (kubectlOk) startAllKubectlTails();
-}
-
-function startAllKubectlTails() {
-  const specs = [
-    { source: "coordinator", args: ["logs", "-l", "app=agentic-coordinator", "-c", "web", "--tail=80", "-f", "--prefix=false"] },
-    { source: "engine", args: ["logs", "-l", "app=agentic-engine", "--tail=80", "-f", "--prefix=false"] },
-    { source: "warm-pool", args: ["logs", "-l", "app=agentic-warm-pool", "--tail=40", "-f", "--prefix=false"] },
-    { source: "broker", args: ["logs", "-l", "app=agentic-delegation-broker", "--tail=40", "-f", "--prefix=false"] },
-  ];
-  for (const spec of specs) {
-    if (kubectlTails.has(spec.source)) continue;
-    startKubectlTail(spec.source, spec.args);
-  }
-}
-
-function startKubectlTail(source, args) {
+function readSa() {
   try {
-    const child = spawn("kubectl", args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
-    });
-    kubectlTails.set(source, child);
-    let buf = "";
-    const flush = (chunk, level) => {
-      buf += String(chunk || "");
-      const parts = buf.split("\n");
-      buf = parts.pop() || "";
-      for (const line of parts) adminLog(source, line, level);
-    };
-    child.stdout?.on("data", (d) => flush(d, "info"));
-    child.stderr?.on("data", (d) => flush(d, "warn"));
-    child.on("close", () => {
-      kubectlTails.delete(source);
-      // Retry later if the stream dies (pod restart).
-      setTimeout(() => {
-        if (kubectlOk && !kubectlTails.has(source)) startKubectlTail(source, args);
-      }, 15000);
-    });
-    child.on("error", () => {
-      kubectlTails.delete(source);
-    });
-    if (typeof child.unref === "function") child.unref();
+    const token = fs.readFileSync(`${SA_DIR}/token`, "utf8").trim();
+    const namespace = fs.readFileSync(`${SA_DIR}/namespace`, "utf8").trim();
+    const ca = fs.readFileSync(`${SA_DIR}/ca.crt`);
+    const host = process.env.KUBERNETES_SERVICE_HOST;
+    const port = process.env.KUBERNETES_SERVICE_PORT || "443";
+    if (!token || !namespace || !host) return null;
+    return { token, namespace, ca, host, port: String(port) };
   } catch {
-    /* ignore */
+    return null;
   }
 }
 
-// Seed a couple of lines so the UI is never empty on first open.
+async function ensureK8sLogTails() {
+  if (ensureStarted) return;
+  ensureStarted = true;
+  const sa = readSa();
+  if (!sa) {
+    adminLog(
+      "web",
+      "Live pod logs unavailable (not in-cluster); web console only",
+      "warn",
+    );
+    k8sReady = false;
+    return;
+  }
+  k8sReady = true;
+  adminLog("web", "Starting in-cluster pod log tails", "info");
+  for (const spec of TAIL_SPECS) {
+    void maintainTail(sa, spec);
+  }
+}
+
+/**
+ * @param {ReturnType<typeof readSa>} sa
+ * @param {(typeof TAIL_SPECS)[number]} spec
+ */
+async function maintainTail(sa, spec) {
+  if (!sa) return;
+  while (k8sReady) {
+    try {
+      const pods = await listPods(sa, spec.labelSelector);
+      const pod = pickNewestPod(pods);
+      if (!pod) {
+        adminLog(spec.source, `no pods for ${spec.labelSelector}`, "warn");
+        await sleep(15000);
+        continue;
+      }
+      adminLog(spec.source, `tailing pod/${pod}…`, "info");
+      await followPodLogs(sa, pod, spec);
+    } catch (err) {
+      adminLog(
+        spec.source,
+        `log tail error: ${err?.message || err}`,
+        "warn",
+      );
+    }
+    await sleep(5000);
+  }
+}
+
+function pickNewestPod(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  const sorted = [...items].sort((a, b) => {
+    const ta = Date.parse(a?.metadata?.creationTimestamp || 0);
+    const tb = Date.parse(b?.metadata?.creationTimestamp || 0);
+    return tb - ta;
+  });
+  return sorted[0]?.metadata?.name || null;
+}
+
+function listPods(sa, labelSelector) {
+  const path = `/api/v1/namespaces/${encodeURIComponent(sa.namespace)}/pods?labelSelector=${encodeURIComponent(labelSelector)}`;
+  return k8sRequest(sa, path).then((body) => {
+    const json = JSON.parse(body);
+    return json.items || [];
+  });
+}
+
+/**
+ * @param {ReturnType<typeof readSa>} sa
+ * @param {string} podName
+ * @param {(typeof TAIL_SPECS)[number]} spec
+ */
+function followPodLogs(sa, podName, spec) {
+  return new Promise((resolve, reject) => {
+    const key = spec.source;
+    stopTail(key);
+
+    const qs = new URLSearchParams({
+      follow: "true",
+      timestamps: "false",
+      tailLines: String(spec.tailLines || 80),
+    });
+    if (spec.container) qs.set("container", spec.container);
+    const path = `/api/v1/namespaces/${encodeURIComponent(sa.namespace)}/pods/${encodeURIComponent(podName)}/log?${qs}`;
+
+    let buf = "";
+    const req = k8sStream(sa, path, {
+      onData: (chunk) => {
+        buf += String(chunk || "");
+        const parts = buf.split("\n");
+        buf = parts.pop() || "";
+        for (const line of parts) adminLog(spec.source, line, "info");
+      },
+      onEnd: () => {
+        activeTails.delete(key);
+        if (buf.trim()) adminLog(spec.source, buf, "info");
+        resolve();
+      },
+      onError: (err) => {
+        activeTails.delete(key);
+        reject(err);
+      },
+    });
+    activeTails.set(key, {
+      req,
+      abort: () => {
+        try {
+          req.destroy();
+        } catch {
+          /* ignore */
+        }
+      },
+    });
+  });
+}
+
+function stopTail(source) {
+  const cur = activeTails.get(source);
+  if (!cur) return;
+  activeTails.delete(source);
+  cur.abort();
+}
+
+function k8sRequest(sa, path) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        host: sa.host,
+        port: sa.port,
+        path,
+        method: "GET",
+        ca: sa.ca,
+        headers: { Authorization: `Bearer ${sa.token}` },
+        timeout: 15000,
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => {
+          if ((res.statusCode || 500) >= 300) {
+            reject(new Error(`k8s ${res.statusCode}: ${body.slice(0, 200)}`));
+            return;
+          }
+          resolve(body);
+        });
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("k8s request timeout"));
+    });
+    req.end();
+  });
+}
+
+function k8sStream(sa, path, { onData, onEnd, onError }) {
+  const req = https.request(
+    {
+      host: sa.host,
+      port: sa.port,
+      path,
+      method: "GET",
+      ca: sa.ca,
+      headers: { Authorization: `Bearer ${sa.token}` },
+      timeout: 0,
+    },
+    (res) => {
+      if ((res.statusCode || 500) >= 300) {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => {
+          onError(new Error(`k8s ${res.statusCode}: ${body.slice(0, 240)}`));
+        });
+        return;
+      }
+      res.setEncoding("utf8");
+      res.on("data", onData);
+      res.on("end", onEnd);
+      res.on("error", onError);
+    },
+  );
+  req.on("error", onError);
+  req.end();
+  return req;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Seed so the UI is never empty on first open.
 adminLog("web", "Admin log bus ready", "info");
