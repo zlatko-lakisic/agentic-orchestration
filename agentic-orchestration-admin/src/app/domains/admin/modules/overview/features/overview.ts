@@ -54,10 +54,7 @@ import {
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
-import {
-  formatThermalRange,
-  resolveThermalRange,
-} from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
+import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
 
 /** Topology reads top-down: each entry depends on the ones above it. */
 const DEPENDENCY_ORDER = [
@@ -280,9 +277,6 @@ const DEPENDENCY_ORDER = [
                     <span class="text-lg text-neutral-500">°C</span>
                   }
                 </div>
-                <div class="text-xs text-neutral-500">
-                  op {{ formatThermalRange(cpuThermalRange()) }}
-                </div>
               </div>
             </div>
             <apx-chart
@@ -347,9 +341,6 @@ const DEPENDENCY_ORDER = [
                   }}@if (live.latestGpuTemp() != null) {
                     <span class="text-lg text-neutral-500">°C</span>
                   }
-                </div>
-                <div class="text-xs text-neutral-500">
-                  op {{ formatThermalRange(gpuThermalRange()) }}
                 </div>
               </div>
             </div>
@@ -777,8 +768,6 @@ export class OverviewPage implements OnInit, OnDestroy {
   readonly gpuThermalRange = computed(() =>
     resolveThermalRange('gpu', this.live.gpuName())
   );
-
-  readonly formatThermalRange = formatThermalRange;
 
   readonly cpuMemTooltip = computed(
     (): ApexTooltip => ({
