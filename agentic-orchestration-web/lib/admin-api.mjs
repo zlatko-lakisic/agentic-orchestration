@@ -757,12 +757,16 @@ function buildStorageInventory({ toolRoot }) {
   };
 }
 
-function fetchJson(url, timeoutMs = 2000) {
+function fetchJson(url, timeoutMs = 2000, tlsInsecure = false) {
   return new Promise((resolve) => {
     try {
       const u = new URL(url);
       const lib = u.protocol === "https:" ? https : http;
-      const req = lib.get(url, { timeout: timeoutMs }, (res) => {
+      const opts = { timeout: timeoutMs };
+      if (u.protocol === "https:" && tlsInsecure) {
+        opts.rejectUnauthorized = false;
+      }
+      const req = lib.get(url, opts, (res) => {
         let body = "";
         res.on("data", (c) => {
           body += c;
@@ -786,17 +790,51 @@ function fetchJson(url, timeoutMs = 2000) {
   });
 }
 
+/**
+ * Probe engine from the coordinator pod. Prefer in-cluster Service DNS /
+ * host.k3s.internal — 127.0.0.1 is the web container, not the engine hostPort.
+ */
+async function probeEngineHealth(engineScheme, enginePort, configuredHost) {
+  const tlsInsecure = engineScheme === "https";
+  const candidates = [];
+  const push = (host) => {
+    if (!host || candidates.includes(host)) return;
+    candidates.push(host);
+  };
+  // In-cluster Service (works even when hostPort is not visible on loopback).
+  push("agentic-engine");
+  push("agentic-engine.agentic-orchestration.svc");
+  push("host.k3s.internal");
+  if (configuredHost && configuredHost !== "0.0.0.0") push(configuredHost);
+  // Last resort for bare-metal / same-network-namespace deploys.
+  push("127.0.0.1");
+
+  let last = { ok: false, error: "no probe candidates" };
+  for (const host of candidates) {
+    const result = await fetchJson(
+      `${engineScheme}://${host}:${enginePort}/health`,
+      2000,
+      tlsInsecure,
+    );
+    if (result.ok) {
+      return { ...result, probeHost: host };
+    }
+    last = { ...result, probeHost: host };
+  }
+  return last;
+}
+
 async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
   const webPort = Number(process.env.AGENTIC_WEB_PORT || 3847);
   const enginePort = Number(process.env.AGENTIC_SERVE_PORT || 8765);
   const engineHost = String(process.env.AGENTIC_SERVE_HOST || "127.0.0.1");
-  const probeHost = engineHost === "0.0.0.0" ? "127.0.0.1" : engineHost;
   const engineTls = Boolean(
     process.env.AGENTIC_SERVE_TLS_CERTFILE && process.env.AGENTIC_SERVE_TLS_KEYFILE,
   );
   const engineScheme = engineTls ? "https" : "http";
 
-  const engineHealth = await fetchJson(`${engineScheme}://${probeHost}:${enginePort}/health`);
+  const engineHealth = await probeEngineHealth(engineScheme, enginePort, engineHost);
+  const probeHost = engineHealth.probeHost || (engineHost === "0.0.0.0" ? "127.0.0.1" : engineHost);
   const components = [
     {
       id: "web",

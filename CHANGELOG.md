@@ -14,7 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
-- **Admin attention / Open links** — router paths no longer double-prefix `/admin`; topology Open uses resolvable URLs (`url` / `urlHint` with host substitution).
+- **Admin topology engine probe** — check in-cluster `agentic-engine` / `host.k3s.internal` (not coordinator loopback); TLS health probes allow the cluster self-signed cert.
 - **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.
 
 ### Changed
