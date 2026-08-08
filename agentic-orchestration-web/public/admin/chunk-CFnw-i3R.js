@@ -1,0 +1,1 @@
+import{Qr as v}from"./chunk-BKuU67Ve.js";var R=new v(``);export{R as t};

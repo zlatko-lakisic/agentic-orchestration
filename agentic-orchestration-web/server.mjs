@@ -22,8 +22,40 @@ import {
 } from "./lib/user-context.mjs";
 import { startOllamaKeepAliveLoop, beginOrchestrateOllamaBusy, endOrchestrateOllamaBusy } from "./lib/ollama-keepalive.mjs";
 import { handleAdminApi, matchAdminRoute } from "./lib/admin-api.mjs";
+import {
+  adminLog,
+  startAdminLogsPush,
+  stopAdminLogsPush,
+} from "./lib/admin-logs.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Mirror process console into the Admin live log bus (web source). */
+function installAdminConsoleTap() {
+  for (const level of ["log", "info", "warn", "error"]) {
+    const orig = console[level]?.bind(console);
+    if (!orig) continue;
+    console[level] = (...args) => {
+      try {
+        const line = args
+          .map((a) => {
+            if (typeof a === "string") return a;
+            try {
+              return JSON.stringify(a);
+            } catch {
+              return String(a);
+            }
+          })
+          .join(" ");
+        adminLog("web", line, level === "log" ? "info" : level);
+      } catch {
+        /* ignore */
+      }
+      return orig(...args);
+    };
+  }
+}
+installAdminConsoleTap();
 
 /** Load `.env` next to this file (no extra deps). Does not override existing process.env. */
 function loadLocalEnv() {
@@ -2889,6 +2921,18 @@ wss.on("connection", (ws, req) => {
       startHostMetricsPush(ws);
       return;
     }
+    if (msg.type === "host_metrics_unsubscribe") {
+      stopHostMetricsPush(ws);
+      return;
+    }
+    if (msg.type === "admin_logs_subscribe") {
+      startAdminLogsPush(ws, sendJson, { sources: msg.sources });
+      return;
+    }
+    if (msg.type === "admin_logs_unsubscribe") {
+      stopAdminLogsPush(ws);
+      return;
+    }
     if (msg.type === "client_hello") {
       const resume = Boolean(msg.resume);
       if (!resume && webPlannerGreetEnabled()) {
@@ -2979,6 +3023,7 @@ wss.on("connection", (ws, req) => {
 
   ws.on("close", (code, reason) => {
     stopHostMetricsPush(ws);
+    stopAdminLogsPush(ws);
     const r = reason?.toString?.() || "";
     if (code !== 1000 && code !== 1001) {
       console.error(`[agentic-orchestration-web] ws close code=${code} reason=${r.slice(0, 120)}`);

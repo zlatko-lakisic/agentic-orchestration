@@ -7,10 +7,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Admin live host metrics (WebSocket)** — Overview subscribes to the same `host_metrics` push as chat (~2s), with Fuse ApexCharts area + sparklines for CPU / memory / GPU.
+- **Admin live logs** — filterable scrolling log panel via `admin_logs_subscribe` (web console tap + kubectl tails when available).
+
+### Fixed
+
+- **Admin attention / Open links** — router paths no longer double-prefix `/admin`; topology Open uses resolvable URLs (`url` / `urlHint` with host substitution).
+- **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.
+
 ### Changed
 
 - **AO Admin Fuse-only UI** — Fuse theme defaults (`#1565C0`, system scheme), Orders status pills, Material cards/tables/settings shells only; removed custom AO tokens/colors and non-Fuse chrome.
-- **Admin Overview** — Fuse Project KPI strip, Finance utilization/`mat-progress-bar` + statement topology cards, Analytics insights list (ops dashboard layout).
+- **Admin Overview** — Fuse Project KPI strip, live utilization charts, statement topology cards, Analytics insights list, live logs.
 
 ## [1.30.1] - 2026-08-08
 

@@ -1,32 +1,57 @@
 import { DecimalPipe, NgClass } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import {
   MatCard,
   MatCardContent,
   MatCardHeader,
 } from '@angular/material/card';
+import {
+  MatChipListbox,
+  MatChipListboxChange,
+  MatChipOption,
+} from '@angular/material/chips';
 import { MatDivider } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterLink } from '@angular/router';
+import {
+  ApexAxisChartSeries,
+  ApexChart,
+  ApexDataLabels,
+  ApexFill,
+  ApexGrid,
+  ApexLegend,
+  ApexStroke,
+  ApexTooltip,
+  ApexXAxis,
+  ApexYAxis,
+  ChartComponent,
+} from 'ng-apexcharts';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import {
-  HostMetrics,
   PingResponse,
   SessionResponse,
   TopologyComponent,
   TopologyResponse,
 } from '@/app/core/ao-api/types';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { Theming } from '@/app/core/theming';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 
 /**
- * Overview — Fuse dashboard composition:
- * - Project: filled summary KPI cards (text-5xl + change row)
- * - Finance: statement watermark cards + mat-progress-bar resource rows
- * - Analytics: insights list (icon + text)
- * Industry ops dashboards (K8s / Datadog style) use the same strip → gauges → tiles → alerts flow.
+ * Overview — live host metrics (WS) + Fuse Apex charts + filterable live logs.
  */
 @Component({
   selector: 'ao-overview-page',
@@ -41,25 +66,43 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     MatCardContent,
     MatDivider,
     MatProgressBarModule,
+    MatChipListbox,
+    MatChipOption,
     DecimalPipe,
     NgClass,
+    ChartComponent,
   ],
   template: `
     <div
       class="@container mx-auto flex w-full max-w-7xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
     >
-      <!-- Header (Fuse Analytics / Finance) -->
       <div class="flex items-center justify-between gap-x-3">
         <div class="flex flex-col gap-y-0.5">
           <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
             Overview
           </div>
           <div class="text-neutral-500">
-            Control-plane health, host utilization, and items that need attention
+            Live host utilization, topology, and streaming logs
           </div>
         </div>
         <div class="flex-auto"></div>
         <div class="flex items-center gap-x-3">
+          <div
+            class="hidden items-center gap-x-1.5 text-sm sm:flex"
+            [ngClass]="
+              live.connected() ? 'text-green-600' : 'text-neutral-500'
+            "
+          >
+            <span
+              class="inline-block size-2 rounded-full"
+              [ngClass]="
+                live.connected()
+                  ? 'bg-green-500 animate-pulse'
+                  : 'bg-neutral-400'
+              "
+            ></span>
+            {{ live.connected() ? 'Live' : 'Reconnecting…' }}
+          </div>
           <button
             class="hidden sm:inline-flex"
             matButton="outlined"
@@ -69,24 +112,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <mat-icon svgIcon="refresh-cw" />
             Refresh
           </button>
-          <div class="sm:hidden">
-            <button
-              matIconButton
-              type="button"
-              [matMenuTriggerFor]="actionsMenu"
-            >
-              <mat-icon svgIcon="ellipsis" />
-            </button>
-            <mat-menu #actionsMenu="matMenu">
-              <button
-                mat-menu-item
-                type="button"
-                (click)="reload()"
-              >
-                Refresh
-              </button>
-            </mat-menu>
-          </div>
         </div>
       </div>
 
@@ -94,7 +119,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         <ao-error-state [message]="error()!" />
       }
 
-      <!-- Summary stats (Fuse Project) -->
       <div
         class="grid gap-4 sm:gap-6 @max-md:grid-cols-1 @md:grid-cols-2 @4xl:grid-cols-4"
       >
@@ -119,10 +143,8 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                   [class]="item.toneClass"
                   [svgIcon]="item.toneIcon"
                 />
-                <div
-                  class="flex items-center gap-x-1 text-sm font-medium text-neutral-500"
-                >
-                  <div>{{ item.caption }}</div>
+                <div class="text-sm font-medium text-neutral-500">
+                  {{ item.caption }}
                 </div>
               </div>
             </mat-card-content>
@@ -130,103 +152,115 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         }
       </div>
 
-      <!-- Host utilization (Fuse Finance budget progress rows) -->
+      <!-- Live host utilization (Fuse Analytics multi-series area) -->
+      <mat-card
+        class="overflow-hidden"
+        appearance="outlined"
+      >
+        <div class="flex flex-col gap-y-1 px-5 pt-5 sm:flex-row sm:items-start">
+          <div class="min-w-0 flex-auto">
+            <div class="text-lg font-medium tracking-tight">
+              Host utilization
+            </div>
+            <div class="font-medium text-neutral-500">
+              {{ live.metrics()?.hostname || 'Coordinator host' }}
+              · scope {{ live.metrics()?.scope || '—' }}
+              · WebSocket push ~2s
+            </div>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 sm:mt-0">
+            <div>
+              <div class="text-sm font-medium text-neutral-500">CPU</div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ live.latestCpu() ?? '—'
+                }}@if (live.latestCpu() != null) {
+                  <span class="text-lg text-neutral-500">%</span>
+                }
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-neutral-500">Memory</div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ live.latestMem() ?? '—'
+                }}@if (live.latestMem() != null) {
+                  <span class="text-lg text-neutral-500">%</span>
+                }
+              </div>
+            </div>
+            @if (live.latestGpu() != null) {
+              <div>
+                <div class="text-sm font-medium text-neutral-500">GPU</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestGpu()
+                  }}<span class="text-lg text-neutral-500">%</span>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="mt-2 flex flex-auto flex-col px-2 pb-2">
+          <apx-chart
+            class="h-72 w-full"
+            [chart]="utilChart.chart"
+            [colors]="utilChart.colors"
+            [dataLabels]="utilChart.dataLabels"
+            [fill]="utilChart.fill"
+            [grid]="utilChart.grid"
+            [legend]="utilChart.legend"
+            [series]="chartSeries()"
+            [stroke]="utilChart.stroke"
+            [tooltip]="utilChart.tooltip()"
+            [xaxis]="utilChart.xaxis"
+            [yaxis]="utilChart.yaxis"
+          />
+        </div>
+
+        <mat-divider />
+
+        <div class="flex flex-wrap gap-x-8 gap-y-3 px-5 py-4 text-sm">
+          <div>
+            <div class="font-medium text-neutral-500">Load</div>
+            <div class="font-mono tabular-nums">
+              {{ (live.metrics()?.loadAvg || []).join(' · ') || '—' }}
+            </div>
+          </div>
+          <div>
+            <div class="font-medium text-neutral-500">Uptime</div>
+            <div class="font-mono tabular-nums">
+              {{ formatUptime(live.metrics()?.uptimeSec) }}
+            </div>
+          </div>
+          <div>
+            <div class="font-medium text-neutral-500">Cores</div>
+            <div class="font-mono tabular-nums">
+              {{ live.metrics()?.cpu?.cores ?? '—' }}
+            </div>
+          </div>
+          <div class="min-w-40 flex-auto">
+            <div class="font-medium text-neutral-500">CPU</div>
+            <mat-progress-bar
+              class="mt-1 rounded-full"
+              mode="determinate"
+              [color]="resourceBarColor(live.latestCpu())"
+              [value]="live.latestCpu() ?? 0"
+            />
+          </div>
+          <div class="min-w-40 flex-auto">
+            <div class="font-medium text-neutral-500">Memory</div>
+            <mat-progress-bar
+              class="mt-1 rounded-full"
+              mode="determinate"
+              [color]="resourceBarColor(live.latestMem())"
+              [value]="live.latestMem() ?? 0"
+            />
+          </div>
+        </div>
+      </mat-card>
+
       <div class="grid w-full grid-cols-1 gap-6 xl:grid-cols-2">
-        <mat-card
-          class="overflow-hidden"
-          appearance="outlined"
-        >
-          <div class="flex flex-col px-5 py-4">
-            <div class="flex flex-col">
-              <div class="mr-4 truncate text-lg font-medium tracking-tight">
-                Host utilization
-              </div>
-              <div class="font-medium text-neutral-500">
-                {{ metrics()?.hostname || 'Coordinator host' }}
-                · scope {{ metrics()?.scope || '—' }}
-              </div>
-            </div>
-
-            <div class="mt-6 mr-2 flex items-start">
-              <div class="flex flex-col">
-                <div
-                  class="text-3xl font-semibold tracking-tighter tabular-nums md:text-4xl"
-                >
-                  {{ cpuPercent() ?? '—'
-                  }}@if (cpuPercent() != null) {
-                    <span class="text-xl text-neutral-500">%</span>
-                  }
-                </div>
-                <div class="text-sm font-medium text-neutral-500">CPU</div>
-              </div>
-              <div class="ml-8 flex flex-col md:ml-16">
-                <div
-                  class="text-3xl font-semibold tracking-tighter tabular-nums md:text-4xl"
-                >
-                  {{ memPercent() ?? '—'
-                  }}@if (memPercent() != null) {
-                    <span class="text-xl text-neutral-500">%</span>
-                  }
-                </div>
-                <div class="text-sm font-medium text-neutral-500">Memory</div>
-              </div>
-            </div>
-          </div>
-
-          <mat-divider />
-
-          <div class="flex flex-col gap-y-5 px-5 py-5">
-            <div class="flex items-end">
-              <div class="flex-auto leading-none">
-                <div class="text-sm font-medium text-neutral-500">CPU</div>
-                <div class="text-2xl font-medium tabular-nums">
-                  {{ cpuPercent() ?? '—' }}%
-                  @if (metrics()?.cpu?.cores) {
-                    <span class="text-sm font-normal text-neutral-500">
-                      · {{ metrics()?.cpu?.cores }} cores
-                    </span>
-                  }
-                </div>
-                <mat-progress-bar
-                  class="mt-2 rounded-full"
-                  [mode]="'determinate'"
-                  [color]="resourceBarColor(cpuPercent())"
-                  [value]="cpuPercent() ?? 0"
-                />
-              </div>
-            </div>
-            <div class="flex items-end">
-              <div class="flex-auto leading-none">
-                <div class="text-sm font-medium text-neutral-500">Memory</div>
-                <div class="text-2xl font-medium tabular-nums">
-                  {{ memPercent() ?? '—' }}%
-                </div>
-                <mat-progress-bar
-                  class="mt-2 rounded-full"
-                  [mode]="'determinate'"
-                  [color]="resourceBarColor(memPercent())"
-                  [value]="memPercent() ?? 0"
-                />
-              </div>
-            </div>
-            <div class="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-              <div>
-                <div class="font-medium text-neutral-500">Load</div>
-                <div class="font-mono tabular-nums">
-                  {{ (metrics()?.loadAvg || []).join(' · ') || '—' }}
-                </div>
-              </div>
-              <div>
-                <div class="font-medium text-neutral-500">Uptime</div>
-                <div class="font-mono tabular-nums">
-                  {{ formatUptime(metrics()?.uptimeSec) }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </mat-card>
-
-        <!-- Web process (Fuse Project issues sidebar density) -->
         <mat-card
           appearance="filled"
           class="flex flex-col"
@@ -239,29 +273,12 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
               />
               <div class="font-medium tracking-tight">Web process</div>
               <div class="ml-auto">
-                <button
-                  class="tiny"
-                  matIconButton
-                  type="button"
-                  [matMenuTriggerFor]="webMenu"
+                <a
+                  matButton
+                  href="/"
                 >
-                  <mat-icon svgIcon="ellipsis-vertical" />
-                </button>
-                <mat-menu #webMenu="matMenu">
-                  <button
-                    mat-menu-item
-                    type="button"
-                    (click)="reload()"
-                  >
-                    Refresh data
-                  </button>
-                  <a
-                    mat-menu-item
-                    href="/"
-                  >
-                    Open chat
-                  </a>
-                </mat-menu>
+                  Open chat
+                </a>
               </div>
             </div>
           </mat-card-header>
@@ -272,7 +289,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <div class="mt-0.5 text-sm text-neutral-500">
               Coordinator web UI and Admin API process
             </div>
-
             <div class="mt-4 flex flex-col gap-y-3">
               <div class="flex items-center gap-x-1">
                 <div class="text-neutral-500">pid</div>
@@ -295,50 +311,89 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                   {{ session()?.userName || '—' }}
                 </div>
               </div>
-              <div class="flex items-center gap-x-1">
-                <div class="text-neutral-500">session</div>
-                <div class="flex-auto"></div>
-                <div class="max-w-[60%] truncate font-mono text-sm font-medium">
-                  {{ session()?.sessionId || '—' }}
-                </div>
-              </div>
-            </div>
-
-            <div class="flex-auto"></div>
-            <div class="mt-4 text-xs text-neutral-500">
-              Reach / KnowBuddy must target the engine port, not this web
-              process.
             </div>
           </mat-card-content>
         </mat-card>
+
+        @if (topology()?.reachGuard; as rg) {
+          <mat-card
+            class="p-6"
+            appearance="outlined"
+          >
+            <div class="flex items-center gap-x-2">
+              <mat-icon
+                class="size-5 text-primary-600 dark:text-primary-500"
+                svgIcon="sparkles"
+              />
+              <div class="truncate text-lg font-medium tracking-tight">
+                Reach port guard
+              </div>
+            </div>
+            <div class="mt-4 flex items-start gap-x-3">
+              <mat-icon
+                class="size-5 shrink-0 text-neutral-500"
+                svgIcon="octagon-alert"
+              />
+              <div class="text-neutral-500">{{ rg.message }}</div>
+            </div>
+          </mat-card>
+        } @else {
+          <mat-card
+            class="p-6"
+            appearance="outlined"
+          >
+            <div class="flex items-center gap-x-2">
+              <mat-icon
+                class="size-5 text-primary-600 dark:text-primary-500"
+                svgIcon="activity"
+              />
+              <div class="truncate text-lg font-medium tracking-tight">
+                Sparkline snapshots
+              </div>
+            </div>
+            <div class="mt-4 grid grid-cols-3 gap-3">
+              <div>
+                <div class="text-xs font-medium text-neutral-500">CPU</div>
+                <apx-chart
+                  class="h-16"
+                  [chart]="sparkChart.chart"
+                  [colors]="['#f59e0b']"
+                  [fill]="sparkChart.fill"
+                  [series]="sparkSeries('cpu')"
+                  [stroke]="sparkChart.stroke"
+                  [tooltip]="sparkChart.tooltip"
+                />
+              </div>
+              <div>
+                <div class="text-xs font-medium text-neutral-500">Memory</div>
+                <apx-chart
+                  class="h-16"
+                  [chart]="sparkChart.chart"
+                  [colors]="['#60a5fa']"
+                  [fill]="sparkChart.fill"
+                  [series]="sparkSeries('mem')"
+                  [stroke]="sparkChart.stroke"
+                  [tooltip]="sparkChart.tooltip"
+                />
+              </div>
+              <div>
+                <div class="text-xs font-medium text-neutral-500">GPU</div>
+                <apx-chart
+                  class="h-16"
+                  [chart]="sparkChart.chart"
+                  [colors]="['#c084fc']"
+                  [fill]="sparkChart.fill"
+                  [series]="sparkSeries('gpu')"
+                  [stroke]="sparkChart.stroke"
+                  [tooltip]="sparkChart.tooltip"
+                />
+              </div>
+            </div>
+          </mat-card>
+        }
       </div>
 
-      @if (topology()?.reachGuard; as rg) {
-        <mat-card
-          class="p-6"
-          appearance="outlined"
-        >
-          <div class="flex items-center gap-x-2">
-            <mat-icon
-              class="size-5 text-primary-600 dark:text-primary-500"
-              svgIcon="sparkles"
-            />
-            <div class="truncate text-lg font-medium tracking-tight">
-              Reach port guard
-            </div>
-          </div>
-          <div class="mt-4 flex items-start gap-x-3">
-            <mat-icon
-              class="size-5 shrink-0 text-neutral-500"
-              svgIcon="octagon-alert"
-            />
-            <div class="text-neutral-500">{{ rg.message }}</div>
-          </div>
-        </mat-card>
-      }
-
-      <!-- Section title (Fuse Analytics) -->
-      <div class="mt-4 w-full">
+      <div class="mt-2 w-full">
         <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
           Topology
         </div>
@@ -347,7 +402,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         </div>
       </div>
 
-      <!-- Topology tiles (Fuse Finance statement cards) -->
       <div class="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-2">
         @for (c of components(); track c.id) {
           <mat-card
@@ -389,14 +443,14 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                   >
                     Refresh
                   </button>
-                  @if (c.url) {
+                  @if (componentHref(c); as href) {
                     <a
                       mat-menu-item
-                      [href]="c.url"
+                      [href]="href"
                       target="_blank"
                       rel="noopener"
                     >
-                      Open URL
+                      Open
                     </a>
                   }
                 </mat-menu>
@@ -422,6 +476,18 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                 </div>
               </div>
             </div>
+            @if (componentHref(c); as href) {
+              <div class="mt-3">
+                <a
+                  matButton
+                  [href]="href"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Open
+                </a>
+              </div>
+            }
           </mat-card>
         } @empty {
           <mat-card
@@ -433,7 +499,63 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         }
       </div>
 
-      <!-- Needs attention (Fuse Analytics AI Insights) -->
+      <!-- Live logs -->
+      <mat-card
+        class="overflow-hidden"
+        appearance="outlined"
+      >
+        <div
+          class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
+        >
+          <div class="min-w-0 flex-auto">
+            <div class="text-lg font-medium tracking-tight">Live logs</div>
+            <div class="text-sm text-neutral-500">
+              Streaming from web + kubectl tails when available
+            </div>
+          </div>
+          <button
+            matButton="outlined"
+            type="button"
+            (click)="live.clearLogs()"
+          >
+            Clear
+          </button>
+        </div>
+        <div class="px-5 pb-3">
+          <mat-chip-listbox
+            aria-label="Log sources"
+            [multiple]="true"
+            [value]="selectedSources()"
+            (change)="onSourcesChange($event)"
+          >
+            @for (src of live.logSourceOptions(); track src) {
+              <mat-chip-option [value]="src">{{ src }}</mat-chip-option>
+            }
+          </mat-chip-listbox>
+        </div>
+        <mat-divider />
+        <div
+          #logViewport
+          class="max-h-96 overflow-y-auto bg-neutral-950 px-4 py-3 font-mono text-xs leading-relaxed text-neutral-200"
+        >
+          @for (entry of filteredLogs(); track entry.id) {
+            <div class="flex gap-x-2 whitespace-pre-wrap break-all">
+              <span class="shrink-0 text-neutral-500">{{
+                formatLogTime(entry.ts)
+              }}</span>
+              <span
+                class="w-24 shrink-0 truncate font-semibold"
+                [ngClass]="sourceClass(entry.source)"
+                >{{ entry.source }}</span
+              >
+              <span [ngClass]="levelClass(entry.level)">{{ entry.line }}</span>
+            </div>
+          } @empty {
+            <div class="text-neutral-500">Waiting for log lines…</div>
+          }
+        </div>
+      </mat-card>
+
       <mat-card
         class="p-6"
         appearance="outlined"
@@ -447,7 +569,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             Needs attention
           </div>
         </div>
-
         <div class="mt-6 flex flex-col gap-y-4">
           @for (a of topology()?.attention || []; track a.message) {
             <div class="flex items-start gap-x-3">
@@ -484,27 +605,59 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     </div>
   `,
 })
-export class OverviewPage implements OnInit {
+export class OverviewPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
+  private theming = inject(Theming);
+  readonly live = inject(AoLiveWs);
+
+  private logViewport =
+    viewChild<ElementRef<HTMLDivElement>>('logViewport');
+
   readonly topology = signal<TopologyResponse | null>(null);
   readonly ping = signal<PingResponse | null>(null);
   readonly session = signal<SessionResponse | null>(null);
-  readonly metrics = signal<HostMetrics | null>(null);
   readonly error = signal<string | null>(null);
+  readonly selectedSources = signal<string[]>([]);
 
   readonly components = computed(
     () => (this.topology()?.components || []) as TopologyComponent[]
   );
 
-  readonly cpuPercent = computed(() => {
-    const n = this.metrics()?.cpu?.percent;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+  readonly filteredLogs = computed(() => {
+    const allow = new Set(this.selectedSources());
+    const logs = this.live.logs();
+    if (!allow.size) return logs;
+    return logs.filter((e) => allow.has(e.source));
   });
 
-  readonly memPercent = computed(() => {
-    const m = this.metrics()?.memory;
-    const n = m?.usedPercent ?? m?.percent;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+  readonly chartSeries = computed((): ApexAxisChartSeries => {
+    const hist = this.live.history();
+    const series: ApexAxisChartSeries = [
+      {
+        name: 'CPU',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.cpu == null ? null : Number(h.cpu.toFixed(1)),
+        })),
+      },
+      {
+        name: 'Memory',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.mem == null ? null : Number(h.mem.toFixed(1)),
+        })),
+      },
+    ];
+    if (hist.some((h) => h.gpu != null)) {
+      series.push({
+        name: 'GPU',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.gpu == null ? null : Number(h.gpu.toFixed(1)),
+        })),
+      });
+    }
+    return series;
   });
 
   readonly summary = computed(() => {
@@ -559,8 +712,122 @@ export class OverviewPage implements OnInit {
     ];
   });
 
+  protected utilChart = {
+    chart: {
+      animations: { enabled: false },
+      fontFamily: 'inherit',
+      foreColor: 'inherit',
+      height: '100%',
+      type: 'area',
+      toolbar: { show: false },
+      zoom: { enabled: false },
+    } as ApexChart,
+    colors: ['#f59e0b', '#60a5fa', '#c084fc'],
+    dataLabels: { enabled: false } as ApexDataLabels,
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shadeIntensity: 0.4,
+        opacityFrom: 0.45,
+        opacityTo: 0.05,
+        stops: [0, 90, 100],
+      },
+    } as ApexFill,
+    grid: {
+      borderColor: 'rgba(148, 163, 184, 0.2)',
+      strokeDashArray: 3,
+      padding: { left: 8, right: 8 },
+    } as ApexGrid,
+    legend: {
+      show: true,
+      position: 'top',
+      horizontalAlign: 'right',
+    } as ApexLegend,
+    stroke: { curve: 'smooth', width: 2 } as ApexStroke,
+    tooltip: computed(
+      (): ApexTooltip => ({
+        theme: this.theming.isDark() ? 'dark' : 'light',
+        x: { format: 'HH:mm:ss' },
+        y: { formatter: (v: number) => `${Number(v).toFixed(1)}%` },
+      })
+    ),
+    xaxis: {
+      type: 'datetime',
+      labels: {
+        datetimeUTC: false,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+      axisBorder: { show: false },
+      tooltip: { enabled: false },
+    } as ApexXAxis,
+    yaxis: {
+      min: 0,
+      max: 100,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}%`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+    } as ApexYAxis,
+  };
+
+  protected sparkChart = {
+    chart: {
+      animations: { enabled: false },
+      fontFamily: 'inherit',
+      foreColor: 'inherit',
+      height: '101%',
+      width: '101%',
+      type: 'area',
+      sparkline: { enabled: true },
+    } as ApexChart,
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shadeIntensity: 0.5,
+        opacityFrom: 0.4,
+        opacityTo: 0.05,
+      },
+    } as ApexFill,
+    stroke: { curve: 'smooth', width: 2 } as ApexStroke,
+    tooltip: { enabled: false } as ApexTooltip,
+  };
+
+  constructor() {
+    effect(() => {
+      // Auto-scroll log viewport when new lines arrive.
+      this.filteredLogs();
+      queueMicrotask(() => {
+        const el = this.logViewport()?.nativeElement;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }
+
   ngOnInit() {
+    this.selectedSources.set([...this.live.logSourceOptions()]);
+    this.live.acquire({ metrics: true, logs: true });
     this.reload();
+  }
+
+  ngOnDestroy() {
+    this.live.release();
+  }
+
+  sparkSeries(key: 'cpu' | 'mem' | 'gpu'): ApexAxisChartSeries {
+    const vals = this.live
+      .history()
+      .map((h) => h[key])
+      .filter((v): v is number => v != null);
+    return [{ name: key, data: vals.length ? vals : [0] }];
+  }
+
+  onSourcesChange(ev: MatChipListboxChange) {
+    const value = ev.value as string[] | string | undefined;
+    const list = Array.isArray(value) ? value : value ? [value] : [];
+    this.selectedSources.set(list);
+    this.live.setLogSources(list.length ? list : null);
   }
 
   reload() {
@@ -571,7 +838,21 @@ export class OverviewPage implements OnInit {
     });
     this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
     this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
-    this.api.hostMetrics().subscribe((r) => r.ok && this.metrics.set(r.data));
+  }
+
+  componentHref(c: TopologyComponent): string | null {
+    const raw = c.url || c.urlHint;
+    if (!raw) return null;
+    const host = location.hostname || '127.0.0.1';
+    const resolved = String(raw)
+      .replace(/__HOST__/g, host)
+      .replace(/<host>/gi, host)
+      .split(/\s+/)[0];
+    if (!resolved || resolved.includes('<')) return null;
+    if (resolved.startsWith('/')) {
+      return `${location.protocol}//${location.host}${resolved}`;
+    }
+    return resolved;
   }
 
   resourceBarColor(pct: number | null): 'primary' | 'warn' | 'error' {
@@ -625,5 +906,38 @@ export class OverviewPage implements OnInit {
     if (d > 0) return `${d}d ${h}h`;
     if (h > 0) return `${h}h ${m}m`;
     return `${m}m`;
+  }
+
+  formatLogTime(ts: string): string {
+    const d = new Date(ts);
+    return Number.isFinite(d.getTime())
+      ? d.toLocaleTimeString([], {
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      : '--:--:--';
+  }
+
+  sourceClass(source: string): string {
+    switch (source) {
+      case 'engine':
+        return 'text-violet-400';
+      case 'coordinator':
+        return 'text-sky-400';
+      case 'warm-pool':
+        return 'text-amber-400';
+      case 'broker':
+        return 'text-rose-400';
+      default:
+        return 'text-emerald-400';
+    }
+  }
+
+  levelClass(level: string): string {
+    if (level === 'error') return 'text-red-300';
+    if (level === 'warn') return 'text-amber-200';
+    return 'text-neutral-200';
   }
 }

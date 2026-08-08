@@ -805,6 +805,8 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
       port: webPort,
       nodePort: 30487,
       fact: `pid ${webPid} · instance ${webInstanceId}`,
+      // Relative to the browser host — Admin resolves via location.hostname.
+      url: "/",
       urlHint: `http://<host>:30487/`,
     },
     {
@@ -816,6 +818,9 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
       fact: engineHealth.ok
         ? `reachable on ${engineScheme}://${probeHost}:${enginePort}`
         : engineHealth.error || `HTTP ${engineHealth.status || "down"}`,
+      url: engineHealth.ok
+        ? `${engineScheme}://__HOST__:${enginePort}/health`
+        : null,
       urlHint: `${engineScheme}://<host>:8765/  (Reach / KnowBuddy — not :30487)`,
       tls: engineTls,
       overlays: String(process.env.AGENTIC_SERVE_SESSION_OVERLAY || "") === "1",
@@ -837,19 +842,20 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
     },
   ];
 
+  // hrefs are routerLink paths under baseHref=/admin/ (no /admin prefix).
   const attention = [];
   if (!engineHealth.ok && process.env.AGENTIC_JETSON_ENABLE_ENGINE !== "0") {
     attention.push({
       severity: "warning",
       message: "Engine daemon is not reachable on :8765",
-      href: "/admin/integrations",
+      href: "/integrations",
     });
   }
   if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.OLLAMA_HOST && !process.env.OLLAMA_API_BASE) {
     attention.push({
       severity: "warning",
       message: "No LLM credentials detected (OpenAI / Anthropic / Ollama)",
-      href: "/admin/runtime/models",
+      href: "/runtime/models",
     });
   }
   const dualWriterRisk =
@@ -860,7 +866,7 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
       severity: "info",
       message:
         "KB is enabled — ensure only one writer (Node CLI spawn vs engine) owns kb.sqlite3 per deployment",
-      href: "/admin/memory",
+      href: "/memory",
     });
   }
 
