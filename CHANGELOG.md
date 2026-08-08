@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Host CPU/GPU temperature (°C)** — `cpu.tempC` / `gpu.tempC` in host metrics (nvidia-smi, Jetson jtop/tegrastats, AMD hwmon, thermal zones). Admin Overview charts plot Temp on a right-hand Celsius axis beside utilization %.
 - **AO brand mark** — letter-A / orchestration-arrow lockup under `assets/brand/` (SVGs, favicons, BRAND.md). Wired into Admin, chat UI, GitHub Pages docs/landing, READMEs, and wiki.
 
 ### Fixed

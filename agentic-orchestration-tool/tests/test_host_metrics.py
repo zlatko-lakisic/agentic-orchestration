@@ -98,6 +98,7 @@ def test_gpu_block_null_when_no_nvidia(monkeypatch: pytest.MonkeyPatch) -> None:
         "vramFreeGb": None,
         "vramSource": None,
         "name": None,
+        "tempC": None,
     }
 
 
@@ -150,6 +151,33 @@ def test_parse_nvidia_smi_name_with_commas() -> None:
     assert parsed is not None
     assert parsed["name"] == "Foo, Bar GPU"
     assert parsed["vramTotalGb"] == 4.0
+
+
+def test_parse_nvidia_smi_includes_temperature() -> None:
+    csv = "NVIDIA RTX 4000 Ada, 23, 20480, 15520, 4627, 61\n"
+    parsed = _parse_nvidia_smi_gpu_csv(csv)
+    assert parsed is not None
+    assert parsed["tempC"] == 61.0
+    assert parsed["percent"] == 23.0
+
+
+def test_merge_jetson_promotes_cpu_and_gpu_temp() -> None:
+    from orchestration.host_metrics import merge_jetson_into_metrics
+
+    base = {
+        "cpu": {"percent": 1.0, "cores": 8},
+        "gpu": None,
+        "memory": {},
+    }
+    jtop = {
+        "source": "tegrastats",
+        "cpu": {"percent": 4.0},
+        "gpu": {"percent": 12.0, "name": "Jetson"},
+        "temperature": {"cpu": 45.8, "tj": 46.0, "soc0": 42.0},
+    }
+    out = merge_jetson_into_metrics(base, jtop)
+    assert out["cpu"]["tempC"] == 45.8
+    assert out["gpu"]["tempC"] == 46.0
 
 
 def test_parse_system_profiler_prefers_dedicated_amd() -> None:

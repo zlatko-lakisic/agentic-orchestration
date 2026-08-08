@@ -573,6 +573,7 @@ def _normalize_host_file_gpu(
     name = gpu.get("name")
     name_s = str(name).strip() if name else None
     source = gpu.get("vramSource") or snap.get("source") or default_source
+    temp_c = _as_temp_c(gpu.get("tempC"))
     if total is None and percent is None and used is None and free is None and not name_s:
         return None
     return {
@@ -584,6 +585,7 @@ def _normalize_host_file_gpu(
         "vendor": str(gpu.get("vendor") or vendor),
         "backend": str(gpu.get("backend") or backend),
         "name": name_s or None,
+        "tempC": temp_c,
     }
 
 
@@ -641,6 +643,10 @@ def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
                 vram_free = round(max(0.0, total - used), 3)
     if percent is None and vram_total is None and freq is None:
         return None
+    temps = snap.get("temperature") if isinstance(snap.get("temperature"), dict) else None
+    temp_c = _as_temp_c(gpu.get("tempC")) or _temp_from_map(
+        temps, ("gpu", "GPU", "tj", "Tj", "cpu")
+    )
     return {
         "percent": float(percent) if percent is not None else None,
         "vramTotalGb": float(vram_total) if vram_total is not None else None,
@@ -651,6 +657,7 @@ def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
         "backend": source,
         "name": name,
         "freqMhz": float(freq) if freq is not None else None,
+        "tempC": temp_c,
     }
 
 
@@ -678,8 +685,23 @@ def merge_jetson_into_metrics(
     out = {**base, "jetson": jetson, "scope": "jetson"}
     cpu = jtop.get("cpu") if isinstance(jtop.get("cpu"), dict) else {}
     cpu_percent = cpu.get("percent")
+    cpu_out = {**out.get("cpu", {})}
     if isinstance(cpu_percent, (int, float)) and cpu_percent >= 0:
-        out["cpu"] = {**out.get("cpu", {}), "percent": cpu_percent, "source": source}
+        cpu_out["percent"] = cpu_percent
+        cpu_out["source"] = source
+    cpu_temp = (
+        _as_temp_c(cpu.get("tempC"))
+        or _temp_from_map(temperature, ("cpu", "CPU", "tj", "Tj"))
+    )
+    if cpu_temp is not None:
+        cpu_out["tempC"] = cpu_temp
+    if cpu_out:
+        out["cpu"] = cpu_out
+
+    gpu_temp = (
+        _as_temp_c(gpu.get("tempC"))
+        or _temp_from_map(temperature, ("gpu", "GPU", "tj", "Tj", "cpu"))
+    )
 
     # Promote Jetson GPU into top-level gpu when NVIDIA/AMD file is absent (Node parity).
     if not out.get("gpu") or (
@@ -699,6 +721,7 @@ def merge_jetson_into_metrics(
             "vendor": "nvidia",
             "backend": source,
             "name": gpu_name,
+            "tempC": gpu_temp,
         }
         ram_text = jtop.get("ramText")
         if ram_text:
@@ -722,6 +745,9 @@ def merge_jetson_into_metrics(
             and not existing.get("name")
         ):
             out["gpu"] = promoted
+    elif gpu_temp is not None and isinstance(out.get("gpu"), dict):
+        if out["gpu"].get("tempC") is None:
+            out["gpu"] = {**out["gpu"], "tempC": gpu_temp}
     return out
 
 
@@ -748,7 +774,107 @@ def _null_gpu_block() -> dict[str, Any]:
         "vramFreeGb": None,
         "vramSource": None,
         "name": None,
+        "tempC": None,
     }
+
+
+def _as_temp_c(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and -100.0 < float(value) < 200.0:
+        return round(float(value), 1)
+    return None
+
+
+def _temp_from_map(temps: dict[str, Any] | None, preferred: tuple[str, ...]) -> float | None:
+    """Pick a Celsius reading from a jtop/tegrastats temperature map."""
+    if not isinstance(temps, dict) or not temps:
+        return None
+    lowered = {str(k).lower(): v for k, v in temps.items()}
+    for key in preferred:
+        raw = lowered.get(key.lower())
+        hit = _as_temp_c(raw)
+        if hit is not None:
+            return hit
+        if isinstance(raw, dict):
+            hit = _as_temp_c(raw.get("temp") if "temp" in raw else raw.get("tempC"))
+            if hit is not None:
+                return hit
+    for raw in temps.values():
+        hit = _as_temp_c(raw)
+        if hit is not None:
+            return hit
+        if isinstance(raw, dict):
+            hit = _as_temp_c(raw.get("temp") if "temp" in raw else raw.get("tempC"))
+            if hit is not None:
+                return hit
+    return None
+
+
+def sample_cpu_temp_c() -> float | None:
+    """
+    Host CPU package temperature in Celsius when sysfs thermal zones are visible.
+
+    Prefers ``x86_pkg_temp`` / ``cpu-thermal`` / ``soc_thermal``; falls back to the
+    first sensible zone. In k8s without host ``/sys``, rely on host writers or
+    Jetson jtop temperature overlays instead.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    thermal = Path("/sys/class/thermal")
+    if not thermal.is_dir():
+        return None
+    preferred_types = (
+        "x86_pkg_temp",
+        "cpu-thermal",
+        "cpu_thermal",
+        "soc_thermal",
+        "cpu-therm",
+        "cpu",
+    )
+    by_type: dict[str, float] = {}
+    first: float | None = None
+    try:
+        zones = sorted(thermal.glob("thermal_zone*"))
+    except OSError:
+        return None
+    for zone in zones:
+        try:
+            ztype = (zone / "type").read_text(encoding="utf-8").strip().lower()
+            milli = int((zone / "temp").read_text(encoding="utf-8").strip().split()[0])
+        except (OSError, ValueError, IndexError):
+            continue
+        celsius = milli / 1000.0
+        if celsius <= 0 or celsius >= 150:
+            continue
+        by_type[ztype] = celsius
+        if first is None:
+            first = celsius
+    for pref in preferred_types:
+        if pref in by_type:
+            return round(by_type[pref], 1)
+        for ztype, val in by_type.items():
+            if pref in ztype:
+                return round(val, 1)
+    return round(first, 1) if first is not None else None
+
+
+def _cpu_temp_from_host_snapshots() -> float | None:
+    """CPU °C from host-written metrics JSON (NVIDIA/AMD writers or Jetson file)."""
+    for snap in (
+        read_nvidia_host_snapshot(),
+        read_amd_host_snapshot(),
+        read_jetson_jtop_snapshot(),
+    ):
+        if not snap:
+            continue
+        cpu = snap.get("cpu") if isinstance(snap.get("cpu"), dict) else {}
+        hit = _as_temp_c(cpu.get("tempC"))
+        if hit is not None:
+            return hit
+        temps = snap.get("temperature") if isinstance(snap.get("temperature"), dict) else None
+        hit = _temp_from_map(temps, ("cpu", "CPU", "tj", "Tj"))
+        if hit is not None:
+            return hit
+    return None
 
 
 def _mib_to_gb(mib: float) -> float:
@@ -757,9 +883,10 @@ def _mib_to_gb(mib: float) -> float:
 
 def _parse_nvidia_smi_gpu_csv(stdout: str) -> dict[str, Any] | None:
     """
-    Parse ``nvidia-smi --query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free``.
+    Parse ``nvidia-smi --query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free[,temperature.gpu]``.
 
     Picks the GPU with the largest ``memory.total`` (same policy as VRAM detection).
+    Temperature is optional for backward-compatible 5-field rows.
     """
     best: dict[str, Any] | None = None
     best_total_mib = -1.0
@@ -767,17 +894,38 @@ def _parse_nvidia_smi_gpu_csv(stdout: str) -> dict[str, Any] | None:
         line = raw_line.strip()
         if not line:
             continue
-        # name may contain commas — split from the right for the four numeric fields.
-        parts = [p.strip() for p in line.rsplit(",", 4)]
-        if len(parts) != 5:
-            # Fallback: simple split when the name has no commas.
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 5:
-                continue
-            name = ",".join(parts[:-4]).strip()
-            util_s, total_s, used_s, free_s = parts[-4:]
-        else:
-            name, util_s, total_s, used_s, free_s = parts
+        # Prefer 6 fields (…,free,temp) when the trailing token looks like °C.
+        # Otherwise keep legacy 5-field rows (…,used,free) so names with commas still parse.
+        parts6 = [p.strip() for p in line.rsplit(",", 5)]
+        temp_s: str | None = None
+        name = util_s = total_s = used_s = free_s = ""
+        used_six = False
+        if len(parts6) == 6:
+            maybe_temp = parts6[-1]
+            try:
+                temp_candidate = float(maybe_temp)
+            except ValueError:
+                temp_candidate = None
+            if temp_candidate is not None and -40.0 <= temp_candidate <= 150.0:
+                try:
+                    total_candidate = float(parts6[2])
+                except ValueError:
+                    total_candidate = None
+                # Memory totals are MiB and almost always larger than a Celsius reading.
+                if total_candidate is not None and total_candidate > temp_candidate:
+                    name, util_s, total_s, used_s, free_s, temp_s = parts6
+                    used_six = True
+        if not used_six:
+            parts = [p.strip() for p in line.rsplit(",", 4)]
+            if len(parts) != 5:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 5:
+                    continue
+                name = ",".join(parts[:-4]).strip()
+                util_s, total_s, used_s, free_s = parts[-4:]
+            else:
+                name, util_s, total_s, used_s, free_s = parts
+            temp_s = None
         try:
             total_mib = float(total_s)
         except ValueError:
@@ -801,6 +949,12 @@ def _parse_nvidia_smi_gpu_csv(stdout: str) -> dict[str, Any] | None:
             used_mib = max(0.0, total_mib - free_mib)
         if free_mib is None and used_mib is not None:
             free_mib = max(0.0, total_mib - used_mib)
+        temp_c: float | None = None
+        if temp_s not in (None, ""):
+            try:
+                temp_c = _as_temp_c(float(temp_s))
+            except ValueError:
+                temp_c = None
         best_total_mib = total_mib
         best = {
             "percent": util,
@@ -811,19 +965,20 @@ def _parse_nvidia_smi_gpu_csv(stdout: str) -> dict[str, Any] | None:
             "vendor": "nvidia",
             "backend": "nvidia-smi",
             "name": name or None,
+            "tempC": temp_c,
         }
     return best
 
 
 def sample_nvidia_gpu() -> dict[str, Any] | None:
-    """Live NVIDIA util + VRAM via nvidia-smi, or ``None`` if unavailable."""
+    """Live NVIDIA util + VRAM + temp via nvidia-smi, or ``None`` if unavailable."""
     if shutil.which("nvidia-smi") is None:
         return None
     try:
         out = subprocess.run(
             [
                 "nvidia-smi",
-                "--query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free",
+                "--query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
@@ -1229,6 +1384,15 @@ def sample_linux_amd_gpu() -> dict[str, Any] | None:
         free_gb = (
             round(max(0.0, total_gb - used_gb), 3) if used_gb is not None else None
         )
+        temp_c: float | None = None
+        hwmon_root = device / "hwmon"
+        if hwmon_root.is_dir():
+            for hwmon in sorted(hwmon_root.glob("hwmon*")):
+                milli = _read_sysfs_int(hwmon / "temp1_input")
+                if milli is not None and milli > 0:
+                    temp_c = _as_temp_c(milli / 1000.0)
+                    if temp_c is not None:
+                        break
         best = {
             "percent": float(busy) if busy is not None and busy >= 0 else None,
             "vramTotalGb": total_gb,
@@ -1238,6 +1402,7 @@ def sample_linux_amd_gpu() -> dict[str, Any] | None:
             "vendor": "amd",
             "backend": "amdgpu-sysfs",
             "name": name,
+            "tempC": temp_c,
         }
     return best
 
@@ -1360,6 +1525,7 @@ def _gpu_vram_block() -> dict[str, Any]:
         "backend": sampled.get("backend"),
         "name": sampled.get("name"),
         "freqMhz": sampled.get("freqMhz"),
+        "tempC": _as_temp_c(sampled.get("tempC")),
     }
 
     if assume_gb is not None:
@@ -1374,6 +1540,13 @@ def _gpu_vram_block() -> dict[str, Any]:
 def sample_host_metrics() -> dict[str, Any]:
     """One metrics sample; keys mirror the Node ``sampleHostMetrics()`` payload."""
     cpu_percent = sample_cpu_percent()
+    cpu_temp = sample_cpu_temp_c() or _cpu_temp_from_host_snapshots()
+    cpu_block: dict[str, Any] = {
+        "percent": cpu_percent,
+        "cores": os.cpu_count() or 0,
+    }
+    if cpu_temp is not None:
+        cpu_block["tempC"] = cpu_temp
     base: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "hostname": socket.gethostname(),
@@ -1382,7 +1555,7 @@ def sample_host_metrics() -> dict[str, Any]:
         "scope": metrics_scope(),
         "uptimeSec": _uptime_sec(),
         "loadAvg": _load_avg(),
-        "cpu": {"percent": cpu_percent, "cores": os.cpu_count() or 0},
+        "cpu": cpu_block,
         "memory": sample_memory(),
         "gpu": _gpu_vram_block(),
     }

@@ -241,6 +241,7 @@ export interface HostMetrics {
     cores?: number;
     model?: string | null;
     source?: string;
+    tempC?: number | null;
   };
   memory?: {
     totalBytes?: number;
@@ -258,6 +259,7 @@ export interface HostMetrics {
     vramSource?: string | null;
     name?: string | null;
     freqMhz?: number | null;
+    tempC?: number | null;
   } | null;
   jetson?: unknown;
 }

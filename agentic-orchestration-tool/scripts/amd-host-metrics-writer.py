@@ -75,6 +75,14 @@ def sample_once() -> dict[str, Any]:
         free_gb = (
             round(max(0.0, total_gb - used_gb), 3) if used_gb is not None else None
         )
+        temp_c = None
+        hwmon_root = device / "hwmon"
+        if hwmon_root.is_dir():
+            for hwmon in sorted(hwmon_root.glob("hwmon*")):
+                milli = _read_int(hwmon / "temp1_input")
+                if milli is not None and milli > 0:
+                    temp_c = round(milli / 1000.0, 1)
+                    break
         best = {
             "percent": float(busy) if busy is not None and busy >= 0 else None,
             "vramTotalGb": total_gb,
@@ -84,6 +92,7 @@ def sample_once() -> dict[str, Any]:
             "vendor": "amd",
             "backend": "amdgpu-sysfs",
             "name": name,
+            "tempC": temp_c,
         }
     if best is None:
         raise RuntimeError("no amdgpu VRAM nodes found")

@@ -266,6 +266,17 @@ const DEPENDENCY_ORDER = [
                   }
                 </div>
               </div>
+              <div>
+                <div class="text-sm font-medium text-neutral-500">Temp</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestCpuTemp() != null ? (live.latestCpuTemp() | number: '1.0-1') : '—'
+                  }}@if (live.latestCpuTemp() != null) {
+                    <span class="text-lg text-neutral-500">°C</span>
+                  }
+                </div>
+              </div>
             </div>
             <apx-chart
               class="h-64 w-full"
@@ -277,9 +288,9 @@ const DEPENDENCY_ORDER = [
               [legend]="utilChart.legend"
               [series]="cpuMemSeries()"
               [stroke]="utilChart.stroke"
-              [tooltip]="utilChart.tooltip()"
+              [tooltip]="cpuMemTooltip()"
               [xaxis]="utilChart.xaxis"
-              [yaxis]="utilChart.yaxis"
+              [yaxis]="cpuMemYaxis"
             />
           </div>
 
@@ -320,6 +331,17 @@ const DEPENDENCY_ORDER = [
                   }
                 </div>
               </div>
+              <div>
+                <div class="text-sm font-medium text-neutral-500">Temp</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestGpuTemp() != null ? (live.latestGpuTemp() | number: '1.0-1') : '—'
+                  }}@if (live.latestGpuTemp() != null) {
+                    <span class="text-lg text-neutral-500">°C</span>
+                  }
+                </div>
+              </div>
             </div>
             <apx-chart
               class="h-64 w-full"
@@ -331,9 +353,9 @@ const DEPENDENCY_ORDER = [
               [legend]="utilChart.legend"
               [series]="gpuVramSeries()"
               [stroke]="utilChart.stroke"
-              [tooltip]="utilChart.tooltip()"
+              [tooltip]="gpuVramTooltip()"
               [xaxis]="utilChart.xaxis"
-              [yaxis]="utilChart.yaxis"
+              [yaxis]="gpuVramYaxis"
             />
           </div>
         </div>
@@ -690,6 +712,13 @@ export class OverviewPage implements OnInit, OnDestroy {
           y: h.mem == null ? null : Number(h.mem.toFixed(1)),
         })),
       },
+      {
+        name: 'Temp',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.cpuTemp == null ? null : Number(h.cpuTemp.toFixed(1)),
+        })),
+      },
     ];
   });
 
@@ -710,11 +739,114 @@ export class OverviewPage implements OnInit, OnDestroy {
           y: h.vram == null ? null : Number(h.vram.toFixed(1)),
         })),
       },
+      {
+        name: 'Temp',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.gpuTemp == null ? null : Number(h.gpuTemp.toFixed(1)),
+        })),
+      },
     ];
   });
 
-  readonly cpuMemChartColors = ['#f59e0b', '#60a5fa'];
-  readonly gpuVramChartColors = ['#c084fc', '#34d399'];
+  readonly cpuMemChartColors = ['#f59e0b', '#60a5fa', '#f87171'];
+  readonly gpuVramChartColors = ['#c084fc', '#34d399', '#f87171'];
+
+  readonly cpuMemTooltip = computed(
+    (): ApexTooltip => ({
+      theme: this.theming.isDark() ? 'dark' : 'light',
+      x: { format: 'HH:mm:ss' },
+      y: {
+        formatter: (v: number, opts?: { seriesIndex?: number }) => {
+          if (v == null || Number.isNaN(Number(v))) return '—';
+          const idx = opts?.seriesIndex ?? 0;
+          return idx === 2
+            ? `${Number(v).toFixed(1)}°C`
+            : `${Number(v).toFixed(1)}%`;
+        },
+      },
+    })
+  );
+
+  readonly gpuVramTooltip = computed(
+    (): ApexTooltip => ({
+      theme: this.theming.isDark() ? 'dark' : 'light',
+      x: { format: 'HH:mm:ss' },
+      y: {
+        formatter: (v: number, opts?: { seriesIndex?: number }) => {
+          if (v == null || Number.isNaN(Number(v))) return '—';
+          const idx = opts?.seriesIndex ?? 0;
+          return idx === 2
+            ? `${Number(v).toFixed(1)}°C`
+            : `${Number(v).toFixed(1)}%`;
+        },
+      },
+    })
+  );
+
+  readonly cpuMemYaxis: ApexYAxis[] = [
+    {
+      seriesName: 'CPU',
+      min: 0,
+      max: 100,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}%`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+    },
+    {
+      seriesName: 'Memory',
+      show: false,
+      min: 0,
+      max: 100,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}%`,
+      },
+    },
+    {
+      seriesName: 'Temp',
+      opposite: true,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}°C`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+    },
+  ];
+
+  readonly gpuVramYaxis: ApexYAxis[] = [
+    {
+      seriesName: 'GPU',
+      min: 0,
+      max: 100,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}%`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+    },
+    {
+      seriesName: 'VRAM',
+      show: false,
+      min: 0,
+      max: 100,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}%`,
+      },
+    },
+    {
+      seriesName: 'Temp',
+      opposite: true,
+      tickAmount: 4,
+      labels: {
+        formatter: (v: number) => `${Math.round(v)}°C`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+    },
+  ];
 
   readonly summary = computed(() => {
     const comps = this.components();
@@ -808,13 +940,6 @@ export class OverviewPage implements OnInit, OnDestroy {
       horizontalAlign: 'right',
     } as ApexLegend,
     stroke: { curve: 'smooth', width: 2 } as ApexStroke,
-    tooltip: computed(
-      (): ApexTooltip => ({
-        theme: this.theming.isDark() ? 'dark' : 'light',
-        x: { format: 'HH:mm:ss' },
-        y: { formatter: (v: number) => `${Number(v).toFixed(1)}%` },
-      })
-    ),
     xaxis: {
       type: 'datetime',
       labels: {
@@ -824,15 +949,6 @@ export class OverviewPage implements OnInit, OnDestroy {
       axisBorder: { show: false },
       tooltip: { enabled: false },
     } as ApexXAxis,
-    yaxis: {
-      min: 0,
-      max: 100,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}%`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
-      },
-    } as ApexYAxis,
   };
 
   protected sparkChart = {

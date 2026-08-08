@@ -27,11 +27,60 @@ def _mib_to_gb(mib: float) -> float:
     return round(float(mib) / 1024.0, 3)
 
 
+def _as_temp_c(value: Any) -> float | None:
+    try:
+        c = float(value)
+    except (TypeError, ValueError):
+        return None
+    if -100.0 < c < 200.0:
+        return round(c, 1)
+    return None
+
+
+def sample_cpu_temp_c() -> float | None:
+    thermal = Path("/sys/class/thermal")
+    if not thermal.is_dir():
+        return None
+    preferred = (
+        "x86_pkg_temp",
+        "cpu-thermal",
+        "cpu_thermal",
+        "soc_thermal",
+        "cpu-therm",
+        "cpu",
+    )
+    by_type: dict[str, float] = {}
+    first: float | None = None
+    try:
+        zones = sorted(thermal.glob("thermal_zone*"))
+    except OSError:
+        return None
+    for zone in zones:
+        try:
+            ztype = (zone / "type").read_text(encoding="utf-8").strip().lower()
+            milli = int((zone / "temp").read_text(encoding="utf-8").strip().split()[0])
+        except (OSError, ValueError, IndexError):
+            continue
+        celsius = milli / 1000.0
+        if celsius <= 0 or celsius >= 150:
+            continue
+        by_type[ztype] = celsius
+        if first is None:
+            first = celsius
+    for pref in preferred:
+        if pref in by_type:
+            return round(by_type[pref], 1)
+        for ztype, val in by_type.items():
+            if pref in ztype:
+                return round(val, 1)
+    return round(first, 1) if first is not None else None
+
+
 def _parse_nvidia_smi_csv(stdout: str) -> dict[str, Any] | None:
     """
-    Parse ``nvidia-smi --query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free``.
+    Parse ``nvidia-smi --query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu``.
 
-    Picks the GPU with the largest ``memory.total``.
+    Picks the GPU with the largest ``memory.total``. Temperature is optional.
     """
     best: dict[str, Any] | None = None
     best_total_mib = -1.0
@@ -39,15 +88,37 @@ def _parse_nvidia_smi_csv(stdout: str) -> dict[str, Any] | None:
         line = raw_line.strip()
         if not line:
             continue
-        parts = [p.strip() for p in line.rsplit(",", 4)]
-        if len(parts) != 5:
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 5:
-                continue
-            name = ",".join(parts[:-4]).strip()
-            util_s, total_s, used_s, free_s = parts[-4:]
-        else:
-            name, util_s, total_s, used_s, free_s = parts
+        # Prefer 6 fields (…,free,temp) when the trailing token looks like °C.
+        parts6 = [p.strip() for p in line.rsplit(",", 5)]
+        temp_s = None
+        name = util_s = total_s = used_s = free_s = ""
+        used_six = False
+        if len(parts6) == 6:
+            try:
+                temp_candidate = float(parts6[-1])
+                total_candidate = float(parts6[2])
+            except ValueError:
+                temp_candidate = None
+                total_candidate = None
+            if (
+                temp_candidate is not None
+                and total_candidate is not None
+                and -40.0 <= temp_candidate <= 150.0
+                and total_candidate > temp_candidate
+            ):
+                name, util_s, total_s, used_s, free_s, temp_s = parts6
+                used_six = True
+        if not used_six:
+            parts = [p.strip() for p in line.rsplit(",", 4)]
+            if len(parts) != 5:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 5:
+                    continue
+                name = ",".join(parts[:-4]).strip()
+                util_s, total_s, used_s, free_s = parts[-4:]
+            else:
+                name, util_s, total_s, used_s, free_s = parts
+            temp_s = None
         try:
             total_mib = float(total_s)
         except ValueError:
@@ -70,6 +141,12 @@ def _parse_nvidia_smi_csv(stdout: str) -> dict[str, Any] | None:
             used_mib = max(0.0, total_mib - free_mib)
         if free_mib is None and used_mib is not None:
             free_mib = max(0.0, total_mib - used_mib)
+        temp_c = None
+        if temp_s not in (None, ""):
+            try:
+                temp_c = _as_temp_c(float(temp_s))
+            except ValueError:
+                temp_c = None
         best_total_mib = total_mib
         best = {
             "percent": util,
@@ -80,6 +157,7 @@ def _parse_nvidia_smi_csv(stdout: str) -> dict[str, Any] | None:
             "vendor": "nvidia",
             "backend": "nvidia-smi",
             "name": name or None,
+            "tempC": temp_c,
         }
     return best
 
@@ -90,7 +168,7 @@ def sample_once() -> dict[str, Any]:
     proc = subprocess.run(
         [
             "nvidia-smi",
-            "--query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free",
+            "--query-gpu=name,utilization.gpu,memory.total,memory.used,memory.free,temperature.gpu",
             "--format=csv,noheader,nounits",
         ],
         capture_output=True,
@@ -104,11 +182,15 @@ def sample_once() -> dict[str, Any]:
     gpu = _parse_nvidia_smi_csv(proc.stdout)
     if gpu is None:
         raise RuntimeError("nvidia-smi returned no parseable GPU rows")
-    return {
+    payload: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "source": "nvidia-smi",
         "gpu": gpu,
     }
+    cpu_temp = sample_cpu_temp_c()
+    if cpu_temp is not None:
+        payload["cpu"] = {"tempC": cpu_temp}
+    return payload
 
 
 def write_snapshot(path: Path, payload: dict[str, Any]) -> None:
@@ -119,19 +201,15 @@ def write_snapshot(path: Path, payload: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Host NVIDIA metrics writer for agentic engine / KnowBuddy monitor"
-    )
+    parser = argparse.ArgumentParser(description="Host NVIDIA GPU metrics writer")
     parser.add_argument(
         "--output",
         default="/var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json",
-        help="JSON file path (shared host metrics dir)",
     )
-    parser.add_argument("--interval", type=float, default=1.0, help="Seconds between samples")
-    parser.add_argument("--once", action="store_true", help="Write one sample and exit")
+    parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     out_path = Path(args.output)
-
     try:
         if args.once:
             write_snapshot(out_path, sample_once())

@@ -8,6 +8,8 @@ export interface MetricsPoint {
   mem: number | null;
   gpu: number | null;
   vram: number | null;
+  cpuTemp: number | null;
+  gpuTemp: number | null;
 }
 
 export interface AdminLogEntry {
@@ -78,6 +80,33 @@ export class AoLiveWs implements OnDestroy {
   readonly latestVram = computed(() => {
     const n = this.metrics()?.gpu?.vramUsedPercent;
     return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+  });
+
+  readonly latestCpuTemp = computed(() => {
+    const n = this.metrics()?.cpu?.tempC;
+    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+  });
+
+  readonly latestGpuTemp = computed(() => {
+    const n = this.metrics()?.gpu?.tempC;
+    if (n != null && !Number.isNaN(Number(n))) return Number(n);
+    const jetson = this.metrics()?.jetson as
+      | { temperature?: Record<string, number | { temp?: number } | null> }
+      | null
+      | undefined;
+    const temps = jetson?.temperature;
+    if (!temps || typeof temps !== 'object') return null;
+    for (const key of ['gpu', 'GPU', 'tj', 'Tj', 'cpu']) {
+      const raw = temps[key];
+      const v =
+        typeof raw === 'number'
+          ? raw
+          : raw && typeof raw === 'object'
+            ? raw.temp
+            : null;
+      if (v != null && !Number.isNaN(Number(v))) return Number(v);
+    }
+    return null;
   });
 
   readonly cpuModel = computed(() => {
@@ -318,8 +347,36 @@ export class AoLiveWs implements OnDestroy {
     const vramRaw = sample.gpu?.vramUsedPercent;
     const vram =
       vramRaw == null || Number.isNaN(Number(vramRaw)) ? null : Number(vramRaw);
+    const cpuTempRaw = sample.cpu?.tempC;
+    const cpuTemp =
+      cpuTempRaw == null || Number.isNaN(Number(cpuTempRaw))
+        ? null
+        : Number(cpuTempRaw);
+    let gpuTemp: number | null =
+      sample.gpu?.tempC == null || Number.isNaN(Number(sample.gpu.tempC))
+        ? null
+        : Number(sample.gpu.tempC);
+    if (gpuTemp == null) {
+      const temps = (sample.jetson as { temperature?: Record<string, unknown> } | undefined)
+        ?.temperature;
+      if (temps && typeof temps === 'object') {
+        for (const key of ['gpu', 'GPU', 'tj', 'Tj', 'cpu']) {
+          const raw = temps[key];
+          const v =
+            typeof raw === 'number'
+              ? raw
+              : raw && typeof raw === 'object' && 'temp' in raw
+                ? Number((raw as { temp?: unknown }).temp)
+                : null;
+          if (v != null && !Number.isNaN(v)) {
+            gpuTemp = v;
+            break;
+          }
+        }
+      }
+    }
     this.history.update((prev) => {
-      const next = [...prev, { t, cpu, mem, gpu, vram }];
+      const next = [...prev, { t, cpu, mem, gpu, vram, cpuTemp, gpuTemp }];
       return next.length > HISTORY_MAX
         ? next.slice(next.length - HISTORY_MAX)
         : next;

@@ -154,6 +154,84 @@ function readJetsonJtopSnapshot() {
   return readJsonSnapshot(JTOP_METRICS_PATH);
 }
 
+function asTempC(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= -100 || n >= 200) return null;
+  return Math.round(n * 10) / 10;
+}
+
+function tempFromMap(temps, preferred) {
+  if (!temps || typeof temps !== "object") return null;
+  const lowered = Object.fromEntries(
+    Object.entries(temps).map(([k, v]) => [String(k).toLowerCase(), v]),
+  );
+  for (const key of preferred) {
+    const raw = lowered[String(key).toLowerCase()];
+    const hit = asTempC(raw);
+    if (hit != null) return hit;
+    if (raw && typeof raw === "object") {
+      const nested = asTempC(raw.temp ?? raw.tempC);
+      if (nested != null) return nested;
+    }
+  }
+  for (const raw of Object.values(temps)) {
+    const hit = asTempC(raw);
+    if (hit != null) return hit;
+    if (raw && typeof raw === "object") {
+      const nested = asTempC(raw.temp ?? raw.tempC);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
+function sampleCpuTempC() {
+  if (process.platform !== "linux") return null;
+  // Read /sys/class/thermal when visible inside the process (often absent in k8s).
+  try {
+    const root = "/sys/class/thermal";
+    if (!fs.existsSync(root)) return null;
+    const preferred = [
+      "x86_pkg_temp",
+      "cpu-thermal",
+      "cpu_thermal",
+      "soc_thermal",
+      "cpu-therm",
+      "cpu",
+    ];
+    const byType = new Map();
+    let first = null;
+    for (const name of fs.readdirSync(root)) {
+      if (!name.startsWith("thermal_zone")) continue;
+      try {
+        const ztype = fs
+          .readFileSync(path.join(root, name, "type"), "utf8")
+          .trim()
+          .toLowerCase();
+        const milli = Number(
+          fs.readFileSync(path.join(root, name, "temp"), "utf8").trim().split(/\s+/)[0],
+        );
+        if (!Number.isFinite(milli)) continue;
+        const celsius = milli / 1000;
+        if (celsius <= 0 || celsius >= 150) continue;
+        byType.set(ztype, celsius);
+        if (first == null) first = celsius;
+      } catch {
+        /* skip zone */
+      }
+    }
+    for (const pref of preferred) {
+      if (byType.has(pref)) return Math.round(byType.get(pref) * 10) / 10;
+      for (const [ztype, val] of byType) {
+        if (ztype.includes(pref)) return Math.round(val * 10) / 10;
+      }
+    }
+    return first == null ? null : Math.round(first * 10) / 10;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeGpuBlock(gpu, source, extras = {}) {
   if (!gpu || typeof gpu !== "object") return null;
   const percent = typeof gpu.percent === "number" ? gpu.percent : null;
@@ -165,6 +243,7 @@ function normalizeGpuBlock(gpu, source, extras = {}) {
     vramUsedPercent = Math.round((vramUsedGb / vramTotalGb) * 1000) / 10;
   }
   const name = gpu.name ? String(gpu.name).trim() : null;
+  const tempC = asTempC(gpu.tempC);
   if (
     percent == null &&
     vramTotalGb == null &&
@@ -185,14 +264,38 @@ function normalizeGpuBlock(gpu, source, extras = {}) {
     backend: gpu.backend || extras.backend || source || null,
     name: name || null,
     freqMhz: typeof gpu.freqMhz === "number" ? gpu.freqMhz : null,
+    tempC,
   };
 }
 
+function readHostFileSnapshot(filePath) {
+  return readJsonSnapshot(filePath, HOST_SNAPSHOT_MAX_AGE_MS);
+}
+
 function readHostFileGpu(filePath, defaultSource, vendor, backend) {
-  const snap = readJsonSnapshot(filePath, HOST_SNAPSHOT_MAX_AGE_MS);
+  const snap = readHostFileSnapshot(filePath);
   if (!snap) return null;
   const gpu = snap.gpu && typeof snap.gpu === "object" ? snap.gpu : null;
   return normalizeGpuBlock(gpu, snap.source || defaultSource, { vendor, backend });
+}
+
+function cpuTempFromHostSnapshots() {
+  for (const filePath of [
+    nvidiaHostMetricsPath(),
+    amdHostMetricsPath(),
+    JTOP_METRICS_PATH,
+  ]) {
+    const snap = readHostFileSnapshot(filePath);
+    if (!snap) continue;
+    const cpu = snap.cpu && typeof snap.cpu === "object" ? snap.cpu : {};
+    const direct = asTempC(cpu.tempC);
+    if (direct != null) return direct;
+    const temps =
+      snap.temperature && typeof snap.temperature === "object" ? snap.temperature : null;
+    const fromMap = tempFromMap(temps, ["cpu", "CPU", "tj", "Tj"]);
+    if (fromMap != null) return fromMap;
+  }
+  return null;
 }
 
 function readNvidiaHostGpu() {
@@ -231,9 +334,19 @@ export function mergeJetsonIntoMetrics(base, jtop) {
     ramText: jtop.ramText || null,
   };
   const out = { ...base, jetson, scope: "jetson" };
+  const cpuOut = { ...(out.cpu || {}) };
   if (typeof jtop.cpu?.percent === "number" && jtop.cpu.percent >= 0) {
-    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source };
+    cpuOut.percent = jtop.cpu.percent;
+    cpuOut.source = source;
   }
+  const cpuTemp =
+    asTempC(jtop.cpu?.tempC) || tempFromMap(temp, ["cpu", "CPU", "tj", "Tj"]);
+  if (cpuTemp != null) cpuOut.tempC = cpuTemp;
+  out.cpu = cpuOut;
+
+  const gpuTemp =
+    asTempC(gpu.tempC) || tempFromMap(temp, ["gpu", "GPU", "tj", "Tj", "cpu"]);
+
   // Promote jtop GPU into the portable top-level gpu block when host GPU file is absent.
   if (!out.gpu) {
     const gpuName =
@@ -246,6 +359,7 @@ export function mergeJetsonIntoMetrics(base, jtop) {
         vramSource: source,
         vendor: "nvidia",
         backend: source,
+        tempC: gpuTemp,
       },
       source,
       { vendor: "nvidia", backend: source },
@@ -266,6 +380,8 @@ export function mergeJetsonIntoMetrics(base, jtop) {
       }
     }
     if (fromJtop) out.gpu = fromJtop;
+  } else if (gpuTemp != null && out.gpu.tempC == null) {
+    out.gpu = { ...out.gpu, tempC: gpuTemp };
   }
   return out;
 }
@@ -279,6 +395,13 @@ export async function sampleHostMetrics() {
   const amdGpu = nvidiaGpu ? null : readAmdHostGpu();
   const hostGpu = nvidiaGpu || amdGpu;
   const jtop = readJetsonJtopSnapshot();
+  const cpuTemp = sampleCpuTempC() || cpuTempFromHostSnapshots();
+  const cpu = {
+    percent: cpuPercent,
+    cores: os.cpus().length,
+    model: cpuModel(),
+  };
+  if (cpuTemp != null) cpu.tempC = cpuTemp;
   const base = {
     ts: new Date().toISOString(),
     hostname: os.hostname(),
@@ -287,11 +410,7 @@ export async function sampleHostMetrics() {
     scope: metricsScope(Boolean(jtop), Boolean(hostGpu)),
     uptimeSec: Math.round(os.uptime()),
     loadAvg: loadAvg.map((n) => Math.round(n * 100) / 100),
-    cpu: {
-      percent: cpuPercent,
-      cores: os.cpus().length,
-      model: cpuModel(),
-    },
+    cpu,
     memory,
     gpu: hostGpu,
   };
