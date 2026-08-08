@@ -607,6 +607,53 @@ def sample_amd_host_file_gpu() -> dict[str, Any] | None:
     )
 
 
+def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
+    """
+    Portable ``gpu.*`` from the Jetson jtop/tegrastats host writer.
+
+    Used by ``sample_gpu()`` so catalog VRAM / hardware snapshots see Tegra
+    stats when live ``nvidia-smi`` is unavailable inside the pod.
+    """
+    snap = read_jetson_jtop_snapshot()
+    if not snap:
+        return None
+    gpu = snap.get("gpu") if isinstance(snap.get("gpu"), dict) else {}
+    source = str(snap.get("source") or "jtop")
+    percent = gpu.get("percent") if isinstance(gpu.get("percent"), (int, float)) else None
+    freq = gpu.get("freqMhz") if isinstance(gpu.get("freqMhz"), (int, float)) else None
+    name = str(gpu.get("name") or "").strip() or "Jetson GPU"
+    vram_total = gpu.get("vramTotalGb") if isinstance(gpu.get("vramTotalGb"), (int, float)) else None
+    vram_used = gpu.get("vramUsedGb") if isinstance(gpu.get("vramUsedGb"), (int, float)) else None
+    vram_free = gpu.get("vramFreeGb") if isinstance(gpu.get("vramFreeGb"), (int, float)) else None
+    ram_text = snap.get("ramText")
+    if vram_total is None and ram_text:
+        m = re.search(
+            r"([\d.]+)\s*(?:[GM]i?B?)?\s*/\s*([\d.]+)\s*(?:[GM]i?B?)?",
+            str(ram_text),
+            re.I,
+        )
+        if m:
+            used = float(m.group(1))
+            total = float(m.group(2))
+            if total > 0:
+                vram_used = used
+                vram_total = total
+                vram_free = round(max(0.0, total - used), 3)
+    if percent is None and vram_total is None and freq is None:
+        return None
+    return {
+        "percent": float(percent) if percent is not None else None,
+        "vramTotalGb": float(vram_total) if vram_total is not None else None,
+        "vramUsedGb": float(vram_used) if vram_used is not None else None,
+        "vramFreeGb": float(vram_free) if vram_free is not None else None,
+        "vramSource": source,
+        "vendor": "nvidia",
+        "backend": source,
+        "name": name,
+        "freqMhz": float(freq) if freq is not None else None,
+    }
+
+
 def merge_jetson_into_metrics(
     base: dict[str, Any],
     jtop: dict[str, Any] | None,
@@ -655,7 +702,11 @@ def merge_jetson_into_metrics(
         }
         ram_text = jtop.get("ramText")
         if ram_text:
-            m = re.search(r"([\d.]+)\s*/\s*([\d.]+)\s*G", str(ram_text), re.I)
+            m = re.search(
+                r"([\d.]+)\s*(?:[GM]i?B?)?\s*/\s*([\d.]+)\s*(?:[GM]i?B?)?",
+                str(ram_text),
+                re.I,
+            )
             if m:
                 used = float(m.group(1))
                 total = float(m.group(2))
@@ -1239,9 +1290,10 @@ def sample_gpu() -> dict[str, Any] | None:
     """
     Best available portable GPU sample.
 
-    Priority: live nvidia-smi → NVIDIA host file → AMD host file → macOS
-    (AMD/Intel/Apple IORegistry) → Linux AMD sysfs → Linux Intel identity stub.
-    Cached briefly so catalog filters don't re-spawn ``system_profiler`` on every call.
+    Priority: Jetson host file → live nvidia-smi → NVIDIA host file → AMD host
+    file → macOS (AMD/Intel/Apple IORegistry) → Linux AMD sysfs → Linux Intel
+    identity stub. Cached briefly so catalog filters don't re-spawn
+    ``system_profiler`` on every call.
     """
     global _gpu_sample_cache
     now = time.monotonic()
@@ -1252,6 +1304,7 @@ def sample_gpu() -> dict[str, Any] | None:
 
     hit: dict[str, Any] | None = None
     for sampler in (
+        sample_jetson_host_file_gpu,
         sample_nvidia_gpu,
         sample_nvidia_host_file_gpu,
         sample_amd_host_file_gpu,

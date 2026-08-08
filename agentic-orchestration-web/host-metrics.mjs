@@ -251,7 +251,9 @@ export function mergeJetsonIntoMetrics(base, jtop) {
       { vendor: "nvidia", backend: source },
     );
     if (fromJtop && jtop.ramText) {
-      const m = String(jtop.ramText).match(/([\d.]+)\s*\/\s*([\d.]+)\s*G/i);
+      const m = String(jtop.ramText).match(
+        /([\d.]+)\s*(?:[GM]i?B?)?\s*\/\s*([\d.]+)\s*(?:[GM]i?B?)?/i,
+      );
       if (m) {
         const used = Number(m[1]);
         const total = Number(m[2]);

@@ -20,8 +20,11 @@ from orchestration.host_metrics import (
     read_jetson_jtop_snapshot,
     read_nvidia_host_snapshot,
     reset_cpu_sample,
+    sample_amd_host_file_gpu,
     sample_cpu_percent,
+    sample_gpu,
     sample_host_metrics,
+    sample_jetson_host_file_gpu,
     sample_memory,
     sample_nvidia_host_file_gpu,
 )
@@ -563,6 +566,8 @@ def test_gpu_from_nvidia_host_metrics_file(
         encoding="utf-8",
     )
     monkeypatch.setenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", str(path))
+    monkeypatch.delenv("AGENTIC_JETSON_JTOP_METRICS_PATH", raising=False)
+    monkeypatch.delenv("AGENTIC_AMD_HOST_METRICS_PATH", raising=False)
     monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
     monkeypatch.setattr("orchestration.host_metrics.sample_macos_gpu", lambda: None)
     monkeypatch.setattr("orchestration.host_metrics.sample_linux_amd_gpu", lambda: None)
@@ -575,13 +580,102 @@ def test_gpu_from_nvidia_host_metrics_file(
     assert hit["percent"] == 17.0
     assert hit["vramTotalGb"] == 20.0
     assert hit["vramUsedGb"] == 12.5
+    assert hit.get("vendor") == "nvidia"
     assert "4000" in (hit["name"] or "")
 
     sample = sample_host_metrics()
     assert sample["gpu"]["percent"] == 17.0
     assert sample["gpu"]["vramUsedGb"] == 12.5
     assert sample["gpu"]["vramSource"] == "nvidia-smi"
+    assert sample["gpu"].get("vendor") == "nvidia"
     assert sample["scope"] == "host"
+
+
+def test_gpu_from_amd_host_metrics_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "amd-metrics.json"
+    path.write_text(
+        json.dumps(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "source": "amdgpu-sysfs",
+                "gpu": {
+                    "percent": 55.0,
+                    "vramTotalGb": 16.0,
+                    "vramUsedGb": 4.0,
+                    "vramFreeGb": 12.0,
+                    "vramSource": "amdgpu-sysfs",
+                    "vendor": "amd",
+                    "backend": "amdgpu-sysfs",
+                    "name": "amdgpu-card0",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_AMD_HOST_METRICS_PATH", str(path))
+    monkeypatch.delenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", raising=False)
+    monkeypatch.delenv("AGENTIC_JETSON_JTOP_METRICS_PATH", raising=False)
+    monkeypatch.setattr("orchestration.host_metrics.sample_nvidia_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_macos_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_linux_amd_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics.sample_linux_intel_gpu", lambda: None)
+    monkeypatch.setattr("orchestration.host_metrics._gpu_sample_cache", None)
+
+    hit = sample_amd_host_file_gpu()
+    assert hit is not None
+    assert hit["percent"] == 55.0
+    assert hit["vramTotalGb"] == 16.0
+    assert hit["vendor"] == "amd"
+
+    sample = sample_host_metrics()
+    assert sample["gpu"]["percent"] == 55.0
+    assert sample["gpu"]["vendor"] == "amd"
+    assert sample["gpu"]["vramSource"] == "amdgpu-sysfs"
+
+
+def test_sample_gpu_prefers_jetson_host_file_over_nvidia_smi(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "jtop-metrics.json"
+    path.write_text(
+        json.dumps(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "source": "tegrastats",
+                "gpu": {"percent": 12.0, "freqMhz": 600, "name": "Orin"},
+                "ramText": "21.1/61.4GB",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(path))
+    monkeypatch.setattr(
+        "orchestration.host_metrics.sample_nvidia_gpu",
+        lambda: {
+            "percent": 99.0,
+            "vramTotalGb": 20.0,
+            "vramSource": "nvidia-smi",
+            "vendor": "nvidia",
+            "name": "should-not-win",
+        },
+    )
+    monkeypatch.setattr("orchestration.host_metrics._gpu_sample_cache", None)
+
+    hit = sample_jetson_host_file_gpu()
+    assert hit is not None
+    assert hit["percent"] == 12.0
+    assert hit["backend"] == "tegrastats"
+    assert hit["vramTotalGb"] == 61.4
+
+    ordered = sample_gpu()
+    assert ordered is not None
+    assert ordered["percent"] == 12.0
+    assert ordered["name"] == "Orin"
+    assert ordered["backend"] == "tegrastats"
 
 
 def test_nvidia_host_snapshot_ignores_stale(
@@ -624,6 +718,7 @@ def test_jtop_snapshot_is_merged_with_age(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr("orchestration.host_metrics.sample_gpu", lambda: None)
     snapshot = {
         "ts": (datetime.now(timezone.utc) - timedelta(seconds=3)).isoformat(),
+        "source": "tegrastats",
         "cpu": {"percent": 42.5},
         "gpu": {"percent": 88.0, "freqMhz": 918},
         "temperature": {"cpu": 51.2},
@@ -641,10 +736,17 @@ def test_jtop_snapshot_is_merged_with_age(tmp_path: Path, monkeypatch: pytest.Mo
     merged = sample_host_metrics()
     assert merged["scope"] == "jetson"
     assert merged["cpu"]["percent"] == 42.5
-    assert merged["cpu"]["source"] == "jtop"
+    assert merged["cpu"]["source"] == "tegrastats"
+    assert merged["jetson"]["source"] == "tegrastats"
     assert merged["jetson"]["gpu"] == {"percent": 88.0, "freqMhz": 918}
     assert merged["jetson"]["powerW"] == 12.5
     assert merged["jetson"]["ramText"] == "3.1G/7.4G"
+    # Node parity: promote into top-level gpu when sample_gpu is empty.
+    assert merged["gpu"]["percent"] == 88.0
+    assert merged["gpu"]["vramTotalGb"] == 7.4
+    assert merged["gpu"]["vramUsedGb"] == 3.1
+    assert merged["gpu"]["backend"] == "tegrastats"
+    assert merged["gpu"]["vendor"] == "nvidia"
 
 
 def test_missing_or_corrupt_jtop_file_is_ignored(
