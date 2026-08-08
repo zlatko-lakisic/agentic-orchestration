@@ -35,8 +35,8 @@ export const appConfig: ApplicationConfig = {
     provideNativeDateAdapter(),
     provideIcons(),
     provideTheming({
-      scheme: 'dark',
-      primary: '#3B6EA5',
+      scheme: 'system',
+      primary: '#1565C0',
       error: '#dc2626',
     }),
     provideTransloco({

@@ -1,27 +1,27 @@
 import { Component, input } from '@angular/core';
+import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
 
+/** Fuse-style empty content block (icon + title + description). */
 @Component({
   selector: 'ao-empty-state',
-  imports: [MatIcon, RouterLink],
+  imports: [MatIcon, MatButton, RouterLink],
   template: `
-    <div
-      class="flex flex-col items-start gap-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50/60 px-5 py-8 dark:border-neutral-700 dark:bg-neutral-950/40"
-    >
-      <mat-icon
-        class="size-6 text-neutral-500"
-        [svgIcon]="icon()"
-      />
-      <div>
-        <div class="text-md font-semibold">{{ title() }}</div>
-        <div class="mt-1 max-w-xl text-sm text-neutral-500">
-          {{ message() }}
-        </div>
+    <div class="flex flex-col items-center justify-center gap-y-3 px-6 py-12 text-center">
+      <div
+        class="flex size-12 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800"
+      >
+        <mat-icon
+          class="size-6 text-neutral-500"
+          [svgIcon]="icon()"
+        />
       </div>
+      <div class="text-lg font-medium">{{ title() }}</div>
+      <div class="max-w-md text-sm text-neutral-500">{{ message() }}</div>
       @if (actionLabel() && actionRoute()) {
         <a
-          class="text-sm text-primary-600 underline-offset-2 hover:underline"
+          matButton="filled"
           [routerLink]="actionRoute()"
         >
           {{ actionLabel() }}

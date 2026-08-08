@@ -6,6 +6,7 @@ import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { Scheme, Theming } from '@/app/core/theming';
 
+/** Fuse layout/ui/user.ts — session-backed identity instead of demo avatar. */
 @Component({
   selector: 'user',
   imports: [
@@ -23,14 +24,14 @@ import { Scheme, Theming } from '@/app/core/theming';
       type="button"
     >
       <div
-        class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-sm font-semibold text-white uppercase"
+        class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600 uppercase dark:bg-neutral-700 dark:text-neutral-200"
       >
         {{ initial() }}
       </div>
       <div class="flex min-w-0 flex-auto flex-col select-none">
         <div class="truncate font-medium">{{ displayName() }}</div>
-        <div class="text-on-surface-variant truncate font-mono text-sm">
-          {{ sessionId() || 'no session' }}
+        <div class="text-on-surface-variant truncate text-sm">
+          {{ sessionId() || 'session' }}
         </div>
       </div>
       <mat-icon
@@ -52,26 +53,25 @@ import { Scheme, Theming } from '@/app/core/theming';
         disabled
       >
         <div
-          class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-sm font-semibold text-white uppercase"
+          class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600 uppercase dark:bg-neutral-700 dark:text-neutral-200"
         >
           {{ initial() }}
         </div>
         <div class="ml-3 flex min-w-0 flex-auto flex-col select-none">
           <div class="truncate font-medium">{{ displayName() }}</div>
-          <div class="text-on-surface-variant truncate font-mono text-xs">
+          <div class="text-on-surface-variant truncate text-xs">
             {{ sessionId() || '—' }}
           </div>
         </div>
       </button>
       <mat-divider />
-      <button
+      <a
         mat-menu-item
-        type="button"
-        (click)="openChat()"
+        href="/"
       >
         <mat-icon svgIcon="message-square" />
         Open chat
-      </button>
+      </a>
       <mat-divider />
       <button
         mat-menu-item
@@ -117,8 +117,8 @@ export class User implements OnInit {
 
   protected displayName = computed(() => this.userName() || 'Operator');
   protected sessionId = computed(() => this.session());
-  protected initial = computed(() =>
-    this.displayName().trim().charAt(0).toUpperCase() || 'O'
+  protected initial = computed(
+    () => this.displayName().trim().charAt(0).toUpperCase() || 'O'
   );
 
   ngOnInit() {
@@ -131,9 +131,5 @@ export class User implements OnInit {
 
   updateScheme(scheme: Scheme) {
     this.theming.scheme.set(scheme);
-  }
-
-  openChat() {
-    window.location.href = '/';
   }
 }

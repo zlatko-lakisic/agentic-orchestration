@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Changed
 
-- **AO Admin Fuse alignment** — shell restored to Fuse sidenav/toolbar patterns; Overview uses `mat-card` analytics layout; Catalogs uses Orders-style `mat-table` + end drawer; Runtime uses Settings tab-nav; config pages follow Fuse section typography and Material surfaces (light/dark).
+- **AO Admin Fuse-only UI** — Fuse theme defaults (`#1565C0`, system scheme), Orders status pills, Material cards/tables/settings shells only; removed custom AO tokens/colors and non-Fuse chrome.
 
 ## [1.30.1] - 2026-08-08
 

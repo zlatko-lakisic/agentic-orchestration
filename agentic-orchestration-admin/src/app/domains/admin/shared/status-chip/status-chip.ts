@@ -1,80 +1,22 @@
+import { NgClass } from '@angular/common';
 import { Component, input } from '@angular/core';
-import { MatIcon } from '@angular/material/icon';
 import { AoStatus } from '@/app/core/ao-api/types';
 
-const META: Record<
-  string,
-  { label: string; icon: string; class: string }
-> = {
-  healthy: {
-    label: 'Healthy',
-    icon: 'circle-check',
-    class: 'text-emerald-500',
-  },
-  available: {
-    label: 'Available',
-    icon: 'circle-check',
-    class: 'text-emerald-500',
-  },
-  succeeded: {
-    label: 'Succeeded',
-    icon: 'circle-check',
-    class: 'text-emerald-500',
-  },
-  degraded: {
-    label: 'Degraded',
-    icon: 'octagon-alert',
-    class: 'text-amber-400',
-  },
-  warning: {
-    label: 'Warning',
-    icon: 'octagon-alert',
-    class: 'text-amber-400',
-  },
-  failed: { label: 'Failed', icon: 'circle-x', class: 'text-red-600' },
-  blocking: { label: 'Blocking', icon: 'circle-x', class: 'text-red-600' },
-  unset: {
-    label: 'Not set',
-    icon: 'circle-dashed',
-    class: 'text-neutral-500',
-  },
-  planned: {
-    label: 'Planned',
-    icon: 'circle-dashed',
-    class: 'text-neutral-500',
-  },
-  hidden: {
-    label: 'Hidden',
-    icon: 'circle-dashed',
-    class: 'text-neutral-500',
-  },
-  running: {
-    label: 'Running',
-    icon: 'refresh-cw',
-    class: 'text-primary-500 animate-pulse',
-  },
-  reconciling: {
-    label: 'Reconciling',
-    icon: 'refresh-cw',
-    class: 'text-primary-500 animate-pulse',
-  },
-  info: { label: 'Info', icon: 'circle-alert', class: 'text-sky-500' },
-};
-
+/**
+ * Fuse Orders status pill (apps/orders/features/orders.ts).
+ */
 @Component({
   selector: 'ao-status-chip',
-  imports: [MatIcon],
+  imports: [NgClass],
   host: { class: 'inline-flex' },
   template: `
     <span
-      class="inline-flex items-center gap-x-1 text-2xs font-medium tracking-tight"
-      [class]="meta().class"
+      class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tracking-wide uppercase"
+      [ngClass]="classes()"
     >
-      <mat-icon
-        class="!size-3.5"
-        [svgIcon]="meta().icon"
-      />
-      <span>{{ label() || meta().label }}</span>
+      <span class="leading-relaxed whitespace-nowrap">{{
+        label() || text()
+      }}</span>
     </span>
   `,
 })
@@ -82,8 +24,50 @@ export class StatusChip {
   readonly status = input<AoStatus | string | null | undefined>('unset');
   readonly label = input<string | null>(null);
 
-  protected meta() {
-    const key = String(this.status() || 'unset').toLowerCase();
-    return META[key] ?? META['unset'];
+  protected text(): string {
+    return String(this.status() || 'unset').replace(/-/g, ' ');
+  }
+
+  protected classes(): Record<string, boolean> {
+    const s = String(this.status() || 'unset').toLowerCase();
+    return {
+      'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300':
+        s === 'healthy' ||
+        s === 'available' ||
+        s === 'succeeded' ||
+        s === 'pass' ||
+        s === 'passed',
+      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300':
+        s === 'degraded' ||
+        s === 'warning' ||
+        s === 'pending' ||
+        s === 'unset' ||
+        s === 'planned' ||
+        s === 'hidden',
+      'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300':
+        s === 'running' || s === 'reconciling' || s === 'info',
+      'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300':
+        s === 'failed' || s === 'blocking' || s === 'fail' || s === 'failed',
+      'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300':
+        ![
+          'healthy',
+          'available',
+          'succeeded',
+          'pass',
+          'passed',
+          'degraded',
+          'warning',
+          'pending',
+          'unset',
+          'planned',
+          'hidden',
+          'running',
+          'reconciling',
+          'info',
+          'failed',
+          'blocking',
+          'fail',
+        ].includes(s),
+    };
   }
 }

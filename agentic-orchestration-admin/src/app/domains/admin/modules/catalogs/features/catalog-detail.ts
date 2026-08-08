@@ -68,7 +68,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               <div class="flex flex-col gap-y-2">
                 @for (step of e.availabilityTrace || []; track step.step) {
                   <div
-                    class="rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800"
+                    class="rounded-lg border px-3 py-2"
                   >
                     <div class="flex items-center gap-2">
                       <ao-status-chip [status]="step.result" />

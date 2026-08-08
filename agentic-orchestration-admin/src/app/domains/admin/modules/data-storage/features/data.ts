@@ -25,9 +25,9 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         <ao-error-state [message]="error()!" />
       }
 
-      <div class="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+      <div class="relative overflow-hidden rounded-xl border">
         <table
-          class="w-full border-separate border-spacing-0 whitespace-nowrap"
+          class="-mt-px w-full border-separate border-spacing-0 whitespace-nowrap"
           mat-table
           [dataSource]="dataSource"
         >
@@ -115,10 +115,12 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
             </td>
           </ng-container>
           <tr
+            class="bg-white dark:bg-neutral-900"
             mat-header-row
-            *matHeaderRowDef="columns"
+            *matHeaderRowDef="columns; sticky: true"
           ></tr>
           <tr
+            class="hover:bg-neutral-100 dark:hover:bg-white/2.5"
             mat-row
             *matRowDef="let row; columns: columns"
           ></tr>

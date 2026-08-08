@@ -1,9 +1,0 @@
-/* AO Admin semantic tokens — status colours are fixed, not tonal-palette-derived */
-:root {
-  --ao-status-healthy: var(--color-emerald-500);
-  --ao-status-degraded: var(--color-amber-500);
-  --ao-status-failed: var(--color-red-600);
-  --ao-status-unset: var(--color-neutral-500);
-  --ao-status-running: var(--color-primary-500);
-  --ao-status-info: var(--color-sky-500);
-}

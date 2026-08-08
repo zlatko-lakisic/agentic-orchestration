@@ -15,7 +15,7 @@ import {
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
-/** Fuse Analytics dashboard shell: page header + mat-card grid. */
+/** Fuse Analytics dashboard shell. */
 @Component({
   selector: 'ao-overview-page',
   imports: [
@@ -90,13 +90,10 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
       </div>
 
       @if (topology()?.reachGuard; as rg) {
-        <mat-card
-          class="border-amber-500/40"
-          appearance="outlined"
-        >
+        <mat-card appearance="outlined">
           <mat-card-content class="flex items-start gap-x-3 py-4">
             <mat-icon
-              class="text-amber-500"
+              class="text-amber-600"
               svgIcon="octagon-alert"
             />
             <div class="text-sm">{{ rg.message }}</div>
@@ -105,7 +102,10 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
       }
 
       <div class="grid w-full grid-cols-1 gap-4 lg:grid-cols-2">
-        <mat-card appearance="outlined">
+        <mat-card
+          class="overflow-hidden"
+          appearance="outlined"
+        >
           <div class="flex flex-col gap-y-2 p-6 pb-4">
             <div class="text-lg font-medium tracking-tight">Web process</div>
             <div class="text-4xl font-semibold tabular-nums">
@@ -129,7 +129,10 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           </mat-card-content>
         </mat-card>
 
-        <mat-card appearance="outlined">
+        <mat-card
+          class="overflow-hidden"
+          appearance="outlined"
+        >
           <div class="flex flex-col gap-y-2 p-6 pb-4">
             <div class="text-lg font-medium tracking-tight">Host metrics</div>
             @if (metrics(); as m) {
@@ -168,15 +171,16 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         </mat-card>
       </div>
 
-      <mat-card appearance="outlined">
+      <mat-card
+        class="overflow-hidden"
+        appearance="outlined"
+      >
         <div class="flex items-center justify-between gap-x-4 p-6 pb-0">
           <div class="text-xl font-semibold sm:text-2xl">Needs attention</div>
         </div>
         <mat-card-content class="flex flex-col gap-y-2 py-6">
           @for (a of topology()?.attention || []; track a.message) {
-            <div
-              class="flex items-start gap-x-3 rounded-lg border border-neutral-200 px-4 py-3 dark:border-neutral-800"
-            >
+            <div class="flex items-start gap-x-3 rounded-lg border px-4 py-3">
               <ao-status-chip
                 [status]="a.severity === 'warning' ? 'degraded' : 'info'"
               />
@@ -184,7 +188,8 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
                 <div class="text-sm">{{ a.message }}</div>
                 @if (a.href) {
                   <a
-                    class="mt-1 inline-block text-xs text-primary-600 hover:underline"
+                    matButton
+                    class="mt-1"
                     [routerLink]="a.href"
                     >Open</a
                   >

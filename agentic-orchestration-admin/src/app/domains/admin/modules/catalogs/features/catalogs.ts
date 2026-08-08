@@ -233,7 +233,7 @@ const KINDS = [
                   >
                     @if (e.gateReason && e.fixKey) {
                       <a
-                        class="text-sm text-amber-600 hover:underline dark:text-amber-400"
+                        class="text-sm text-primary-600 hover:underline"
                         [routerLink]="fixRoute(e.fixKey)"
                         [queryParams]="{ flash: e.fixKey }"
                         >{{ e.gateReason }} →</a
@@ -247,11 +247,12 @@ const KINDS = [
                 </ng-container>
 
                 <tr
+                  class="bg-white dark:bg-neutral-900"
                   mat-header-row
-                  *matHeaderRowDef="columns"
+                  *matHeaderRowDef="columns; sticky: true"
                 ></tr>
                 <tr
-                  class="cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800/60"
+                  class="cursor-pointer hover:bg-neutral-100 dark:hover:bg-white/2.5"
                   mat-row
                   *matRowDef="let row; columns: columns"
                   [routerLink]="['/catalogs', kind(), row.id]"

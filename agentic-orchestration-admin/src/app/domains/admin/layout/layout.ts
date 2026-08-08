@@ -16,6 +16,10 @@ import { SchemeSwitcher } from '@/app/domains/admin/layout/ui/scheme-switcher';
 import { Shortcuts } from '@/app/domains/admin/layout/ui/shortcuts';
 import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
 
+/**
+ * Fuse admin layout (domains/admin/layout/layout.ts) without BuilderKit banner.
+ * Assistant control opens AO search (same Fuse sparkles toolbar slot).
+ */
 @Component({
   selector: 'admin-layout',
   imports: [
@@ -47,13 +51,11 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
       </mat-sidenav>
 
       <mat-sidenav-content class="flex flex-col lg:h-dvh lg:overflow-hidden">
-        <!-- Toolbar (Fuse pattern; AO badges instead of BuilderKit banner) -->
         <div class="flex items-center border-b px-4 py-2.5">
           <button
             matIconButton
             type="button"
             (click)="sidenav.toggle()"
-            aria-label="Toggle navigation"
           >
             <mat-icon svgIcon="panel-left" />
           </button>
@@ -65,19 +67,6 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
           <div class="flex-auto"></div>
 
           <div class="flex items-center gap-x-2">
-            <span
-              class="hidden rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 sm:inline dark:text-amber-400"
-            >
-              Read-only
-            </span>
-            <button
-              matButton
-              type="button"
-              class="small hidden sm:inline-flex"
-              (click)="openChat()"
-            >
-              Open chat
-            </button>
             <scheme-switcher />
             <notifications />
             <mat-divider
@@ -87,12 +76,12 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
             <button
               matIconButton
               type="button"
-              matTooltip="Search (⌘K)"
+              matTooltip="Search"
               (click)="openPalette()"
             >
               <mat-icon
                 class="text-primary-600"
-                svgIcon="search"
+                svgIcon="sparkles"
               />
             </button>
           </div>
@@ -103,7 +92,7 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
         </div>
       </mat-sidenav-content>
     </mat-sidenav-container>
-    <ao-command-palette #commandPalette />
+    <ao-command-palette />
   `,
 })
 export class AdminLayout {
@@ -112,10 +101,6 @@ export class AdminLayout {
   protected isMobile = computed(() =>
     this.media.match(`(max-width: 1023px)`)()
   );
-
-  openChat() {
-    window.location.href = '/';
-  }
 
   openPalette() {
     this.commandPalette().open();

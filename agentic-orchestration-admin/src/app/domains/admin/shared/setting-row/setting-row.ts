@@ -2,7 +2,7 @@ import { Component, input } from '@angular/core';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
 
-/** Dense settings row — Fuse notifications/account row density. */
+/** Fuse Settings row density (notifications/account). */
 @Component({
   selector: 'ao-setting-row',
   imports: [SourceChip, TierChip],
@@ -14,7 +14,7 @@ import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
   template: `
     <div class="min-w-0">
       <div class="font-medium">{{ label() }}</div>
-      <div class="mt-0.5 font-mono text-xs text-neutral-500 break-all">
+      <div class="mt-0.5 font-mono text-sm text-neutral-500 break-all">
         {{ key() }}
       </div>
       @if (help()) {
@@ -33,7 +33,7 @@ import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
         </div>
       }
       @if (sourceFile()) {
-        <div class="mt-1 font-mono text-2xs text-neutral-500 break-all">
+        <div class="mt-1 font-mono text-xs text-neutral-500 break-all">
           {{ sourceFile() }}
         </div>
       }
@@ -45,12 +45,6 @@ import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
         [sourceFile]="sourceFile()"
       />
       <ao-tier-chip [tier]="tier()" />
-      <span
-        class="rounded border border-neutral-200 px-1.5 py-0.5 text-2xs text-neutral-500 dark:border-neutral-700"
-        title="Phase 0 is observe-only"
-      >
-        Read-only
-      </span>
     </div>
   `,
 })
