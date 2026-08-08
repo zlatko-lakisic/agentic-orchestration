@@ -45,7 +45,8 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=chat-output.mjs="${WEB_ROOT}/lib/chat-output.mjs" \
   --from-file=text-normalize.mjs="${WEB_ROOT}/lib/text-normalize.mjs" \
   --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
-  --from-file=admin-api.mjs="${WEB_ROOT}/lib/admin-api.mjs"
+  --from-file=admin-api.mjs="${WEB_ROOT}/lib/admin-api.mjs" \
+  --from-file=admin-logs.mjs="${WEB_ROOT}/lib/admin-logs.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"

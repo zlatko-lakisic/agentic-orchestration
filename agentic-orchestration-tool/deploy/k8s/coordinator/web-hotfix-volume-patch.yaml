@@ -80,6 +80,9 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/admin-api.mjs
               subPath: admin-api.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/admin-logs.mjs
+              subPath: admin-logs.mjs
       volumes:
         - name: web-hotfix-public
           configMap:
