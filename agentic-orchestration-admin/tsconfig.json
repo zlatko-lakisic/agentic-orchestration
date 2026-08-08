@@ -24,7 +24,6 @@
     "strictInputAccessModifiers": true,
     "strictTemplates": true
   },
-  "include": ["*.config.ts"],
   "files": [],
   "references": [
     {

@@ -9,6 +9,7 @@ import {
   MatSidenavContent,
 } from '@angular/material/sidenav';
 import { MatTabLink, MatTabNav, MatTabNavPanel } from '@angular/material/tabs';
+import { MatPaginator } from '@angular/material/paginator';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import {
   ActivatedRoute,
@@ -277,7 +278,8 @@ export class CatalogsPage implements OnInit {
   readonly error = signal<string | null>(null);
   readonly search = signal('');
   readonly columns = ['id', 'type', 'status', 'gate'];
-  readonly dataSource = new MatTableDataSource<CatalogEntry>([]);
+  readonly dataSource: MatTableDataSource<CatalogEntry> =
+    new MatTableDataSource<CatalogEntry>([]);
 
   private url = toSignal(
     this.router.events.pipe(

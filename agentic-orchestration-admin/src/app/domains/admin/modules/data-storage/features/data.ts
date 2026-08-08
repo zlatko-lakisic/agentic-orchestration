@@ -1,4 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { MatPaginator } from '@angular/material/paginator';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { StorageEntry } from '@/app/core/ao-api/types';
@@ -133,7 +134,8 @@ export class DataPage implements OnInit {
   private api = inject(AoApi);
   readonly error = signal<string | null>(null);
   readonly columns = ['name', 'path', 'files', 'bytes', 'status'];
-  readonly dataSource = new MatTableDataSource<StorageEntry>([]);
+  readonly dataSource: MatTableDataSource<StorageEntry> =
+    new MatTableDataSource<StorageEntry>([]);
 
   ngOnInit() {
     this.api.storage().subscribe((r) => {
