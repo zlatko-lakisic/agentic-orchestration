@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { RouterLink } from '@angular/router';
@@ -18,8 +18,8 @@ import { TopologyNode } from '../data/topology.types';
         [wikiPage]="wikiPage"
       />
     </h2>
-    <mat-dialog-content class="text-sm">
-      <div>Count: {{ data.node.count ?? 0 }}</div>
+    <mat-dialog-content class="max-w-lg text-sm">
+      <div>Stock catalog: {{ data.node.count ?? 0 }}</div>
       @if (ownerLabel(); as owners) {
         <div
           class="mt-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-teal-950 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100"
@@ -30,16 +30,54 @@ import { TopologyNode } from '../data/topology.types';
           <div class="mt-0.5 font-medium">{{ owners }}</div>
         </div>
       }
+
+      @if (appMembers().length) {
+        <div class="mt-4">
+          <div class="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Reach session overlays by app
+          </div>
+          <div class="flex flex-col gap-2">
+            @for (group of appMembers(); track group.appId) {
+              <div
+                class="rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-medium text-teal-800 dark:text-teal-200">{{
+                    group.appId
+                  }}</span>
+                  <span class="text-xs text-neutral-500">
+                    {{ group.instanceCount }}
+                    instance{{ group.instanceCount === 1 ? '' : 's' }} ·
+                    {{ group.ids.length }}
+                    {{ memberNoun(group.ids.length) }}
+                  </span>
+                </div>
+                <ul class="mt-1.5 space-y-0.5 font-mono text-xs text-neutral-600 dark:text-neutral-300">
+                  @for (id of group.ids; track id) {
+                    <li>{{ id }}</li>
+                  }
+                </ul>
+              </div>
+            }
+          </div>
+        </div>
+      } @else {
+        <p class="mt-3 text-neutral-500">
+          No Reach apps are advertising {{ memberKindLabel() }} on active session
+          overlays right now.
+        </p>
+      }
+
       @if (data.node.breakdown; as b) {
-        <ul class="mt-2 text-neutral-500">
+        <ul class="mt-3 text-neutral-500">
           @for (entry of breakdownEntries(b); track entry[0]) {
             <li>{{ entry[0] }}: {{ entry[1] }}</li>
           }
         </ul>
       }
       <p class="mt-3 text-neutral-500">
-        Members are not expanded on the canvas. Open Capabilities for the full
-        catalog list.
+        Stock catalog providers stay on Capabilities; lists above are live
+        <code>client.*</code> overlays from connected apps.
       </p>
       <a
         matButton
@@ -60,6 +98,8 @@ export class ClusterDialog {
   readonly wikiPage = TOPOLOGY_WIKI_PAGE;
   readonly wikiHelp = helpForNode(this.data.node);
 
+  readonly appMembers = computed(() => this.data.node.appMembers || []);
+
   breakdownEntries(b: Record<string, number>) {
     return Object.entries(b);
   }
@@ -67,6 +107,20 @@ export class ClusterDialog {
   ownerLabel(): string | null {
     const apps = this.data.node.ownedByApps || [];
     return apps.length ? apps.join(', ') : null;
+  }
+
+  memberKindLabel(): string {
+    const id = this.data.node.id;
+    if (id.includes('mcp') || id.includes('sidecar')) return 'MCPs';
+    if (id.includes('skill')) return 'skills';
+    return 'agents';
+  }
+
+  memberNoun(count: number): string {
+    const kind = this.memberKindLabel();
+    if (kind === 'MCPs') return count === 1 ? 'MCP' : 'MCPs';
+    if (kind === 'skills') return count === 1 ? 'skill' : 'skills';
+    return count === 1 ? 'agent' : 'agents';
   }
 
   catalogLink(): string {

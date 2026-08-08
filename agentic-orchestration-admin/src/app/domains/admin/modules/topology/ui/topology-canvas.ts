@@ -133,6 +133,10 @@ type AppGroupFrame = {
             [attr.height]="g.height"
             rx="12"
             class="app-group-frame"
+            [class.app-group-frame-active]="g.appId === expandedAppId()"
+            [class.app-group-frame-dim]="
+              !!expandedAppId() && g.appId !== expandedAppId()
+            "
           />
         }
 
@@ -155,6 +159,8 @@ type AppGroupFrame = {
             [attr.transform]="'translate(' + n.x + ',' + n.y + ')'"
             [class.dimmed]="isDimmedNode(n.id)"
             [class.highlighted]="isHighlightedNode(n.id)"
+            [class.app-panel-dim]="isAppPanelDimmed(n)"
+            [class.app-panel-expanded]="isAppPanelExpanded(n)"
             [attr.data-status]="n.displayStatus"
             [attr.data-band]="n.band"
             [attr.data-kind]="n.kind"
@@ -206,6 +212,34 @@ type AppGroupFrame = {
               {{ statusGlyph(n.displayStatus) }}
               {{ truncate(n.sublabel || n.displayStatus, labelMax(n)) }}
             </text>
+            @if (n.kind === 'app' && n.appId) {
+              <foreignObject
+                [attr.x]="n.width - 36"
+                y="10"
+                width="28"
+                height="32"
+              >
+                <button
+                  xmlns="http://www.w3.org/1999/xhtml"
+                  type="button"
+                  class="app-expand-btn"
+                  [attr.aria-expanded]="n.appId === expandedAppId()"
+                  [attr.aria-label]="
+                    (n.appId === expandedAppId() ? 'Collapse ' : 'Expand ') +
+                    n.label
+                  "
+                  (click)="onExpandClick($event, n.appId!)"
+                >
+                  <mat-icon
+                    [svgIcon]="
+                      n.appId === expandedAppId()
+                        ? 'chevron-down'
+                        : 'chevron-right'
+                    "
+                  ></mat-icon>
+                </button>
+              </foreignObject>
+            }
           </g>
         }
       </svg>
@@ -231,6 +265,46 @@ type AppGroupFrame = {
       stroke-width: 1.25;
       stroke-dasharray: 5 4;
       pointer-events: none;
+      transition: opacity 160ms ease, fill 160ms ease;
+    }
+    .app-group-frame-active {
+      fill: color-mix(in oklab, #0f766e 12%, transparent);
+      stroke: color-mix(in oklab, #0f766e 55%, transparent);
+      stroke-dasharray: none;
+    }
+    .app-group-frame-dim {
+      opacity: 0.28;
+      filter: grayscale(0.85);
+    }
+    .topo-node.app-panel-dim {
+      opacity: 0.32;
+      filter: grayscale(0.9);
+    }
+    .topo-node.app-panel-expanded {
+      opacity: 1;
+      filter: none;
+    }
+    .app-expand-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 32px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: color-mix(in oklab, #0f766e 12%, transparent);
+      color: #0f766e;
+      cursor: pointer;
+    }
+    .app-expand-btn:hover {
+      background: color-mix(in oklab, #0f766e 22%, transparent);
+    }
+    .app-expand-btn mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
     }
     .band-rect[data-band='reach'] {
       fill: color-mix(in oklab, #2563eb 8%, transparent);
@@ -357,14 +431,16 @@ export class TopologyCanvas {
   readonly closure = input<{ nodes: Set<string>; edges: Set<string> } | null>(
     null
   );
+  readonly expandedAppId = input<string | null>(null);
   readonly blurred = input(false);
   readonly summary = input('Deployment topology diagram');
 
   readonly hover = output<string | null>();
   readonly nodeClick = output<PositionedNode>();
   readonly edgeClick = output<PositionedEdge>();
+  readonly expandApp = output<string>();
 
-  /** Bounding frames grouping each appId's header + three components. */
+  /** Bounding frames for each app panel (and expanded children when open). */
   readonly appFrames = computed(() => {
     const byApp = new Map<string, PositionedNode[]>();
     for (const n of this.nodes()) {
@@ -374,7 +450,7 @@ export class TopologyCanvas {
       byApp.set(n.appId, list);
     }
     const frames: AppGroupFrame[] = [];
-    const pad = 10;
+    const pad = 8;
     for (const [appId, list] of byApp) {
       if (!list.length) continue;
       let minX = Infinity;
@@ -418,6 +494,23 @@ export class TopologyCanvas {
     return !!c && c.nodes.has(id);
   }
 
+  isAppPanelDimmed(n: PositionedNode): boolean {
+    const expanded = this.expandedAppId();
+    if (!expanded || n.band !== 'application' || !n.appId) return false;
+    return n.appId !== expanded;
+  }
+
+  isAppPanelExpanded(n: PositionedNode): boolean {
+    const expanded = this.expandedAppId();
+    return Boolean(expanded && n.appId === expanded);
+  }
+
+  onExpandClick(ev: Event, appId: string) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.expandApp.emit(appId);
+  }
+
   accent(n: PositionedNode): string {
     return themeForKind(n.kind, n.band).accent;
   }
@@ -427,13 +520,19 @@ export class TopologyCanvas {
   }
 
   labelMax(n: PositionedNode): number {
-    return n.kind === 'app' ? 28 : 14;
+    return n.kind === 'app' ? 12 : 14;
   }
 
   ariaLabel(n: PositionedNode): string {
     const owners =
       n.ownedByApps?.length ? ` owned by ${n.ownedByApps.join(', ')}` : '';
-    return `${n.label} ${n.displayStatus}${owners}`;
+    const expand =
+      n.kind === 'app'
+        ? n.appId === this.expandedAppId()
+          ? ' expanded'
+          : ' collapsed'
+        : '';
+    return `${n.label} ${n.displayStatus}${expand}${owners}`;
   }
 
   truncate(s: string, max: number): string {

@@ -52,7 +52,7 @@ describe('topology.layout', () => {
     expect(oc.x).toBeGreaterThan(ui.x + ui.width);
   });
 
-  it('stacks each appId group: header then UI/overlays/local-tools', () => {
+  it('minimizes app panels horizontally and hides children until expanded', () => {
     const nodes: TopologyNode[] = [
       n({
         id: 'app/knowbuddy',
@@ -97,17 +97,25 @@ describe('topology.layout', () => {
         parent: 'app/comstar',
       }),
     ];
-    const layout = layoutTopology(nodes, []);
-    const kb = layout.nodes.find((x) => x.id === 'app/knowbuddy')!;
-    const kbUi = layout.nodes.find((x) => x.id === 'app/knowbuddy/ui')!;
-    const kbOv = layout.nodes.find((x) => x.id === 'app/knowbuddy/overlays')!;
-    const cs = layout.nodes.find((x) => x.id === 'app/comstar')!;
-    expect(kb.kind).toBe('app');
-    expect(kb.width).toBeGreaterThan(kbUi.width);
-    expect(kbUi.y).toBeGreaterThan(kb.y);
+    const collapsed = layoutTopology(nodes, []);
+    expect(collapsed.nodes.map((x) => x.id).sort()).toEqual([
+      'app/comstar',
+      'app/knowbuddy',
+    ]);
+    const cs = collapsed.nodes.find((x) => x.id === 'app/comstar')!;
+    const kb = collapsed.nodes.find((x) => x.id === 'app/knowbuddy')!;
+    // Horizontal LTR by appId: comstar then knowbuddy
+    expect(cs.y).toBe(kb.y);
+    expect(cs.x).toBeLessThan(kb.x);
+
+    const expanded = layoutTopology(nodes, [], { expandedAppId: 'knowbuddy' });
+    expect(expanded.nodes.some((x) => x.id === 'app/knowbuddy/ui')).toBe(true);
+    expect(expanded.nodes.some((x) => x.id === 'app/comstar/ui')).toBe(false);
+    const kbUi = expanded.nodes.find((x) => x.id === 'app/knowbuddy/ui')!;
+    const kbOv = expanded.nodes.find((x) => x.id === 'app/knowbuddy/overlays')!;
+    const kbHeader = expanded.nodes.find((x) => x.id === 'app/knowbuddy')!;
+    expect(kbUi.y).toBeGreaterThan(kbHeader.y);
     expect(kbOv.x).toBeGreaterThan(kbUi.x);
-    // comstar sorts before knowbuddy alphabetically → earlier ranks
-    expect(cs.y).toBeLessThan(kb.y);
   });
 
   it('routes unknown kinds to trailing other lane', () => {

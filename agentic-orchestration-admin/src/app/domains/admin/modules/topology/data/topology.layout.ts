@@ -73,6 +73,8 @@ const COL_GAP = 52;
 const ROW_GAP = 64;
 const BAND_PAD_Y = 28;
 const BAND_LABEL_H = 22;
+/** Vertical air between Application · Reach · AO band rectangles. */
+const BAND_GAP = 56;
 const MARGIN = 32;
 const ROUTE_MARGIN = 56;
 const MAX_LANES = 8;
@@ -473,20 +475,22 @@ export function isSideCenter(
 export function layoutTopology(
   nodes: TopologyNode[],
   edges: TopologyEdge[],
-  opts?: { showNotDeployed?: boolean }
+  opts?: LayoutTopologyOpts
 ): LayoutResult {
   const showNotDeployed = opts?.showNotDeployed ?? false;
-  const visible = nodes.filter((n) => showNotDeployed || n.deployed !== false);
+  const expandedAppId = opts?.expandedAppId ?? null;
+  const deployed = nodes.filter((n) => showNotDeployed || n.deployed !== false);
+  const visible = filterApplicationAccordion(deployed, expandedAppId);
 
   const appIds = uniqueSorted(
     visible
-      .filter((n) => n.band === 'application' && n.appId)
+      .filter((n) => n.kind === 'app' && n.appId)
       .map((n) => String(n.appId))
   );
-  const appRankBase = new Map(appIds.map((id, i) => [id, i * 2]));
+  const appLaneById = new Map(appIds.map((id, i) => [id, i]));
 
   const enriched = visible.map((n) => {
-    const s = slotFor(n, appRankBase);
+    const s = slotFor(n, appLaneById, expandedAppId);
     return { node: n, ...s };
   });
 
@@ -502,7 +506,14 @@ export function layoutTopology(
   });
 
   const colWidth = NODE_W + COL_GAP;
-  const canvasContentW = MAX_LANES * colWidth + ROUTE_MARGIN;
+  const appRowW =
+    appIds.length > 0
+      ? appIds.length * APP_PANEL_W + Math.max(0, appIds.length - 1) * COL_GAP
+      : 0;
+  const canvasContentW = Math.max(
+    MAX_LANES * colWidth + ROUTE_MARGIN,
+    appRowW + ROUTE_MARGIN
+  );
   const width = canvasContentW + MARGIN * 2;
 
   type RowKey = string;
@@ -530,7 +541,7 @@ export function layoutTopology(
         y,
         height: BAND_PAD_Y + BAND_LABEL_H + 40,
       });
-      y += BAND_PAD_Y + BAND_LABEL_H + 40 + 16;
+      y += BAND_PAD_Y + BAND_LABEL_H + 40 + BAND_GAP;
       continue;
     }
 
@@ -540,33 +551,34 @@ export function layoutTopology(
     for (const [, rowNodes] of bandRows) {
       const usedLanes = new Set<number>();
       for (const e of rowNodes) {
-        let lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
-        while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;
-        // If still colliding at the end, wrap search leftward
-        if (usedLanes.has(lane)) {
-          for (let i = 0; i < MAX_LANES; i++) {
-            if (!usedLanes.has(i)) {
-              lane = i;
-              break;
+        const isAppHeader = e.node.kind === 'app';
+        let lane = e.lane;
+        if (!isAppHeader) {
+          lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
+          while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;
+          // If still colliding at the end, wrap search leftward
+          if (usedLanes.has(lane)) {
+            for (let i = 0; i < MAX_LANES; i++) {
+              if (!usedLanes.has(i)) {
+                lane = i;
+                break;
+              }
             }
           }
+          usedLanes.add(lane);
         }
-        usedLanes.add(lane);
-        const isAppHeader = e.node.kind === 'app';
-        const width = isAppHeader ? APP_HEADER_W : NODE_W;
-        // Header spans lanes 0–2; do not place other nodes in those lanes on this row.
-        if (isAppHeader) {
-          usedLanes.add(1);
-          usedLanes.add(2);
-        }
-        const x = MARGIN + lane * colWidth;
+        const nodeW = isAppHeader ? APP_PANEL_W : NODE_W;
+        // App panels use their own horizontal pitch (not the 140px node grid).
+        const x = isAppHeader
+          ? MARGIN + e.lane * (APP_PANEL_W + COL_GAP)
+          : MARGIN + lane * colWidth;
         positioned.push({
           ...e.node,
           x,
           y,
-          width,
+          width: nodeW,
           height: NODE_H,
-          lane,
+          lane: isAppHeader ? e.lane : lane,
           rank: e.rank,
           order: e.order,
           displayStatus: displayStatus(e.node),
@@ -575,14 +587,15 @@ export function layoutTopology(
       y += NODE_H + ROW_GAP;
     }
 
-    const bandHeight = y - bandTop + BAND_PAD_Y / 2;
+    // Trim trailing row gap inside the band so padding is even top/bottom.
+    const bandHeight = y - bandTop - ROW_GAP + BAND_PAD_Y;
     bands.push({
       id: band,
       label: BAND_LABELS[band],
       y: bandTop,
-      height: bandHeight,
+      height: Math.max(bandHeight, BAND_PAD_Y + BAND_LABEL_H + NODE_H + BAND_PAD_Y),
     });
-    y += 16;
+    y = bandTop + bands[bands.length - 1].height + BAND_GAP;
   }
 
   const byId = new Map(positioned.map((n) => [n.id, n]));

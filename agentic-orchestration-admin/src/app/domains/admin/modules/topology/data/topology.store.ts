@@ -41,6 +41,8 @@ export class TopologyStore {
   readonly bandFilter = signal<'all' | 'application' | 'reach' | 'ao'>('all');
   readonly tableMode = signal(false);
   readonly hoverNodeId = signal<string | null>(null);
+  /** Application accordion: which appId panel is expanded (null = all minimized). */
+  readonly expandedAppId = signal<string | null>(null);
   readonly snapshotOnly = signal(false);
   readonly lastError = signal<string | null>(null);
   readonly loading = signal(true);
@@ -65,6 +67,7 @@ export class TopologyStore {
     }
     return layoutTopology(nodes, edges, {
       showNotDeployed: this.showNotDeployed(),
+      expandedAppId: this.expandedAppId(),
     });
   });
 
@@ -163,6 +166,17 @@ export class TopologyStore {
     this.hoverNodeId.set(id);
   }
 
+  /** Expand one Application panel (or collapse if already expanded). */
+  toggleAppExpanded(appId: string) {
+    const id = String(appId || '').trim();
+    if (!id) return;
+    this.expandedAppId.update((cur) => (cur === id ? null : id));
+  }
+
+  collapseApps() {
+    this.expandedAppId.set(null);
+  }
+
   loadNodeDetail(id: string) {
     return this.api.topologyNode(id);
   }
@@ -212,6 +226,7 @@ export class TopologyStore {
     this.capabilities.set(graph.capabilities || null);
     this.structureNodes.set(graph.nodes || []);
     this.structureEdges.set(graph.edges || []);
+    this.pruneExpandedApp(graph.nodes || []);
     const health: Record<string, { status: string; statusReason?: string }> =
       {};
     for (const n of graph.nodes || []) {
@@ -246,8 +261,10 @@ export class TopologyStore {
       }
       map.delete(id);
     }
-    this.structureNodes.set([...map.values()]);
+    const nextNodes = [...map.values()];
+    this.structureNodes.set(nextNodes);
     this.healthById.set(health);
+    this.pruneExpandedApp(nextNodes);
 
     const emap = new Map(this.structureEdges().map((e) => [e.id, e]));
     for (const e of edgesUpserted) emap.set(e.id, e);
@@ -262,6 +279,15 @@ export class TopologyStore {
       );
     }
     if (ev['generatedAt']) this.generatedAt.set(String(ev['generatedAt']));
+  }
+
+  private pruneExpandedApp(nodes: TopologyNode[]) {
+    const cur = this.expandedAppId();
+    if (!cur) return;
+    const stillThere = nodes.some(
+      (n) => n.kind === 'app' && n.appId === cur && n.deployed !== false
+    );
+    if (!stillThere) this.expandedAppId.set(null);
   }
 
   private patchHealth(

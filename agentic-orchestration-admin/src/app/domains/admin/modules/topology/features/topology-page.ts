@@ -172,11 +172,13 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
           [nodes]="store.displayNodes()"
           [edges]="store.displayEdges()"
           [closure]="store.hoverClosure()"
+          [expandedAppId]="store.expandedAppId()"
           [blurred]="dialogOpen()"
           [summary]="a11ySummary()"
           (hover)="onHover($event)"
           (nodeClick)="openNode($event)"
           (edgeClick)="openEdge($event)"
+          (expandApp)="store.toggleAppExpanded($event)"
         />
       }
     </div>
@@ -230,7 +232,11 @@ export class TopologyPage implements OnInit, OnDestroy {
   }
 
   openNode(n: PositionedNode) {
-    if (n.count != null && n.count > 0 && n.kind === 'catalog') {
+    // Catalog / sidecar clusters: show per-app Reach overlay members.
+    if (
+      n.kind === 'catalog' ||
+      (n.kind === 'mcp-sidecar' && (n.appMembers?.length || n.count != null))
+    ) {
       this.dialogOpen.set(true);
       const ref = this.dialog.open(ClusterDialog, {
         data: { node: n },

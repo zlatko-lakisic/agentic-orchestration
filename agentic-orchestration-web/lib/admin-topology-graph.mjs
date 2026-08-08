@@ -103,6 +103,33 @@ function setOwnedByApps(nodes, id, apps) {
 }
 
 /**
+ * Per-app overlay member ids for catalog / sidecar modals.
+ * @param {'agents'|'mcps'|'skills'} field
+ */
+function appMembersFor(appGroups, field) {
+  const key =
+    field === "agents" ? "agentIds" : field === "mcps" ? "mcpIds" : "skillIds";
+  const out = [];
+  for (const g of appGroups || []) {
+    const ids = uniqueSorted(g[key] || []);
+    if (!ids.length) continue;
+    out.push({
+      appId: g.appId,
+      instanceCount: g.instanceCount || g.sessions?.length || 0,
+      ids,
+    });
+  }
+  return out;
+}
+
+function setAppMembers(nodes, id, members) {
+  const n = (nodes || []).find((x) => x.id === id);
+  if (!n) return;
+  if (members && members.length) n.appMembers = members;
+  else delete n.appMembers;
+}
+
+/**
  * Probe engine /health and /api/v1/admin/reach-sessions using the same host candidates
  * as the legacy topology probe.
  */
@@ -964,7 +991,10 @@ export async function buildTopologyGraph(ctx) {
     },
   };
 
-  // Ownership labels: which Reach appId(s) currently own / use this component.
+  // Ownership labels + per-app overlay member lists for catalog modals.
+  const agentMembers = appMembersFor(appGroups, "agents");
+  const mcpMembers = appMembersFor(appGroups, "mcps");
+  const skillMembers = appMembersFor(appGroups, "skills");
   if (connectedAppIds.length) {
     setOwnedByApps(nodes, "engine/session-overlay", connectedAppIds);
     setOwnedByApps(nodes, "engine/mcp-tunnel", appsWithTunnels.length ? appsWithTunnels : appsWithMcps);
@@ -979,6 +1009,12 @@ export async function buildTopologyGraph(ctx) {
     // Planner/harness path is used when session overlays run client agents.
     setOwnedByApps(nodes, "planner", appsWithAgents.length ? appsWithAgents : connectedAppIds);
   }
+  setAppMembers(nodes, "catalog/agents", agentMembers);
+  setAppMembers(nodes, "catalog/mcp", mcpMembers);
+  setAppMembers(nodes, "catalog/skills", skillMembers);
+  setAppMembers(nodes, "sidecars/cluster", mcpMembers);
+  setAppMembers(nodes, "planner", agentMembers);
+  setAppMembers(nodes, "engine/direct-agent", agentMembers);
 
   ingestTopologySample(graph, {
     engineLatencyMs,
@@ -1026,6 +1062,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
   }
 
   const ownedByApps = uniqueSorted(n.ownedByApps || []);
+  const appMembers = Array.isArray(n.appMembers) ? n.appMembers : [];
   return {
     id: n.id,
     node: n,
@@ -1034,6 +1071,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
     logSource,
     configKeys,
     ownedByApps: ownedByApps.length ? ownedByApps : undefined,
+    appMembers: appMembers.length ? appMembers : undefined,
     probe: {
       lastProbeAt: n.lastProbeAt || null,
       instrumented: n.instrumented,
@@ -1048,7 +1086,9 @@ export async function buildTopologyNodeDetail(id, ctx) {
             note:
               n.kind === "app"
                 ? `${n.count} connected Reach instance${n.count === 1 ? "" : "s"}`
-                : "Member list available via Capabilities catalogs",
+                : appMembers.length
+                  ? "Stock catalog size; Reach session overlays listed by app below"
+                  : "Member list available via Capabilities catalogs",
           }
         : null,
     generatedAt: new Date().toISOString(),

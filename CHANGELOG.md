@@ -14,6 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 ### Changed
 
 - **Topology band labels** — band 2 uses the AO mark + “Reach” (no text “AO”); band 3 shows the AO mark left of “Agentic Orchestration”.
+- **Topology Live stamp** — locale-friendly medium date + short time instead of raw ISO.
 
 ### Added
 
@@ -21,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 - **mTLS per-client revoke** — deny one enrolled Reach client by cert serial or CN (`revoked.json`) without rotating the CA. Enforced on engine HTTP + WebSocket; Admin Access → mTLS clients; CLI `revoke-client` / `unrevoke-client`.
 - **Admin mTLS enroll-token mint** — Access → mTLS clients → **Mint enroll token** (one-time Reach/KnowBuddy cert enroll; not an `ao_…` API token).
 - **Topology Application band by appId** — each connected Reach product (`knowbuddy`, `comstar`, …) is a group with instance count plus Client UI / Domain overlays / Local tools. Reach and AO node modals show an **Owned by app** label when session overlays currently use that component (bridge, catalogs, sidecars, planner, speech, etc.).
+- **Topology Application accordion panels** — apps start as minimized panels left-to-right; expand one to reveal its components while other apps grey out and stay collapsed.
+- **Topology catalog app members** — Agents / MCP servers / Skills (and MCP sidecars) modals list live Reach overlay ids grouped by `appId` (which `client.*` agents/MCPs/skills each connected app registered).
 
 ## [2.0.0] - 2026-08-08
 

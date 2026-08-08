@@ -41,6 +41,13 @@ export type TopologyNodeKind =
   | 'storage'
   | string;
 
+/** Overlay ids currently registered by one Reach appId. */
+export interface TopologyAppMembers {
+  appId: string;
+  instanceCount: number;
+  ids: string[];
+}
+
 export interface TopologyNode {
   id: string;
   kind: TopologyNodeKind;
@@ -60,6 +67,8 @@ export interface TopologyNode {
   instanceCount?: number;
   /** Apps currently owning / using this Reach or AO component. */
   ownedByApps?: string[];
+  /** Per-app overlay member ids (agents / MCPs / skills) for catalog modals. */
+  appMembers?: TopologyAppMembers[];
   lastProbeAt?: string | null;
 }
 
@@ -103,6 +112,8 @@ export interface TopologyNodeDetail {
   configKeys?: string[];
   /** Apps that currently own or use this component (Reach overlays / sidecars). */
   ownedByApps?: string[];
+  /** Per-app overlay member ids for Agents / MCP / Skills clusters. */
+  appMembers?: TopologyAppMembers[];
   probe?: {
     lastProbeAt?: string | null;
     instrumented?: boolean;

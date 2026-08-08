@@ -1,0 +1,1 @@
+import{di as v}from"./chunk-BP7ZfSiu.js";var R=new v(``);export{R as t};

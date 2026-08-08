@@ -26,7 +26,7 @@ import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
-import { TopologyNodeDetail } from '../data/topology.types';
+import { TopologyAppMembers, TopologyNodeDetail } from '../data/topology.types';
 import { helpForNode, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';
 import { themeForKind } from '../data/topology.theme';
 
@@ -93,6 +93,36 @@ type Pt = { x: number; y: number | null };
                     >Owned by app</span
                   >
                   <div class="mt-0.5 font-medium">{{ owners }}</div>
+                </div>
+              }
+              @if (appMembers(d); as groups) {
+                <div class="flex flex-col gap-2">
+                  <div class="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                    Reach overlays by app
+                  </div>
+                  @for (group of groups; track group.appId) {
+                    <div
+                      class="rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700"
+                    >
+                      <div class="flex items-baseline justify-between gap-2">
+                        <span class="font-medium text-teal-800 dark:text-teal-200">{{
+                          group.appId
+                        }}</span>
+                        <span class="text-xs text-neutral-500">
+                          {{ group.ids.length }} id{{
+                            group.ids.length === 1 ? '' : 's'
+                          }}
+                        </span>
+                      </div>
+                      <ul
+                        class="mt-1 space-y-0.5 font-mono text-xs text-neutral-600 dark:text-neutral-300"
+                      >
+                        @for (id of group.ids; track id) {
+                          <li>{{ id }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
                 </div>
               }
               @if (d.probe?.statusReason || d.node.statusReason) {
@@ -365,6 +395,15 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
       return d.node.appId;
     }
     return null;
+  }
+
+  appMembers(d: TopologyNodeDetail): TopologyAppMembers[] | null {
+    const groups = d.appMembers?.length
+      ? d.appMembers
+      : d.node.appMembers?.length
+        ? d.node.appMembers
+        : [];
+    return groups.length ? groups : null;
   }
 
   healthChartSeries(): ApexAxisChartSeries {
