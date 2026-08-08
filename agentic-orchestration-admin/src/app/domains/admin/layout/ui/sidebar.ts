@@ -20,11 +20,11 @@ import { User } from '@/app/domains/admin/layout/ui/user';
         aria-label="Agentic Orchestration"
       ></span>
 
-      <div class="flex flex-col">
+      <div class="flex min-w-0 flex-col">
         <div
-          class="text-on-surface text-lg leading-none font-bold tracking-wider"
+          class="text-on-surface text-sm leading-tight font-bold tracking-tight"
         >
-          AO
+          Agentic Orchestration
         </div>
         <div class="font-mono text-2xs leading-3 font-medium tracking-tighter">
           Admin
