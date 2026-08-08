@@ -231,7 +231,12 @@ class WsConnection:
 
     async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:
         from orchestration.mcp_tunnel import register_connection_bridge
-        from orchestration.session_overlay import SessionOverlayError, clear_overlay, register_overlay
+        from orchestration.session_overlay import (
+            SessionOverlayDeniedError,
+            SessionOverlayError,
+            clear_overlay,
+            register_overlay,
+        )
         from orchestration.session_overlay_runtime import ensure_session_overlay_ollama_models
 
         if self.identity is None:
@@ -245,17 +250,30 @@ class WsConnection:
         except (TypeError, ValueError):
             await self.send_error("ttlSeconds must be a number")
             return
+        app_id = message.get("appId")
+        if app_id is None:
+            app_id = message.get("app_id")
         try:
             overlay = register_overlay(
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
                 connection_id=self.connection_id,
+                app_id=str(app_id or ""),
                 agents=message.get("agents") if isinstance(message.get("agents"), list) else [],
                 mcps=message.get("mcps") if isinstance(message.get("mcps"), list) else [],
                 skills=message.get("skills") if isinstance(message.get("skills"), list) else [],
                 ttl_seconds=ttl,
                 catalog_root=self.tool_root,
             )
+        except SessionOverlayDeniedError as exc:
+            await self.send(
+                {
+                    "type": "session_overlay_denied",
+                    "error": exc.error,
+                    "message": str(exc),
+                }
+            )
+            return
         except SessionOverlayError as exc:
             await self.send_error(str(exc))
             return

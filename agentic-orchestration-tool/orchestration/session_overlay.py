@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 CLIENT_ID_RE = re.compile(r"^client\.[a-z0-9][a-z0-9_.]*$")
+#: Stable product identity required on every Reach ``session_overlay_register``.
+APP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 TUNNEL_URL_PREFIX = "tunnel://session-mcp/"
 
 _DEFAULT_TTL_S = 3600
@@ -80,6 +82,7 @@ class SessionOverlay:
     user_id: str
     session_id: str
     connection_id: str
+    app_id: str
     agents: list[dict[str, Any]] = field(default_factory=list)
     mcps: list[dict[str, Any]] = field(default_factory=list)
     skills: list[dict[str, Any]] = field(default_factory=list)
@@ -96,6 +99,32 @@ class SessionOverlay:
 
 class SessionOverlayError(ValueError):
     """Invalid overlay payload or disabled feature."""
+
+
+class SessionOverlayDeniedError(SessionOverlayError):
+    """Reach registration denied (missing/invalid appId, etc.)."""
+
+    def __init__(self, message: str, *, error: str) -> None:
+        super().__init__(message)
+        self.error = str(error or "denied")
+
+
+def normalize_app_id(raw: Any) -> str:
+    """Require a stable product appId (e.g. ``knowbuddy``, ``comstar``)."""
+    app_id = str(raw or "").strip().lower()
+    if not app_id:
+        raise SessionOverlayDeniedError(
+            "Reach registration denied: appId is required "
+            "(product apps must advertise a stable appId such as 'knowbuddy' or 'comstar')",
+            error="app_id_required",
+        )
+    if not APP_ID_RE.match(app_id):
+        raise SessionOverlayDeniedError(
+            f"Reach registration denied: appId {app_id!r} is invalid "
+            f"(must match {APP_ID_RE.pattern})",
+            error="app_id_invalid",
+        )
+    return app_id
 
 
 def overlay_key(user_id: str, session_id: str) -> tuple[str, str]:
@@ -243,6 +272,7 @@ def register_overlay(
     user_id: str,
     session_id: str,
     connection_id: str,
+    app_id: str,
     agents: list[Any] | None = None,
     mcps: list[Any] | None = None,
     skills: list[Any] | None = None,
@@ -258,6 +288,7 @@ def register_overlay(
     uid = str(user_id or "").strip()
     sid = str(session_id or "").strip()
     cid = str(connection_id or "").strip()
+    aid = normalize_app_id(app_id)
     if not uid or not sid:
         raise SessionOverlayError("user_id and session_id are required to register an overlay")
     if not cid:
@@ -332,6 +363,7 @@ def register_overlay(
         user_id=uid,
         session_id=sid,
         connection_id=cid,
+        app_id=aid,
         agents=validated_agents,
         mcps=validated_mcps,
         skills=validated_skills,
@@ -481,6 +513,7 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     tunnel_mcps += 1
             out.append(
                 {
+                    "appId": overlay.app_id,
                     "userId": overlay.user_id,
                     "sessionId": overlay.session_id,
                     "connectionId": overlay.connection_id,
@@ -492,5 +525,5 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     "byteSize": overlay.byte_size,
                 }
             )
-    out.sort(key=lambda row: (row["userId"], row["sessionId"]))
+    out.sort(key=lambda row: (row["appId"], row["userId"], row["sessionId"]))
     return out

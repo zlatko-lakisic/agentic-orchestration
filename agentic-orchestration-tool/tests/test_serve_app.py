@@ -543,6 +543,7 @@ def test_ws_session_overlay_register_ack_and_clear(
             ws.send_json(
                 {
                     "type": "session_overlay_register",
+                    "appId": "knowbuddy",
                     "ttlSeconds": 600,
                     "agents": [
                         {
@@ -561,12 +562,48 @@ def test_ws_session_overlay_register_ack_and_clear(
             ack = ws.receive_json()
             assert ack["type"] == "session_overlay_ack"
             assert ack["agentIds"] == ["client.kb_researcher"]
-            assert get_overlay("ada", "sess-1") is not None
+            overlay = get_overlay("ada", "sess-1")
+            assert overlay is not None
+            assert overlay.app_id == "knowbuddy"
 
             ws.send_json({"type": "session_overlay_clear"})
             cleared = ws.receive_json()
             assert cleared["type"] == "session_overlay_cleared"
             assert get_overlay("ada", "sess-1") is None
+
+
+def test_ws_session_overlay_denied_without_app_id(
+    kb_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestration.session_overlay import reset_overlays_for_tests
+
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY_ENSURE_OLLAMA", "0")
+    reset_overlays_for_tests()
+    headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-denied"}
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        with c.websocket_connect("/ws", headers=headers) as ws:
+            ws.receive_json()
+            ws.send_json(
+                {
+                    "type": "session_overlay_register",
+                    "agents": [
+                        {
+                            "id": "client.kb_researcher",
+                            "type": "ollama",
+                            "role": "r",
+                            "goal": "g",
+                            "backstory": "b",
+                            "model": "qwen2.5:7b",
+                        }
+                    ],
+                }
+            )
+            denied = ws.receive_json()
+            assert denied["type"] == "session_overlay_denied"
+            assert denied["error"] == "app_id_required"
+            assert "appId is required" in denied["message"]
 
 
 def test_ws_session_overlay_register_ensures_ollama_model(
@@ -595,6 +632,7 @@ def test_ws_session_overlay_register_ensures_ollama_model(
             ws.send_json(
                 {
                     "type": "session_overlay_register",
+                    "appId": "comstar",
                     "agents": [
                         {
                             "id": "client.smoke",

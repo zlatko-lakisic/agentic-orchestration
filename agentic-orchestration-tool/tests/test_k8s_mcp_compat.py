@@ -267,6 +267,7 @@ def test_session_tunnel_survives_merge_and_resolve(monkeypatch: pytest.MonkeyPat
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             mcps=[
                 {
                     "id": "client.calendar_google",

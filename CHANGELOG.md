@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Breaking
+
+- **Reach `appId` required** — `session_overlay_register` must include `appId` / `app_id` (stable product id such as `knowbuddy` or `comstar`). Missing or invalid values receive `session_overlay_denied` (`app_id_required` / `app_id_invalid`). Active session snapshots expose `appId`. Requires AO Reach ≥ 0.5.0.
+
 ### Added
 
 - **Host CPU/GPU temperature (°C)** — `cpu.tempC` / `gpu.tempC` in host metrics (nvidia-smi, Jetson jtop/tegrastats, AMD hwmon, thermal zones). Admin Overview charts plot Temp on a right-hand Celsius axis beside utilization %.

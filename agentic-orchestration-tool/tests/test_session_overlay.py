@@ -9,6 +9,7 @@ import pytest
 
 from orchestration.direct_agent import load_agent_entry
 from orchestration.session_overlay import (
+    SessionOverlayDeniedError,
     SessionOverlayError,
     clear_overlay,
     clear_overlay_for_connection,
@@ -62,6 +63,7 @@ def test_register_client_agent_visible_via_load_agent_entry(tmp_path: Path) -> N
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent()],
         stock_ids={"stock_agent", "filesystem_local"},
     )
@@ -80,6 +82,7 @@ def test_reject_missing_client_prefix_and_stock_collision() -> None:
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             agents=[{"id": "kb_researcher", "type": "ollama"}],
             stock_ids=set(),
         )
@@ -88,6 +91,7 @@ def test_reject_missing_client_prefix_and_stock_collision() -> None:
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             agents=[_agent("client.dup")],
             stock_ids={"client.dup", "filesystem_local"},
         )
@@ -99,6 +103,7 @@ def test_reject_stdio_in_session_mcp() -> None:
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             mcps=[
                 {
                     "id": "client.fs",
@@ -114,6 +119,7 @@ def test_evict_on_clear_and_disconnect() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent()],
         stock_ids=set(),
     )
@@ -125,6 +131,7 @@ def test_evict_on_clear_and_disconnect() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent()],
         stock_ids=set(),
     )
@@ -137,6 +144,7 @@ def test_two_identities_isolated() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent("client.a")],
         stock_ids=set(),
     )
@@ -144,6 +152,7 @@ def test_two_identities_isolated() -> None:
         user_id="bob",
         session_id="s1",
         connection_id="c2",
+        app_id="testapp",
         agents=[_agent("client.b")],
         stock_ids=set(),
     )
@@ -156,6 +165,7 @@ def test_ttl_expiry() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent()],
         ttl_seconds=30,
         stock_ids=set(),
@@ -171,6 +181,7 @@ def test_disabled_flag_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             agents=[_agent()],
             stock_ids=set(),
         )
@@ -183,6 +194,7 @@ def test_mcp_requires_tunnel_flag(monkeypatch: pytest.MonkeyPatch) -> None:
             user_id="ada",
             session_id="s1",
             connection_id="c1",
+            app_id="testapp",
             mcps=[_mcp()],
             stock_ids=set(),
         )
@@ -193,13 +205,28 @@ def test_list_active_overlays_summarizes_sessions() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="c1",
+        app_id="testapp",
         agents=[_agent()],
         mcps=[_mcp()],
         stock_ids=set(),
     )
     rows = list_active_overlays()
     assert len(rows) == 1
+    assert rows[0]["appId"] == "testapp"
     assert rows[0]["sessionId"] == "s1"
     assert rows[0]["agentCount"] == 1
     assert rows[0]["mcpCount"] == 1
     assert rows[0]["tunnelMcpCount"] == 1
+
+
+def test_register_overlay_requires_app_id() -> None:
+    with pytest.raises(SessionOverlayDeniedError, match="appId is required") as exc:
+        register_overlay(
+            user_id="ada",
+            session_id="s1",
+            connection_id="c1",
+            app_id="",
+            agents=[_agent()],
+            stock_ids=set(),
+        )
+    assert exc.value.error == "app_id_required"

@@ -67,6 +67,7 @@ def test_tunnel_http_round_trip_via_mocked_ws() -> None:
         user_id="ada",
         session_id="s1",
         connection_id="conn-1",
+        app_id="testapp",
         mcps=[
             {
                 "id": "client.filesystem_local",
