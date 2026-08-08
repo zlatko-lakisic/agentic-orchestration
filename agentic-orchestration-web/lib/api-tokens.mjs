@@ -20,6 +20,8 @@ const TOKEN_BYTES = 32;
  * @param {string} toolRoot
  */
 export function apiTokensRoot(toolRoot) {
+  const override = String(process.env.AGENTIC_API_TOKENS_DIR || "").trim();
+  if (override) return path.resolve(override);
   return path.resolve(toolRoot, API_TOKENS_DIR_NAME);
 }
 

@@ -1,0 +1,17 @@
+# Persist minted API access tokens + usage across coordinator restarts.
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          env:
+            - name: AGENTIC_API_TOKENS_DIR
+              value: /host/agentic-api-tokens
+          volumeMounts:
+            - name: host-agentic-api-tokens
+              mountPath: /host/agentic-api-tokens
+      volumes:
+        - name: host-agentic-api-tokens
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/agentic-api-tokens
+            type: DirectoryOrCreate

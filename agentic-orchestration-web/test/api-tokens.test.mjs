@@ -133,3 +133,19 @@ test("mintToken requires appId", () => {
   const toolRoot = tmpTool();
   assert.throws(() => mintToken(toolRoot, { appId: "  " }), /appId/);
 });
+
+test("AGENTIC_API_TOKENS_DIR overrides store location", () => {
+  const toolRoot = tmpTool();
+  const alt = fs.mkdtempSync(path.join(os.tmpdir(), "ao-api-tokens-alt-"));
+  const prev = process.env.AGENTIC_API_TOKENS_DIR;
+  process.env.AGENTIC_API_TOKENS_DIR = alt;
+  try {
+    const minted = mintToken(toolRoot, { appId: "override-app" });
+    assert.ok(fs.existsSync(path.join(alt, "tokens.json")));
+    assert.equal(listTokens(toolRoot)[0].id, minted.id);
+    assert.equal(fs.existsSync(path.join(toolRoot, "__orchestrator_api_tokens__")), false);
+  } finally {
+    if (prev === undefined) delete process.env.AGENTIC_API_TOKENS_DIR;
+    else process.env.AGENTIC_API_TOKENS_DIR = prev;
+  }
+});
