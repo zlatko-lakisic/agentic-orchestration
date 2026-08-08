@@ -120,6 +120,6 @@ export class CatalogDetailPage implements OnInit {
   }
 
   close() {
-    this.router.navigate(['/catalogs', this.kind()]);
+    this.router.navigate(['/capabilities', this.kind()]);
   }
 }

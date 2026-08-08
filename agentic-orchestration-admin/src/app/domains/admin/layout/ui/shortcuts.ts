@@ -21,7 +21,7 @@ import {
 } from '@/app/domains/admin/layout/data/navigation';
 
 const STORAGE_KEY = 'shortcuts';
-const DEFAULT_SHORTCUTS = ['overview', 'catalogs', 'runtime/planner'];
+const DEFAULT_SHORTCUTS = ['overview', 'capabilities', 'behaviour'];
 
 @Component({
   selector: 'shortcuts',

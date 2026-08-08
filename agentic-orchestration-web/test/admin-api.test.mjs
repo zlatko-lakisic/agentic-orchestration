@@ -64,12 +64,52 @@ test("buildCatalogs lists mcp with credential gates", () => {
   }
 });
 
-test("buildStorageInventory reports runtime dirs", () => {
+test("buildEffectiveConfig uses curated defaults when unset", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-admin-"));
+  const toolRoot = path.join(tmp, "tool");
+  const webRoot = path.join(tmp, "web");
+  fs.mkdirSync(path.join(toolRoot, "config"), { recursive: true });
+  fs.mkdirSync(webRoot, { recursive: true });
+  const cfg = buildEffectiveConfig({ toolRoot, webRoot });
+  assert.equal(cfg.entries.AGENTIC_KB.effective, "1");
+  assert.equal(cfg.entries.AGENTIC_KB.source, "default");
+  assert.equal(cfg.entries.AGENTIC_KB.set, false);
+  assert.equal(cfg.entries.AGENTIC_ANSWER_CACHE.effective, "1");
+  assert.equal(cfg.entries.AGENTIC_EXECUTION_BACKEND.effective, "inprocess");
+});
+
+test("buildEffectiveConfig excludes injected k8s env by default", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-admin-"));
+  const toolRoot = path.join(tmp, "tool");
+  const webRoot = path.join(tmp, "web");
+  fs.mkdirSync(path.join(toolRoot, "config"), { recursive: true });
+  fs.mkdirSync(webRoot, { recursive: true });
+  process.env.AGENTIC_COORDINATOR_SERVICE_HOST = "10.43.0.1";
+  process.env.AGENTIC_COORDINATOR_PORT_3847_TCP_ADDR = "10.43.0.1";
+  try {
+    const cfg = buildEffectiveConfig({ toolRoot, webRoot });
+    assert.equal(cfg.entries.AGENTIC_COORDINATOR_SERVICE_HOST, undefined);
+    const withInj = buildEffectiveConfig({ toolRoot, webRoot, includeInjected: true });
+    assert.ok(withInj.entries.AGENTIC_COORDINATOR_SERVICE_HOST);
+  } finally {
+    delete process.env.AGENTIC_COORDINATOR_SERVICE_HOST;
+    delete process.env.AGENTIC_COORDINATOR_PORT_3847_TCP_ADDR;
+  }
+});
+
+test("buildStorageInventory distinguishes not_mounted_here", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-admin-store-"));
   fs.mkdirSync(path.join(tmp, "__orchestrator_sessions__"));
   fs.writeFileSync(path.join(tmp, "__orchestrator_sessions__", "a.json"), "{}");
   const inv = buildStorageInventory({ toolRoot: tmp });
   const sessions = inv.roots.find((r) => r.id === "sessions");
   assert.equal(sessions.exists, true);
-  assert.ok(sessions.files >= 1);
+  assert.equal(sessions.visibility, "present");
+  const kb = inv.roots.find((r) => r.id === "kb");
+  assert.equal(kb.visibility, "not_mounted_here");
+});
+
+test("TLS path keys are not treated as secrets", () => {
+  assert.equal(isSecretKey("AGENTIC_SERVE_TLS_CERTFILE"), false);
+  assert.equal(isSecretKey("OPENAI_API_KEY"), true);
 });

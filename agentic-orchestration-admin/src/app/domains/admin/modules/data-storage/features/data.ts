@@ -18,7 +18,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           Data & storage
         </div>
         <div class="text-neutral-500">
-          Runtime directories under the tool root (wipe actions are Phase 1+)
+          Runtime directories probed from the web process (wipe actions are Phase 1+)
         </div>
       </div>
 
@@ -110,8 +110,14 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               *matCellDef="let r"
             >
               <ao-status-chip
-                [status]="r.exists ? 'healthy' : 'unset'"
-                [label]="r.exists ? 'Present' : 'Missing'"
+                [status]="
+                  r.visibility === 'present' || r.exists
+                    ? 'healthy'
+                    : r.visibility === 'not_mounted_here'
+                      ? 'info'
+                      : 'unset'
+                "
+                [label]="visibilityLabel(r)"
               />
             </td>
           </ng-container>
@@ -153,5 +159,13 @@ export class DataPage implements OnInit {
     if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KiB`;
     if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MiB`;
     return `${(n / 1024 ** 3).toFixed(2)} GiB`;
+  }
+
+  visibilityLabel(r: StorageEntry): string {
+    if (r.visibility === 'present' || r.exists) return 'Present';
+    if (r.visibility === 'not_mounted_here') {
+      return `Not visible from this process${r.owner ? ` (${r.owner})` : ''}`;
+    }
+    return 'Absent';
   }
 }

@@ -29,9 +29,9 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 const KINDS = [
   { id: 'agents', label: 'Agents' },
-  { id: 'mcp', label: 'MCP' },
+  { id: 'mcp', label: 'MCP servers' },
   { id: 'skills', label: 'Skills' },
-  { id: 'rag', label: 'RAG' },
+  { id: 'rag', label: 'RAG sources' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'harnesses', label: 'Harnesses' },
   { id: 'societies', label: 'Societies' },
@@ -132,7 +132,7 @@ const KINDS = [
                 <a
                   mat-tab-link
                   routerLinkActive
-                  [routerLink]="['/catalogs', k.id]"
+                  [routerLink]="['/capabilities', k.id]"
                   [active]="rla.isActive"
                   #rla="routerLinkActive"
                 >
@@ -173,7 +173,7 @@ const KINDS = [
                   >
                     <a
                       class="font-mono text-sm font-medium text-primary-600 hover:underline"
-                      [routerLink]="['/catalogs', kind(), e.id]"
+                      [routerLink]="['/capabilities', kind(), e.id]"
                     >
                       {{ e.id }}
                     </a>
@@ -256,7 +256,7 @@ const KINDS = [
                   class="cursor-pointer hover:bg-neutral-100 dark:hover:bg-white/2.5"
                   mat-row
                   *matRowDef="let row; columns: columns"
-                  [routerLink]="['/catalogs', kind(), row.id]"
+                  [routerLink]="['/capabilities', kind(), row.id]"
                 ></tr>
               </table>
             </div>
@@ -294,7 +294,7 @@ export class CatalogsPage implements OnInit {
     this.media.match(`(max-width: 639px)`)()
   );
   protected detailOpen = computed(() =>
-    /\/catalogs\/[^/]+\/[^/]+/.test(this.url().split('?')[0])
+    /\/capabilities\/[^/]+\/[^/]+/.test(this.url().split('?')[0])
   );
 
   ngOnInit() {
@@ -326,8 +326,8 @@ export class CatalogsPage implements OnInit {
 
   private applyFilter(rows: CatalogEntry[], q: string) {
     const needle = q.trim().toLowerCase();
-    this.dataSource.data = !needle
-      ? rows
+    let filtered = !needle
+      ? [...rows]
       : rows.filter(
           (e) =>
             e.id.toLowerCase().includes(needle) ||
@@ -336,12 +336,22 @@ export class CatalogsPage implements OnInit {
               .includes(needle) ||
             String(e.role || e.description || '')
               .toLowerCase()
+              .includes(needle) ||
+            String(e.gateReason || '')
+              .toLowerCase()
               .includes(needle)
         );
+    // Gated / non-available first — those are the actionable rows.
+    filtered.sort((a, b) => {
+      const ag = a.gateReason || (a.status && a.status !== 'available') ? 0 : 1;
+      const bg = b.gateReason || (b.status && b.status !== 'available') ? 0 : 1;
+      return ag - bg || a.id.localeCompare(b.id);
+    });
+    this.dataSource.data = filtered;
   }
 
   closeDetail() {
-    this.router.navigate(['/catalogs', this.kind()]);
+    this.router.navigate(['/capabilities', this.kind()]);
   }
 
   fixRoute(key: string): string {
@@ -351,15 +361,15 @@ export class CatalogsPage implements OnInit {
       key.includes('OLLAMA') ||
       key.includes('HF_')
     ) {
-      return '/runtime/models';
+      return '/components/ollama';
     }
     if (
       key.includes('MCP') ||
       key.includes('HOME_ASSISTANT') ||
       key.includes('FILESYSTEM')
     ) {
-      return '/integrations';
+      return '/components';
     }
-    return '/advanced';
+    return '/settings';
   }
 }

@@ -186,22 +186,22 @@ export class CommandPalette {
   private routeForGroup(group?: string): string {
     switch (group) {
       case 'planner':
-        return '/runtime/planner';
-      case 'execution':
-      case 'engine':
-        return '/runtime/execution';
-      case 'models':
-        return '/runtime/models';
       case 'memory':
-        return '/memory';
+        return '/behaviour';
+      case 'execution':
+        return '/components/execution';
+      case 'engine':
+        return '/components/engine';
+      case 'models':
+        return '/components/ollama';
       case 'security':
-        return '/security';
+        return '/access';
       case 'integrations':
-        return '/integrations';
+        return '/components';
       case 'deployments':
-        return '/deployments';
+        return '/deploy';
       default:
-        return '/advanced';
+        return '/settings';
     }
   }
 }

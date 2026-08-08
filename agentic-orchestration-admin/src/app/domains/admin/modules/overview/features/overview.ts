@@ -39,6 +39,13 @@ import {
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
+import {
+  MatAccordion,
+  MatExpansionPanel,
+  MatExpansionPanelDescription,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import {
   PingResponse,
@@ -68,6 +75,10 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     MatProgressBarModule,
     MatChipListbox,
     MatChipOption,
+    MatExpansionPanel,
+    MatExpansionPanelHeader,
+    MatExpansionPanelTitle,
+    MatExpansionPanelDescription,
     DecimalPipe,
     NgClass,
     ChartComponent,
@@ -86,6 +97,14 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           </div>
         </div>
         <div class="flex-auto"></div>
+        <button
+          matButton="outlined"
+          type="button"
+          class="mr-2"
+          (click)="exportBundle()"
+        >
+          Export support bundle
+        </button>
         <div
           class="flex items-center gap-x-1.5 text-sm"
           [ngClass]="live.connected() ? 'text-green-600' : 'text-neutral-500'"
@@ -103,6 +122,53 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
       @if (error()) {
         <ao-error-state [message]="error()!" />
       }
+
+      <mat-card
+        class="p-6"
+        appearance="outlined"
+      >
+        <div class="flex items-center gap-x-2">
+          <mat-icon
+            class="size-5 text-primary-600 dark:text-primary-500"
+            svgIcon="sparkles"
+          />
+          <div class="truncate text-lg font-medium tracking-tight">
+            Needs attention
+          </div>
+        </div>
+        <div class="mt-6 flex flex-col gap-y-4">
+          @for (a of topology()?.attention || []; track a.message) {
+            <div class="flex items-start gap-x-3">
+              <mat-icon
+                class="size-5 shrink-0 text-neutral-500"
+                [svgIcon]="
+                  a.severity === 'warning' ? 'octagon-alert' : 'circle-alert'
+                "
+              />
+              <div class="min-w-0 flex-auto">
+                <div class="text-neutral-500">{{ a.message }}</div>
+                @if (a.href) {
+                  <a
+                    matButton
+                    class="mt-1"
+                    [routerLink]="a.href"
+                  >
+                    Open
+                  </a>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="flex items-start gap-x-3">
+              <mat-icon
+                class="size-5 shrink-0 text-green-600"
+                svgIcon="circle-check"
+              />
+              <div class="text-neutral-500">Nothing flagged</div>
+            </div>
+          }
+        </div>
+      </mat-card>
 
       <div
         class="grid gap-4 sm:gap-6 @max-md:grid-cols-1 @md:grid-cols-2 @4xl:grid-cols-4"
@@ -549,19 +615,17 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         }
       </div>
 
-      <!-- Live logs -->
-      <mat-card
-        class="overflow-hidden"
-        appearance="outlined"
-      >
-        <div
-          class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
-        >
-          <div class="min-w-0 flex-auto">
-            <div class="text-lg font-medium tracking-tight">Live logs</div>
-            <div class="text-sm text-neutral-500">
-              Streaming from web + kubectl tails when available
-            </div>
+      <!-- Live logs (collapsed by default for triage) -->
+      <mat-expansion-panel class="!rounded-xl !border !shadow-none">
+        <mat-expansion-panel-header>
+          <mat-panel-title>Live logs</mat-panel-title>
+          <mat-panel-description>
+            Streaming from web + cluster tails
+          </mat-panel-description>
+        </mat-expansion-panel-header>
+        <div class="flex flex-col gap-3 pb-2 sm:flex-row sm:items-center">
+          <div class="min-w-0 flex-auto text-sm text-neutral-500">
+            Filter sources · follow newest
           </div>
           <button
             matButton="outlined"
@@ -571,7 +635,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             Clear
           </button>
         </div>
-        <div class="px-5 pb-3">
+        <div class="pb-3">
           <mat-chip-listbox
             aria-label="Log sources"
             [multiple]="true"
@@ -583,7 +647,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             }
           </mat-chip-listbox>
         </div>
-        <mat-divider />
         <div
           #logViewport
           class="max-h-96 overflow-y-auto bg-neutral-950 px-4 py-3 font-mono text-xs leading-relaxed text-neutral-200"
@@ -604,54 +667,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <div class="text-neutral-500">Waiting for log lines…</div>
           }
         </div>
-      </mat-card>
-
-      <mat-card
-        class="p-6"
-        appearance="outlined"
-      >
-        <div class="flex items-center gap-x-2">
-          <mat-icon
-            class="size-5 text-primary-600 dark:text-primary-500"
-            svgIcon="sparkles"
-          />
-          <div class="truncate text-lg font-medium tracking-tight">
-            Needs attention
-          </div>
-        </div>
-        <div class="mt-6 flex flex-col gap-y-4">
-          @for (a of topology()?.attention || []; track a.message) {
-            <div class="flex items-start gap-x-3">
-              <mat-icon
-                class="size-5 shrink-0 text-neutral-500"
-                [svgIcon]="
-                  a.severity === 'warning' ? 'octagon-alert' : 'circle-alert'
-                "
-              />
-              <div class="min-w-0 flex-auto">
-                <div class="text-neutral-500">{{ a.message }}</div>
-                @if (a.href) {
-                  <a
-                    matButton
-                    class="mt-1"
-                    [routerLink]="a.href"
-                  >
-                    Open
-                  </a>
-                }
-              </div>
-            </div>
-          } @empty {
-            <div class="flex items-start gap-x-3">
-              <mat-icon
-                class="size-5 shrink-0 text-green-600"
-                svgIcon="circle-check"
-              />
-              <div class="text-neutral-500">Nothing flagged</div>
-            </div>
-          }
-        </div>
-      </mat-card>
+      </mat-expansion-panel>
     </div>
   `,
 })
@@ -740,12 +756,20 @@ export class OverviewPage implements OnInit, OnDestroy {
       ['failed', 'blocking'].includes(String(c.status || '').toLowerCase())
     ).length;
     const attention = this.topology()?.attention?.length ?? 0;
+    const healthyNames = comps
+      .filter((c) =>
+        ['healthy', 'available', 'succeeded'].includes(
+          String(c.status || '').toLowerCase()
+        )
+      )
+      .map((c) => c.id)
+      .join(', ');
     return [
       {
         title: 'Healthy',
         icon: 'circle-check',
         value: healthy,
-        caption: 'components up',
+        caption: healthyNames || 'components up',
         toneIcon: 'arrow-up',
         toneClass: 'text-green-600',
       },
@@ -897,6 +921,24 @@ export class OverviewPage implements OnInit, OnDestroy {
     const list = Array.isArray(value) ? value : value ? [value] : [];
     this.selectedSources.set(list);
     this.live.setLogSources(list.length ? list : null);
+  }
+
+  exportBundle() {
+    this.api.supportBundle().subscribe((r) => {
+      if (!r.ok) {
+        this.error.set(r.message);
+        return;
+      }
+      const blob = new Blob([JSON.stringify(r.data, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ao-support-bundle-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
   }
 
   reload() {

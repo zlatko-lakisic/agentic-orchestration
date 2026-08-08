@@ -1,10 +1,11 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
+import { AoApi } from '@/app/core/ao-api/ao-api';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
 
-/** Fuse admin sidebar structure with AO branding. */
+/** Fuse admin sidebar structure with AO branding + environment identity. */
 @Component({
   selector: 'admin-sidebar',
   imports: [Navigation, User, MatButton, MatIcon],
@@ -56,9 +57,42 @@ import { User } from '@/app/domains/admin/layout/ui/user';
       </a>
     </div>
 
+    <div
+      class="mx-4 mb-2 border-l-4 px-3 py-2 text-xs"
+      [class.border-teal-500]="profile() === 'jetson'"
+      [class.border-violet-500]="profile() === 'nvr'"
+      [class.border-amber-500]="profile() === 'host'"
+      [class.border-neutral-400]="
+        profile() !== 'jetson' && profile() !== 'nvr' && profile() !== 'host'
+      "
+    >
+      <div class="font-mono font-medium">
+        {{ hostname() || 'unknown-host' }} · {{ profile() || 'local' }}
+      </div>
+      @if (userName()) {
+        <div class="text-neutral-500">{{ userName() }}</div>
+      }
+    </div>
+
     <div class="p-2">
       <user />
     </div>
   `,
 })
-export class AdminSidebar {}
+export class AdminSidebar implements OnInit {
+  private api = inject(AoApi);
+  readonly hostname = signal<string | null>(null);
+  readonly profile = signal<string | null>(null);
+  readonly userName = signal<string | null>(null);
+
+  ngOnInit() {
+    this.api.topology().subscribe((r) => {
+      if (!r.ok) return;
+      this.hostname.set(r.data.hostname || null);
+      this.profile.set(r.data.environment || null);
+    });
+    this.api.session().subscribe((r) => {
+      if (r.ok) this.userName.set(r.data.userName || null);
+    });
+  }
+}

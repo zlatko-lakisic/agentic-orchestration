@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **AO Admin ops console redesign (Phase 0)** — navigation around operator nouns: Components, Runs, Activity, Capabilities, Behaviour, Access, Data, Deploy, All settings. Effective config returns curated defaults (`effective`/`default`/`source`); Access posture API; Runs list; support-bundle export; storage visibility honesty (`not_mounted_here`).
 - **Admin Overview GPU panel** — side-by-side CPU/mem and GPU/VRAM Apex charts with CPU model, memory size, GPU name, and VRAM capacity from host metrics (`nvidia-metrics.json` / jtop).
 - **Admin live logs** — filterable scrolling log panel via `admin_logs_subscribe`; in-cluster Kubernetes API pod tails (needs `pods/log` on the coordinator Role) plus web console tap.
 
@@ -17,11 +18,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 - **Jetson GPU metrics** — writer falls back to `tegrastats` when jtop group/socket is unavailable; metrics JSON lives under `var/agentic-metrics` (user-writable) and is mounted into coordinator/engine instead of empty `/var/run/agentic`.
 - **Admin topology engine probe** — check in-cluster `agentic-engine` / `host.k3s.internal` (not coordinator loopback); TLS health probes allow the cluster self-signed cert.
 - **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.
+- **Admin effective values** — unset keys show code defaults instead of bare `UNSET`; TLS path keys are not masked as secrets; Kubernetes injected `*_SERVICE_*` / `*_PORT_*_TCP*` vars filtered from All settings by default.
 
 ### Changed
 
 - **AO Admin Fuse-only UI** — Fuse theme defaults (`#1565C0`, system scheme), Orders status pills, Material cards/tables/settings shells only; removed custom AO tokens/colors and non-Fuse chrome.
-- **Admin Overview** — Fuse Project KPI strip, live utilization charts, statement topology cards, Analytics insights list, live logs.
+- **Admin Overview** — attention-first triage, collapsed live logs, named healthy components, support-bundle export.
 
 ## [1.30.1] - 2026-08-08
 

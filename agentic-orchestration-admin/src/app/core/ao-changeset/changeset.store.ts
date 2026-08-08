@@ -1,7 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LocalStorage } from '@/app/core/local-storage';
 import { AoApplyTier, AoSource } from '@/app/core/ao-api/types';
-// AoApplyTier alias
 
 export interface ChangeSetEntry {
   key: string;

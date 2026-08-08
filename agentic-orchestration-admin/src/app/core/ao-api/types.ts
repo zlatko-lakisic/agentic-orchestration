@@ -4,29 +4,41 @@ export type AoStatus =
   | 'failed'
   | 'unset'
   | 'running'
-  | 'info';
+  | 'info'
+  | 'not_deployed';
 
 export type AoSource =
   | 'process-env'
+  | 'process'
   | 'env.jetson'
+  | 'tracked'
+  | 'tool_env'
+  | 'web_env'
+  | 'example'
   | 'k8s-secret'
   | 'yaml-catalog'
   | 'runtime'
   | 'default'
+  | 'unset'
   | 'unknown';
 
 export type AoApplyTier =
   | 'live'
   | 'next-run'
+  | 'next_run'
   | 'next-session'
+  | 'next_session'
   | 'restart-web'
   | 'restart-engine'
-  | 'redeploy';
+  | 'redeploy'
+  | 'restart';
 
 export interface EffectiveConfigEntry {
   key: string;
   label?: string;
-  value: string | number | boolean | null;
+  value?: string | number | boolean | null;
+  effective?: string | number | boolean | null;
+  default?: string | number | boolean | null;
   displayValue?: string;
   secret?: boolean;
   set?: boolean;
@@ -35,10 +47,16 @@ export interface EffectiveConfigEntry {
   sourceFile?: string | null;
   sourcePath?: string | null;
   overriddenBy?: unknown[];
+  overrides?: Array<{ plane: string; path: string; value?: string | null }>;
   applyTier?: AoApplyTier | string;
   tier?: string;
   group?: string;
+  component?: string | null;
+  section?: string | null;
+  pathExists?: boolean;
+  injected?: boolean;
   description?: string;
+  secretState?: { set?: boolean; usedBy?: string[] };
 }
 
 export interface EffectiveConfigResponse {
@@ -48,6 +66,7 @@ export interface EffectiveConfigResponse {
   generatedAt?: string;
   writeApi?: boolean;
   phase?: number;
+  includeInjected?: boolean;
 }
 
 export interface ConfigFingerprint {
@@ -117,6 +136,7 @@ export interface TopologyResponse {
     message?: string;
   };
   environment?: string;
+  hostname?: string | null;
   generatedAt?: string;
 }
 
@@ -130,12 +150,65 @@ export interface StorageEntry {
   files?: number;
   exists?: boolean;
   kind?: string;
+  visibility?: 'present' | 'absent' | 'not_mounted_here' | string;
+  probeScope?: string;
+  owner?: string;
+  mountExpected?: boolean;
 }
 
 export interface StorageResponse {
   roots?: StorageEntry[];
   entries?: StorageEntry[];
   generatedAt?: string;
+  probeScope?: string;
+}
+
+export interface AccessPosture {
+  generatedAt?: string;
+  severity?: 'ok' | 'warning' | 'critical' | string;
+  verdict?: string;
+  details?: string[];
+  flags?: Record<string, unknown>;
+}
+
+export interface AdminRun {
+  id: string;
+  scope?: string;
+  userId?: string | null;
+  started?: string | null;
+  updatedAt?: string | null;
+  steps?: number | null;
+  mode?: string | null;
+  outcome?: string | null;
+  lastGoal?: string | null;
+  path?: string;
+}
+
+export interface RunsListResponse {
+  generatedAt?: string;
+  scopeNote?: string;
+  runs?: AdminRun[];
+}
+
+export interface RunDetail extends AdminRun {
+  stepsDetail?: Array<{
+    id: string;
+    exitCode?: number | null;
+    provider?: string | null;
+    durationMs?: number | null;
+  }>;
+  plannerHistory?: unknown[];
+  lastAnswerExcerpt?: string | null;
+}
+
+export interface SupportBundle {
+  generatedAt?: string;
+  fingerprint?: string;
+  environment?: string;
+  hostname?: string | null;
+  config?: Record<string, unknown>;
+  storage?: StorageResponse;
+  topology?: unknown;
 }
 
 export interface PingResponse {

@@ -8,8 +8,25 @@ import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 
+// Path-like TLS keys are not secrets — operators need to see the path + existence.
 const SECRET_KEY_RE =
-  /(API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CERTFILE|KEYFILE|CA_FILE|_PEM)$/i;
+  /(API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|_PEM)$/i;
+const PATH_NOT_SECRET = new Set([
+  "AGENTIC_SERVE_TLS_CERTFILE",
+  "AGENTIC_SERVE_TLS_KEYFILE",
+  "AGENTIC_SERVE_TLS_CA_FILE",
+]);
+
+/** Kubernetes service-injection noise — not AO configuration. */
+function isInjectedK8sEnvKey(key) {
+  const k = String(key || "");
+  return (
+    /_SERVICE_HOST$/.test(k) ||
+    /_SERVICE_PORT$/.test(k) ||
+    /_PORT_\d+_TCP/.test(k) ||
+    /_SERVICE_PORT_\w+$/.test(k)
+  );
+}
 
 /** Apply tier classification for known keys. */
 const TIER_LIVE = "live";
@@ -79,156 +96,414 @@ const KEY_META = {
   },
 
   // Planner
-  AGENTIC_PLANNER_MODEL: { group: "planner", tier: TIER_NEXT_RUN, label: "Planner model" },
-  AGENTIC_PLANNER_USE_LITELLM: { group: "planner", tier: TIER_NEXT_RUN, label: "Use LiteLLM" },
-  AGENTIC_PLANNER_MAX_STEPS: { group: "planner", tier: TIER_NEXT_RUN, label: "Max plan steps" },
-  AGENTIC_PLANNER_JSON_MODE: { group: "planner", tier: TIER_NEXT_RUN, label: "Planner JSON mode" },
-  AGENTIC_PLANNER_REPAIR_RETRY: { group: "planner", tier: TIER_NEXT_RUN, label: "Repair retry" },
-  AGENTIC_PLANNER_429_RETRIES: { group: "planner", tier: TIER_NEXT_RUN, label: "429 retries" },
-  AGENTIC_PLANNER_CONTEXT_TURNS: { group: "planner", tier: TIER_NEXT_RUN, label: "Context turns" },
-  AGENTIC_PLANNER_MESSAGE_CHARS: { group: "planner", tier: TIER_NEXT_RUN, label: "Message chars" },
-  AGENTIC_PLANNER_TIMEOUT_SEC: { group: "planner", tier: TIER_NEXT_RUN, label: "Planner timeout (s)" },
   AGENTIC_DYNAMIC_ITERATIVE_ROUNDS: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Iterative rounds",
+    default: "4",
+    section: "iteration",
   },
   AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Max iterative rounds",
+    default: "8",
+    section: "iteration",
   },
   AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Min iterative rounds",
+    default: "1",
+    section: "iteration",
   },
   AGENTIC_ITERATIVE_CONTROLLER_MODEL: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Iterative controller model",
+    section: "iteration",
   },
-  AGENTIC_ANSWER_CACHE: { group: "planner", tier: TIER_NEXT_RUN, label: "Answer cache" },
-  AGENTIC_STEP_CONTEXT_INJECT: { group: "planner", tier: TIER_NEXT_RUN, label: "Step context inject" },
-  AGENTIC_STEP_CONTEXT_CHARS: { group: "planner", tier: TIER_NEXT_RUN, label: "Step context chars" },
-  AGENTIC_ORCHESTRATOR_SESSION: { group: "planner", tier: TIER_NEXT_RUN, label: "Orchestrator session" },
+  AGENTIC_PLANNER_MODEL: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Planner model",
+    section: "planner_model",
+  },
+  AGENTIC_PLANNER_USE_LITELLM: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Use LiteLLM",
+    section: "planner_model",
+  },
+  AGENTIC_PLANNER_MAX_STEPS: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Max plan steps",
+    section: "run_shape",
+  },
+  AGENTIC_PLANNER_JSON_MODE: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Planner JSON mode",
+    section: "planner_model",
+  },
+  AGENTIC_PLANNER_REPAIR_RETRY: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Repair retry",
+    section: "planner_model",
+  },
+  AGENTIC_PLANNER_429_RETRIES: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "429 retries",
+    section: "planner_model",
+  },
+  AGENTIC_PLANNER_CONTEXT_TURNS: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Context turns",
+    section: "sessions_cache",
+  },
+  AGENTIC_PLANNER_MESSAGE_CHARS: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Message chars",
+    section: "sessions_cache",
+  },
+  AGENTIC_PLANNER_TIMEOUT_SEC: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Planner timeout (s)",
+    section: "planner_model",
+  },
+  AGENTIC_ANSWER_CACHE: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Answer cache",
+    default: "1",
+    component: "web",
+    section: "sessions_cache",
+  },
+  AGENTIC_STEP_CONTEXT_INJECT: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Step context inject",
+    section: "sessions_cache",
+  },
+  AGENTIC_STEP_CONTEXT_CHARS: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Step context chars",
+    section: "sessions_cache",
+  },
+  AGENTIC_ORCHESTRATOR_SESSION: {
+    group: "planner",
+    tier: TIER_NEXT_RUN,
+    label: "Orchestrator session",
+    section: "sessions_cache",
+  },
   AGENTIC_ORCHESTRATOR_DEFAULT_SESSION: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Default session slug",
+    section: "sessions_cache",
   },
   AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Max planner turns stored",
+    section: "sessions_cache",
   },
   AGENTIC_ORCHESTRATOR_EXCERPT_CHARS: {
     group: "planner",
     tier: TIER_NEXT_RUN,
     label: "Crew excerpt chars",
+    section: "sessions_cache",
   },
   AGENTIC_WEB_DEFAULT_RUN_MODE: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Web default run mode",
+    section: "web_defaults",
   },
   AGENTIC_WEB_DEFAULT_AUTO_ITER: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Web default auto-iter",
+    section: "web_defaults",
   },
   AGENTIC_WEB_DEFAULT_ITERATIVE_ROUNDS: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Web default iterative rounds",
+    section: "web_defaults",
   },
   AGENTIC_WEB_DEFAULT_ITERATIVE_MAX_ROUNDS: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Web default max rounds",
+    section: "web_defaults",
   },
   AGENTIC_WEB_PLANNER_GREET: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Planner greeting",
+    section: "web_defaults",
   },
   AGENTIC_WEB_WELCOME_MESSAGE: {
     group: "planner",
     tier: TIER_NEXT_SESSION,
     label: "Welcome message",
+    section: "web_defaults",
   },
 
   // Execution
-  AGENTIC_EXECUTION_BACKEND: { group: "execution", tier: TIER_RESTART, label: "Execution backend" },
-  AGENTIC_SUBPROCESS_WORKERS: { group: "execution", tier: TIER_RESTART, label: "Subprocess workers" },
-  AGENTIC_RUN_STORE_PATH: { group: "execution", tier: TIER_RESTART, label: "Run store path" },
-  AGENTIC_RUN_STORE_BACKEND: { group: "execution", tier: TIER_RESTART, label: "Run store backend" },
-  AGENTIC_K8S_WARM_POOL_ENABLED: { group: "execution", tier: TIER_REDEPLOY, label: "Warm pool enabled" },
+  AGENTIC_EXECUTION_BACKEND: {
+    group: "execution",
+    tier: TIER_RESTART,
+    label: "Execution backend",
+    default: "inprocess",
+    component: "execution",
+    section: "backend",
+  },
+  AGENTIC_SUBPROCESS_WORKERS: {
+    group: "execution",
+    tier: TIER_RESTART,
+    label: "Subprocess workers",
+    component: "execution",
+  },
+  AGENTIC_RUN_STORE_PATH: {
+    group: "execution",
+    tier: TIER_RESTART,
+    label: "Run store path",
+    default: "/run/store",
+    component: "execution",
+  },
+  AGENTIC_RUN_STORE_BACKEND: {
+    group: "execution",
+    tier: TIER_RESTART,
+    label: "Run store backend",
+    default: "filesystem",
+    component: "execution",
+  },
+  AGENTIC_K8S_WARM_POOL_ENABLED: {
+    group: "execution",
+    tier: TIER_REDEPLOY,
+    label: "Warm pool enabled",
+    default: "0",
+    component: "execution",
+    section: "kubernetes",
+  },
   AGENTIC_K8S_DELEGATION_ENABLED: {
     group: "execution",
     tier: TIER_REDEPLOY,
     label: "Delegation enabled",
+    default: "0",
+    component: "execution",
+    section: "kubernetes",
   },
-  AGENTIC_K8S_NAMESPACE: { group: "execution", tier: TIER_REDEPLOY, label: "K8s namespace" },
-  AGENTIC_K8S_WORKER_IMAGE: { group: "execution", tier: TIER_REDEPLOY, label: "Worker image" },
+  AGENTIC_K8S_NAMESPACE: {
+    group: "execution",
+    tier: TIER_REDEPLOY,
+    label: "K8s namespace",
+    default: "agentic-orchestration",
+    component: "execution",
+    section: "kubernetes",
+  },
+  AGENTIC_K8S_WORKER_IMAGE: {
+    group: "execution",
+    tier: TIER_REDEPLOY,
+    label: "Worker image",
+    component: "execution",
+    section: "kubernetes",
+  },
   AGENTIC_K8S_ALLOW_STDIO_MCPS: {
     group: "execution",
     tier: TIER_RESTART,
     label: "Allow stdio MCPs in K8s",
+    default: "0",
+    component: "execution",
+    section: "kubernetes",
   },
   AGENTIC_K8S_WORKER_STDIO_MCPS: {
     group: "execution",
     tier: TIER_RESTART,
     label: "Worker stdio MCP ids",
+    component: "execution",
+    section: "kubernetes",
   },
-  AGENTIC_LOG_FORMAT: { group: "execution", tier: TIER_RESTART, label: "Log format" },
+  AGENTIC_LOG_FORMAT: {
+    group: "execution",
+    tier: TIER_RESTART,
+    label: "Log format",
+    default: "text",
+    component: "web",
+  },
 
   // Engine / serve
-  AGENTIC_SERVE_HOST: { group: "engine", tier: TIER_RESTART, label: "Engine bind host" },
-  AGENTIC_SERVE_PORT: { group: "engine", tier: TIER_RESTART, label: "Engine bind port" },
-  AGENTIC_SERVE_SESSION_OVERLAY: { group: "engine", tier: TIER_RESTART, label: "Session overlays" },
-  AGENTIC_SERVE_MCP_TUNNEL: { group: "engine", tier: TIER_RESTART, label: "MCP tunnel" },
-  AGENTIC_SERVE_TLS_CERTFILE: { group: "security", tier: TIER_RESTART, label: "TLS cert file" },
-  AGENTIC_SERVE_TLS_KEYFILE: { group: "security", tier: TIER_RESTART, label: "TLS key file" },
-  AGENTIC_SERVE_TLS_CA_FILE: { group: "security", tier: TIER_RESTART, label: "TLS client CA" },
+  AGENTIC_SERVE_HOST: {
+    group: "engine",
+    tier: TIER_RESTART,
+    label: "Engine bind host",
+    default: "127.0.0.1",
+    component: "engine",
+  },
+  AGENTIC_SERVE_PORT: {
+    group: "engine",
+    tier: TIER_RESTART,
+    label: "Engine bind port",
+    default: "8765",
+    component: "engine",
+  },
+  AGENTIC_SERVE_SESSION_OVERLAY: {
+    group: "engine",
+    tier: TIER_RESTART,
+    label: "Session overlays",
+    default: "0",
+    component: "engine",
+  },
+  AGENTIC_SERVE_MCP_TUNNEL: {
+    group: "engine",
+    tier: TIER_RESTART,
+    label: "MCP tunnel",
+    default: "0",
+    component: "engine",
+  },
+  AGENTIC_SERVE_TLS_CERTFILE: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "TLS cert file",
+    component: "engine",
+    section: "mtls",
+  },
+  AGENTIC_SERVE_TLS_KEYFILE: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "TLS key file",
+    component: "engine",
+    section: "mtls",
+  },
+  AGENTIC_SERVE_TLS_CA_FILE: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "TLS client CA",
+    component: "engine",
+    section: "mtls",
+  },
   AGENTIC_SERVE_TLS_REQUIRE_CLIENT_CERT: {
     group: "security",
     tier: TIER_RESTART,
     label: "Require client cert",
+    default: "0",
+    component: "engine",
+    section: "mtls",
   },
-  AGENTIC_REQUIRE_IDENTITY: { group: "security", tier: TIER_RESTART, label: "Require identity" },
-  AGENTIC_DEAL_AUTH: { group: "security", tier: TIER_RESTART, label: "Deal authorization" },
+  AGENTIC_REQUIRE_IDENTITY: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "Require identity",
+    default: "0",
+    component: "web",
+    section: "identity",
+  },
+  AGENTIC_DEAL_AUTH: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "Deal authorization",
+    default: "0",
+    section: "deals",
+  },
   AGENTIC_WEB_USER_NAME_HEADER: {
     group: "security",
     tier: TIER_RESTART,
     label: "User name headers",
+    section: "identity",
   },
   AGENTIC_WEB_SESSION_ID_HEADER: {
     group: "security",
     tier: TIER_RESTART,
     label: "Session id headers",
+    section: "identity",
   },
-  AGENTIC_ORCHESTRATE_API_KEY: { group: "security", tier: TIER_RESTART, label: "Orchestrate API key" },
+  AGENTIC_ORCHESTRATE_API_KEY: {
+    group: "security",
+    tier: TIER_RESTART,
+    label: "Orchestrate API key",
+    component: "openclaw",
+    section: "secrets",
+  },
   AGENTIC_CHAT_COMPLETIONS_API_KEY: {
     group: "security",
     tier: TIER_RESTART,
     label: "Chat completions API key",
+    section: "secrets",
   },
   AGENTIC_JETSON_ENABLE_ENGINE: {
     group: "deployments",
     tier: TIER_REDEPLOY,
     label: "Enable engine on deploy",
+    default: "1",
+    component: "engine",
   },
 
   // Memory / QA
-  AGENTIC_KB: { group: "memory", tier: TIER_NEXT_RUN, label: "Knowledge base" },
-  AGENTIC_KB_MAX_HITS: { group: "memory", tier: TIER_NEXT_RUN, label: "KB max hits" },
-  AGENTIC_LEARNING: { group: "memory", tier: TIER_NEXT_RUN, label: "Learning loop" },
-  AGENTIC_LEARNING_EVAL: { group: "memory", tier: TIER_NEXT_RUN, label: "Learning eval" },
-  AGENTIC_FINAL_QA: { group: "memory", tier: TIER_NEXT_RUN, label: "Faithfulness QA" },
-  AGENTIC_IMPARTIAL_QA: { group: "memory", tier: TIER_NEXT_RUN, label: "Impartial QA gate" },
-  AGENTIC_IMPARTIAL_QA_FAIL: { group: "memory", tier: TIER_NEXT_RUN, label: "Impartial QA hard fail" },
-  AGENTIC_ANONYMIZE_CLOUD: { group: "memory", tier: TIER_NEXT_RUN, label: "Cloud anonymization" },
+  AGENTIC_KB: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Knowledge base",
+    default: "1",
+    section: "kb",
+  },
+  AGENTIC_KB_MAX_HITS: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "KB max hits",
+    default: "4",
+    section: "kb",
+  },
+  AGENTIC_LEARNING: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Learning loop",
+    default: "1",
+    section: "learning",
+  },
+  AGENTIC_LEARNING_EVAL: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Learning eval",
+    default: "1",
+    section: "learning",
+  },
+  AGENTIC_FINAL_QA: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Faithfulness QA",
+    default: "1",
+    section: "quality_gates",
+  },
+  AGENTIC_IMPARTIAL_QA: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Impartial QA gate",
+    default: "0",
+    section: "quality_gates",
+  },
+  AGENTIC_IMPARTIAL_QA_FAIL: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Impartial QA hard fail",
+    default: "0",
+    section: "quality_gates",
+  },
+  AGENTIC_ANONYMIZE_CLOUD: {
+    group: "memory",
+    tier: TIER_NEXT_RUN,
+    label: "Cloud anonymization",
+    default: "0",
+    section: "anonymization",
+  },
 
   // Integrations / MCP
   HOME_ASSISTANT_URL: { group: "integrations", tier: TIER_RESTART, label: "Home Assistant URL" },
@@ -267,9 +542,26 @@ const KEY_META = {
   AGENTIC_SPEECH_TOKEN: { group: "integrations", tier: TIER_RESTART, label: "Speech token" },
 
   // Web
-  AGENTIC_WEB_HOST: { group: "deployments", tier: TIER_RESTART, label: "Web bind host" },
-  AGENTIC_WEB_PORT: { group: "deployments", tier: TIER_RESTART, label: "Web bind port" },
-  AGENTIC_EDGE_PLATFORM: { group: "deployments", tier: TIER_RESTART, label: "Edge platform" },
+  AGENTIC_WEB_HOST: {
+    group: "deployments",
+    tier: TIER_RESTART,
+    label: "Web bind host",
+    default: "127.0.0.1",
+    component: "web",
+  },
+  AGENTIC_WEB_PORT: {
+    group: "deployments",
+    tier: TIER_RESTART,
+    label: "Web bind port",
+    default: "3847",
+    component: "web",
+  },
+  AGENTIC_EDGE_PLATFORM: {
+    group: "deployments",
+    tier: TIER_RESTART,
+    label: "Edge platform",
+    default: "local",
+  },
   AGENTIC_ORCHESTRATOR_CONTEXT_FILE: {
     group: "deployments",
     tier: TIER_RESTART,
@@ -283,6 +575,7 @@ const KEY_META = {
 };
 
 function isSecretKey(key) {
+  if (PATH_NOT_SECRET.has(key)) return false;
   return SECRET_KEY_RE.test(key) || Boolean(KEY_META[key]?.secret);
 }
 
@@ -529,7 +822,7 @@ function collectEnvLayers({ toolRoot, webRoot }) {
   return layers;
 }
 
-function buildEffectiveConfig({ toolRoot, webRoot }) {
+function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
   const layers = collectEnvLayers({ toolRoot, webRoot });
   const keys = new Set();
   for (const layer of layers) {
@@ -542,6 +835,8 @@ function buildEffectiveConfig({ toolRoot, webRoot }) {
 
   const entries = {};
   for (const key of [...keys].sort()) {
+    if (!includeInjected && isInjectedK8sEnvKey(key)) continue;
+
     const meta = KEY_META[key] || {
       group: key.startsWith("AGENTIC_K8S_")
         ? "execution"
@@ -551,49 +846,135 @@ function buildEffectiveConfig({ toolRoot, webRoot }) {
       tier: TIER_RESTART,
       label: key,
     };
-    const chain = [];
-    let effective = undefined;
+    const codeDefault =
+      meta.default !== undefined && meta.default !== null ? String(meta.default) : null;
+
+    // Override layers: tracked / tool_env / web_env / process.
+    // .env.example is documentation only — used as default hint when no code default.
+    const overrides = [];
+    let configured = undefined;
     let source = "unset";
     let sourcePath = null;
 
     for (const layer of layers) {
-      if (Object.prototype.hasOwnProperty.call(layer.values, key)) {
-        chain.push({ plane: layer.plane, path: layer.path, set: true });
-        effective = layer.values[key];
-        source = layer.plane;
-        sourcePath = layer.path;
-      }
+      if (!Object.prototype.hasOwnProperty.call(layer.values, key)) continue;
+      if (layer.plane === "example") continue;
+      const raw = layer.values[key];
+      overrides.push({
+        plane: layer.plane,
+        path: layer.path,
+        value: undefined, // filled after secret check
+        _raw: raw,
+      });
+      configured = raw;
+      source = layer.plane;
+      sourcePath = layer.path;
     }
+
     if (Object.prototype.hasOwnProperty.call(process.env, key)) {
-      // process.env wins for the running process
-      const fromFile = effective;
-      effective = process.env[key];
-      if (fromFile !== effective) {
-        chain.push({ plane: "process", path: "process.env", set: true });
+      const raw = process.env[key];
+      const last = overrides[overrides.length - 1];
+      if (!last || String(last._raw) !== String(raw)) {
+        overrides.push({
+          plane: "process",
+          path: "process.env",
+          value: undefined,
+          _raw: raw,
+        });
+        configured = raw;
         source = "process";
         sourcePath = "process.env";
       } else if (source === "unset") {
-        chain.push({ plane: "process", path: "process.env", set: true });
+        overrides.push({
+          plane: "process",
+          path: "process.env",
+          value: undefined,
+          _raw: raw,
+        });
+        configured = raw;
         source = "process";
         sourcePath = "process.env";
       }
     }
 
+    // Example-layer fallback only when nothing configured and no code default.
+    let exampleDefault = null;
+    if (configured === undefined && codeDefault == null) {
+      for (const layer of layers) {
+        if (layer.plane !== "example") continue;
+        if (Object.prototype.hasOwnProperty.call(layer.values, key)) {
+          exampleDefault = layer.values[key];
+        }
+      }
+    }
+
     const secret = isSecretKey(key);
-    const set = effective !== undefined && String(effective).length > 0;
+    const configuredSet =
+      configured !== undefined && String(configured).length > 0;
+    const defaultValue = codeDefault ?? (exampleDefault != null ? String(exampleDefault) : null);
+
+    let effective = null;
+    if (configuredSet) {
+      effective = String(configured);
+    } else if (defaultValue != null && String(defaultValue).length > 0) {
+      effective = String(defaultValue);
+      source = codeDefault != null ? "default" : "example";
+      sourcePath = codeDefault != null ? null : sourcePath;
+      if (source === "example") {
+        for (const layer of layers) {
+          if (layer.plane === "example" && Object.prototype.hasOwnProperty.call(layer.values, key)) {
+            sourcePath = layer.path;
+          }
+        }
+      }
+    }
+
+    for (const o of overrides) {
+      o.value = secret ? undefined : o._raw != null ? String(o._raw) : null;
+      delete o._raw;
+    }
+
+    const chain = overrides.map((o) => ({
+      plane: o.plane,
+      path: o.path,
+      set: true,
+    }));
+
+    // Path existence for TLS path keys (non-secret).
+    let pathExists = undefined;
+    if (
+      !secret &&
+      effective &&
+      (key.endsWith("CERTFILE") || key.endsWith("KEYFILE") || key.endsWith("CA_FILE"))
+    ) {
+      try {
+        pathExists = fs.existsSync(effective);
+      } catch {
+        pathExists = false;
+      }
+    }
+
     entries[key] = {
       key,
       label: meta.label || key,
       group: meta.group || "advanced",
       tier: meta.tier || TIER_RESTART,
+      component: meta.component || null,
+      section: meta.section || null,
       source,
       sourcePath,
       overriddenBy: chain.length > 1 ? chain.slice(0, -1) : [],
       chain,
+      overrides,
       secret,
-      set,
-      value: secret ? undefined : set ? String(effective) : null,
-      secretState: secret ? { set, usedBy: meta.usedBy || [] } : undefined,
+      set: configuredSet,
+      default: secret ? undefined : defaultValue,
+      effective: secret ? undefined : effective,
+      // Back-compat alias
+      value: secret ? undefined : effective,
+      pathExists,
+      secretState: secret ? { set: configuredSet, usedBy: meta.usedBy || [] } : undefined,
+      injected: isInjectedK8sEnvKey(key),
     };
   }
 
@@ -603,7 +984,12 @@ function buildEffectiveConfig({ toolRoot, webRoot }) {
       JSON.stringify(
         Object.keys(entries)
           .sort()
-          .map((k) => [k, entries[k].set, entries[k].secret ? "[secret]" : entries[k].value, entries[k].source]),
+          .map((k) => [
+            k,
+            entries[k].set,
+            entries[k].secret ? "[secret]" : entries[k].effective,
+            entries[k].source,
+          ]),
       ),
     )
     .digest("hex")
@@ -614,6 +1000,7 @@ function buildEffectiveConfig({ toolRoot, webRoot }) {
     fingerprint,
     phase: 0,
     writeApi: false,
+    includeInjected: Boolean(includeInjected),
     entries,
     layers: layers.map((l) => ({
       plane: l.plane,
@@ -738,22 +1125,94 @@ function dirSizeSafe(dir, maxFiles = 5000) {
 }
 
 function buildStorageInventory({ toolRoot }) {
+  // Coordinator web pod typically mounts only sessions + uploads (emptyDir).
+  // KB/learning/etc. live on the engine hostPath — not visible here.
   const dirs = [
-    { id: "sessions", rel: "__orchestrator_sessions__", label: "Sessions" },
-    { id: "learning", rel: "__orchestrator_learning__", label: "Learning" },
-    { id: "kb", rel: "__orchestrator_kb__", label: "Knowledge base" },
-    { id: "deals", rel: "__orchestrator_deals__", label: "Deals" },
-    { id: "mtls", rel: "__orchestrator_mtls__", label: "mTLS material" },
-    { id: "uploads", rel: "_web_uploads", label: "Web uploads" },
-    { id: "output", rel: "__output__", label: "Output artifacts" },
+    {
+      id: "sessions",
+      rel: "__orchestrator_sessions__",
+      label: "Sessions",
+      mountExpected: true,
+      owner: "web",
+    },
+    {
+      id: "learning",
+      rel: "__orchestrator_learning__",
+      label: "Learning",
+      mountExpected: false,
+      owner: "engine",
+    },
+    {
+      id: "kb",
+      rel: "__orchestrator_kb__",
+      label: "Knowledge base",
+      mountExpected: false,
+      owner: "engine",
+    },
+    {
+      id: "deals",
+      rel: "__orchestrator_deals__",
+      label: "Deals",
+      mountExpected: false,
+      owner: "engine",
+    },
+    {
+      id: "mtls",
+      rel: "__orchestrator_mtls__",
+      label: "mTLS material",
+      mountExpected: false,
+      owner: "engine",
+    },
+    {
+      id: "uploads",
+      rel: "_web_uploads",
+      label: "Web uploads",
+      mountExpected: true,
+      owner: "web",
+    },
+    {
+      id: "output",
+      rel: "__output__",
+      label: "Output artifacts",
+      mountExpected: false,
+      owner: "engine",
+    },
   ];
+
+  const runStorePath = String(process.env.AGENTIC_RUN_STORE_PATH || "/run/store").trim();
+
+  const roots = dirs.map((d) => {
+    const abs = path.join(toolRoot, d.rel);
+    const size = dirSizeSafe(abs);
+    let visibility = "absent";
+    if (size.exists) visibility = "present";
+    else if (!d.mountExpected) visibility = "not_mounted_here";
+    return {
+      ...d,
+      path: abs,
+      ...size,
+      probeScope: "web",
+      visibility,
+    };
+  });
+
+  const runSize = dirSizeSafe(runStorePath);
+  roots.push({
+    id: "run_store",
+    rel: runStorePath,
+    label: "Run store",
+    mountExpected: true,
+    owner: "web",
+    path: runStorePath,
+    ...runSize,
+    probeScope: "web",
+    visibility: runSize.exists ? "present" : "absent",
+  });
+
   return {
     generatedAt: new Date().toISOString(),
-    roots: dirs.map((d) => {
-      const abs = path.join(toolRoot, d.rel);
-      const size = dirSizeSafe(abs);
-      return { ...d, path: abs, ...size };
-    }),
+    probeScope: "web",
+    roots,
   };
 }
 
@@ -886,31 +1345,44 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
     attention.push({
       severity: "warning",
       message: "Engine daemon is not reachable on :8765",
-      href: "/integrations",
+      href: "/components/engine",
     });
   }
-  if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.OLLAMA_HOST && !process.env.OLLAMA_API_BASE) {
+  if (
+    !process.env.OPENAI_API_KEY &&
+    !process.env.ANTHROPIC_API_KEY &&
+    !process.env.OLLAMA_HOST &&
+    !process.env.OLLAMA_API_BASE
+  ) {
     attention.push({
       severity: "warning",
       message: "No LLM credentials detected (OpenAI / Anthropic / Ollama)",
-      href: "/runtime/models",
+      href: "/components/ollama",
     });
   }
-  const dualWriterRisk =
-    String(process.env.AGENTIC_KB || "1") !== "0" &&
-    String(process.env.AGENTIC_SERVE_HOST || "") !== "";
-  if (dualWriterRisk) {
+  if (String(process.env.AGENTIC_KB || "1") !== "0") {
     attention.push({
       severity: "info",
       message:
-        "KB is enabled — ensure only one writer (Node CLI spawn vs engine) owns kb.sqlite3 per deployment",
-      href: "/memory",
+        "Knowledge base is enabled (default on). Web and engine often use separate sqlite files — see Data visibility.",
+      href: "/data",
+    });
+  }
+  const requireIdentity = String(process.env.AGENTIC_REQUIRE_IDENTITY || "0")
+    .trim()
+    .toLowerCase();
+  if (!["1", "true", "yes", "on"].includes(requireIdentity)) {
+    attention.push({
+      severity: "warning",
+      message: "Identity is not required — Admin accepts unauthenticated requests",
+      href: "/access",
     });
   }
 
   return {
     generatedAt: new Date().toISOString(),
     environment: process.env.AGENTIC_EDGE_PLATFORM || "local",
+    hostname: process.env.HOSTNAME || null,
     toolRoot,
     webRoot,
     components,
@@ -929,6 +1401,242 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
   };
 }
 
+function listRecentRuns({ toolRoot, limit = 50 }) {
+  const runs = [];
+  const runStore = String(process.env.AGENTIC_RUN_STORE_PATH || "/run/store").trim();
+  const sessionsDir = path.join(toolRoot, "__orchestrator_sessions__");
+
+  const pushRun = (entry) => {
+    runs.push(entry);
+  };
+
+  const walkRunStore = (base, userId = null) => {
+    if (!fs.existsSync(base)) return;
+    let ents;
+    try {
+      ents = fs.readdirSync(base, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of ents) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name === "users") {
+        const usersDir = path.join(base, "users");
+        let users;
+        try {
+          users = fs.readdirSync(usersDir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const u of users) {
+          if (u.isDirectory()) walkRunStore(path.join(usersDir, u.name), u.name);
+        }
+        continue;
+      }
+      const runDir = path.join(base, ent.name);
+      let stepCount = 0;
+      let mtime = null;
+      try {
+        const st = fs.statSync(runDir);
+        mtime = st.mtime.toISOString();
+        stepCount = fs
+          .readdirSync(runDir, { withFileTypes: true })
+          .filter((e) => e.isDirectory()).length;
+      } catch {
+        /* ignore */
+      }
+      pushRun({
+        id: ent.name,
+        scope: "run_store",
+        userId,
+        started: mtime,
+        updatedAt: mtime,
+        steps: stepCount,
+        mode: null,
+        outcome: null,
+        path: runDir,
+      });
+    }
+  };
+
+  walkRunStore(runStore);
+
+  if (fs.existsSync(sessionsDir)) {
+    const walkSessions = (dir, userId = null) => {
+      let ents;
+      try {
+        ents = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const ent of ents) {
+        const p = path.join(dir, ent.name);
+        if (ent.isDirectory() && ent.name === "users") {
+          for (const u of fs.readdirSync(p, { withFileTypes: true })) {
+            if (u.isDirectory()) walkSessions(path.join(p, u.name), u.name);
+          }
+          continue;
+        }
+        if (!ent.isFile() || !ent.name.endsWith(".json")) continue;
+        if (ent.name.startsWith(".")) continue;
+        try {
+          const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+          const st = fs.statSync(p);
+          pushRun({
+            id: path.basename(ent.name, ".json"),
+            scope: "session",
+            userId: userId || raw.user_id || null,
+            started: raw.created_at || st.mtime.toISOString(),
+            updatedAt: raw.updated_at || st.mtime.toISOString(),
+            steps: Array.isArray(raw.planner_history) ? raw.planner_history.length : null,
+            mode: raw.last_execution_backend || null,
+            outcome: raw.last_final_answer_excerpt ? "completed" : null,
+            lastGoal: raw.last_user_goal
+              ? String(raw.last_user_goal).slice(0, 160)
+              : null,
+            path: p,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    walkSessions(sessionsDir);
+  }
+
+  runs.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  return {
+    generatedAt: new Date().toISOString(),
+    scopeNote:
+      "Listed from web-visible run store and sessions only; engine hostPath history may differ.",
+    runs: runs.slice(0, Math.max(1, Number(limit) || 50)),
+  };
+}
+
+function buildRunDetail({ toolRoot }, id) {
+  const list = listRecentRuns({ toolRoot, limit: 500 });
+  const entry = list.runs.find((r) => r.id === id);
+  if (!entry) return null;
+  const detail = { ...entry, stepsDetail: [] };
+  if (entry.scope === "run_store" && entry.path && fs.existsSync(entry.path)) {
+    try {
+      for (const ent of fs.readdirSync(entry.path, { withFileTypes: true })) {
+        if (!ent.isDirectory()) continue;
+        const resultPath = path.join(entry.path, ent.name, "result.json");
+        let result = null;
+        if (fs.existsSync(resultPath)) {
+          try {
+            result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+          } catch {
+            result = null;
+          }
+        }
+        detail.stepsDetail.push({
+          id: ent.name,
+          exitCode: result?.exit_code ?? result?.exitCode ?? null,
+          provider: result?.provider ?? null,
+          durationMs: result?.duration_ms ?? result?.durationMs ?? null,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (entry.scope === "session" && entry.path && fs.existsSync(entry.path)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(entry.path, "utf8"));
+      detail.plannerHistory = Array.isArray(raw.planner_history)
+        ? raw.planner_history.slice(-20)
+        : [];
+      detail.lastGoal = raw.last_user_goal || null;
+      detail.lastAnswerExcerpt = raw.last_final_answer_excerpt || null;
+    } catch {
+      /* ignore */
+    }
+  }
+  return detail;
+}
+
+function buildAccessPosture({ toolRoot, webRoot, req }) {
+  const cfg = buildEffectiveConfig({ toolRoot, webRoot });
+  const e = (key) => cfg.entries[key];
+  const truthy = (val) =>
+    ["1", "true", "yes", "on"].includes(String(val || "").trim().toLowerCase());
+
+  const scheme =
+    (req?.headers?.["x-forwarded-proto"] &&
+      String(req.headers["x-forwarded-proto"]).split(",")[0].trim()) ||
+    (req?.socket?.encrypted ? "https" : "http");
+  const host = req?.headers?.host || `${process.env.AGENTIC_WEB_HOST || "127.0.0.1"}:${process.env.AGENTIC_WEB_PORT || 3847}`;
+  const identityRequired = truthy(e("AGENTIC_REQUIRE_IDENTITY")?.effective);
+  const engineTls = Boolean(
+    e("AGENTIC_SERVE_TLS_CERTFILE")?.set && e("AGENTIC_SERVE_TLS_KEYFILE")?.set,
+  );
+  const webTls = scheme === "https";
+  const orchestrateKeySet = Boolean(e("AGENTIC_ORCHESTRATE_API_KEY")?.set);
+
+  let severity = "ok";
+  let verdict = "Access posture looks sound for this process.";
+  if (!webTls && !identityRequired) {
+    severity = "critical";
+    verdict =
+      "This deployment accepts unauthenticated requests over plaintext HTTP.";
+  } else if (!identityRequired) {
+    severity = "warning";
+    verdict = "Identity is not required — anyone who can reach Admin can use it.";
+  } else if (!webTls) {
+    severity = "warning";
+    verdict = "Admin is served over plaintext HTTP (TLS not terminating here).";
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    severity,
+    verdict,
+    details: [
+      `Admin is served on ${scheme}://${host}`,
+      `identity ${identityRequired ? "required" : "not required"}`,
+      `engine TLS ${engineTls ? "configured" : "absent"}`,
+      `web TLS ${webTls ? "present (or terminated upstream)" : "absent"}`,
+      `orchestrate API key ${orchestrateKeySet ? "set" : "unset"}`,
+    ],
+    flags: {
+      scheme,
+      host,
+      identityRequired,
+      engineTls,
+      webTls,
+      orchestrateKeySet,
+    },
+  };
+}
+
+function buildSupportBundle({ toolRoot, webRoot, webInstanceId, webPid }) {
+  const cfg = buildEffectiveConfig({ toolRoot, webRoot });
+  const redactedEntries = {};
+  for (const [k, v] of Object.entries(cfg.entries)) {
+    redactedEntries[k] = {
+      effective: v.secret ? (v.set ? "[set]" : "[unset]") : v.effective,
+      source: v.source,
+      set: v.set,
+      default: v.secret ? undefined : v.default,
+      tier: v.tier,
+      group: v.group,
+    };
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    phase: 0,
+    instance: webInstanceId,
+    pid: webPid,
+    fingerprint: cfg.fingerprint,
+    environment: process.env.AGENTIC_EDGE_PLATFORM || "local",
+    hostname: process.env.HOSTNAME || null,
+    storage: buildStorageInventory({ toolRoot }),
+    config: redactedEntries,
+  };
+}
+
 function matchAdminRoute(pathname) {
   const p = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   if (p === "/api/v1/admin/config/effective") return { name: "config_effective" };
@@ -936,7 +1644,12 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/health/topology") return { name: "topology" };
   if (p === "/api/v1/admin/storage") return { name: "storage" };
   if (p === "/api/v1/admin/meta") return { name: "meta" };
-  let m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)\/([^/]+)$/);
+  if (p === "/api/v1/admin/access/posture") return { name: "access_posture" };
+  if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
+  if (p === "/api/v1/admin/runs") return { name: "runs_list" };
+  let m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
+  if (m) return { name: "runs_detail", id: decodeURIComponent(m[1]) };
+  m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)\/([^/]+)$/);
   if (m) return { name: "catalog_detail", kind: m[1], id: decodeURIComponent(m[2]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)$/);
   if (m) return { name: "catalog_list", kind: m[1] };
@@ -973,7 +1686,9 @@ async function handleAdminApi(req, res, ctx) {
       return true;
     }
     if (route.name === "config_effective") {
-      send(200, buildEffectiveConfig(ctx));
+      const url = new URL(req.url || "/", "http://localhost");
+      const includeInjected = url.searchParams.get("includeInjected") === "1";
+      send(200, buildEffectiveConfig({ ...ctx, includeInjected }));
       return true;
     }
     if (route.name === "config_fingerprint") {
@@ -987,6 +1702,40 @@ async function handleAdminApi(req, res, ctx) {
     }
     if (route.name === "storage") {
       send(200, buildStorageInventory(ctx));
+      return true;
+    }
+    if (route.name === "access_posture") {
+      send(200, buildAccessPosture({ ...ctx, req }));
+      return true;
+    }
+    if (route.name === "support_bundle") {
+      const topology = await buildTopology(ctx);
+      const bundle = buildSupportBundle(ctx);
+      bundle.topology = {
+        attention: topology.attention,
+        components: topology.components?.map((c) => ({
+          id: c.id,
+          status: c.status,
+          fact: c.fact,
+        })),
+        environment: topology.environment,
+      };
+      send(200, bundle);
+      return true;
+    }
+    if (route.name === "runs_list") {
+      const url = new URL(req.url || "/", "http://localhost");
+      const limit = Number(url.searchParams.get("limit") || 50);
+      send(200, listRecentRuns({ ...ctx, limit }));
+      return true;
+    }
+    if (route.name === "runs_detail") {
+      const data = buildRunDetail(ctx, route.id);
+      if (!data) {
+        send(404, { error: "Run not found in web-visible stores" });
+        return true;
+      }
+      send(200, data);
       return true;
     }
     if (route.name === "catalog_list") {
@@ -1024,6 +1773,11 @@ export {
   buildCatalogs,
   buildTopology,
   buildStorageInventory,
+  buildAccessPosture,
+  buildSupportBundle,
+  listRecentRuns,
+  buildRunDetail,
   isSecretKey,
+  isInjectedK8sEnvKey,
   KEY_META,
 };

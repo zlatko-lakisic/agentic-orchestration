@@ -2,19 +2,19 @@ import { Component, input } from '@angular/core';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
 
-/** Fuse Settings row density (notifications/account). */
+/** Fuse Settings row density — shows effective value (incl. defaults). */
 @Component({
   selector: 'ao-setting-row',
   imports: [SourceChip, TierChip],
   host: {
     class:
-      'grid grid-cols-1 gap-2 py-4 sm:grid-cols-[minmax(12rem,1.2fr)_minmax(0,1.4fr)_auto] sm:items-start',
+      'grid grid-cols-1 gap-2 py-3 sm:grid-cols-[minmax(12rem,1.2fr)_minmax(0,1.4fr)_auto] sm:items-center',
     '[attr.id]': 'flashId()',
   },
   template: `
     <div class="min-w-0">
-      <div class="font-medium">{{ label() }}</div>
-      <div class="mt-0.5 font-mono text-sm text-neutral-500 break-all">
+      <div class="font-medium leading-tight">{{ label() }}</div>
+      <div class="mt-0.5 font-mono text-xs text-neutral-500 break-all">
         {{ key() }}
       </div>
       @if (help()) {
@@ -24,13 +24,27 @@ import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
 
     <div class="min-w-0">
       @if (secret()) {
-        <div class="font-mono text-base text-neutral-500">
+        <div class="font-mono text-sm text-neutral-500">
           {{ set() ? '••••••' : 'Not set' }}
         </div>
       } @else {
-        <div class="font-mono text-base break-all tabular-nums">
+        <div class="font-mono text-sm break-all tabular-nums">
           {{ display() }}
         </div>
+        @if (pathExists() === true) {
+          <div class="mt-0.5 text-xs text-green-700 dark:text-green-400">
+            path exists
+          </div>
+        } @else if (pathExists() === false) {
+          <div class="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+            path missing on this process
+          </div>
+        }
+        @if (showDefaultHint()) {
+          <div class="mt-0.5 text-xs text-neutral-500">
+            code default · not explicitly set
+          </div>
+        }
       }
       @if (sourceFile()) {
         <div class="mt-1 font-mono text-xs text-neutral-500 break-all">
@@ -59,6 +73,7 @@ export class SettingRow {
   readonly tier = input<string | null | undefined>('next-run');
   readonly secret = input(false);
   readonly set = input(false);
+  readonly pathExists = input<boolean | null | undefined>(undefined);
   readonly flashId = input<string | null>(null);
 
   protected display(): string {
@@ -66,7 +81,13 @@ export class SettingRow {
       return String(this.displayValue());
     }
     const v = this.value();
-    if (v === null || v === undefined || v === '') return '—';
+    if (v === null || v === undefined || v === '') return 'Not set';
     return String(v);
+  }
+
+  protected showDefaultHint(): boolean {
+    if (this.secret() || this.set()) return false;
+    const s = String(this.source() || '');
+    return s === 'default' || s === 'example';
   }
 }

@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of } from 'rxjs';
 import {
+  AccessPosture,
   AgentProvider,
   CatalogEntry,
   CatalogListResponse,
@@ -10,8 +11,11 @@ import {
   EffectiveConfigResponse,
   HostMetrics,
   PingResponse,
+  RunDetail,
+  RunsListResponse,
   SessionResponse,
   StorageResponse,
+  SupportBundle,
   TopologyResponse,
 } from './types';
 
@@ -63,8 +67,11 @@ export class AoApi {
     );
   }
 
-  effectiveConfig() {
-    return this.get<EffectiveConfigResponse>('/api/v1/admin/config/effective').pipe(
+  effectiveConfig(opts?: { includeInjected?: boolean }) {
+    const q = opts?.includeInjected ? '?includeInjected=1' : '';
+    return this.get<EffectiveConfigResponse>(
+      `/api/v1/admin/config/effective${q}`
+    ).pipe(
       map((r) => (r.ok ? { ok: true as const, data: normalizeEffective(r.data) } : r))
     );
   }
@@ -96,6 +103,24 @@ export class AoApi {
   storage() {
     return this.get<StorageResponse>('/api/v1/admin/storage');
   }
+
+  accessPosture() {
+    return this.get<AccessPosture>('/api/v1/admin/access/posture');
+  }
+
+  runs(limit = 50) {
+    return this.get<RunsListResponse>(`/api/v1/admin/runs?limit=${limit}`);
+  }
+
+  runDetail(id: string) {
+    return this.get<RunDetail>(
+      `/api/v1/admin/runs/${encodeURIComponent(id)}`
+    );
+  }
+
+  supportBundle() {
+    return this.get<SupportBundle>('/api/v1/admin/support-bundle');
+  }
 }
 
 function normalizeEffective(raw: EffectiveConfigResponse): EffectiveConfigEntry[] {
@@ -115,13 +140,35 @@ function normalizeEffective(raw: EffectiveConfigResponse): EffectiveConfigEntry[
   return [];
 }
 
+/** Map backend plane names to UI source chips. */
+export function normalizeSource(
+  source: string | null | undefined,
+  sourcePath?: string | null
+): string {
+  const s = String(source || 'unset');
+  if (s === 'process') return 'process-env';
+  if (s === 'tracked') {
+    if (sourcePath && sourcePath.includes('env.jetson')) return 'env.jetson';
+    if (sourcePath && sourcePath.includes('env.nvr')) return 'env.nvr';
+    if (sourcePath && sourcePath.includes('env.host')) return 'env.host';
+    return 'tracked';
+  }
+  return s;
+}
+
 function normalizeEntry(entry: EffectiveConfigEntry): EffectiveConfigEntry {
+  const effective =
+    entry.effective !== undefined && entry.effective !== null
+      ? entry.effective
+      : entry.value ?? null;
   return {
     ...entry,
     label: entry.label || entry.key,
+    effective,
+    value: effective,
     applyTier: entry.applyTier || entry.tier || 'restart',
     tier: entry.tier || entry.applyTier || 'restart',
-    source: entry.source || 'unset',
+    source: normalizeSource(entry.source, entry.sourcePath || entry.sourceFile),
     sourceFile: entry.sourceFile || entry.sourcePath || null,
   };
 }
