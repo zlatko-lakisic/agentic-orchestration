@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **AO brand mark** — letter-A / orchestration-arrow lockup under `assets/brand/` (SVGs, favicons, BRAND.md). Wired into Admin, chat UI, GitHub Pages docs/landing, READMEs, and wiki.
+
 ### Fixed
 
 - **Web UI Chrome slowdown on long-lived tabs** — pause host-metrics subscribe/paint while the tab is hidden; throttle chart redraws; shrink metrics history; cap crew-log text/SVG and in-memory chat transcript/DOM growth.

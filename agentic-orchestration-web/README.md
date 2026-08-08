@@ -1,7 +1,7 @@
 # Agentic orchestration web UI
 
 <p align="center">
-  <img src="../assets/logo.png" alt="Agentic Orchestration" width="360" />
+  <img src="../assets/brand/ao-logo-horizontal-steel.svg" alt="Agentic Orchestration" width="360" />
 </p>
 
 Chat-style front-end that talks to the Python tool over **WebSockets**. Each message runs either:

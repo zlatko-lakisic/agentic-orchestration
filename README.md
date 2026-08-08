@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://zlatko-lakisic.github.io/agentic-orchestration/">
-    <img src="assets/logo.png" alt="Agentic Orchestration" width="420" />
+    <img src="assets/brand/ao-logo-horizontal-steel.svg" alt="Agentic Orchestration" width="420" />
   </a>
 </p>
 

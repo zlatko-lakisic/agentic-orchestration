@@ -1,37 +1,21 @@
-<svg
-    width="32"
-    height="32"
-    viewBox="0 0 32 32"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg">
-    <path
-        d="M16 6.75556V0L1.02839 14.6389C0.462304 15.1924 0.457197 16.1016 1.01703 16.6615L3.55556 19.2"
-        fill="#2196F3"/>
-    <path
-        d="M16 6.75556V0L30.9716 14.6389C31.5377 15.1924 31.5428 16.1016 30.983 16.6615L28.4444 19.2"
-        fill="#1878C6"/>
-    <path
-        d="M3.55556 19.2L9.6 13.1556H16V19.2"
-        fill="#1565C0"/>
-    <path
-        d="M28.4444 19.2L22.4 13.1556H16V19.2"
-        fill="#10519D"/>
-    <path
-        d="M16 25.9556H9.95555L12.9778 22.7556L16 25.9556Z"
-        fill="#1565C0"/>
-    <path
-        d="M16 32L22.0444 25.9556L16 25.9556V32Z"
-        fill="#1878C6"/>
-    <path
-        d="M16 32L9.95555 25.9556H16V32Z"
-        fill="#2196F3"/>
-    <path
-        d="M16 25.9556H22.0444L19.0222 22.7556L16 25.9556Z"
-        fill="#10519D"/>
-    <path
-        d="M7.72363 21.7502C7.18605 22.3085 7.19441 23.1944 7.74243 23.7424L9.95556 25.9556L16 19.5556V13.1556"
-        fill="#2196F3"/>
-    <path
-        d="M24.2764 21.7502C24.814 22.3085 24.8056 23.1944 24.2576 23.7424L22.0444 25.9556L16 19.5556V13.1556"
-        fill="#1878C6"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none" role="img">
+  <defs>
+    <mask id="cut-m" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect x="0" y="0" width="256" height="256" fill="white"/>
+      <path d="M 81.50 213.00 L 128.00 38.00 L 174.50 213.00" fill="none" stroke="black" stroke-width="48.0"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g transform="translate(0 2.5)">
+    <g mask="url(#cut-m)">
+      <path d="M 179.42 56.72 A 80.0 80.0 0 1 1 68.55 64.47" fill="none" stroke="currentColor"
+            stroke-width="21.0" stroke-linecap="round"/>
+      <path d="M 95.25 34.82 L 84.93 79.22 L 52.16 49.72 Z" fill="currentColor"/>
+    </g>
+    <g fill="none" stroke="currentColor" stroke-width="24.0"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 81.50 213.00 L 128.00 38.00 L 174.50 213.00"/>
+      <path d="M 100.00 145.00 L 156.00 145.00"/>
+    </g>
+  </g>
 </svg>

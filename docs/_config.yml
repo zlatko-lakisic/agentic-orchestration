@@ -17,7 +17,7 @@ analytics:
     tracking_id: "G-Q8XP6XJE35"
     anonymize_ip: false
 
-logo: "/assets/logo.png"
+logo: "/assets/logo.svg"
 favicon: "/favicon.ico"
 
 author:

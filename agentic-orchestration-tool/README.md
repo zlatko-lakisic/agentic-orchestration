@@ -1,7 +1,7 @@
 # Agentic Orchestration Tool
 
 <p align="center">
-  <img src="../assets/logo.png" alt="Agentic Orchestration" width="360" />
+  <img src="../assets/brand/ao-logo-horizontal-steel.svg" alt="Agentic Orchestration" width="360" />
 </p>
 
 YAML-driven CrewAI runner that dynamically creates **agent providers** (LLM-backed agents), tasks, and task sequence from configuration, plus MCP and agent-skills **catalogs** under `config/mcp_providers/` and `config/agent_skills/` for dynamic and static runs (env-gated entries, optional extra catalog paths).

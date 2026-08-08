@@ -45,12 +45,21 @@ export function Hero() {
 
       <div className="relative z-10 mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-end lg:gap-12">
         <div>
-          <motion.p
-            className="font-display text-sm font-medium tracking-[0.2em] text-steel uppercase"
+          <motion.div
+            className="flex items-center gap-3"
             {...fade(0.05)}
           >
-            Agentic Orchestration
-          </motion.p>
+            <img
+              src={`${import.meta.env.BASE_URL}ao-mark.svg`}
+              alt=""
+              width={40}
+              height={40}
+              className="h-10 w-10 shrink-0"
+            />
+            <p className="font-display text-sm font-medium tracking-[0.2em] text-steel uppercase">
+              Agentic Orchestration
+            </p>
+          </motion.div>
           <motion.h1
             className="font-display mt-4 max-w-xl text-4xl leading-[1.08] font-semibold text-balance text-white sm:text-5xl"
             {...fade(0.15)}

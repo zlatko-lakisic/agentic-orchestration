@@ -14,11 +14,11 @@ import { User } from '@/app/domains/admin/layout/ui/user';
   },
   template: `
     <div class="relative flex items-center gap-x-2.5 pt-5 pr-4 pb-0 pl-6">
-      <img
-        src="images/logo/logo.svg"
-        class="size-8"
-        alt="AO logo"
-      />
+      <span
+        class="ao-brand-mark size-8 shrink-0 bg-[#3B6EA5] dark:bg-[#E6EAF0]"
+        role="img"
+        aria-label="Agentic Orchestration"
+      ></span>
 
       <div class="flex flex-col">
         <div
@@ -77,6 +77,14 @@ import { User } from '@/app/domains/admin/layout/ui/user';
     <div class="p-2">
       <user />
     </div>
+  `,
+  styles: `
+    .ao-brand-mark {
+      display: inline-block;
+      -webkit-mask: url('/admin/images/logo/ao-mark-small.svg') center / contain
+        no-repeat;
+      mask: url('/admin/images/logo/ao-mark-small.svg') center / contain no-repeat;
+    }
   `,
 })
 export class AdminSidebar implements OnInit {

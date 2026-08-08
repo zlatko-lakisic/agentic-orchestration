@@ -1,0 +1,21 @@
+<svg color="#E6EAF0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none" role="img">
+  <defs>
+    <mask id="cut-s" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect x="0" y="0" width="256" height="256" fill="white"/>
+      <path d="M 81.50 213.00 L 128.00 38.00 L 174.50 213.00" fill="none" stroke="black" stroke-width="56.0"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <g transform="translate(0 2.5)">
+    <g mask="url(#cut-s)">
+      <path d="M 179.42 56.72 A 80.0 80.0 0 1 1 68.55 64.47" fill="none" stroke="currentColor"
+            stroke-width="20" stroke-linecap="round"/>
+      <path d="M 91.30 39.20 L 85.64 79.86 L 51.46 49.08 Z" fill="currentColor"/>
+    </g>
+    <g fill="none" stroke="currentColor" stroke-width="24"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 81.50 213.00 L 128.00 38.00 L 174.50 213.00"/>
+      <path d="M 96.00 153.00 L 160.00 153.00"/>
+    </g>
+  </g>
+</svg>
