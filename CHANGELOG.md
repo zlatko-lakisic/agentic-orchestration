@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Coordinator crash on `/api/session`** — `generateWebSessionId` now uses `node:crypto` so Node 18 images no longer throw `ReferenceError: crypto is not defined` (CrashLoopBackOff).
+- **Admin fonts** — Geist `@font-face` URLs point at `/admin/fonts/...` so they load under the Admin base href.
+
 ## [1.30.0] - 2026-08-07
 
 ### Added

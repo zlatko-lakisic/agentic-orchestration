@@ -163,6 +163,7 @@ export interface HostMetrics {
     totalBytes?: number;
     usedBytes?: number;
     availableBytes?: number;
+    usedPercent?: number | null;
     percent?: number | null;
   };
   jetson?: unknown;

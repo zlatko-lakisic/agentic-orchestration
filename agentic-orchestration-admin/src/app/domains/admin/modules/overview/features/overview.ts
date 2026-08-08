@@ -60,7 +60,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <dl class="space-y-2 font-mono text-xs">
               <div class="flex justify-between gap-4"><dt class="text-neutral-500">scope</dt><dd>{{ metrics()?.scope || '—' }}</dd></div>
               <div class="flex justify-between gap-4"><dt class="text-neutral-500">cpu</dt><dd>{{ metrics()?.cpu?.percent ?? '—' }}%</dd></div>
-              <div class="flex justify-between gap-4"><dt class="text-neutral-500">memory</dt><dd>{{ metrics()?.memory?.percent ?? '—' }}%</dd></div>
+              <div class="flex justify-between gap-4"><dt class="text-neutral-500">memory</dt><dd>{{ metrics()?.memory?.usedPercent ?? metrics()?.memory?.percent ?? '—' }}%</dd></div>
               <div class="flex justify-between gap-4"><dt class="text-neutral-500">load</dt><dd>{{ (metrics()?.loadAvg || []).join(' · ') || '—' }}</dd></div>
             </dl>
           } @else {

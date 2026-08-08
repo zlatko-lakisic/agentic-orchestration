@@ -1,3 +1,5 @@
+import { randomBytes, webcrypto } from "node:crypto";
+
 const DEFAULT_USER_NAME_HEADERS = "x-agentic-user-name,x-user-name";
 const DEFAULT_SESSION_ID_HEADERS = "x-agentic-session-id,x-warpgate-session-id";
 
@@ -43,7 +45,11 @@ export function sessionIdFromRequestHeaders(headers, headerListEnv) {
 
 /** @returns {string} */
 export function generateWebSessionId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  // Node 18 coordinator image has no globalThis.crypto; use node:crypto.
+  const bytes =
+    typeof webcrypto?.getRandomValues === "function"
+      ? webcrypto.getRandomValues(new Uint8Array(6))
+      : randomBytes(6);
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `web-${hex}`;
 }
