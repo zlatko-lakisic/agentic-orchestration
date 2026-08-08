@@ -86,32 +86,17 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           </div>
         </div>
         <div class="flex-auto"></div>
-        <div class="flex items-center gap-x-3">
-          <div
-            class="hidden items-center gap-x-1.5 text-sm sm:flex"
+        <div
+          class="flex items-center gap-x-1.5 text-sm"
+          [ngClass]="live.connected() ? 'text-green-600' : 'text-neutral-500'"
+        >
+          <span
+            class="inline-block size-2 rounded-full"
             [ngClass]="
-              live.connected() ? 'text-green-600' : 'text-neutral-500'
+              live.connected() ? 'bg-green-500 animate-pulse' : 'bg-neutral-400'
             "
-          >
-            <span
-              class="inline-block size-2 rounded-full"
-              [ngClass]="
-                live.connected()
-                  ? 'bg-green-500 animate-pulse'
-                  : 'bg-neutral-400'
-              "
-            ></span>
-            {{ live.connected() ? 'Live' : 'Reconnecting…' }}
-          </div>
-          <button
-            class="hidden sm:inline-flex"
-            matButton="outlined"
-            type="button"
-            (click)="reload()"
-          >
-            <mat-icon svgIcon="refresh-cw" />
-            Refresh
-          </button>
+          ></span>
+          {{ live.connected() ? 'Live' : 'Reconnecting…' }}
         </div>
       </div>
 
@@ -428,22 +413,15 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                 </div>
               </div>
               <div class="-mt-2 ml-auto">
-                <button
-                  mat-icon-button
-                  type="button"
-                  [matMenuTriggerFor]="compMenu"
-                >
-                  <mat-icon svgIcon="ellipsis" />
-                </button>
-                <mat-menu #compMenu="matMenu">
+                @if (componentHref(c); as href) {
                   <button
-                    mat-menu-item
+                    mat-icon-button
                     type="button"
-                    (click)="reload()"
+                    [matMenuTriggerFor]="compMenu"
                   >
-                    Refresh
+                    <mat-icon svgIcon="ellipsis" />
                   </button>
-                  @if (componentHref(c); as href) {
+                  <mat-menu #compMenu="matMenu">
                     <a
                       mat-menu-item
                       [href]="href"
@@ -452,8 +430,8 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
                     >
                       Open
                     </a>
-                  }
-                </mat-menu>
+                  </mat-menu>
+                }
               </div>
             </div>
             <div class="mt-4 flex flex-row flex-wrap gap-6">
@@ -612,6 +590,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   private logViewport =
     viewChild<ElementRef<HTMLDivElement>>('logViewport');
+  private topologyTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly topology = signal<TopologyResponse | null>(null);
   readonly ping = signal<PingResponse | null>(null);
@@ -809,9 +788,14 @@ export class OverviewPage implements OnInit, OnDestroy {
     this.selectedSources.set([...this.live.logSourceOptions()]);
     this.live.acquire({ metrics: true, logs: true });
     this.reload();
+    this.topologyTimer = setInterval(() => this.reload(), 30000);
   }
 
   ngOnDestroy() {
+    if (this.topologyTimer) {
+      clearInterval(this.topologyTimer);
+      this.topologyTimer = null;
+    }
     this.live.release();
   }
 
