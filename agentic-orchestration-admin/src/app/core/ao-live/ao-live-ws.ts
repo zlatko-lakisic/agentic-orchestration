@@ -402,7 +402,18 @@ export class AoLiveWs implements OnDestroy {
       }
     }
     this.history.update((prev) => {
-      const next = [...prev, { t, cpu, mem, gpu, vram, cpuTemp, gpuTemp }];
+      const last = prev[prev.length - 1];
+      // Hold last known values so charts stay continuous across brief null samples.
+      const nextPoint: MetricsPoint = {
+        t,
+        cpu: cpu ?? last?.cpu ?? null,
+        mem: mem ?? last?.mem ?? null,
+        gpu: gpu ?? last?.gpu ?? null,
+        vram: vram ?? last?.vram ?? null,
+        cpuTemp: cpuTemp ?? last?.cpuTemp ?? null,
+        gpuTemp: gpuTemp ?? last?.gpuTemp ?? null,
+      };
+      const next = [...prev, nextPoint];
       return next.length > HISTORY_MAX
         ? next.slice(next.length - HISTORY_MAX)
         : next;

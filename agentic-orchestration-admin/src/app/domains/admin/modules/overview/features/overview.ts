@@ -54,6 +54,10 @@ import {
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import {
+  formatThermalRange,
+  resolveThermalRange,
+} from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
 
 /** Topology reads top-down: each entry depends on the ones above it. */
 const DEPENDENCY_ORDER = [
@@ -276,6 +280,9 @@ const DEPENDENCY_ORDER = [
                     <span class="text-lg text-neutral-500">°C</span>
                   }
                 </div>
+                <div class="text-xs text-neutral-500">
+                  op {{ formatThermalRange(cpuThermalRange()) }}
+                </div>
               </div>
             </div>
             <apx-chart
@@ -290,7 +297,7 @@ const DEPENDENCY_ORDER = [
               [stroke]="utilChart.stroke"
               [tooltip]="cpuMemTooltip()"
               [xaxis]="utilChart.xaxis"
-              [yaxis]="cpuMemYaxis"
+              [yaxis]="cpuMemYaxis()"
             />
           </div>
 
@@ -341,6 +348,9 @@ const DEPENDENCY_ORDER = [
                     <span class="text-lg text-neutral-500">°C</span>
                   }
                 </div>
+                <div class="text-xs text-neutral-500">
+                  op {{ formatThermalRange(gpuThermalRange()) }}
+                </div>
               </div>
             </div>
             <apx-chart
@@ -355,7 +365,7 @@ const DEPENDENCY_ORDER = [
               [stroke]="utilChart.stroke"
               [tooltip]="gpuVramTooltip()"
               [xaxis]="utilChart.xaxis"
-              [yaxis]="gpuVramYaxis"
+              [yaxis]="gpuVramYaxis()"
             />
           </div>
         </div>
@@ -752,6 +762,24 @@ export class OverviewPage implements OnInit, OnDestroy {
   readonly cpuMemChartColors = ['#f59e0b', '#60a5fa', '#f87171'];
   readonly gpuVramChartColors = ['#c084fc', '#34d399', '#f87171'];
 
+  /** Jetson often reports a generic Arm CPU model — prefer GPU/SoC name for lookup. */
+  readonly cpuThermalRange = computed(() => {
+    const scope = String(this.live.metrics()?.scope || '');
+    const cpuName = this.live.cpuModel();
+    const gpuName = this.live.gpuName();
+    const key =
+      scope === 'jetson' || /jetson|tegra|orin/i.test(String(gpuName || ''))
+        ? gpuName || cpuName
+        : cpuName || gpuName;
+    return resolveThermalRange('cpu', key);
+  });
+
+  readonly gpuThermalRange = computed(() =>
+    resolveThermalRange('gpu', this.live.gpuName())
+  );
+
+  readonly formatThermalRange = formatThermalRange;
+
   readonly cpuMemTooltip = computed(
     (): ApexTooltip => ({
       theme: this.theming.isDark() ? 'dark' : 'light',
@@ -784,69 +812,93 @@ export class OverviewPage implements OnInit, OnDestroy {
     })
   );
 
-  readonly cpuMemYaxis: ApexYAxis[] = [
-    {
-      seriesName: 'CPU',
-      min: 0,
-      max: 100,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}%`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
+  readonly cpuMemYaxis = computed((): ApexYAxis[] => {
+    const range = this.cpuThermalRange();
+    return [
+      {
+        seriesName: 'CPU',
+        min: 0,
+        max: 100,
+        tickAmount: 4,
+        forceNiceScale: false,
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}%`,
+          style: { colors: 'var(--mat-sys-on-surface)' },
+        },
       },
-    },
-    {
-      seriesName: 'Memory',
-      show: false,
-      min: 0,
-      max: 100,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}%`,
+      {
+        seriesName: 'Memory',
+        show: false,
+        min: 0,
+        max: 100,
+        tickAmount: 4,
+        forceNiceScale: false,
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}%`,
+        },
       },
-    },
-    {
-      seriesName: 'Temp',
-      opposite: true,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}°C`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
+      {
+        seriesName: 'Temp',
+        opposite: true,
+        min: range.minC,
+        max: range.maxC,
+        tickAmount: 4,
+        forceNiceScale: false,
+        title: {
+          text: `${range.minC}–${range.maxC}°C`,
+          style: { color: 'var(--mat-sys-on-surface)', fontSize: '11px' },
+        },
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}°C`,
+          style: { colors: 'var(--mat-sys-on-surface)' },
+        },
       },
-    },
-  ];
+    ];
+  });
 
-  readonly gpuVramYaxis: ApexYAxis[] = [
-    {
-      seriesName: 'GPU',
-      min: 0,
-      max: 100,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}%`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
+  readonly gpuVramYaxis = computed((): ApexYAxis[] => {
+    const range = this.gpuThermalRange();
+    return [
+      {
+        seriesName: 'GPU',
+        min: 0,
+        max: 100,
+        tickAmount: 4,
+        forceNiceScale: false,
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}%`,
+          style: { colors: 'var(--mat-sys-on-surface)' },
+        },
       },
-    },
-    {
-      seriesName: 'VRAM',
-      show: false,
-      min: 0,
-      max: 100,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}%`,
+      {
+        seriesName: 'VRAM',
+        show: false,
+        min: 0,
+        max: 100,
+        tickAmount: 4,
+        forceNiceScale: false,
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}%`,
+        },
       },
-    },
-    {
-      seriesName: 'Temp',
-      opposite: true,
-      tickAmount: 4,
-      labels: {
-        formatter: (v: number) => `${Math.round(v)}°C`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
+      {
+        seriesName: 'Temp',
+        opposite: true,
+        min: range.minC,
+        max: range.maxC,
+        tickAmount: 4,
+        forceNiceScale: false,
+        title: {
+          text: `${range.minC}–${range.maxC}°C`,
+          style: { color: 'var(--mat-sys-on-surface)', fontSize: '11px' },
+        },
+        labels: {
+          formatter: (v: number) => `${Math.round(v)}°C`,
+          style: { colors: 'var(--mat-sys-on-surface)' },
+        },
       },
-    },
-  ];
+    ];
+  });
 
   readonly summary = computed(() => {
     const comps = this.components();
@@ -939,7 +991,7 @@ export class OverviewPage implements OnInit, OnDestroy {
       position: 'top',
       horizontalAlign: 'right',
     } as ApexLegend,
-    stroke: { curve: 'smooth', width: 2 } as ApexStroke,
+    stroke: { curve: 'smooth', width: 2, connectNulls: true } as ApexStroke,
     xaxis: {
       type: 'datetime',
       labels: {
