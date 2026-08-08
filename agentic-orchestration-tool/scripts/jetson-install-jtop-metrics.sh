@@ -22,6 +22,11 @@ fi
 install_user_unit() {
   local unit_src="${TOOL_ROOT}/deploy/systemd/agentic-jtop-metrics.user.service"
   local unit_dst="${HOME}/.config/systemd/user/agentic-jtop-metrics.service"
+  # Non-interactive SSH often lacks a user bus; point at the linger runtime dir.
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+  fi
   mkdir -p "$(dirname "${unit_dst}")"
   install -m 0644 "${unit_src}" "${unit_dst}"
   systemctl --user daemon-reload
