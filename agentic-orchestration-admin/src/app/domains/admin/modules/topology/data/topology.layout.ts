@@ -74,6 +74,8 @@ const MARGIN = 32;
 const ROUTE_MARGIN = 56;
 const MAX_LANES = 8;
 const CLEARANCE = 8;
+/** Perpendicular stub so wires leave/enter side centers, never run along card edges. */
+const PORT_STUB = 14;
 
 const BAND_LABELS: Record<TopologyBand, string> = {
   application: '1 · Application',
@@ -83,6 +85,7 @@ const BAND_LABELS: Record<TopologyBand, string> = {
 
 type Pt = { x: number; y: number };
 type Rect = { x: number; y: number; w: number; h: number; id?: string };
+type Side = 'top' | 'bottom' | 'left' | 'right';
 
 function slotFor(node: TopologyNode): {
   band: TopologyBand;
@@ -197,31 +200,64 @@ function round(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-function ports(
+function sideCenter(node: PositionedNode, side: Side): Pt {
+  const cx = node.x + node.width / 2;
+  const cy = node.y + node.height / 2;
+  switch (side) {
+    case 'top':
+      return { x: cx, y: node.y };
+    case 'bottom':
+      return { x: cx, y: node.y + node.height };
+    case 'left':
+      return { x: node.x, y: cy };
+    case 'right':
+      return { x: node.x + node.width, y: cy };
+  }
+}
+
+/** Point just outside the card, along the side normal. */
+function stubOut(node: PositionedNode, side: Side, stub = PORT_STUB): Pt {
+  const p = sideCenter(node, side);
+  switch (side) {
+    case 'top':
+      return { x: p.x, y: p.y - stub };
+    case 'bottom':
+      return { x: p.x, y: p.y + stub };
+    case 'left':
+      return { x: p.x - stub, y: p.y };
+    case 'right':
+      return { x: p.x + stub, y: p.y };
+  }
+}
+
+function chooseSides(
   from: PositionedNode,
-  to: PositionedNode
-): { s: Pt; t: Pt; vertical: boolean } {
+  to: PositionedNode,
+  kind: string
+): { fromSide: Side; toSide: Side } {
+  if (kind === 'bypass') {
+    return { fromSide: 'right', toSide: 'right' };
+  }
   const fromCx = from.x + from.width / 2;
   const fromCy = from.y + from.height / 2;
   const toCx = to.x + to.width / 2;
   const toCy = to.y + to.height / 2;
   const dy = toCy - fromCy;
   const dx = toCx - fromCx;
-  if (Math.abs(dy) >= Math.abs(dx)) {
-    return {
-      vertical: true,
-      s: { x: fromCx, y: dy >= 0 ? from.y + from.height : from.y },
-      t: { x: toCx, y: dy >= 0 ? to.y : to.y + to.height },
-    };
+
+  // Prefer top/bottom when mostly vertical so stacked cards connect mid-edge.
+  if (Math.abs(dy) >= Math.abs(dx) * 0.75) {
+    if (dy >= 0) return { fromSide: 'bottom', toSide: 'top' };
+    return { fromSide: 'top', toSide: 'bottom' };
   }
-  return {
-    vertical: false,
-    s: { x: dx >= 0 ? from.x + from.width : from.x, y: fromCy },
-    t: { x: dx >= 0 ? to.x : to.x + to.width, y: toCy },
-  };
+  if (dx >= 0) return { fromSide: 'right', toSide: 'left' };
+  return { fromSide: 'left', toSide: 'right' };
 }
 
-/** Build orthogonal candidates and pick the first that clears obstacles. */
+/**
+ * Orthogonal route between exterior stubs. Never travels along a card edge:
+ * the full path is always [sideCenter → stubOut → …manhattan… → stubIn → sideCenter].
+ */
 export function routeEdgeOrthogonal(
   from: PositionedNode,
   to: PositionedNode,
@@ -229,121 +265,141 @@ export function routeEdgeOrthogonal(
   allNodes: PositionedNode[],
   canvasWidth: number
 ): string {
-  const { s, t } = ports(from, to);
+  const { fromSide, toSide } = chooseSides(from, to, kind);
+  const portS = sideCenter(from, fromSide);
+  const portT = sideCenter(to, toSide);
+  let a = stubOut(from, fromSide);
+  let b = stubOut(to, toSide);
+
+  // Reverse-tunnel: slight lateral offset on the stubs only (ports stay centered).
+  if (kind === 'reverse-tunnel') {
+    const ox = 16;
+    a = { x: a.x + ox, y: a.y };
+    b = { x: b.x + ox, y: b.y };
+  }
+
   const obstacles = allNodes
     .filter((n) => n.id !== from.id && n.id !== to.id)
     .map((n) => inflate(n, CLEARANCE));
 
   const leftX = MARGIN / 2;
   const rightX = canvasWidth - MARGIN / 2;
-  const midY = (s.y + t.y) / 2;
-  const midX = (s.x + t.x) / 2;
-  const gutterAbove = Math.min(s.y, t.y) - ROW_GAP / 3;
-  const gutterBelow = Math.max(s.y, t.y) + ROW_GAP / 3;
+  const midY = (a.y + b.y) / 2;
+  const midX = (a.x + b.x) / 2;
+  const gutterAbove = Math.min(a.y, b.y) - Math.max(12, ROW_GAP / 4);
+  const gutterBelow = Math.max(a.y, b.y) + Math.max(12, ROW_GAP / 4);
 
-  const offset = kind === 'reverse-tunnel' ? 16 : 0;
-  const sx = s.x + offset;
-  const tx = t.x + offset;
-
-  const candidates: Pt[][] = [];
+  const midCandidates: Pt[][] = [];
 
   if (kind === 'bypass') {
-    candidates.push([
-      { x: sx, y: s.y },
-      { x: rightX, y: s.y },
-      { x: rightX, y: t.y },
-      { x: tx, y: t.y },
+    midCandidates.push([
+      a,
+      { x: rightX, y: a.y },
+      { x: rightX, y: b.y },
+      b,
     ]);
   }
 
-  // Same column: straight vertical (or with slight side jog if blocked)
-  if (Math.abs(sx - tx) < 1) {
-    candidates.push([
-      { x: sx, y: s.y },
-      { x: tx, y: t.y },
-    ]);
-    candidates.push([
-      { x: sx, y: s.y },
-      { x: sx + 24, y: s.y },
-      { x: sx + 24, y: t.y },
-      { x: tx, y: t.y },
-    ]);
+  // Direct alignment
+  if (Math.abs(a.x - b.x) < 0.5) {
+    midCandidates.push([a, b]);
+  }
+  if (Math.abs(a.y - b.y) < 0.5) {
+    midCandidates.push([a, b]);
   }
 
-  // Same row: straight horizontal
-  if (Math.abs(s.y - t.y) < 1) {
-    candidates.push([
-      { x: sx, y: s.y },
-      { x: tx, y: t.y },
-    ]);
-    candidates.push([
-      { x: sx, y: s.y },
-      { x: sx, y: gutterAbove },
-      { x: tx, y: gutterAbove },
-      { x: tx, y: t.y },
-    ]);
-  }
-
-  // Elbows — right-angle only
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: sx, y: midY },
-    { x: tx, y: midY },
-    { x: tx, y: t.y },
+  // Standard elbows (route only between stubs — never along node borders)
+  midCandidates.push([a, { x: a.x, y: midY }, { x: b.x, y: midY }, b]);
+  midCandidates.push([a, { x: midX, y: a.y }, { x: midX, y: b.y }, b]);
+  midCandidates.push([
+    a,
+    { x: a.x, y: gutterBelow },
+    { x: b.x, y: gutterBelow },
+    b,
   ]);
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: midX, y: s.y },
-    { x: midX, y: t.y },
-    { x: tx, y: t.y },
+  midCandidates.push([
+    a,
+    { x: a.x, y: gutterAbove },
+    { x: b.x, y: gutterAbove },
+    b,
   ]);
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: sx, y: gutterBelow },
-    { x: tx, y: gutterBelow },
-    { x: tx, y: t.y },
+  midCandidates.push([
+    a,
+    { x: leftX, y: a.y },
+    { x: leftX, y: b.y },
+    b,
   ]);
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: sx, y: gutterAbove },
-    { x: tx, y: gutterAbove },
-    { x: tx, y: t.y },
+  midCandidates.push([
+    a,
+    { x: rightX, y: a.y },
+    { x: rightX, y: b.y },
+    b,
   ]);
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: leftX, y: s.y },
-    { x: leftX, y: t.y },
-    { x: tx, y: t.y },
-  ]);
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: rightX, y: s.y },
-    { x: rightX, y: t.y },
-    { x: tx, y: t.y },
-  ]);
-  // Two-gutter detour (go around a mid-row cluster)
-  candidates.push([
-    { x: sx, y: s.y },
-    { x: sx, y: gutterBelow },
+  midCandidates.push([
+    a,
+    { x: a.x, y: gutterBelow },
     { x: rightX, y: gutterBelow },
     { x: rightX, y: gutterAbove },
-    { x: tx, y: gutterAbove },
-    { x: tx, y: t.y },
+    { x: b.x, y: gutterAbove },
+    b,
+  ]);
+  midCandidates.push([
+    a,
+    { x: a.x, y: gutterAbove },
+    { x: leftX, y: gutterAbove },
+    { x: leftX, y: gutterBelow },
+    { x: b.x, y: gutterBelow },
+    b,
   ]);
 
-  for (const c of candidates) {
-    if (!pathHitsObstacles(c, obstacles)) {
-      return toPathD(c);
+  for (const mid of midCandidates) {
+    if (!pathHitsObstacles(mid, obstacles)) {
+      return toPathD([portS, ...mid, portT]);
     }
   }
 
-  // Last resort: right margin corridor (canvas includes ROUTE_MARGIN)
   return toPathD([
-    { x: sx, y: s.y },
-    { x: rightX, y: s.y },
-    { x: rightX, y: t.y },
-    { x: tx, y: t.y },
+    portS,
+    a,
+    { x: rightX, y: a.y },
+    { x: rightX, y: b.y },
+    b,
+    portT,
   ]);
+}
+
+/** Parse path endpoints for tests. */
+export function pathEndpoints(pathD: string): { start: Pt; end: Pt } | null {
+  const nums = pathD.match(/-?\d+(?:\.\d+)?/g)?.map(Number);
+  if (!nums || nums.length < 4) return null;
+  return {
+    start: { x: nums[0], y: nums[1] },
+    end: { x: nums[nums.length - 2], y: nums[nums.length - 1] },
+  };
+}
+
+export function isSideCenter(
+  node: PositionedNode,
+  p: Pt,
+  tol = 1.5
+): Side | null {
+  const cx = node.x + node.width / 2;
+  const cy = node.y + node.height / 2;
+  if (Math.abs(p.x - cx) <= tol && Math.abs(p.y - node.y) <= tol) return 'top';
+  if (
+    Math.abs(p.x - cx) <= tol &&
+    Math.abs(p.y - (node.y + node.height)) <= tol
+  ) {
+    return 'bottom';
+  }
+  if (Math.abs(p.y - cy) <= tol && Math.abs(p.x - node.x) <= tol) return 'left';
+  if (
+    Math.abs(p.y - cy) <= tol &&
+    Math.abs(p.x - (node.x + node.width)) <= tol
+  ) {
+    return 'right';
+  }
+  return null;
 }
 
 export function layoutTopology(

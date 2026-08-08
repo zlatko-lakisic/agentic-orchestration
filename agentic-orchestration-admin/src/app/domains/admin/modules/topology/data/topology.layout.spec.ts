@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isSideCenter,
   layoutTopology,
   nodesOverlap,
   pathClosure,
+  pathEndpoints,
   slotForKind,
 } from './topology.layout';
 import { TopologyEdge, TopologyNode } from './topology.types';
@@ -162,6 +164,40 @@ describe('topology.layout', () => {
     for (const e of layout.edges) {
       expect(e.pathD).not.toMatch(/[CcQqSsAa]/);
       expect(e.pathD).toMatch(/^M /);
+    }
+  });
+
+  it('attaches every edge at side centers (not corners)', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'planner', kind: 'planner', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+      n({ id: 'catalog/agents', kind: 'catalog', band: 'ao' }),
+      n({ id: 'models/backends', kind: 'model-backend', band: 'ao' }),
+      n({ id: 'execution', kind: 'execution-backend', band: 'ao' }),
+      n({ id: 'workers/cluster', kind: 'worker', band: 'ao' }),
+      n({ id: 'platform/k3s', kind: 'platform', band: 'ao' }),
+      n({ id: 'platform/storage', kind: 'storage', band: 'ao' }),
+    ];
+    const edges: TopologyEdge[] = [
+      { id: 'e1', from: 'engine', to: 'planner', kind: 'request' },
+      { id: 'e2', from: 'web-ui', to: 'planner', kind: 'request' },
+      { id: 'e3', from: 'planner', to: 'catalog/agents', kind: 'request' },
+      { id: 'e4', from: 'catalog/agents', to: 'models/backends', kind: 'request' },
+      { id: 'e5', from: 'planner', to: 'execution', kind: 'request' },
+      { id: 'e6', from: 'execution', to: 'workers/cluster', kind: 'request' },
+      { id: 'e7', from: 'execution', to: 'platform/k3s', kind: 'request' },
+      { id: 'e8', from: 'platform/k3s', to: 'platform/storage', kind: 'request' },
+    ];
+    const layout = layoutTopology(nodes, edges);
+    const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+    for (const e of layout.edges) {
+      const ends = pathEndpoints(e.pathD);
+      expect(ends).not.toBeNull();
+      const from = byId.get(e.from)!;
+      const to = byId.get(e.to)!;
+      expect(isSideCenter(from, ends!.start)).not.toBeNull();
+      expect(isSideCenter(to, ends!.end)).not.toBeNull();
     }
   });
 });
