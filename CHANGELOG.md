@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-08
+
 ### Breaking
 
 - **Reach `appId` required** — `session_overlay_register` must include `appId` / `app_id` (stable product id such as `knowbuddy` or `comstar`). Missing or invalid values receive `session_overlay_denied` (`app_id_required` / `app_id_invalid`). Active session snapshots expose `appId`. Requires AO Reach ≥ 0.5.0.
