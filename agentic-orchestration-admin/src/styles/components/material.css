@@ -1150,3 +1150,11 @@
   /* Tree                                                                     */
   /* ------------------------------------------------------------------------ */
 }
+
+/* Env help tooltips render in the CDK overlay (outside #fuse). */
+.ao-env-help-tooltip {
+  max-width: min(28rem, 90vw) !important;
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  font-size: 0.75rem !important;
+}

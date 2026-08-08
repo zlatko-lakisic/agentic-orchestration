@@ -58,9 +58,29 @@ def jtop_metrics_path() -> Path | None:
 
 
 def nvidia_host_metrics_path() -> Path | None:
-    """Path to host-written NVIDIA snapshot (engine mount of ``/var/run/agentic``)."""
+    """Path to host-written NVIDIA snapshot (shared ``var/agentic-metrics`` mount)."""
     raw = os.getenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", "").strip()
-    return Path(raw) if raw else None
+    if raw:
+        return Path(raw)
+    # Sibling of jtop path when only Jetson env is set.
+    jtop = jtop_metrics_path()
+    if jtop is not None:
+        return jtop.parent / "nvidia-metrics.json"
+    return None
+
+
+def amd_host_metrics_path() -> Path | None:
+    """Path to host-written AMD snapshot (``amd-host-metrics-writer.py``)."""
+    raw = os.getenv("AGENTIC_AMD_HOST_METRICS_PATH", "").strip()
+    if raw:
+        return Path(raw)
+    jtop = jtop_metrics_path()
+    if jtop is not None:
+        return jtop.parent / "amd-metrics.json"
+    nvidia = os.getenv("AGENTIC_NVIDIA_HOST_METRICS_PATH", "").strip()
+    if nvidia:
+        return Path(nvidia).parent / "amd-metrics.json"
+    return None
 
 
 def host_metrics_push_ms() -> int:
@@ -462,6 +482,8 @@ def metrics_scope() -> str:
         return "jetson"
     if nvidia_host_metrics_path() is not None:
         return "host"
+    if amd_host_metrics_path() is not None:
+        return "host"
     if host_scope_mounted():
         return "host"
     if sys.platform.startswith("linux") and Path("/.dockerenv").exists():
@@ -495,16 +517,11 @@ def read_jetson_jtop_snapshot() -> dict[str, Any] | None:
     return {**raw, "ageMs": _snapshot_age_ms(raw)}
 
 
-_NVIDIA_HOST_SNAPSHOT_MAX_AGE_MS = 15_000.0
+_HOST_SNAPSHOT_MAX_AGE_MS = 15_000.0
 
 
-def read_nvidia_host_snapshot() -> dict[str, Any] | None:
-    """
-    Read host-written NVIDIA metrics JSON (``nvidia-host-metrics-writer.py``).
-
-    Stale files (>15s) are ignored so a stopped writer does not freeze the UI.
-    """
-    path = nvidia_host_metrics_path()
+def _read_host_gpu_snapshot(path: Path | None) -> dict[str, Any] | None:
+    """Read a host-written GPU metrics JSON; ignore stale files (>15s)."""
     if path is None:
         return None
     try:
@@ -514,14 +531,28 @@ def read_nvidia_host_snapshot() -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     age_ms = _snapshot_age_ms(raw)
-    if age_ms is not None and age_ms > _NVIDIA_HOST_SNAPSHOT_MAX_AGE_MS:
+    if age_ms is not None and age_ms > _HOST_SNAPSHOT_MAX_AGE_MS:
         return None
     return {**raw, "ageMs": age_ms}
 
 
-def sample_nvidia_host_file_gpu() -> dict[str, Any] | None:
-    """Portable ``gpu.*`` block from the host NVIDIA writer snapshot."""
-    snap = read_nvidia_host_snapshot()
+def read_nvidia_host_snapshot() -> dict[str, Any] | None:
+    """Read host-written NVIDIA metrics JSON (``nvidia-host-metrics-writer.py``)."""
+    return _read_host_gpu_snapshot(nvidia_host_metrics_path())
+
+
+def read_amd_host_snapshot() -> dict[str, Any] | None:
+    """Read host-written AMD metrics JSON (``amd-host-metrics-writer.py``)."""
+    return _read_host_gpu_snapshot(amd_host_metrics_path())
+
+
+def _normalize_host_file_gpu(
+    snap: dict[str, Any] | None,
+    *,
+    default_source: str,
+    vendor: str,
+    backend: str,
+) -> dict[str, Any] | None:
     if not snap:
         return None
     gpu = snap.get("gpu") if isinstance(snap.get("gpu"), dict) else None
@@ -541,7 +572,7 @@ def sample_nvidia_host_file_gpu() -> dict[str, Any] | None:
         free = None
     name = gpu.get("name")
     name_s = str(name).strip() if name else None
-    source = gpu.get("vramSource") or snap.get("source") or "nvidia-smi"
+    source = gpu.get("vramSource") or snap.get("source") or default_source
     if total is None and percent is None and used is None and free is None and not name_s:
         return None
     return {
@@ -550,21 +581,44 @@ def sample_nvidia_host_file_gpu() -> dict[str, Any] | None:
         "vramUsedGb": float(used) if used is not None else None,
         "vramFreeGb": float(free) if free is not None else None,
         "vramSource": str(source),
+        "vendor": str(gpu.get("vendor") or vendor),
+        "backend": str(gpu.get("backend") or backend),
         "name": name_s or None,
     }
+
+
+def sample_nvidia_host_file_gpu() -> dict[str, Any] | None:
+    """Portable ``gpu.*`` block from the host NVIDIA writer snapshot."""
+    return _normalize_host_file_gpu(
+        read_nvidia_host_snapshot(),
+        default_source="nvidia-smi",
+        vendor="nvidia",
+        backend="nvidia-host-file",
+    )
+
+
+def sample_amd_host_file_gpu() -> dict[str, Any] | None:
+    """Portable ``gpu.*`` block from the host AMD writer snapshot."""
+    return _normalize_host_file_gpu(
+        read_amd_host_snapshot(),
+        default_source="amdgpu-sysfs",
+        vendor="amd",
+        backend="amd-host-file",
+    )
 
 
 def merge_jetson_into_metrics(
     base: dict[str, Any],
     jtop: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Overlay a jtop snapshot onto a base sample (parity with the Node helper)."""
+    """Overlay a jtop/tegrastats snapshot onto a base sample (parity with Node)."""
     if not jtop:
         return base
     gpu = jtop.get("gpu") if isinstance(jtop.get("gpu"), dict) else {}
     temperature = jtop.get("temperature") if isinstance(jtop.get("temperature"), dict) else {}
+    source = str(jtop.get("source") or "jtop")
     jetson = {
-        "source": "jtop",
+        "source": source,
         "ageMs": jtop.get("ageMs"),
         "gpu": {
             "percent": gpu.get("percent") if isinstance(gpu.get("percent"), (int, float)) else None,
@@ -578,7 +632,45 @@ def merge_jetson_into_metrics(
     cpu = jtop.get("cpu") if isinstance(jtop.get("cpu"), dict) else {}
     cpu_percent = cpu.get("percent")
     if isinstance(cpu_percent, (int, float)) and cpu_percent >= 0:
-        out["cpu"] = {**out.get("cpu", {}), "percent": cpu_percent, "source": "jtop"}
+        out["cpu"] = {**out.get("cpu", {}), "percent": cpu_percent, "source": source}
+
+    # Promote Jetson GPU into top-level gpu when NVIDIA/AMD file is absent (Node parity).
+    if not out.get("gpu") or (
+        isinstance(out.get("gpu"), dict)
+        and out["gpu"].get("percent") is None
+        and out["gpu"].get("vramTotalGb") is None
+        and not out["gpu"].get("name")
+    ):
+        gpu_name = str(gpu.get("name") or "").strip() or "Jetson GPU"
+        promoted: dict[str, Any] = {
+            "percent": jetson["gpu"]["percent"],
+            "freqMhz": jetson["gpu"]["freqMhz"],
+            "vramTotalGb": None,
+            "vramUsedGb": None,
+            "vramFreeGb": None,
+            "vramSource": source,
+            "vendor": "nvidia",
+            "backend": source,
+            "name": gpu_name,
+        }
+        ram_text = jtop.get("ramText")
+        if ram_text:
+            m = re.search(r"([\d.]+)\s*/\s*([\d.]+)\s*G", str(ram_text), re.I)
+            if m:
+                used = float(m.group(1))
+                total = float(m.group(2))
+                if total > 0:
+                    promoted["vramUsedGb"] = used
+                    promoted["vramTotalGb"] = total
+                    promoted["vramFreeGb"] = round(max(0.0, total - used), 3)
+        # Only replace empty/null gpu blocks.
+        existing = out.get("gpu")
+        if not isinstance(existing, dict) or (
+            existing.get("percent") is None
+            and existing.get("vramTotalGb") is None
+            and not existing.get("name")
+        ):
+            out["gpu"] = promoted
     return out
 
 
@@ -665,6 +757,8 @@ def _parse_nvidia_smi_gpu_csv(stdout: str) -> dict[str, Any] | None:
             "vramUsedGb": _mib_to_gb(used_mib) if used_mib is not None else None,
             "vramFreeGb": _mib_to_gb(free_mib) if free_mib is not None else None,
             "vramSource": "nvidia-smi",
+            "vendor": "nvidia",
+            "backend": "nvidia-smi",
             "name": name or None,
         }
     return best
@@ -1090,6 +1184,8 @@ def sample_linux_amd_gpu() -> dict[str, Any] | None:
             "vramUsedGb": used_gb,
             "vramFreeGb": free_gb,
             "vramSource": "amdgpu-sysfs",
+            "vendor": "amd",
+            "backend": "amdgpu-sysfs",
             "name": name,
         }
     return best
@@ -1128,6 +1224,8 @@ def sample_linux_intel_gpu() -> dict[str, Any] | None:
             "vramUsedGb": None,
             "vramFreeGb": None,
             "vramSource": "i915-sysfs",
+            "vendor": "intel",
+            "backend": "i915-sysfs",
             "name": name,
         }
     return None
@@ -1141,9 +1239,9 @@ def sample_gpu() -> dict[str, Any] | None:
     """
     Best available portable GPU sample.
 
-    Priority: nvidia-smi → host NVIDIA writer file → macOS (AMD/Intel/Apple
-    IORegistry) → Linux AMD sysfs → Linux Intel identity stub. Cached briefly so
-    catalog filters don't re-spawn ``system_profiler`` on every call.
+    Priority: live nvidia-smi → NVIDIA host file → AMD host file → macOS
+    (AMD/Intel/Apple IORegistry) → Linux AMD sysfs → Linux Intel identity stub.
+    Cached briefly so catalog filters don't re-spawn ``system_profiler`` on every call.
     """
     global _gpu_sample_cache
     now = time.monotonic()
@@ -1156,6 +1254,7 @@ def sample_gpu() -> dict[str, Any] | None:
     for sampler in (
         sample_nvidia_gpu,
         sample_nvidia_host_file_gpu,
+        sample_amd_host_file_gpu,
         sample_macos_gpu,
         sample_linux_amd_gpu,
         sample_linux_intel_gpu,
@@ -1204,7 +1303,10 @@ def _gpu_vram_block() -> dict[str, Any]:
         "vramUsedGb": sampled.get("vramUsedGb"),
         "vramFreeGb": sampled.get("vramFreeGb"),
         "vramSource": sampled.get("vramSource"),
+        "vendor": sampled.get("vendor"),
+        "backend": sampled.get("backend"),
         "name": sampled.get("name"),
+        "freqMhz": sampled.get("freqMhz"),
     }
 
     if assume_gb is not None:

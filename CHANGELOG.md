@@ -9,12 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Admin env-var wiki help** — question-mark control on Deploy and settings rows; hover shows definition from `.env.example`, click opens `wiki/Configuration#VAR`.
 - **AO Admin ops console redesign (Phase 0)** — navigation around operator nouns: Components, Runs, Activity, Capabilities, Behaviour, Access, Data, Deploy, All settings. Effective config returns curated defaults (`effective`/`default`/`source`); Access posture API; Runs list; support-bundle export; storage visibility honesty (`not_mounted_here`).
 - **Admin Overview GPU panel** — side-by-side CPU/mem and GPU/VRAM Apex charts with CPU model, memory size, GPU name, and VRAM capacity from host metrics (`nvidia-metrics.json` / jtop).
 - **Admin live logs** — filterable scrolling log panel via `admin_logs_subscribe`; in-cluster Kubernetes API pod tails (needs `pods/log` on the coordinator Role) plus web console tap.
 
 ### Fixed
 
+- **Per-platform GPU host metrics** — shared `var/agentic-metrics/` for Jetson (`jtop-metrics.json`), discrete CUDA (`nvidia-metrics.json`), and AMD (`amd-metrics.json`). Deploy auto-selects the writer via `install-host-gpu-metrics.sh`. Restores Ada/CUDA GPU util after the Jetson path remount.
 - **Jetson GPU metrics** — writer falls back to `tegrastats` when jtop group/socket is unavailable; metrics JSON lives under `var/agentic-metrics` (user-writable) and is mounted into coordinator/engine instead of empty `/var/run/agentic`.
 - **Admin topology engine probe** — check in-cluster `agentic-engine` / `host.k3s.internal` (not coordinator loopback); TLS health probes allow the cluster self-signed cert.
 - **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.

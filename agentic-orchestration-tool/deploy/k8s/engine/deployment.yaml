@@ -56,11 +56,13 @@ spec:
               value: "8765"
             - name: AGENTIC_SERVE_LOG_LEVEL
               value: info
+            # Shared host metrics dir (Jetson jtop/tegrastats, CUDA nvidia-smi, AMD sysfs).
             - name: AGENTIC_JETSON_JTOP_METRICS_PATH
               value: /host/agentic-metrics/jtop-metrics.json
-            # Discrete NVIDIA hosts: written by agentic-nvidia-metrics.service on the node.
             - name: AGENTIC_NVIDIA_HOST_METRICS_PATH
               value: /host/agentic-metrics/nvidia-metrics.json
+            - name: AGENTIC_AMD_HOST_METRICS_PATH
+              value: /host/agentic-metrics/amd-metrics.json
             # One-writer story: this pod owns KB SQLite for KnowBuddy; Node web spawn
             # still writes its own emptyDir KB. Do not point KnowBuddy at :30487.
             - name: PYTHONUNBUFFERED
@@ -83,7 +85,7 @@ spec:
               mountPath: /app/VERSION
               subPath: VERSION
               readOnly: true
-            - name: jtop-metrics
+            - name: agentic-metrics
               mountPath: /host/agentic-metrics
               readOnly: true
           readinessProbe:
@@ -109,7 +111,7 @@ spec:
           hostPath:
             path: /var/projects/agentic-orchestration
             type: Directory
-        - name: jtop-metrics
+        - name: agentic-metrics
           hostPath:
             path: /var/projects/agentic-orchestration/var/agentic-metrics
             type: DirectoryOrCreate

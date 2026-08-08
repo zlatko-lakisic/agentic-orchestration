@@ -7,6 +7,7 @@ import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
+import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 
 @Component({
@@ -19,6 +20,7 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
     MatIconModule,
     MatTableModule,
     ConfigSettingsPage,
+    EnvHelp,
     SourceChip,
   ],
   template: `
@@ -89,9 +91,19 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
         <mat-card-content class="flex flex-col gap-2 pt-2">
           @for (e of tracked(); track e.key) {
             <div class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 py-2 dark:border-neutral-800">
-              <div>
-                <div class="font-medium">{{ e.label || e.key }}</div>
-                <div class="font-mono text-xs text-neutral-500">{{ e.key }}</div>
+              <div class="flex min-w-0 items-start gap-1">
+                <div class="min-w-0">
+                  <div class="font-medium">{{ e.label || e.key }}</div>
+                  <div class="font-mono text-xs text-neutral-500">
+                    {{ e.key }}
+                  </div>
+                </div>
+                <ao-env-help
+                  [key]="e.key"
+                  [help]="e.help || e.description"
+                  [wikiUrl]="e.wikiUrl"
+                  [wikiPage]="e.wikiPage"
+                />
               </div>
               <div class="flex items-center gap-2">
                 <span class="font-mono text-sm">{{ e.effective ?? e.value }}</span>
@@ -132,7 +144,15 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
                 <div
                   class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 py-2 dark:border-neutral-800"
                 >
-                  <div class="font-mono text-xs">{{ e.key }}</div>
+                  <div class="flex items-center gap-1">
+                    <div class="font-mono text-xs">{{ e.key }}</div>
+                    <ao-env-help
+                      [key]="e.key"
+                      [help]="e.help || e.description"
+                      [wikiUrl]="e.wikiUrl"
+                      [wikiPage]="e.wikiPage"
+                    />
+                  </div>
                   <div class="font-mono text-sm">
                     <span class="text-neutral-500 line-through">{{
                       e.default

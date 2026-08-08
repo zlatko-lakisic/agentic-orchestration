@@ -21,6 +21,7 @@ import {
 import { EffectiveConfigEntry } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
+import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 import { TierChip } from '@/app/domains/admin/shared/tier-chip/tier-chip';
 
@@ -37,6 +38,7 @@ export type SettingsSection = {
   selector: 'ao-config-settings-table',
   imports: [
     EmptyState,
+    EnvHelp,
     SourceChip,
     TierChip,
     MatTable,
@@ -89,9 +91,21 @@ export type SettingsSection = {
                 <ng-container matColumnDef="setting">
                   <th mat-header-cell *matHeaderCellDef>Setting</th>
                   <td mat-cell *matCellDef="let e" [attr.id]="e.key">
-                    <div class="font-medium leading-tight">{{ e.label || e.key }}</div>
-                    <div class="font-mono text-xs text-neutral-500 break-all">
-                      {{ e.key }}
+                    <div class="flex items-start gap-1">
+                      <div class="min-w-0">
+                        <div class="font-medium leading-tight">
+                          {{ e.label || e.key }}
+                        </div>
+                        <div class="font-mono text-xs text-neutral-500 break-all">
+                          {{ e.key }}
+                        </div>
+                      </div>
+                      <ao-env-help
+                        [key]="e.key"
+                        [help]="e.help || e.description"
+                        [wikiUrl]="e.wikiUrl"
+                        [wikiPage]="e.wikiPage"
+                      />
                     </div>
                   </td>
                 </ng-container>
@@ -137,9 +151,21 @@ export type SettingsSection = {
             <ng-container matColumnDef="setting">
               <th mat-header-cell *matHeaderCellDef>Setting</th>
               <td mat-cell *matCellDef="let e" [attr.id]="e.key">
-                <div class="font-medium leading-tight">{{ e.label || e.key }}</div>
-                <div class="font-mono text-xs text-neutral-500 break-all">
-                  {{ e.key }}
+                <div class="flex items-start gap-1">
+                  <div class="min-w-0">
+                    <div class="font-medium leading-tight">
+                      {{ e.label || e.key }}
+                    </div>
+                    <div class="font-mono text-xs text-neutral-500 break-all">
+                      {{ e.key }}
+                    </div>
+                  </div>
+                  <ao-env-help
+                    [key]="e.key"
+                    [help]="e.help || e.description"
+                    [wikiUrl]="e.wikiUrl"
+                    [wikiPage]="e.wikiPage"
+                  />
                 </div>
               </td>
             </ng-container>
@@ -178,9 +204,21 @@ export type SettingsSection = {
         <ng-container matColumnDef="setting">
           <th mat-header-cell *matHeaderCellDef>Setting</th>
           <td mat-cell *matCellDef="let e" [attr.id]="e.key">
-            <div class="font-medium leading-tight">{{ e.label || e.key }}</div>
-            <div class="font-mono text-xs text-neutral-500 break-all">
-              {{ e.key }}
+            <div class="flex items-start gap-1">
+              <div class="min-w-0">
+                <div class="font-medium leading-tight">
+                  {{ e.label || e.key }}
+                </div>
+                <div class="font-mono text-xs text-neutral-500 break-all">
+                  {{ e.key }}
+                </div>
+              </div>
+              <ao-env-help
+                [key]="e.key"
+                [help]="e.help || e.description"
+                [wikiUrl]="e.wikiUrl"
+                [wikiPage]="e.wikiPage"
+              />
             </div>
           </td>
         </ng-container>

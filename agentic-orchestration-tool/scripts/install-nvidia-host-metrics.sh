@@ -7,7 +7,7 @@ TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 WRITER="${TOOL_ROOT}/scripts/nvidia-host-metrics-writer.py"
 UNIT_SRC="${TOOL_ROOT}/deploy/systemd/agentic-nvidia-metrics.service"
 UNIT_DST="/etc/systemd/system/agentic-nvidia-metrics.service"
-OUT_DIR="/var/run/agentic"
+OUT_DIR="${PROJECT_ROOT}/var/agentic-metrics"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root: sudo bash $0" >&2
@@ -27,7 +27,9 @@ fi
 mkdir -p "${OUT_DIR}"
 chmod 755 "${OUT_DIR}"
 
-install -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+sed \
+  -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" \
+  "${UNIT_SRC}" >"${UNIT_DST}"
 systemctl daemon-reload
 systemctl enable --now agentic-nvidia-metrics.service
 systemctl restart agentic-nvidia-metrics.service
@@ -42,6 +44,5 @@ else
 fi
 
 echo
-echo "Engine already mounts /var/run/agentic as /host/agentic-metrics."
-echo "Ensure AGENTIC_NVIDIA_HOST_METRICS_PATH=/host/agentic-metrics/nvidia-metrics.json"
-echo "(set in deploy/k8s/engine/deployment.yaml), then restart agentic-engine."
+echo "Engine/coordinator mount ${OUT_DIR} as /host/agentic-metrics."
+echo "AGENTIC_NVIDIA_HOST_METRICS_PATH=/host/agentic-metrics/nvidia-metrics.json"

@@ -55,7 +55,12 @@ export interface EffectiveConfigEntry {
   section?: string | null;
   pathExists?: boolean;
   injected?: boolean;
+  /** Short definition for hover help (from .env.example / KEY_META). */
+  help?: string;
   description?: string;
+  wikiPage?: string;
+  wikiAnchor?: string;
+  wikiUrl?: string;
   secretState?: { set?: boolean; usedBy?: string[] };
 }
 

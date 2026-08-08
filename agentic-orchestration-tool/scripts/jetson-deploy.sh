@@ -29,8 +29,8 @@ kubectl apply -n "${NS}" \
   -f "${TOOL_ROOT}/deploy/k8s/coordinator/rolebinding.yaml" \
   2>/dev/null || true
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
-# Start GPU metrics writer before hotfix so the coordinator mount sees a live file.
-bash "${TOOL_ROOT}/scripts/jetson-install-jtop-metrics.sh" "${PROJECT_ROOT}" || true
+# Install the correct host GPU writer (Jetson / CUDA / AMD) before hotfix.
+bash "${TOOL_ROOT}/scripts/install-host-gpu-metrics.sh" "${PROJECT_ROOT}" || true
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
 # Additive Engine API daemon (KnowBuddy /api/v1/*). Opt out with AGENTIC_JETSON_ENABLE_ENGINE=0.

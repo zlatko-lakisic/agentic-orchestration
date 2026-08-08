@@ -1,4 +1,4 @@
-# Mount host metrics JSON (jtop on Jetson, nvidia-smi writer on discrete GPU hosts).
+# Mount host metrics JSON (Jetson / CUDA / AMD writers → shared dir).
 spec:
   template:
     spec:
@@ -9,6 +9,8 @@ spec:
               value: /host/agentic-metrics/jtop-metrics.json
             - name: AGENTIC_NVIDIA_HOST_METRICS_PATH
               value: /host/agentic-metrics/nvidia-metrics.json
+            - name: AGENTIC_AMD_HOST_METRICS_PATH
+              value: /host/agentic-metrics/amd-metrics.json
           volumeMounts:
             - name: host-agentic-metrics
               mountPath: /host/agentic-metrics
@@ -16,6 +18,5 @@ spec:
       volumes:
         - name: host-agentic-metrics
           hostPath:
-            # User-writable on Jetson (tegrastats/jtop writer); avoids /var/run/agentic root-only dir.
             path: /var/projects/agentic-orchestration/var/agentic-metrics
             type: DirectoryOrCreate

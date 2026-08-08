@@ -6,12 +6,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildEffectiveConfig,
   buildCatalogs,
   buildStorageInventory,
   isSecretKey,
   matchAdminRoute,
+  parseEnvExampleHelp,
 } from "../lib/admin-api.mjs";
 
 test("isSecretKey detects credentials", () => {
@@ -76,6 +78,12 @@ test("buildEffectiveConfig uses curated defaults when unset", () => {
   assert.equal(cfg.entries.AGENTIC_KB.set, false);
   assert.equal(cfg.entries.AGENTIC_ANSWER_CACHE.effective, "1");
   assert.equal(cfg.entries.AGENTIC_EXECUTION_BACKEND.effective, "inprocess");
+  assert.ok(typeof cfg.entries.AGENTIC_KB.help === "string");
+  assert.ok(cfg.entries.AGENTIC_KB.help.length > 8);
+  assert.equal(
+    cfg.entries.AGENTIC_KB.wikiUrl,
+    "https://github.com/zlatko-lakisic/agentic-orchestration/wiki/Configuration#AGENTIC_KB",
+  );
 });
 
 test("buildEffectiveConfig excludes injected k8s env by default", () => {
@@ -112,4 +120,17 @@ test("buildStorageInventory distinguishes not_mounted_here", () => {
 test("TLS path keys are not treated as secrets", () => {
   assert.equal(isSecretKey("AGENTIC_SERVE_TLS_CERTFILE"), false);
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);
+});
+
+test("parseEnvExampleHelp extracts comments before KEY=", () => {
+  const toolRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "agentic-orchestration-tool",
+  );
+  if (!fs.existsSync(path.join(toolRoot, ".env.example"))) return;
+  const help = parseEnvExampleHelp(toolRoot);
+  assert.ok(help.OLLAMA_HOST);
+  assert.match(help.OLLAMA_HOST, /Ollama/i);
 });

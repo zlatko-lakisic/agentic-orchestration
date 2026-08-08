@@ -1,8 +1,7 @@
 /**
  * Host CPU / memory / GPU sampling for the web UI.
  * Set AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc when the coordinator mounts the node /proc.
- * GPU: AGENTIC_NVIDIA_HOST_METRICS_PATH (or sibling nvidia-metrics.json next to jtop path),
- *      else Jetson jtop snapshot.
+ * GPU (shared dir /host/agentic-metrics): nvidia-metrics.json, jtop-metrics.json, amd-metrics.json.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +10,7 @@ import path from "node:path";
 const PROC_ROOT = String(process.env.AGENTIC_HOST_METRICS_PROC_ROOT || "/proc").trim() || "/proc";
 const HOST_SCOPE = PROC_ROOT !== "/proc";
 const JTOP_METRICS_PATH = String(process.env.AGENTIC_JETSON_JTOP_METRICS_PATH || "").trim();
-const NVIDIA_HOST_METRICS_MAX_AGE_MS = 15000;
+const HOST_SNAPSHOT_MAX_AGE_MS = 15000;
 
 let _prevCpu = null;
 
@@ -23,13 +22,27 @@ function readTextSync(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
+function metricsDirHint() {
+  if (JTOP_METRICS_PATH) return path.dirname(JTOP_METRICS_PATH);
+  const nvidia = String(process.env.AGENTIC_NVIDIA_HOST_METRICS_PATH || "").trim();
+  if (nvidia) return path.dirname(nvidia);
+  const amd = String(process.env.AGENTIC_AMD_HOST_METRICS_PATH || "").trim();
+  if (amd) return path.dirname(amd);
+  return "";
+}
+
 function nvidiaHostMetricsPath() {
   const explicit = String(process.env.AGENTIC_NVIDIA_HOST_METRICS_PATH || "").trim();
   if (explicit) return explicit;
-  if (JTOP_METRICS_PATH) {
-    return path.join(path.dirname(JTOP_METRICS_PATH), "nvidia-metrics.json");
-  }
-  return "";
+  const dir = metricsDirHint();
+  return dir ? path.join(dir, "nvidia-metrics.json") : "";
+}
+
+function amdHostMetricsPath() {
+  const explicit = String(process.env.AGENTIC_AMD_HOST_METRICS_PATH || "").trim();
+  if (explicit) return explicit;
+  const dir = metricsDirHint();
+  return dir ? path.join(dir, "amd-metrics.json") : "";
 }
 
 function sampleCpuFromProc() {
@@ -116,9 +129,9 @@ function sampleMemory() {
   };
 }
 
-function metricsScope(hasJetson, hasNvidia) {
+function metricsScope(hasJetson, hasHostGpu) {
   if (hasJetson) return "jetson";
-  if (hasNvidia || HOST_SCOPE) return "host";
+  if (hasHostGpu || HOST_SCOPE) return "host";
   if (process.platform === "linux" && fs.existsSync("/.dockerenv")) return "container";
   return "runtime";
 }
@@ -141,7 +154,7 @@ function readJetsonJtopSnapshot() {
   return readJsonSnapshot(JTOP_METRICS_PATH);
 }
 
-function normalizeGpuBlock(gpu, source) {
+function normalizeGpuBlock(gpu, source, extras = {}) {
   if (!gpu || typeof gpu !== "object") return null;
   const percent = typeof gpu.percent === "number" ? gpu.percent : null;
   const vramTotalGb = typeof gpu.vramTotalGb === "number" ? gpu.vramTotalGb : null;
@@ -168,16 +181,36 @@ function normalizeGpuBlock(gpu, source) {
     vramFreeGb,
     vramUsedPercent,
     vramSource: gpu.vramSource || source || null,
+    vendor: gpu.vendor || extras.vendor || null,
+    backend: gpu.backend || extras.backend || source || null,
     name: name || null,
     freqMhz: typeof gpu.freqMhz === "number" ? gpu.freqMhz : null,
   };
 }
 
-function readNvidiaHostGpu() {
-  const snap = readJsonSnapshot(nvidiaHostMetricsPath(), NVIDIA_HOST_METRICS_MAX_AGE_MS);
+function readHostFileGpu(filePath, defaultSource, vendor, backend) {
+  const snap = readJsonSnapshot(filePath, HOST_SNAPSHOT_MAX_AGE_MS);
   if (!snap) return null;
   const gpu = snap.gpu && typeof snap.gpu === "object" ? snap.gpu : null;
-  return normalizeGpuBlock(gpu, snap.source || "nvidia-smi");
+  return normalizeGpuBlock(gpu, snap.source || defaultSource, { vendor, backend });
+}
+
+function readNvidiaHostGpu() {
+  return readHostFileGpu(
+    nvidiaHostMetricsPath(),
+    "nvidia-smi",
+    "nvidia",
+    "nvidia-host-file",
+  );
+}
+
+function readAmdHostGpu() {
+  return readHostFileGpu(
+    amdHostMetricsPath(),
+    "amdgpu-sysfs",
+    "amd",
+    "amd-host-file",
+  );
 }
 
 export function mergeJetsonIntoMetrics(base, jtop) {
@@ -185,8 +218,9 @@ export function mergeJetsonIntoMetrics(base, jtop) {
   const gpu = jtop.gpu && typeof jtop.gpu === "object" ? jtop.gpu : {};
   const temp =
     jtop.temperature && typeof jtop.temperature === "object" ? jtop.temperature : {};
+  const source = jtop.source || "jtop";
   const jetson = {
-    source: jtop.source || "jtop",
+    source,
     ageMs: jtop.ageMs ?? null,
     gpu: {
       percent: typeof gpu.percent === "number" ? gpu.percent : null,
@@ -198,9 +232,9 @@ export function mergeJetsonIntoMetrics(base, jtop) {
   };
   const out = { ...base, jetson, scope: "jetson" };
   if (typeof jtop.cpu?.percent === "number" && jtop.cpu.percent >= 0) {
-    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source: jtop.source || "jtop" };
+    out.cpu = { ...out.cpu, percent: jtop.cpu.percent, source };
   }
-  // Promote jtop GPU into the portable top-level gpu block when NVIDIA file is absent.
+  // Promote jtop GPU into the portable top-level gpu block when host GPU file is absent.
   if (!out.gpu) {
     const gpuName =
       (typeof gpu.name === "string" && gpu.name.trim()) || "Jetson GPU";
@@ -209,15 +243,15 @@ export function mergeJetsonIntoMetrics(base, jtop) {
         percent: jetson.gpu.percent,
         freqMhz: jetson.gpu.freqMhz,
         name: gpuName,
-        vramSource: jtop.source || "jtop",
+        vramSource: source,
+        vendor: "nvidia",
+        backend: source,
       },
-      jtop.source || "jtop",
+      source,
+      { vendor: "nvidia", backend: source },
     );
-    // Prefer parsing ramText "used/totalGB" as unified memory / VRAM proxy.
     if (fromJtop && jtop.ramText) {
-      const m = String(jtop.ramText).match(
-        /([\d.]+)\s*\/\s*([\d.]+)\s*G/i,
-      );
+      const m = String(jtop.ramText).match(/([\d.]+)\s*\/\s*([\d.]+)\s*G/i);
       if (m) {
         const used = Number(m[1]);
         const total = Number(m[2]);
@@ -240,13 +274,15 @@ export async function sampleHostMetrics() {
   const memory = sampleMemory();
   const loadAvg = os.loadavg();
   const nvidiaGpu = readNvidiaHostGpu();
+  const amdGpu = nvidiaGpu ? null : readAmdHostGpu();
+  const hostGpu = nvidiaGpu || amdGpu;
   const jtop = readJetsonJtopSnapshot();
   const base = {
     ts: new Date().toISOString(),
     hostname: os.hostname(),
     platform: process.platform,
     arch: os.arch(),
-    scope: metricsScope(Boolean(jtop), Boolean(nvidiaGpu)),
+    scope: metricsScope(Boolean(jtop), Boolean(hostGpu)),
     uptimeSec: Math.round(os.uptime()),
     loadAvg: loadAvg.map((n) => Math.round(n * 100) / 100),
     cpu: {
@@ -255,7 +291,7 @@ export async function sampleHostMetrics() {
       model: cpuModel(),
     },
     memory,
-    gpu: nvidiaGpu,
+    gpu: hostGpu,
   };
   return mergeJetsonIntoMetrics(base, jtop);
 }

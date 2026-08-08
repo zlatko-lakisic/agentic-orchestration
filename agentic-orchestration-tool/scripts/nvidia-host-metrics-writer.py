@@ -2,11 +2,11 @@
 """
 Write host NVIDIA GPU metrics to a JSON file for the engine / web UI.
 
-Runs on the node (outside k8s) where ``nvidia-smi`` can see the GPU. The engine
-pod mounts ``/var/run/agentic`` and reads the snapshot via
-``AGENTIC_NVIDIA_HOST_METRICS_PATH`` (see ``orchestration.host_metrics``).
+Runs on the node (outside k8s) where ``nvidia-smi`` can see the GPU. Pods mount
+``var/agentic-metrics`` and read via ``AGENTIC_NVIDIA_HOST_METRICS_PATH``
+(see ``orchestration.host_metrics``).
 
-  python3 nvidia-host-metrics-writer.py --output /var/run/agentic/nvidia-metrics.json
+  python3 nvidia-host-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json
 
 Typical deployment: systemd unit ``agentic-nvidia-metrics.service``.
 """
@@ -77,6 +77,8 @@ def _parse_nvidia_smi_csv(stdout: str) -> dict[str, Any] | None:
             "vramUsedGb": _mib_to_gb(used_mib) if used_mib is not None else None,
             "vramFreeGb": _mib_to_gb(free_mib) if free_mib is not None else None,
             "vramSource": "nvidia-smi",
+            "vendor": "nvidia",
+            "backend": "nvidia-smi",
             "name": name or None,
         }
     return best
@@ -122,8 +124,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--output",
-        default="/var/run/agentic/nvidia-metrics.json",
-        help="JSON file path (default: /var/run/agentic/nvidia-metrics.json)",
+        default="/var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json",
+        help="JSON file path (shared host metrics dir)",
     )
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between samples")
     parser.add_argument("--once", action="store_true", help="Write one sample and exit")

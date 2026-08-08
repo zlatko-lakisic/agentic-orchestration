@@ -7,7 +7,7 @@ ConditionPathExists=/usr/bin/nvidia-smi
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/nvidia-host-metrics-writer.py --output /var/run/agentic/nvidia-metrics.json --interval 1
+ExecStart=/usr/bin/python3 /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/nvidia-host-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json --interval 1
 Restart=always
 RestartSec=3
 

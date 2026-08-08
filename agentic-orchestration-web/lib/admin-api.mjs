@@ -822,6 +822,86 @@ function collectEnvLayers({ toolRoot, webRoot }) {
   return layers;
 }
 
+const WIKI_BASE_URL = "https://github.com/zlatko-lakisic/agentic-orchestration/wiki";
+
+function wikiMetaForKey(key) {
+  return { page: "Configuration", anchor: String(key || "") };
+}
+
+function wikiUrlForKey(key) {
+  const { page, anchor } = wikiMetaForKey(key);
+  return `${WIKI_BASE_URL}/${page}#${anchor}`;
+}
+
+/**
+ * Pull short help text from comments preceding each KEY= (active or commented-out)
+ * in agentic-orchestration-tool/.env.example.
+ */
+function parseEnvExampleHelp(toolRoot) {
+  const filePath = path.join(toolRoot, ".env.example");
+  const out = {};
+  if (!fs.existsSync(filePath)) return out;
+  let text = "";
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return out;
+  }
+  const lines = text.split(/\r?\n/);
+  const assignRe = /^(?:#\s*)?([A-Z][A-Z0-9_]*)=(.*)$/;
+  let buf = [];
+  for (const line of lines) {
+    const stripped = line.trim();
+    const m = stripped ? stripped.match(assignRe) : null;
+    if (m) {
+      const key = m[1];
+      const parts = buf.filter(Boolean).slice(-4);
+      const help = parts.join(" ").replace(/\s+/g, " ").trim();
+      if (help && !out[key]) {
+        out[key] = help.length > 280 ? `${help.slice(0, 277)}…` : help;
+      }
+      buf = [];
+      continue;
+    }
+    if (stripped.startsWith("#")) {
+      const c = stripped.replace(/^#\s?/, "").trim();
+      if (c && !/^[A-Z][A-Z0-9_]*=/.test(c)) {
+        buf.push(c);
+      }
+      continue;
+    }
+    if (!stripped) {
+      if (buf.length > 6) buf = buf.slice(-2);
+      continue;
+    }
+    buf = [];
+  }
+  return out;
+}
+
+let _envExampleHelpCache = null;
+let _envExampleHelpPath = null;
+
+function envExampleHelpMap(toolRoot) {
+  const filePath = path.join(toolRoot, ".env.example");
+  if (_envExampleHelpCache && _envExampleHelpPath === filePath) {
+    return _envExampleHelpCache;
+  }
+  _envExampleHelpPath = filePath;
+  _envExampleHelpCache = parseEnvExampleHelp(toolRoot);
+  return _envExampleHelpCache;
+}
+
+function helpForKey(key, meta, toolRoot) {
+  if (meta?.help) return String(meta.help);
+  const fromExample = envExampleHelpMap(toolRoot)[key];
+  if (fromExample) return fromExample;
+  if (meta?.label && meta.label !== key) {
+    return `${meta.label}. Documented in .env.example and the Configuration wiki.`;
+  }
+  return `Environment variable ${key}. See the Configuration wiki for details.`;
+}
+
 function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
   const layers = collectEnvLayers({ toolRoot, webRoot });
   const keys = new Set();
@@ -954,9 +1034,14 @@ function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
       }
     }
 
+    const wiki = wikiMetaForKey(key);
     entries[key] = {
       key,
       label: meta.label || key,
+      help: helpForKey(key, meta, toolRoot),
+      wikiPage: wiki.page,
+      wikiAnchor: wiki.anchor,
+      wikiUrl: wikiUrlForKey(key),
       group: meta.group || "advanced",
       tier: meta.tier || TIER_RESTART,
       component: meta.component || null,
@@ -1780,4 +1865,9 @@ export {
   isSecretKey,
   isInjectedK8sEnvKey,
   KEY_META,
+  WIKI_BASE_URL,
+  wikiMetaForKey,
+  wikiUrlForKey,
+  parseEnvExampleHelp,
+  helpForKey,
 };

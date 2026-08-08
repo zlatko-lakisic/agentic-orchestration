@@ -1,8 +1,13 @@
-# Mount Jetson metrics JSON (jtop / tegrastats writer on the node).
+# Mount host GPU metrics JSON (jtop / nvidia-smi / amdgpu writers on the node).
 spec:
   template:
     spec:
       volumes:
+        - name: agentic-metrics
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/agentic-metrics
+            type: DirectoryOrCreate
+        # Back-compat name used by older engine Deployments.
         - name: jtop-metrics
           hostPath:
             path: /var/projects/agentic-orchestration/var/agentic-metrics
