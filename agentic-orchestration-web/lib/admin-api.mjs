@@ -1,6 +1,7 @@
 /**
  * Phase 0 Admin read API helpers.
  * Secrets are never returned — only { set: true/false }.
+ * Narrow write exception: API access token mint/revoke.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,6 +12,12 @@ import {
   buildTopologyGraph,
   buildTopologyNodeDetail,
 } from "./admin-topology-graph.mjs";
+import {
+  listTokens,
+  listUsage,
+  mintToken,
+  revokeToken,
+} from "./api-tokens.mjs";
 
 // Path-like TLS keys are not secrets — operators need to see the path + existence.
 const SECRET_KEY_RE =
@@ -1088,7 +1095,7 @@ function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
     generatedAt: new Date().toISOString(),
     fingerprint,
     phase: 0,
-    writeApi: false,
+    writeApi: { tokens: true },
     includeInjected: Boolean(includeInjected),
     entries,
     layers: layers.map((l) => ({
@@ -1251,6 +1258,13 @@ function buildStorageInventory({ toolRoot }) {
       label: "mTLS material",
       mountExpected: false,
       owner: "engine",
+    },
+    {
+      id: "api_tokens",
+      rel: "__orchestrator_api_tokens__",
+      label: "API access tokens",
+      mountExpected: true,
+      owner: "web",
     },
     {
       id: "uploads",
@@ -1747,18 +1761,62 @@ function matchAdminRoute(pathname) {
   if (m) return { name: "catalog_detail", kind: m[1], id: decodeURIComponent(m[2]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)$/);
   if (m) return { name: "catalog_list", kind: m[1] };
+  if (p === "/api/v1/admin/tokens") return { name: "tokens" };
+  m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)\/usage$/);
+  if (m) return { name: "token_usage", id: decodeURIComponent(m[1]) };
+  m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)$/);
+  if (m) return { name: "token_item", id: decodeURIComponent(m[1]) };
   return null;
 }
 
+function readAdminJsonBody(req, maxBytes = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(Object.assign(new Error("Request body too large"), { code: "too_large" }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      const buf = Buffer.concat(chunks);
+      if (!buf.length) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(buf.toString("utf8")));
+      } catch {
+        reject(Object.assign(new Error("Invalid JSON body"), { code: "invalid_json" }));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function isTokenWriteRoute(route, method) {
+  if (!route) return false;
+  if (route.name === "tokens" && method === "POST") return true;
+  if (route.name === "token_item" && method === "DELETE") return true;
+  return false;
+}
+
 async function handleAdminApi(req, res, ctx) {
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  const pathname = ctx.pathname;
+  const route = matchAdminRoute(pathname);
+  if (!route) return false;
+
+  const method = String(req.method || "GET").toUpperCase();
+  const writeOk = isTokenWriteRoute(route, method);
+  if (method !== "GET" && method !== "HEAD" && !writeOk) {
     res.writeHead(405, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ error: "Method not allowed (Phase 0 is read-only)" }));
     return true;
   }
-  const pathname = ctx.pathname;
-  const route = matchAdminRoute(pathname);
-  if (!route) return false;
 
   const send = (code, body) => {
     res.writeHead(code, {
@@ -1773,9 +1831,54 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: false,
+        writeApi: { tokens: true },
         title: "AO Administration",
-        readOnlyMessage: "Read-only — no admin write API",
+        readOnlyMessage: "Read-only except API access token mint/revoke",
+      });
+      return true;
+    }
+    if (route.name === "tokens") {
+      if (method === "GET" || method === "HEAD") {
+        send(200, { tokens: listTokens(ctx.toolRoot) });
+        return true;
+      }
+      if (method === "POST") {
+        let body;
+        try {
+          body = await readAdminJsonBody(req);
+        } catch (err) {
+          const code = err?.code === "too_large" ? 413 : 400;
+          send(code, { error: err instanceof Error ? err.message : "Invalid body" });
+          return true;
+        }
+        try {
+          const minted = mintToken(ctx.toolRoot, {
+            appId: body.appId,
+            label: body.label,
+            expiresAt: body.expiresAt || null,
+          });
+          send(201, minted);
+        } catch (err) {
+          send(400, { error: err instanceof Error ? err.message : "Mint failed" });
+        }
+        return true;
+      }
+    }
+    if (route.name === "token_item" && method === "DELETE") {
+      const revoked = revokeToken(ctx.toolRoot, route.id);
+      if (!revoked) {
+        send(404, { error: "Token not found" });
+        return true;
+      }
+      send(200, revoked);
+      return true;
+    }
+    if (route.name === "token_usage" && (method === "GET" || method === "HEAD")) {
+      const url = new URL(req.url || "/", "http://localhost");
+      const limit = Number(url.searchParams.get("limit") || 100);
+      send(200, {
+        tokenId: route.id,
+        usage: listUsage(ctx.toolRoot, route.id, limit),
       });
       return true;
     }

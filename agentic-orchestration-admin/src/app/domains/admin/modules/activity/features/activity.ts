@@ -44,7 +44,7 @@ type TimelineItem = {
         <mat-card-header>
           <div class="flex w-full items-center justify-between gap-2">
             <div class="font-medium">Pending local change set</div>
-            <ao-status-chip status="info" label="write api off" />
+            <ao-status-chip status="info" label="write api: tokens only" />
           </div>
         </mat-card-header>
         <mat-card-content class="flex flex-col gap-2 pt-2">

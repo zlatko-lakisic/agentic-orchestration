@@ -4,6 +4,8 @@ import { Observable, catchError, map, of } from 'rxjs';
 import {
   AccessPosture,
   AgentProvider,
+  ApiAccessToken,
+  ApiAccessTokenUsage,
   CatalogEntry,
   CatalogListResponse,
   ConfigFingerprint,
@@ -31,22 +33,38 @@ export type ApiResult<T> =
 export class AoApi {
   private http = inject(HttpClient);
 
+  private toResult<T>(err: HttpErrorResponse): ApiResult<T> {
+    const status = err.status || 0;
+    const message =
+      (err.error && (err.error.error || err.error.message)) ||
+      err.message ||
+      `Request failed (${status || 'network'})`;
+    return {
+      ok: false as const,
+      status,
+      message: String(message),
+      missing: status === 404,
+    };
+  }
+
   private get<T>(path: string): Observable<ApiResult<T>> {
     return this.http.get<T>(path, { observe: 'response' }).pipe(
       map((res) => ({ ok: true as const, data: res.body as T })),
-      catchError((err: HttpErrorResponse) => {
-        const status = err.status || 0;
-        const message =
-          (err.error && (err.error.error || err.error.message)) ||
-          err.message ||
-          `Request failed (${status || 'network'})`;
-        return of({
-          ok: false as const,
-          status,
-          message: String(message),
-          missing: status === 404,
-        });
-      })
+      catchError((err: HttpErrorResponse) => of(this.toResult<T>(err)))
+    );
+  }
+
+  private post<T>(path: string, body: unknown): Observable<ApiResult<T>> {
+    return this.http.post<T>(path, body, { observe: 'response' }).pipe(
+      map((res) => ({ ok: true as const, data: res.body as T })),
+      catchError((err: HttpErrorResponse) => of(this.toResult<T>(err)))
+    );
+  }
+
+  private delete<T>(path: string): Observable<ApiResult<T>> {
+    return this.http.delete<T>(path, { observe: 'response' }).pipe(
+      map((res) => ({ ok: true as const, data: res.body as T })),
+      catchError((err: HttpErrorResponse) => of(this.toResult<T>(err)))
     );
   }
 
@@ -134,6 +152,36 @@ export class AoApi {
 
   supportBundle() {
     return this.get<SupportBundle>('/api/v1/admin/support-bundle');
+  }
+
+  listApiTokens() {
+    return this.get<{ tokens: ApiAccessToken[] }>('/api/v1/admin/tokens').pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return { ok: true as const, data: r.data.tokens ?? [] };
+      })
+    );
+  }
+
+  mintApiToken(body: { appId: string; label?: string; expiresAt?: string | null }) {
+    return this.post<ApiAccessToken>('/api/v1/admin/tokens', body);
+  }
+
+  revokeApiToken(id: string) {
+    return this.delete<ApiAccessToken>(
+      `/api/v1/admin/tokens/${encodeURIComponent(id)}`
+    );
+  }
+
+  apiTokenUsage(id: string, limit = 100) {
+    return this.get<{ tokenId: string; usage: ApiAccessTokenUsage[] }>(
+      `/api/v1/admin/tokens/${encodeURIComponent(id)}/usage?limit=${limit}`
+    ).pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return { ok: true as const, data: r.data.usage ?? [] };
+      })
+    );
   }
 }
 

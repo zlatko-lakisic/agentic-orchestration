@@ -69,7 +69,7 @@ export interface EffectiveConfigResponse {
   keys?: Record<string, EffectiveConfigEntry>;
   fingerprint?: string;
   generatedAt?: string;
-  writeApi?: boolean;
+  writeApi?: boolean | { tokens?: boolean };
   phase?: number;
   includeInjected?: boolean;
 }
@@ -174,6 +174,32 @@ export interface AccessPosture {
   verdict?: string;
   details?: string[];
   flags?: Record<string, unknown>;
+}
+
+export interface ApiAccessToken {
+  id: string;
+  prefix: string;
+  appId: string;
+  label?: string;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  lastUsedAt?: string | null;
+  lastUsedIp?: string | null;
+  status?: 'active' | 'revoked' | 'expired' | string;
+  /** Plaintext secret — only present on mint response. */
+  token?: string;
+}
+
+export interface ApiAccessTokenUsage {
+  ts?: string;
+  tokenId?: string | null;
+  appId?: string;
+  ip?: string;
+  path?: string;
+  status?: number | null;
+  latencyMs?: number | null;
+  promptChars?: number | null;
 }
 
 export interface AdminRun {

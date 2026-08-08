@@ -6,7 +6,7 @@ Updated after the Claude handoff redesign. See also `AO-Admin-Phase0-Review.md` 
 |---|---|
 | **App** | `agentic-orchestration-admin` (Angular / Fuse / Material) |
 | **Served at** | `/admin/` |
-| **Phase** | **0 — read-only** for config. Non-mutating verbs: refresh, copy, filter, test connection, export support bundle. |
+| **Phase** | **0 — read-only** for config. Non-mutating verbs: refresh, copy, filter, test connection, export support bundle. Narrow write: API access token mint/revoke on Access. |
 
 ## Navigation
 
@@ -30,7 +30,7 @@ Legacy paths redirect (`/runtime/*`, `/catalogs`, `/memory`, `/security`, `/inte
 | `/activity` | Fingerprint + topology timeline; pinned local change-set draft |
 | `/capabilities/:kind` | Catalog browser (gated-first); MCP servers / RAG sources labels |
 | `/behaviour` | Planner + memory merged with expansion sections |
-| `/access` | Posture verdict banner + security settings |
+| `/access` | Posture verdict banner, API token mint/revoke + usage (appId/IP), security settings |
 | `/data` | Storage with Present / Absent / Not visible from this process |
 | `/deploy` | Profile, endpoints, tracked env.jetson keys, deploy workflow |
 | `/settings` | All keys; injected k8s env toggle; restart/modified filters |
@@ -44,4 +44,5 @@ Legacy paths redirect (`/runtime/*`, `/catalogs`, `/memory`, `/security`, `/inte
 - `GET /api/v1/admin/access/posture`
 - `GET /api/v1/admin/runs` · `/api/v1/admin/runs/:id`
 - `GET /api/v1/admin/support-bundle`
+- `GET/POST /api/v1/admin/tokens` · `DELETE /api/v1/admin/tokens/:id` · `GET /api/v1/admin/tokens/:id/usage`
 - Storage roots include `visibility` + `probeScope`

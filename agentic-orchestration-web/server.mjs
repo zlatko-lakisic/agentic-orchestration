@@ -28,6 +28,12 @@ import {
   fetchJson,
 } from "./lib/admin-api.mjs";
 import {
+  authenticateBearer,
+  authRequired,
+  clientIp,
+  recordUsage,
+} from "./lib/api-tokens.mjs";
+import {
   adminLog,
   startAdminLogsPush,
   stopAdminLogsPush,
@@ -251,6 +257,85 @@ const TOOL_ROOT = path.resolve(
   process.env.AGENTIC_TOOL_ROOT || path.join(__dirname, "..", "agentic-orchestration-tool"),
 );
 loadToolEnvFile(TOOL_ROOT);
+
+/**
+ * Gate orchestrate / OpenAI-proxy routes with minted API tokens + env shared-secret fallback.
+ * Returns false when a 401 was already written.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ * @param {{ envKeys: string[], cors?: Record<string, string>, openAiStyle?: boolean, pathLabel?: string }} opts
+ */
+function applyApiAccessGate(req, res, opts) {
+  const envKeys = (opts.envKeys || []).map((k) => String(k || "").trim()).filter(Boolean);
+  const cors = opts.cors || {};
+  if (!authRequired(TOOL_ROOT, envKeys)) {
+    req.agenticAuth = { tokenId: null, appId: "open", source: "env" };
+    return true;
+  }
+  const result = authenticateBearer(TOOL_ROOT, req.headers?.authorization || "", envKeys);
+  if (!result.ok) {
+    if (opts.openAiStyle) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Incorrect API key provided.",
+            type: "invalid_request_error",
+            param: null,
+            code: "invalid_api_key",
+          },
+        }),
+      );
+    } else {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+    }
+    return false;
+  }
+  req.agenticAuth = {
+    tokenId: result.tokenId,
+    appId: result.appId,
+    source: result.source,
+  };
+  installApiUsageRecorder(req, res, opts.pathLabel || getRequestPathname(req));
+  return true;
+}
+
+/**
+ * Record one usage row when the response headers are written (token/env auth only).
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ * @param {string} pathLabel
+ */
+function installApiUsageRecorder(req, res, pathLabel) {
+  if (!req.agenticAuth || req.agenticAuth.appId === "open") return;
+  if (res.__agenticUsageInstalled) return;
+  res.__agenticUsageInstalled = true;
+  const started = Date.now();
+  let recorded = false;
+  const origWriteHead = res.writeHead.bind(res);
+  res.writeHead = function agenticUsageWriteHead(...args) {
+    if (!recorded) {
+      recorded = true;
+      const status = typeof args[0] === "number" ? args[0] : 200;
+      try {
+        recordUsage(TOOL_ROOT, {
+          tokenId: req.agenticAuth?.tokenId ?? null,
+          appId: req.agenticAuth?.appId ?? "",
+          ip: clientIp(req),
+          path: pathLabel,
+          status,
+          latencyMs: Date.now() - started,
+          promptChars:
+            typeof req.agenticAuthPromptChars === "number" ? req.agenticAuthPromptChars : null,
+        });
+      } catch (err) {
+        console.error("[agentic api-tokens] usage record failed:", err?.message || err);
+      }
+    }
+    return origWriteHead(...args);
+  };
+}
 
 /** Match `orchestration/example_overlays.py` (no manual .env paths for vertical roots). */
 const EXAMPLE_VERTICAL_SUBDIR = {
@@ -1126,24 +1211,15 @@ async function handleOpenAiChatCompletions(req, res) {
     return;
   }
 
-  const gate = String(process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "").trim();
-  if (gate) {
-    const auth = String(req.headers.authorization || "").trim();
-    const matches = auth === `Bearer ${gate}` || auth === gate;
-    if (!matches) {
-      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: "Incorrect API key provided.",
-            type: "invalid_request_error",
-            param: null,
-            code: "invalid_api_key",
-          },
-        }),
-      );
-      return;
-    }
+  if (
+    !applyApiAccessGate(req, res, {
+      envKeys: [process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || ""],
+      cors,
+      openAiStyle: true,
+      pathLabel: "/v1/chat/completions",
+    })
+  ) {
+    return;
   }
 
   let bodyBuf;
@@ -1511,24 +1587,15 @@ async function handleOpenAiResponses(req, res) {
     return;
   }
 
-  const gate = String(process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "").trim();
-  if (gate) {
-    const auth = String(req.headers.authorization || "").trim();
-    const matches = auth === `Bearer ${gate}` || auth === gate;
-    if (!matches) {
-      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: "Incorrect API key provided.",
-            type: "invalid_request_error",
-            param: null,
-            code: "invalid_api_key",
-          },
-        }),
-      );
-      return;
-    }
+  if (
+    !applyApiAccessGate(req, res, {
+      envKeys: [process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || ""],
+      cors,
+      openAiStyle: true,
+      pathLabel: "/v1/responses",
+    })
+  ) {
+    return;
   }
 
   let bodyBuf;
@@ -1861,17 +1928,18 @@ async function handleApiV1Orchestrate(req, res) {
     return;
   }
 
-  const apiKey = String(
-    process.env.AGENTIC_ORCHESTRATE_API_KEY || process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "",
-  ).trim();
-  if (apiKey) {
-    const auth = String(req.headers.authorization || "").trim();
-    const matches = auth === `Bearer ${apiKey}` || auth === apiKey;
-    if (!matches) {
-      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+  if (
+    !applyApiAccessGate(req, res, {
+      envKeys: [
+        process.env.AGENTIC_ORCHESTRATE_API_KEY || "",
+        process.env.AGENTIC_CHAT_COMPLETIONS_API_KEY || "",
+      ],
+      cors,
+      openAiStyle: false,
+      pathLabel: "/api/v1/orchestrate",
+    })
+  ) {
+    return;
   }
 
   let bodyBuf;
@@ -1898,6 +1966,7 @@ async function handleApiV1Orchestrate(req, res) {
     res.end(JSON.stringify({ error: "body.text is required" }));
     return;
   }
+  req.agenticAuthPromptChars = text.length;
 
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
   const resetSession = body.resetSession === true;

@@ -3,6 +3,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AccessPosture } from '@/app/core/ao-api/types';
+import { AccessApiTokens } from '@/app/domains/admin/modules/access/ui/access-api-tokens';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { SettingsSection } from '@/app/domains/admin/shared/config-settings/config-settings-table';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -10,6 +11,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 @Component({
   selector: 'ao-access-page',
   imports: [
+    AccessApiTokens,
     ConfigSettingsPage,
     MatCard,
     MatCardHeader,
@@ -26,7 +28,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           Access
         </div>
         <div class="text-neutral-500">
-          Posture, identity, secrets, deals, and mTLS
+          Posture, API tokens, identity, secrets, deals, and mTLS
         </div>
       </div>
 
@@ -56,6 +58,8 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           </mat-card-content>
         </mat-card>
       }
+
+      <ao-access-api-tokens />
 
       <ao-config-settings-page
         [groups]="['security']"

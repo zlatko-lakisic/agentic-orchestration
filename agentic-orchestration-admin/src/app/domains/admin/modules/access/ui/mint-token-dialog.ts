@@ -1,0 +1,140 @@
+import { Clipboard } from '@angular/cdk/clipboard';
+import { Component, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { MatButtonModule } from '@angular/material/button';
+import {
+  MAT_DIALOG_DATA,
+  MatDialogModule,
+  MatDialogRef,
+} from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { AoApi } from '@/app/core/ao-api/ao-api';
+import { ApiAccessToken } from '@/app/core/ao-api/types';
+
+export type MintTokenDialogResult = ApiAccessToken | null;
+
+@Component({
+  selector: 'ao-mint-token-dialog',
+  imports: [
+    FormsModule,
+    MatDialogModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatIconModule,
+  ],
+  template: `
+    <h2 mat-dialog-title>Mint API token</h2>
+    <mat-dialog-content class="flex min-w-[320px] max-w-lg flex-col gap-3">
+      @if (!minted()) {
+        <p class="text-sm text-neutral-500">
+          Tokens authenticate
+          <code>/api/v1/orchestrate</code> and OpenAI-compatible proxies. The
+          secret is shown once.
+        </p>
+        <mat-form-field appearance="outline" class="w-full">
+          <mat-label>App ID</mat-label>
+          <input matInput [(ngModel)]="appId" name="appId" required autocomplete="off" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="w-full">
+          <mat-label>Label (optional)</mat-label>
+          <input matInput [(ngModel)]="label" name="label" autocomplete="off" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="w-full">
+          <mat-label>Expires (optional ISO date)</mat-label>
+          <input
+            matInput
+            [(ngModel)]="expiresAt"
+            name="expiresAt"
+            placeholder="2027-01-01T00:00:00Z"
+            autocomplete="off"
+          />
+        </mat-form-field>
+        @if (error()) {
+          <p class="text-sm text-red-600 dark:text-red-400">{{ error() }}</p>
+        }
+      } @else {
+        <p class="text-sm text-amber-700 dark:text-amber-300">
+          Copy this token now — it will not be shown again.
+        </p>
+        <div
+          class="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-3 font-mono text-sm break-all dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <span class="min-w-0 flex-auto">{{ minted()!.token }}</span>
+          <button matIconButton type="button" (click)="copySecret()">
+            <mat-icon svgIcon="copy" />
+          </button>
+        </div>
+        <div class="text-xs text-neutral-500">
+          appId {{ minted()!.appId }} · prefix {{ minted()!.prefix }}…
+        </div>
+        @if (copied()) {
+          <p class="text-xs text-green-700 dark:text-green-400">Copied</p>
+        }
+      }
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      @if (!minted()) {
+        <button matButton mat-dialog-close type="button">Cancel</button>
+        <button
+          matButton="filled"
+          type="button"
+          [disabled]="busy() || !appId.trim()"
+          (click)="mint()"
+        >
+          Mint
+        </button>
+      } @else {
+        <button matButton="filled" type="button" (click)="closeDone()">Done</button>
+      }
+    </mat-dialog-actions>
+  `,
+})
+export class MintTokenDialog {
+  private readonly api = inject(AoApi);
+  private readonly clipboard = inject(Clipboard);
+  private readonly ref = inject(MatDialogRef<MintTokenDialog, MintTokenDialogResult>);
+  readonly data = inject(MAT_DIALOG_DATA, { optional: true });
+
+  appId = '';
+  label = '';
+  expiresAt = '';
+  readonly busy = signal(false);
+  readonly error = signal<string | null>(null);
+  readonly minted = signal<ApiAccessToken | null>(null);
+  readonly copied = signal(false);
+
+  mint() {
+    const appId = this.appId.trim();
+    if (!appId || this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.api
+      .mintApiToken({
+        appId,
+        label: this.label.trim() || undefined,
+        expiresAt: this.expiresAt.trim() || null,
+      })
+      .subscribe((r) => {
+        this.busy.set(false);
+        if (!r.ok) {
+          this.error.set(r.message);
+          return;
+        }
+        this.minted.set(r.data);
+      });
+  }
+
+  copySecret() {
+    const t = this.minted()?.token;
+    if (!t) return;
+    this.clipboard.copy(t);
+    this.copied.set(true);
+  }
+
+  closeDone() {
+    this.ref.close(this.minted());
+  }
+}
