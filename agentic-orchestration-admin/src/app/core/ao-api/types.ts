@@ -158,7 +158,12 @@ export interface HostMetrics {
   scope?: string;
   uptimeSec?: number;
   loadAvg?: number[];
-  cpu?: { percent?: number | null; cores?: number; source?: string };
+  cpu?: {
+    percent?: number | null;
+    cores?: number;
+    model?: string | null;
+    source?: string;
+  };
   memory?: {
     totalBytes?: number;
     usedBytes?: number;
@@ -166,6 +171,16 @@ export interface HostMetrics {
     usedPercent?: number | null;
     percent?: number | null;
   };
+  gpu?: {
+    percent?: number | null;
+    vramTotalGb?: number | null;
+    vramUsedGb?: number | null;
+    vramFreeGb?: number | null;
+    vramUsedPercent?: number | null;
+    vramSource?: string | null;
+    name?: string | null;
+    freqMhz?: number | null;
+  } | null;
   jetson?: unknown;
 }
 

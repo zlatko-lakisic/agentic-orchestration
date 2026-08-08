@@ -28,4 +28,8 @@ test("mergeJetsonIntoMetrics adds GPU and jetson scope", () => {
   assert.equal(out.cpu.percent, 22.5);
   assert.equal(out.jetson.gpu.percent, 67);
   assert.equal(out.jetson.powerW, 14.8);
+  assert.equal(out.gpu.percent, 67);
+  assert.equal(out.gpu.vramTotalGb, 61.4);
+  assert.equal(out.gpu.vramUsedGb, 12.1);
+  assert.equal(out.gpu.vramUsedPercent, 19.7);
 });

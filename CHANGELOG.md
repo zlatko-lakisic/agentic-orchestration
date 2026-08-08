@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **Admin live host metrics (WebSocket)** — Overview subscribes to the same `host_metrics` push as chat (~2s), with Fuse ApexCharts area + sparklines for CPU / memory / GPU.
+- **Admin Overview GPU panel** — side-by-side CPU/mem and GPU/VRAM Apex charts with CPU model, memory size, GPU name, and VRAM capacity from host metrics (`nvidia-metrics.json` / jtop).
 - **Admin live logs** — filterable scrolling log panel via `admin_logs_subscribe`; in-cluster Kubernetes API pod tails (needs `pods/log` on the coordinator Role) plus web console tap.
 
 ### Fixed

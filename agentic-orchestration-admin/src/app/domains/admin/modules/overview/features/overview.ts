@@ -137,7 +137,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
         }
       </div>
 
-      <!-- Live host utilization (Fuse Analytics multi-series area) -->
+      <!-- Live host utilization: CPU/mem left, GPU/VRAM right -->
       <mat-card
         class="overflow-hidden"
         appearance="outlined"
@@ -153,54 +153,114 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
               · WebSocket push ~2s
             </div>
           </div>
-          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 sm:mt-0">
-            <div>
-              <div class="text-sm font-medium text-neutral-500">CPU</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ live.latestCpu() ?? '—'
-                }}@if (live.latestCpu() != null) {
-                  <span class="text-lg text-neutral-500">%</span>
-                }
+        </div>
+
+        <div class="mt-2 grid grid-cols-1 gap-2 px-2 pb-2 xl:grid-cols-2">
+          <!-- CPU + Memory -->
+          <div class="flex min-w-0 flex-col">
+            <div class="flex flex-wrap items-end gap-x-6 gap-y-2 px-3 pt-2">
+              <div class="min-w-0 flex-auto">
+                <div class="text-sm font-medium text-neutral-500">CPU</div>
+                <div class="truncate text-sm font-medium">
+                  {{ live.cpuModel() || '—' }}
+                </div>
+                <div class="text-xs text-neutral-500">
+                  {{ live.metrics()?.cpu?.cores ?? '—' }} cores · memory
+                  {{ live.memoryLabel() || '—' }}
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-neutral-500">CPU</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestCpu() ?? '—'
+                  }}@if (live.latestCpu() != null) {
+                    <span class="text-lg text-neutral-500">%</span>
+                  }
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-neutral-500">Memory</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestMem() ?? '—'
+                  }}@if (live.latestMem() != null) {
+                    <span class="text-lg text-neutral-500">%</span>
+                  }
+                </div>
               </div>
             </div>
-            <div>
-              <div class="text-sm font-medium text-neutral-500">Memory</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ live.latestMem() ?? '—'
-                }}@if (live.latestMem() != null) {
-                  <span class="text-lg text-neutral-500">%</span>
-                }
+            <apx-chart
+              class="h-64 w-full"
+              [chart]="utilChart.chart"
+              [colors]="cpuMemChartColors"
+              [dataLabels]="utilChart.dataLabels"
+              [fill]="utilChart.fill"
+              [grid]="utilChart.grid"
+              [legend]="utilChart.legend"
+              [series]="cpuMemSeries()"
+              [stroke]="utilChart.stroke"
+              [tooltip]="utilChart.tooltip()"
+              [xaxis]="utilChart.xaxis"
+              [yaxis]="utilChart.yaxis"
+            />
+          </div>
+
+          <!-- GPU + VRAM -->
+          <div class="flex min-w-0 flex-col">
+            <div class="flex flex-wrap items-end gap-x-6 gap-y-2 px-3 pt-2">
+              <div class="min-w-0 flex-auto">
+                <div class="text-sm font-medium text-neutral-500">GPU</div>
+                <div class="truncate text-sm font-medium">
+                  {{ live.gpuName() || 'No GPU metrics' }}
+                </div>
+                <div class="text-xs text-neutral-500">
+                  VRAM {{ live.vramLabel() || '—' }}
+                  @if (live.metrics()?.gpu?.vramSource) {
+                    · {{ live.metrics()?.gpu?.vramSource }}
+                  }
+                </div>
               </div>
-            </div>
-            @if (live.latestGpu() != null) {
               <div>
                 <div class="text-sm font-medium text-neutral-500">GPU</div>
                 <div
                   class="text-3xl font-semibold tabular-nums tracking-tighter"
                 >
-                  {{ live.latestGpu()
-                  }}<span class="text-lg text-neutral-500">%</span>
+                  {{ live.latestGpu() ?? '—'
+                  }}@if (live.latestGpu() != null) {
+                    <span class="text-lg text-neutral-500">%</span>
+                  }
                 </div>
               </div>
-            }
+              <div>
+                <div class="text-sm font-medium text-neutral-500">VRAM</div>
+                <div
+                  class="text-3xl font-semibold tabular-nums tracking-tighter"
+                >
+                  {{ live.latestVram() ?? '—'
+                  }}@if (live.latestVram() != null) {
+                    <span class="text-lg text-neutral-500">%</span>
+                  }
+                </div>
+              </div>
+            </div>
+            <apx-chart
+              class="h-64 w-full"
+              [chart]="utilChart.chart"
+              [colors]="gpuVramChartColors"
+              [dataLabels]="utilChart.dataLabels"
+              [fill]="utilChart.fill"
+              [grid]="utilChart.grid"
+              [legend]="utilChart.legend"
+              [series]="gpuVramSeries()"
+              [stroke]="utilChart.stroke"
+              [tooltip]="utilChart.tooltip()"
+              [xaxis]="utilChart.xaxis"
+              [yaxis]="utilChart.yaxis"
+            />
           </div>
-        </div>
-
-        <div class="mt-2 flex flex-auto flex-col px-2 pb-2">
-          <apx-chart
-            class="h-72 w-full"
-            [chart]="utilChart.chart"
-            [colors]="utilChart.colors"
-            [dataLabels]="utilChart.dataLabels"
-            [fill]="utilChart.fill"
-            [grid]="utilChart.grid"
-            [legend]="utilChart.legend"
-            [series]="chartSeries()"
-            [stroke]="utilChart.stroke"
-            [tooltip]="utilChart.tooltip()"
-            [xaxis]="utilChart.xaxis"
-            [yaxis]="utilChart.yaxis"
-          />
         </div>
 
         <mat-divider />
@@ -216,12 +276,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <div class="font-medium text-neutral-500">Uptime</div>
             <div class="font-mono tabular-nums">
               {{ formatUptime(live.metrics()?.uptimeSec) }}
-            </div>
-          </div>
-          <div>
-            <div class="font-medium text-neutral-500">Cores</div>
-            <div class="font-mono tabular-nums">
-              {{ live.metrics()?.cpu?.cores ?? '—' }}
             </div>
           </div>
           <div class="min-w-40 flex-auto">
@@ -240,6 +294,24 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
               mode="determinate"
               [color]="resourceBarColor(live.latestMem())"
               [value]="live.latestMem() ?? 0"
+            />
+          </div>
+          <div class="min-w-40 flex-auto">
+            <div class="font-medium text-neutral-500">GPU</div>
+            <mat-progress-bar
+              class="mt-1 rounded-full"
+              mode="determinate"
+              [color]="resourceBarColor(live.latestGpu())"
+              [value]="live.latestGpu() ?? 0"
+            />
+          </div>
+          <div class="min-w-40 flex-auto">
+            <div class="font-medium text-neutral-500">VRAM</div>
+            <mat-progress-bar
+              class="mt-1 rounded-full"
+              mode="determinate"
+              [color]="resourceBarColor(live.latestVram())"
+              [value]="live.latestVram() ?? 0"
             />
           </div>
         </div>
@@ -609,9 +681,9 @@ export class OverviewPage implements OnInit, OnDestroy {
     return logs.filter((e) => allow.has(e.source));
   });
 
-  readonly chartSeries = computed((): ApexAxisChartSeries => {
+  readonly cpuMemSeries = computed((): ApexAxisChartSeries => {
     const hist = this.live.history();
-    const series: ApexAxisChartSeries = [
+    return [
       {
         name: 'CPU',
         data: hist.map((h) => ({
@@ -627,17 +699,30 @@ export class OverviewPage implements OnInit, OnDestroy {
         })),
       },
     ];
-    if (hist.some((h) => h.gpu != null)) {
-      series.push({
+  });
+
+  readonly gpuVramSeries = computed((): ApexAxisChartSeries => {
+    const hist = this.live.history();
+    return [
+      {
         name: 'GPU',
         data: hist.map((h) => ({
           x: h.t,
           y: h.gpu == null ? null : Number(h.gpu.toFixed(1)),
         })),
-      });
-    }
-    return series;
+      },
+      {
+        name: 'VRAM',
+        data: hist.map((h) => ({
+          x: h.t,
+          y: h.vram == null ? null : Number(h.vram.toFixed(1)),
+        })),
+      },
+    ];
   });
+
+  readonly cpuMemChartColors = ['#f59e0b', '#60a5fa'];
+  readonly gpuVramChartColors = ['#c084fc', '#34d399'];
 
   readonly summary = computed(() => {
     const comps = this.components();
@@ -701,7 +786,7 @@ export class OverviewPage implements OnInit, OnDestroy {
       toolbar: { show: false },
       zoom: { enabled: false },
     } as ApexChart,
-    colors: ['#f59e0b', '#60a5fa', '#c084fc'],
+    colors: ['#f59e0b', '#60a5fa'],
     dataLabels: { enabled: false } as ApexDataLabels,
     fill: {
       type: 'gradient',
@@ -799,7 +884,7 @@ export class OverviewPage implements OnInit, OnDestroy {
     this.live.release();
   }
 
-  sparkSeries(key: 'cpu' | 'mem' | 'gpu'): ApexAxisChartSeries {
+  sparkSeries(key: 'cpu' | 'mem' | 'gpu' | 'vram'): ApexAxisChartSeries {
     const vals = this.live
       .history()
       .map((h) => h[key])

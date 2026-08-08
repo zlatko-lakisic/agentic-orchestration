@@ -6,6 +6,7 @@ export interface MetricsPoint {
   cpu: number | null;
   mem: number | null;
   gpu: number | null;
+  vram: number | null;
 }
 
 export interface AdminLogEntry {
@@ -55,12 +56,47 @@ export class AoLiveWs implements OnDestroy {
   });
 
   readonly latestGpu = computed(() => {
+    const g = this.metrics()?.gpu;
+    const n = g?.percent;
+    if (n != null && !Number.isNaN(Number(n))) return Number(n);
     const jetson = this.metrics()?.jetson as
       | { gpu?: { percent?: number | null } }
       | null
       | undefined;
-    const n = jetson?.gpu?.percent;
+    const j = jetson?.gpu?.percent;
+    return j == null || Number.isNaN(Number(j)) ? null : Number(j);
+  });
+
+  readonly latestVram = computed(() => {
+    const n = this.metrics()?.gpu?.vramUsedPercent;
     return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+  });
+
+  readonly cpuModel = computed(() => {
+    const model = this.metrics()?.cpu?.model;
+    return model ? String(model) : null;
+  });
+
+  readonly gpuName = computed(() => {
+    const name = this.metrics()?.gpu?.name;
+    return name ? String(name) : null;
+  });
+
+  readonly memoryLabel = computed(() => {
+    const m = this.metrics()?.memory;
+    if (!m?.totalBytes) return null;
+    return formatBytes(m.totalBytes);
+  });
+
+  readonly vramLabel = computed(() => {
+    const g = this.metrics()?.gpu;
+    if (g?.vramTotalGb == null) return null;
+    const total = Number(g.vramTotalGb);
+    if (!Number.isFinite(total)) return null;
+    if (g.vramUsedGb != null && Number.isFinite(Number(g.vramUsedGb))) {
+      return `${Number(g.vramUsedGb).toFixed(1)} / ${total.toFixed(1)} GiB`;
+    }
+    return `${total.toFixed(1)} GiB`;
   });
 
   /** Acquire a shared live connection (call from component ngOnInit). */
@@ -209,11 +245,14 @@ export class AoLiveWs implements OnDestroy {
       | { gpu?: { percent?: number | null } }
       | null
       | undefined;
-    const gpuRaw = jetson?.gpu?.percent;
+    const gpuRaw = sample.gpu?.percent ?? jetson?.gpu?.percent;
     const gpu =
       gpuRaw == null || Number.isNaN(Number(gpuRaw)) ? null : Number(gpuRaw);
+    const vramRaw = sample.gpu?.vramUsedPercent;
+    const vram =
+      vramRaw == null || Number.isNaN(Number(vramRaw)) ? null : Number(vramRaw);
     this.history.update((prev) => {
-      const next = [...prev, { t, cpu, mem, gpu }];
+      const next = [...prev, { t, cpu, mem, gpu, vram }];
       return next.length > HISTORY_MAX
         ? next.slice(next.length - HISTORY_MAX)
         : next;
@@ -248,4 +287,16 @@ export class AoLiveWs implements OnDestroy {
       /* ignore */
     }
   }
+}
+
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '—';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let x = n;
+  let i = 0;
+  while (x >= 1024 && i < units.length - 1) {
+    x /= 1024;
+    i += 1;
+  }
+  return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
