@@ -1,35 +1,127 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { StorageEntry } from '@/app/core/ao-api/types';
-import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 @Component({
   selector: 'ao-data-page',
-  imports: [StatusChip, ErrorState],
+  imports: [MatTableModule, StatusChip, ErrorState],
   template: `
-    <div class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <header class="mb-6 border-b border-neutral-800 pb-4">
-        <h1 class="text-lg font-semibold">Data & storage</h1>
-        <p class="mt-1 text-sm text-neutral-500">Runtime directories under the tool root (wipe actions are Phase 1+)</p>
-      </header>
-      @if (error()) { <ao-error-state [message]="error()!" /> }
-      <div class="overflow-hidden rounded-lg border border-neutral-800">
-        <table class="w-full text-left text-sm">
-          <thead class="border-b border-neutral-800 font-mono text-2xs text-neutral-500">
-            <tr><th class="px-3 py-2">name</th><th class="px-3 py-2">path</th><th class="px-3 py-2">files</th><th class="px-3 py-2">bytes</th><th class="px-3 py-2">status</th></tr>
-          </thead>
-          <tbody>
-            @for (r of roots(); track r.path) {
-              <tr class="border-b border-neutral-900">
-                <td class="px-3 py-2">{{ r.label || r.id }}</td>
-                <td class="px-3 py-2 font-mono text-xs text-neutral-400 break-all">{{ r.path }}</td>
-                <td class="px-3 py-2 font-mono text-xs">{{ r.files ?? '—' }}</td>
-                <td class="px-3 py-2 font-mono text-xs">{{ formatBytes(r.bytes ?? r.sizeBytes) }}</td>
-                <td class="px-3 py-2"><ao-status-chip [status]="r.exists ? 'healthy' : 'unset'" [label]="r.exists ? 'Present' : 'Missing'" /></td>
-              </tr>
-            }
-          </tbody>
+    <div
+      class="@container mx-auto flex w-full max-w-7xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
+    >
+      <div class="flex flex-col gap-y-0.5">
+        <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
+          Data & storage
+        </div>
+        <div class="text-neutral-500">
+          Runtime directories under the tool root (wipe actions are Phase 1+)
+        </div>
+      </div>
+
+      @if (error()) {
+        <ao-error-state [message]="error()!" />
+      }
+
+      <div class="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+        <table
+          class="w-full border-separate border-spacing-0 whitespace-nowrap"
+          mat-table
+          [dataSource]="dataSource"
+        >
+          <ng-container matColumnDef="name">
+            <th
+              class="pl-6 lg:pl-8"
+              mat-header-cell
+              *matHeaderCellDef
+            >
+              Name
+            </th>
+            <td
+              class="pl-6 lg:pl-8"
+              mat-cell
+              *matCellDef="let r"
+            >
+              {{ r.label || r.id }}
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="path">
+            <th
+              mat-header-cell
+              *matHeaderCellDef
+            >
+              Path
+            </th>
+            <td
+              mat-cell
+              *matCellDef="let r"
+            >
+              <span class="font-mono text-sm text-neutral-500">{{
+                r.path
+              }}</span>
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="files">
+            <th
+              mat-header-cell
+              *matHeaderCellDef
+            >
+              Files
+            </th>
+            <td
+              mat-cell
+              *matCellDef="let r"
+            >
+              <span class="font-mono text-sm tabular-nums">{{
+                r.files ?? '—'
+              }}</span>
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="bytes">
+            <th
+              mat-header-cell
+              *matHeaderCellDef
+            >
+              Size
+            </th>
+            <td
+              mat-cell
+              *matCellDef="let r"
+            >
+              <span class="font-mono text-sm tabular-nums">{{
+                formatBytes(r.bytes ?? r.sizeBytes)
+              }}</span>
+            </td>
+          </ng-container>
+          <ng-container matColumnDef="status">
+            <th
+              class="pr-6 lg:pr-8"
+              mat-header-cell
+              *matHeaderCellDef
+            >
+              Status
+            </th>
+            <td
+              class="pr-6 lg:pr-8"
+              mat-cell
+              *matCellDef="let r"
+            >
+              <ao-status-chip
+                [status]="r.exists ? 'healthy' : 'unset'"
+                [label]="r.exists ? 'Present' : 'Missing'"
+              />
+            </td>
+          </ng-container>
+          <tr
+            mat-header-row
+            *matHeaderRowDef="columns"
+          ></tr>
+          <tr
+            mat-row
+            *matRowDef="let row; columns: columns"
+          ></tr>
         </table>
       </div>
     </div>
@@ -37,14 +129,20 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 })
 export class DataPage implements OnInit {
   private api = inject(AoApi);
-  readonly roots = signal<StorageEntry[]>([]);
   readonly error = signal<string | null>(null);
+  readonly columns = ['name', 'path', 'files', 'bytes', 'status'];
+  readonly dataSource = new MatTableDataSource<StorageEntry>([]);
+
   ngOnInit() {
     this.api.storage().subscribe((r) => {
-      if (!r.ok) { this.error.set(r.message); return; }
-      this.roots.set(r.data.roots || r.data.entries || []);
+      if (!r.ok) {
+        this.error.set(r.message);
+        return;
+      }
+      this.dataSource.data = r.data.roots || r.data.entries || [];
     });
   }
+
   formatBytes(n?: number | null) {
     if (n == null) return '—';
     if (n < 1024) return `${n} B`;

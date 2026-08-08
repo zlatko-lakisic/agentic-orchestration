@@ -1,62 +1,80 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { MatCard, MatCardContent } from '@angular/material/card';
+import { MatIcon } from '@angular/material/icon';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
-import { SettingRow } from '@/app/domains/admin/shared/setting-row/setting-row';
-import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
+import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 
 @Component({
   selector: 'ao-integrations-page',
-  imports: [SettingRow, EmptyState],
+  imports: [ConfigSettingsPage, MatCard, MatCardContent, MatIcon],
   template: `
-    <div class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <header class="mb-6 border-b border-neutral-800 pb-4">
-        <h1 class="text-lg font-semibold">Integrations</h1>
-        <p class="mt-1 text-sm text-neutral-500">
-          OpenClaw, Reach, speech, Home Assistant, search MCPs
-        </p>
-      </header>
-
-      <div class="mb-6 grid gap-3 sm:grid-cols-2">
-        <div class="rounded-lg border border-neutral-800 p-4">
-          <div class="text-sm font-medium">OpenClaw / Orchestrate bridge</div>
-          <div class="mt-2 font-mono text-xs text-neutral-400">
-            POST /api/v1/orchestrate on web :30487
-          </div>
-          <div class="mt-2 text-xs text-neutral-500">Auth: AGENTIC_ORCHESTRATE_API_KEY</div>
+    <div
+      class="@container mx-auto flex w-full max-w-5xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
+    >
+      <div class="flex flex-col gap-y-0.5">
+        <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
+          Integrations
         </div>
-        <div
-          class="rounded-lg border border-neutral-800 p-4"
-          [class.border-red-600]="!!reachError()"
-        >
-          <div class="text-sm font-medium">AO Reach / KnowBuddy</div>
-          <div class="mt-2 font-mono text-xs text-neutral-300">
-            Engine https://&lt;host&gt;:8765 (NodePort 30765)
-          </div>
-          @if (reachError()) {
-            <div class="mt-2 text-xs text-red-400">{{ reachError() }}</div>
-          } @else {
-            <div class="mt-2 text-xs text-emerald-500">Do not point Reach at web :30487</div>
-          }
+        <div class="text-neutral-500">
+          OpenClaw, Reach, speech, Home Assistant, and search MCPs
         </div>
       </div>
 
-      @if (rows().length === 0) {
-        <ao-empty-state message="No integration settings loaded." />
-      } @else {
-        @for (e of rows(); track e.key) {
-          <ao-setting-row
-            [key]="e.key"
-            [label]="e.label || e.key"
-            [value]="e.value"
-            [secret]="!!e.secret"
-            [set]="!!e.set"
-            [source]="e.source"
-            [sourceFile]="e.sourceFile || e.sourcePath || null"
-            [tier]="e.tier || e.applyTier || 'restart'"
-            [flashId]="e.key"
-          />
-        }
-      }
+      <div class="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+        <mat-card appearance="outlined">
+          <mat-card-content class="flex flex-col gap-y-2 py-5">
+            <div class="flex items-center gap-x-2">
+              <mat-icon
+                class="text-primary-600"
+                svgIcon="plug"
+              />
+              <div class="text-lg font-medium tracking-tight">
+                OpenClaw bridge
+              </div>
+            </div>
+            <div class="font-mono text-xs text-neutral-500">
+              POST /api/v1/orchestrate on web :30487
+            </div>
+            <div class="text-sm text-neutral-500">
+              Auth: AGENTIC_ORCHESTRATE_API_KEY
+            </div>
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card
+          appearance="outlined"
+          [class.border-red-600]="!!reachError()"
+        >
+          <mat-card-content class="flex flex-col gap-y-2 py-5">
+            <div class="flex items-center gap-x-2">
+              <mat-icon
+                class="text-primary-600"
+                svgIcon="antenna"
+              />
+              <div class="text-lg font-medium tracking-tight">
+                AO Reach / KnowBuddy
+              </div>
+            </div>
+            <div class="font-mono text-xs text-neutral-500">
+              Engine https://&lt;host&gt;:8765 (NodePort 30765)
+            </div>
+            @if (reachError()) {
+              <div class="text-sm text-red-600">{{ reachError() }}</div>
+            } @else {
+              <div class="text-sm text-emerald-600">
+                Do not point Reach at web :30487
+              </div>
+            }
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <ao-config-settings-page
+        [groups]="['integrations']"
+        sectionTitle="Integration settings"
+        sectionDescription="Effective values with source and apply tier"
+      />
     </div>
   `,
 })

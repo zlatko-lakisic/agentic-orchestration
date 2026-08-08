@@ -1,9 +1,9 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { MatPseudoCheckbox } from '@angular/material/core';
 import { MatIcon } from '@angular/material/icon';
 import { MatDivider } from '@angular/material/list';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
-import { RouterLink } from '@angular/router';
+import { AoApi } from '@/app/core/ao-api/ao-api';
 import { Scheme, Theming } from '@/app/core/theming';
 
 @Component({
@@ -15,22 +15,22 @@ import { Scheme, Theming } from '@/app/core/theming';
     MatMenuItem,
     MatPseudoCheckbox,
     MatMenuTrigger,
-    RouterLink,
   ],
   template: `
     <button
       class="flex w-full cursor-pointer items-center gap-x-3 rounded-xl p-2 text-left hover:bg-neutral-700/10 dark:hover:bg-neutral-300/10"
       [matMenuTriggerFor]="userMenu"
+      type="button"
     >
-      <img
-        class="size-9 rounded-lg object-cover grayscale"
-        src="/images/photos/brian-hughes.jpg"
-        alt="User avatar"
-      />
+      <div
+        class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-sm font-semibold text-white uppercase"
+      >
+        {{ initial() }}
+      </div>
       <div class="flex min-w-0 flex-auto flex-col select-none">
-        <div class="truncate font-medium">Brian Hughes</div>
-        <div class="text-on-surface-variant truncate text-sm">
-          brian&#64;example.com
+        <div class="truncate font-medium">{{ displayName() }}</div>
+        <div class="text-on-surface-variant truncate font-mono text-sm">
+          {{ sessionId() || 'no session' }}
         </div>
       </div>
       <mat-icon
@@ -48,52 +48,38 @@ import { Scheme, Theming } from '@/app/core/theming';
       <button
         class="py-2 [&>span]:flex [&>span]:items-center"
         mat-menu-item
+        type="button"
+        disabled
       >
-        <img
-          class="size-9 rounded-lg object-cover"
-          src="/images/photos/brian-hughes.jpg"
-          alt="User avatar"
-        />
+        <div
+          class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-sm font-semibold text-white uppercase"
+        >
+          {{ initial() }}
+        </div>
         <div class="ml-3 flex min-w-0 flex-auto flex-col select-none">
-          <div class="truncate font-medium">Brian Hughes</div>
-          <div class="text-on-surface-variant truncate text-xs">
-            brian&#64;example.com
+          <div class="truncate font-medium">{{ displayName() }}</div>
+          <div class="text-on-surface-variant truncate font-mono text-xs">
+            {{ sessionId() || '—' }}
           </div>
         </div>
       </button>
       <mat-divider />
-      <button mat-menu-item>
-        <mat-icon svgIcon="sparkles" />
-        Upgrade to Pro
-      </button>
-      <mat-divider />
-      <button mat-menu-item>
-        <mat-icon svgIcon="user-round" />
-        Account
-      </button>
-      <button mat-menu-item>
-        <mat-icon svgIcon="wallet" />
-        Billing
-      </button>
-      <button mat-menu-item>
-        <mat-icon svgIcon="bell" />
-        Notifications
+      <button
+        mat-menu-item
+        type="button"
+        (click)="openChat()"
+      >
+        <mat-icon svgIcon="message-square" />
+        Open chat
       </button>
       <mat-divider />
       <button
         mat-menu-item
+        type="button"
         [matMenuTriggerFor]="appearanceMenu"
       >
         <mat-icon svgIcon="sun-moon" />
         Appearance
-      </button>
-      <mat-divider />
-      <button
-        mat-menu-item
-        routerLink="/auth/sign-in"
-      >
-        <mat-icon svgIcon="log-out" />
-        Sign out
       </button>
     </mat-menu>
 
@@ -101,6 +87,7 @@ import { Scheme, Theming } from '@/app/core/theming';
       @for (item of schemes; track item.value) {
         <button
           mat-menu-item
+          type="button"
           (click)="updateScheme(item.value)"
         >
           <mat-pseudo-checkbox
@@ -114,11 +101,13 @@ import { Scheme, Theming } from '@/app/core/theming';
     </mat-menu>
   `,
 })
-export class User {
-  // Dependencies
+export class User implements OnInit {
   private theming = inject(Theming);
+  private api = inject(AoApi);
 
-  // State
+  private userName = signal<string | null>(null);
+  private session = signal<string | null>(null);
+
   protected scheme = computed(() => this.theming.scheme());
   protected schemes: { label: string; value: Scheme }[] = [
     { label: 'Light', value: 'light' },
@@ -126,7 +115,25 @@ export class User {
     { label: 'System', value: 'system' },
   ];
 
+  protected displayName = computed(() => this.userName() || 'Operator');
+  protected sessionId = computed(() => this.session());
+  protected initial = computed(() =>
+    this.displayName().trim().charAt(0).toUpperCase() || 'O'
+  );
+
+  ngOnInit() {
+    this.api.session().subscribe((r) => {
+      if (!r.ok) return;
+      this.userName.set(r.data.userName ?? null);
+      this.session.set(r.data.sessionId ?? null);
+    });
+  }
+
   updateScheme(scheme: Scheme) {
     this.theming.scheme.set(scheme);
+  }
+
+  openChat() {
+    window.location.href = '/';
   }
 }

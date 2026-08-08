@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Changed
+
+- **AO Admin Fuse alignment** — shell restored to Fuse sidenav/toolbar patterns; Overview uses `mat-card` analytics layout; Catalogs uses Orders-style `mat-table` + end drawer; Runtime uses Settings tab-nav; config pages follow Fuse section typography and Material surfaces (light/dark).
+
 ## [1.30.1] - 2026-08-08
 
 ### Fixed

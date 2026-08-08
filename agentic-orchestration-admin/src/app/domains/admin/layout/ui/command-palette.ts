@@ -18,15 +18,15 @@ type PaletteHit = {
   template: `
     @if (visible()) {
       <div
-        class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[12vh]"
+        class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh] dark:bg-black/60"
         (click)="close()"
       >
         <div
-          class="w-full max-w-xl overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900 shadow-2xl"
+          class="w-full max-w-xl overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-(--mat-sys-level3) dark:border-neutral-700 dark:bg-neutral-900"
           (click)="$event.stopPropagation()"
         >
           <input
-            class="w-full border-b border-neutral-800 bg-transparent px-4 py-3 font-mono text-sm outline-none"
+            class="w-full border-b border-neutral-200 bg-transparent px-4 py-3 font-mono text-sm outline-none dark:border-neutral-800"
             placeholder="Search settings, catalogs, pages…"
             [ngModel]="query()"
             (ngModelChange)="query.set($event)"
@@ -36,11 +36,13 @@ type PaletteHit = {
             @for (hit of hits(); track hit.label + hit.route + hit.detail) {
               <button
                 type="button"
-                class="flex w-full flex-col items-start gap-0.5 px-4 py-2 text-left hover:bg-neutral-800"
+                class="flex w-full flex-col items-start gap-0.5 px-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 (click)="go(hit)"
               >
                 <span class="text-sm">{{ hit.label }}</span>
-                <span class="font-mono text-2xs text-neutral-500">{{ hit.detail }}</span>
+                <span class="font-mono text-2xs text-neutral-500">{{
+                  hit.detail
+                }}</span>
               </button>
             } @empty {
               <div class="px-4 py-6 text-sm text-neutral-500">No matches</div>

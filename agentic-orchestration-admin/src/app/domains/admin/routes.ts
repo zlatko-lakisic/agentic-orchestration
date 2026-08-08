@@ -10,35 +10,55 @@ const routes: Routes = [
       {
         path: 'overview',
         loadComponent: () =>
-          import('./modules/overview/features/overview').then((m) => m.OverviewPage),
+          import('./modules/overview/features/overview').then(
+            (m) => m.OverviewPage
+          ),
       },
       {
-        path: 'runtime/planner',
+        path: 'runtime',
         loadComponent: () =>
-          import('./modules/runtime/features/planner').then((m) => m.PlannerPage),
-      },
-      {
-        path: 'runtime/execution',
-        loadComponent: () =>
-          import('./modules/runtime/features/execution').then((m) => m.ExecutionPage),
-      },
-      {
-        path: 'runtime/models',
-        loadComponent: () =>
-          import('./modules/runtime/features/models').then((m) => m.ModelsPage),
+          import('./modules/runtime/layout').then((m) => m.RuntimeLayout),
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'planner' },
+          {
+            path: 'planner',
+            loadComponent: () =>
+              import('./modules/runtime/features/planner').then(
+                (m) => m.PlannerPage
+              ),
+          },
+          {
+            path: 'execution',
+            loadComponent: () =>
+              import('./modules/runtime/features/execution').then(
+                (m) => m.ExecutionPage
+              ),
+          },
+          {
+            path: 'models',
+            loadComponent: () =>
+              import('./modules/runtime/features/models').then(
+                (m) => m.ModelsPage
+              ),
+          },
+        ],
       },
       { path: 'catalogs', pathMatch: 'full', redirectTo: 'catalogs/agents' },
       {
         path: 'catalogs/:kind',
         loadComponent: () =>
-          import('./modules/catalogs/features/catalogs').then((m) => m.CatalogsPage),
-      },
-      {
-        path: 'catalogs/:kind/:id',
-        loadComponent: () =>
-          import('./modules/catalogs/features/catalog-detail').then(
-            (m) => m.CatalogDetailPage
+          import('./modules/catalogs/features/catalogs').then(
+            (m) => m.CatalogsPage
           ),
+        children: [
+          {
+            path: ':id',
+            loadComponent: () =>
+              import('./modules/catalogs/features/catalog-detail').then(
+                (m) => m.CatalogDetailPage
+              ),
+          },
+        ],
       },
       {
         path: 'memory',
@@ -48,7 +68,9 @@ const routes: Routes = [
       {
         path: 'security',
         loadComponent: () =>
-          import('./modules/security/features/security').then((m) => m.SecurityPage),
+          import('./modules/security/features/security').then(
+            (m) => m.SecurityPage
+          ),
       },
       {
         path: 'integrations',
@@ -77,12 +99,16 @@ const routes: Routes = [
       {
         path: 'advanced',
         loadComponent: () =>
-          import('./modules/advanced/features/advanced').then((m) => m.AdvancedPage),
+          import('./modules/advanced/features/advanced').then(
+            (m) => m.AdvancedPage
+          ),
       },
       {
         path: 'changes',
         loadComponent: () =>
-          import('./modules/changes/features/changes').then((m) => m.ChangesPage),
+          import('./modules/changes/features/changes').then(
+            (m) => m.ChangesPage
+          ),
       },
       {
         path: '404',

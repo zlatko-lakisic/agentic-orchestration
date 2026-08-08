@@ -2,6 +2,16 @@
 
 Read-only Control Plane console built on **Fuse Angular 22** (Material + Tailwind).
 
+UI structure follows the Fuse template patterns:
+
+| Screen | Fuse reference |
+|--------|----------------|
+| Shell | `domains/admin/layout` (sidenav + toolbar + shortcuts/notifications) |
+| Overview | Analytics dashboard (`mat-card` grid + Fuse page header) |
+| Catalogs | Orders app (`mat-table` + end detail drawer + tab nav) |
+| Runtime | Settings layout (`mat-tab-nav-bar` + section form body) |
+| Config pages | Settings account/notifications section density |
+
 ## Develop
 
 ```bash

@@ -1,53 +1,27 @@
-import { Component, OnInit, computed, inject } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
-import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
-import { SettingRow } from '@/app/domains/admin/shared/setting-row/setting-row';
-import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
+import { Component } from '@angular/core';
+import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 
 @Component({
   selector: 'ao-deployments-page',
-  imports: [SettingRow, EmptyState],
+  imports: [ConfigSettingsPage],
   template: `
-    <div class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <header class="mb-6 border-b border-neutral-800 pb-4">
-        <h1 class="text-lg font-semibold">Deployments</h1>
-        <p class="mt-1 text-sm text-neutral-500">Effective values with source and apply tier</p>
-      </header>
-      @if (config.loading()) {
-        <p class="text-sm text-neutral-500">Loading configuration…</p>
-      } @else if (rows().length === 0) {
-        <ao-empty-state message="No settings in this group (or admin config API unavailable)." />
-      } @else {
-        <div>
-          @for (e of rows(); track e.key) {
-            <ao-setting-row
-              [key]="e.key"
-              [label]="e.label || e.key"
-              [value]="e.value"
-              [secret]="!!e.secret"
-              [set]="!!e.set"
-              [source]="e.source"
-              [sourceFile]="e.sourceFile || e.sourcePath || null"
-              [tier]="e.tier || e.applyTier || 'restart'"
-              [flashId]="e.key"
-            />
-          }
+    <div
+      class="@container mx-auto flex w-full max-w-5xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
+    >
+      <div class="flex flex-col gap-y-0.5">
+        <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
+          Deployments
         </div>
-      }
+        <div class="text-neutral-500">
+          Edge profiles, env merge, and rollout related settings
+        </div>
+      </div>
+      <ao-config-settings-page
+        [groups]="['deployments']"
+        sectionTitle="Profiles & edge"
+        sectionDescription="Effective values with source and apply tier"
+      />
     </div>
   `,
 })
-export class DeploymentsPage implements OnInit {
-  protected config = inject(EffectiveConfigStore);
-  private route = inject(ActivatedRoute);
-  private groups = ["deployments"];
-  readonly rows = computed(() => this.config.entriesForGroup(this.groups));
-
-  ngOnInit() {
-    this.config.load();
-    const flash = this.route.snapshot.queryParamMap.get('flash');
-    if (flash) {
-      setTimeout(() => document.getElementById(flash)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 350);
-    }
-  }
-}
+export class DeploymentsPage {}

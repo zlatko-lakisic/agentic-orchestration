@@ -15,7 +15,7 @@ const LABELS: Record<string, string> = {
   host: { class: 'inline-flex' },
   template: `
     <span
-      class="inline-flex items-center rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono text-2xs text-neutral-400"
+      class="inline-flex items-center rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 font-mono text-2xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-400"
       [title]="sourceFile() || ''"
     >
       {{ label() }}
