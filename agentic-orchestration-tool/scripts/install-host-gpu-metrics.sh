@@ -92,15 +92,38 @@ case "${CLASS}" in
     bash "${TOOL_ROOT}/scripts/jetson-install-jtop-metrics.sh" "${PROJECT_ROOT}"
     ;;
   nvidia_cuda)
-    if [[ "$(id -u)" -ne 0 ]]; then
-      echo "nvidia_cuda install needs root for systemd; re-run with sudo" >&2
-      echo "  sudo bash $0 ${PROJECT_ROOT}" >&2
-      # Still ensure dir + k8s mount so a later root install lands in the right place.
+    if [[ "$(id -u)" -eq 0 ]]; then
+      bash "${TOOL_ROOT}/scripts/install-nvidia-host-metrics.sh" "${PROJECT_ROOT}"
       patch_k8s_metrics_mount
-      exit 0
+    else
+      # Passwordless path: user unit writing into shared metrics dir when writable.
+      if [[ -w "${OUT_DIR}" ]] || mkdir -p "${OUT_DIR}" 2>/dev/null; then
+        export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+        if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+        fi
+        local_unit_src="${TOOL_ROOT}/deploy/systemd/agentic-nvidia-metrics.user.service"
+        local_unit_dst="${HOME}/.config/systemd/user/agentic-nvidia-metrics.service"
+        mkdir -p "$(dirname "${local_unit_dst}")"
+        sed -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" \
+          "${local_unit_src}" >"${local_unit_dst}"
+        systemctl --user daemon-reload
+        systemctl --user enable --now agentic-nvidia-metrics.service
+        systemctl --user restart agentic-nvidia-metrics.service
+        # Stop Jetson writer if a previous mis-detect installed it on a CUDA host.
+        systemctl --user disable --now agentic-jtop-metrics.service 2>/dev/null || true
+        echo "user unit agentic-nvidia-metrics.service active → ${OUT_DIR}/nvidia-metrics.json"
+        sleep 2
+        head -c 240 "${OUT_DIR}/nvidia-metrics.json" 2>/dev/null || true
+        echo
+      else
+        echo "nvidia_cuda: ${OUT_DIR} not writable without root." >&2
+        echo "  Fix once: sudo chown \"$(id -un):$(id -gn)\" \"${OUT_DIR}\" && sudo chmod 775 \"${OUT_DIR}\"" >&2
+        echo "  Then re-run: bash $0 ${PROJECT_ROOT}" >&2
+        echo "  Or: sudo bash $0 ${PROJECT_ROOT}" >&2
+      fi
+      patch_k8s_metrics_mount
     fi
-    bash "${TOOL_ROOT}/scripts/install-nvidia-host-metrics.sh" "${PROJECT_ROOT}"
-    patch_k8s_metrics_mount
     ;;
   amd)
     if [[ "$(id -u)" -ne 0 ]]; then
