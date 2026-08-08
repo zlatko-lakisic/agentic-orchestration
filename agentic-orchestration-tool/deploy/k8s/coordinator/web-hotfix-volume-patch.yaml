@@ -81,6 +81,9 @@ spec:
               mountPath: /app/web/lib/admin-api.mjs
               subPath: admin-api.mjs
             - name: web-hotfix-root
+              mountPath: /app/web/lib/api-tokens.mjs
+              subPath: api-tokens.mjs
+            - name: web-hotfix-root
               mountPath: /app/web/lib/admin-logs.mjs
               subPath: admin-logs.mjs
             - name: web-hotfix-root
