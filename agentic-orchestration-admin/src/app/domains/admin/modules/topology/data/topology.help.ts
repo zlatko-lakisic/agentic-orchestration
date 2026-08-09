@@ -18,7 +18,7 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   },
   ui: {
     wikiKey: 'ui',
-    blurb: 'Client or kiosk UI that connected through AO Reach.',
+    blurb: 'Client UI that connected through AO Reach.',
   },
   'overlay-source': {
     wikiKey: 'overlay-source',

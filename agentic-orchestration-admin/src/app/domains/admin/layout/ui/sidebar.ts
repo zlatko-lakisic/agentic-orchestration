@@ -41,7 +41,7 @@ import { User } from '@/app/domains/admin/layout/ui/user';
     >
       <div class="font-semibold">Open chat UI</div>
       <div class="mt-1 text-sm">
-        Operator chat stays on the web root. Reach / KnowBuddy uses the engine
+        Operator chat stays on the web root. Reach clients use the engine
         port, not this Admin surface.
       </div>
       <a

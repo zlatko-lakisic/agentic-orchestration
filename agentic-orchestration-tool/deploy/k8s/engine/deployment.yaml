@@ -1,5 +1,5 @@
 # Engine API daemon (python -m orchestration.serve) — additive alongside the Node web UI.
-# Does NOT replace agentic-coordinator (NodePort 30487). KnowBuddy / REST clients use this
+# Does NOT replace agentic-coordinator (NodePort 30487). Reach / REST clients use this
 # process on port 8765 (hostPort) or NodePort 30765.
 #
 # Image: same coordinator image (Python + CrewAI deps). Tool tree is hostPath-mounted from
@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: agentic-engine
         app.kubernetes.io/component: engine
     spec:
-      # Single-node Jetson: hostPort 8765 → http://<jetson>:8765 for KnowBuddy.
+      # Single-node Jetson: hostPort 8765 → http://<jetson>:8765 for Reach clients.
       # Recreate avoids hostPort conflicts during rollout.
       containers:
         - name: engine
@@ -63,8 +63,8 @@ spec:
               value: /host/agentic-metrics/nvidia-metrics.json
             - name: AGENTIC_AMD_HOST_METRICS_PATH
               value: /host/agentic-metrics/amd-metrics.json
-            # One-writer story: this pod owns KB SQLite for KnowBuddy; Node web spawn
-            # still writes its own emptyDir KB. Do not point KnowBuddy at :30487.
+            # One-writer story: this pod owns KB SQLite for Reach clients; Node web spawn
+            # still writes its own emptyDir KB. Do not point Reach clients at :30487.
             - name: PYTHONUNBUFFERED
               value: "1"
             # CrewAI first-time tracing can block 20s on stdin after every crew when

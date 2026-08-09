@@ -50,7 +50,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           <div class="flex flex-col gap-y-2 p-6">
             <div class="flex items-center justify-between gap-2">
               <div class="truncate text-lg font-medium tracking-tight">
-                AO Reach / KnowBuddy
+                AO Reach clients
               </div>
               <ao-status-chip status="info" label="engine" />
             </div>

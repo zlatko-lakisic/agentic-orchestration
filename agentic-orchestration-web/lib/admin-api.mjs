@@ -1459,7 +1459,7 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
       url: engineHealth.ok
         ? `${engineScheme}://__HOST__:${enginePort}/health`
         : null,
-      urlHint: `${engineScheme}://<host>:8765/  (Reach / KnowBuddy — not :30487)`,
+      urlHint: `${engineScheme}://<host>:8765/  (Reach clients — not :30487)`,
       tls: engineTls,
       overlays: String(process.env.AGENTIC_SERVE_SESSION_OVERLAY || "") === "1",
       mcpTunnel: String(process.env.AGENTIC_SERVE_MCP_TUNNEL || "") === "1",
@@ -1537,7 +1537,7 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
     reachGuard: {
       correctEnginePort: 8765,
       incorrectWebPort: 30487,
-      message: "AO Reach / KnowBuddy must use engine :8765 (or NodePort 30765), never web :30487",
+      message: "AO Reach clients must use engine :8765 (or NodePort 30765), never web :30487",
     },
   };
 }

@@ -300,7 +300,7 @@ export async function buildTopologyGraph(ctx) {
           instrumented: false,
           deployed: true,
           statusReason:
-            "Engine is up, but no active session overlays. Connect KnowBuddy / ao_reach with appId to populate Application groups.",
+            "Engine is up, but no active session overlays. Connect an AO Reach client with appId to populate Application groups.",
         }),
       );
     } else {

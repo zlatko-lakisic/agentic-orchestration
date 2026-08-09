@@ -8,7 +8,7 @@ toc_icon: "list"
 sidebar:
   nav: "docs"
 ---
-# Engine API Daemon Plan (KnowBuddy enablement)
+# Engine API Daemon Plan (Reach client enablement)
 
 Status: **Slices A–D implemented** (unreleased; on `main` after v1.22.0) · Last updated: 2026-07-29  
 Baseline: **v1.22.0+** (AO tip). Original gap review was vs v1.20.0; societies K6.2 / impartial QA deepen have landed since.  
@@ -55,11 +55,11 @@ Config reference: [Configuration → Engine API daemon]({{ '/configuration/#engi
 
 > **Safe enablement:** Implement additively — CLI and Node web stay fully functional. See non-breaking principles below and ship Slices A→D as separate minors.
 > Everything here is **generic engine capability**. Presales agents, meeting perception,
-> crawlers-as-product, Tauri, and installers belong in KnowBuddy — not here.
+> crawlers-as-product, Tauri, and installers belong in client products — not here.
 
 This document specifies the changes to **agentic-orchestration** required to support
 downstream products that embed the engine as a warm, long-lived service — the first
-of which is **KnowBuddy**.
+of which are **Reach clients**.
 
 ---
 
@@ -296,7 +296,7 @@ Downstream injects agents/tools via existing overlay envs (no fork required):
 | `AGENTIC_ORCHESTRATOR_CONTEXT_FILE` | Orchestrator context overlay |
 
 Pattern reference: `examples/verticals/` (healthcare, logistics) — demos only;
-KnowBuddy keeps its overlays in its own repo.
+Clients keep overlays in their own repos.
 
 ---
 
@@ -332,7 +332,7 @@ passing existing tests. Prefer config flags for new surfaces.
 - KB retention policies and encryption at rest.
 - Attachment/file-ingest WS events (`chat` accepts text today; the Node server still owns uploads).
 
-**Recommended ship slices for KnowBuddy unblocking:**
+**Recommended ship slices for Reach client unblocking:**
 
 1. **Slice A (desktop sidecar works):** items 1–3  
 2. **Slice B (meeting fan-out works):** items 4–7  

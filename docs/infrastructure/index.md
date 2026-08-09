@@ -33,7 +33,7 @@ After `jetson-deploy.sh`, the engine listens on hostPort **8765** (NodePort **30
 | Jetson Ada `172.16.90.20` | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
 | NVR `10.0.10.16` | `https://10.0.10.16:8765` | `http://10.0.10.16:30487` |
 
-Reach / KnowBuddy use the **engine** URL with client certificates — not Warpgate, not `:30487`. Operator guide: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). Per-host overrides: `config/env.host` (gitignored) over `config/env.jetson`.
+Reach clients use the **engine** URL with client certificates — not Warpgate, not `:30487`. Operator guide: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). Per-host overrides: `config/env.host` (gitignored) over `config/env.jetson`.
 
 ## Docker Compose stack
 

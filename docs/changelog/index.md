@@ -39,7 +39,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **`voice` agent harness profile** — `config/agent_harnesses/voice.yaml` for Reach/COMSTAR agents with `harness_profile: voice`.
+- **`voice` agent harness profile** — `config/agent_harnesses/voice.yaml` for Reach clients agents with `harness_profile: voice`.
 
 ## [1.28.0] - 2026-08-03
 
@@ -51,7 +51,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
-- **GPU monitor on k8s NVIDIA hosts** — engine pods without `/dev/nvidia*` now read live util + VRAM from a host `nvidia-smi` writer (`agentic-nvidia-metrics.service` → `/var/run/agentic/nvidia-metrics.json`, env `AGENTIC_NVIDIA_HOST_METRICS_PATH`). KnowBuddy system monitor can show GPU % and used/total VRAM instead of assume-only totals.
+- **GPU monitor on k8s NVIDIA hosts** — engine pods without `/dev/nvidia*` now read live util + VRAM from a host `nvidia-smi` writer (`agentic-nvidia-metrics.service` → `/var/run/agentic/nvidia-metrics.json`, env `AGENTIC_NVIDIA_HOST_METRICS_PATH`). Client system monitors can show GPU % and used/total VRAM instead of assume-only totals.
 - **Session-tunnel MCPs under k8s catalog policy** — `apply_kubernetes_mcp_catalog_policy` no longer strips `client.*` entries whose `streamable_http.url` starts with `tunnel://session-mcp/`, so `direct_agent` `mcpProviderIds` resolve after `session_overlay_ack`. Stock stdio allowlists unchanged; non-tunnel `client.*` HTTPS entries still require `AGENTIC_K8S_EXTRA_HTTP_MCPS`.
 
 ## [1.27.3] - 2026-07-30
@@ -85,7 +85,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
-- **Catalog VRAM filtering uses AMD/Intel too** — `filter_catalog_by_vram` only consulted `nvidia-smi`, so on a Mac with a Radeon (or Linux amdgpu) AO treated VRAM as unknown and kept oversized Ollama providers. It now uses `detect_vram_gb_available()` (NVIDIA → macOS AMD/Intel → Linux amdgpu → assume/env). Engine `/health` exposes a `hardware` snapshot (`architectures`, `vramGbAvailable`, `gpu.name` / vendor / VRAM) so AO and KnowBuddy can see what the host actually is.
+- **Catalog VRAM filtering uses AMD/Intel too** — `filter_catalog_by_vram` only consulted `nvidia-smi`, so on a Mac with a Radeon (or Linux amdgpu) AO treated VRAM as unknown and kept oversized Ollama providers. It now uses `detect_vram_gb_available()` (NVIDIA → macOS AMD/Intel → Linux amdgpu → assume/env). Engine `/health` exposes a `hardware` snapshot (`architectures`, `vramGbAvailable`, `gpu.name` / vendor / VRAM) so AO and clients can see what the host actually is.
 
 ## [1.26.0] - 2026-07-30
 
@@ -147,25 +147,25 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **Direct-agent progress for daemon clients** — `run_direct_agent(on_progress=…)` emits ensure / start / generating lines; `build_workflow(on_progress=…)` forwards Ollama ensure messages; Ollama pull lines also fan out through `orchestration.progress_sink`. WebSocket `direct_agent` streams them as `chunk` frames with `stream: "stderr"` and `question_id` (same demux as dynamic `chat`), so KnowBuddy can distinguish model download from generation. REST `POST /api/v1/direct-agent` remains final-answer JSON (no SSE in this slice).
+- **Direct-agent progress for daemon clients** — `run_direct_agent(on_progress=…)` emits ensure / start / generating lines; `build_workflow(on_progress=…)` forwards Ollama ensure messages; Ollama pull lines also fan out through `orchestration.progress_sink`. WebSocket `direct_agent` streams them as `chunk` frames with `stream: "stderr"` and `question_id` (same demux as dynamic `chat`), so clients can distinguish model download from generation. REST `POST /api/v1/direct-agent` remains final-answer JSON (no SSE in this slice).
 
 ## [1.24.0] - 2026-07-29
 
 ### Added
 
-- **Host metrics portable GPU VRAM** — `sample_host_metrics()` / `GET /api/host-metrics` now include a top-level `gpu` block `{vramTotalGb, vramSource}` from `detect_max_nvidia_vram_gb()` (`nvidia-smi`, or `assume` when `AGENTIC_ASSUME_VRAM_GB` is set). Missing GPU → both fields `null`. Distinct from Jetson `jetson.gpu` (jtop utilization). Enables clients (e.g. KnowBuddy researcher tier pick) to size models without calling the dynamic planner's hardware filter.
+- **Host metrics portable GPU VRAM** — `sample_host_metrics()` / `GET /api/host-metrics` now include a top-level `gpu` block `{vramTotalGb, vramSource}` from `detect_max_nvidia_vram_gb()` (`nvidia-smi`, or `assume` when `AGENTIC_ASSUME_VRAM_GB` is set). Missing GPU → both fields `null`. Distinct from Jetson `jetson.gpu` (jtop utilization). Enables clients (e.g. client researcher tier pick) to size models without calling the dynamic planner's hardware filter.
 
-- **Jetson Engine API daemon publish** — additive `agentic-engine` Deployment (`deploy/k8s/engine/`) runs `python -m orchestration.serve` beside the Node web UI. hostPort **8765** (KnowBuddy Remote URL `http://<jetson>:8765`) plus NodePort **30765**; web UI stays on **30487**. `scripts/jetson-enable-engine.sh` (called from `jetson-deploy.sh` unless `AGENTIC_JETSON_ENABLE_ENGINE=0`) reuses the coordinator image, hostPath-mounts the git tool tree, and installs `requirements-serve.txt` on first start. Do not point KnowBuddy at `:30487` — `/api/v1/direct-agent` and `/api/v1/kb/*` exist only on the engine.
+- **Jetson Engine API daemon publish** — additive `agentic-engine` Deployment (`deploy/k8s/engine/`) runs `python -m orchestration.serve` beside the Node web UI. hostPort **8765** (Reach client Remote URL `http://<jetson>:8765`) plus NodePort **30765**; web UI stays on **30487**. `scripts/jetson-enable-engine.sh` (called from `jetson-deploy.sh` unless `AGENTIC_JETSON_ENABLE_ENGINE=0`) reuses the coordinator image, hostPath-mounts the git tool tree, and installs `requirements-serve.txt` on first start. Do not point Reach clients at `:30487` — `/api/v1/direct-agent` and `/api/v1/kb/*` exist only on the engine.
 
 ### Fixed
 
-- **KB FTS5 search no longer 500s on commas / punctuation** — `sanitize_fts5_query()` strips FTS5 syntax characters (`,`, quotes, `:`, etc.) and boolean keywords before `MATCH`. `search()` and RAG sqlite-fts retrieve share the helper; residual `OperationalError` returns empty hits instead of an unhandled FastAPI Internal Server Error (KnowBuddy "Non-JSON response from AO").
+- **KB FTS5 search no longer 500s on commas / punctuation** — `sanitize_fts5_query()` strips FTS5 syntax characters (`,`, quotes, `:`, etc.) and boolean keywords before `MATCH`. `search()` and RAG sqlite-fts retrieve share the helper; residual `OperationalError` returns empty hits instead of an unhandled FastAPI Internal Server Error (client "Non-JSON response from AO").
 
 ## [1.23.0] - 2026-07-29
 
 ### Added
 
-Engine API daemon (KnowBuddy enablement), shipped as slices A–D. Everything here is **additive and
+Engine API daemon (Reach client enablement), shipped as slices A–D. Everything here is **additive and
 opt-in**: `python main.py` and `agentic-orchestration-web/server.mjs` are untouched defaults, FastAPI
 and uvicorn live only in the new `requirements-serve.txt`, and every new on-disk layout dual-reads
 the legacy one. See [Engine API daemon plan](docs/engine-daemon-plan/index.md).

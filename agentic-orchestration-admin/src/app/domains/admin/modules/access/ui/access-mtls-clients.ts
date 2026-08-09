@@ -32,7 +32,7 @@ import { MintEnrollTokenDialog } from './mint-enroll-token-dialog';
           <div>
             <div class="text-lg font-medium tracking-tight">mTLS clients</div>
             <div class="text-sm text-neutral-500">
-              Mint one-time enroll tokens for Reach / KnowBuddy; revoke a single
+              Mint one-time enroll tokens for Reach clients; revoke a single
               client without rotating the CA
             </div>
           </div>
@@ -52,7 +52,7 @@ import { MintEnrollTokenDialog } from './mint-enroll-token-dialog';
         } @else if (!clients().length) {
           <ao-empty-state
             title="No enrolled clients recorded"
-            message="Mint an enroll token, redeem it from KnowBuddy against the engine (:8765). Clients appear here after enroll."
+            message="Mint an enroll token, redeem it from the Reach client against the engine (:8765). Clients appear here after enroll."
           />
           <div class="mt-3 flex flex-wrap gap-2">
             <button matButton="outlined" type="button" (click)="revokeByCn()">

@@ -41,7 +41,7 @@ Three horizontal bands, equal width, stacked. Every band spans the full content 
 
 ```
 ┌─ 1 · Application ────────────────────────────────────────────────┐
-│   UI / kiosk        Domain overlays     Local tools    OpenClaw  │
+│   Client UI         Domain overlays     Local tools    OpenClaw  │
 └──────────────────────────────────────────────────────────────────┘
 ┌─ 2 · AO Reach (ao_reach SDK) ────────────────────────────────────┐
 │   SessionBridge     OverlayPacker       LocalMcpHost   SpeechClient

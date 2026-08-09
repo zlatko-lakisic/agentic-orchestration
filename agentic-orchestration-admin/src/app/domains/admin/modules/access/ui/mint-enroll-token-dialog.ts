@@ -24,7 +24,7 @@ import { MtlsEnrollToken } from '@/app/core/ao-api/types';
     <mat-dialog-content class="flex min-w-[320px] max-w-lg flex-col gap-3">
       @if (!minted()) {
         <p class="text-sm text-neutral-500">
-          One-time token for Reach / KnowBuddy certificate enrollment against the
+          One-time token for Reach client certificate enrollment against the
           <strong>engine</strong> (<code>:8765</code>). Not an
           <code>ao_…</code> API token.
         </p>
@@ -35,7 +35,7 @@ import { MtlsEnrollToken } from '@/app/core/ao-api/types';
             [(ngModel)]="clientName"
             name="clientName"
             required
-            placeholder="knowbuddy"
+            placeholder="myapp"
             autocomplete="off"
           />
         </mat-form-field>
@@ -55,7 +55,7 @@ import { MtlsEnrollToken } from '@/app/core/ao-api/types';
       } @else {
         <p class="text-sm text-amber-700 dark:text-amber-300">
           Copy this enroll token now — it will not be shown again. Paste it into
-          KnowBuddy / Reach enroll (engine URL, not Admin :30487).
+          Reach client enroll (engine URL, not Admin :30487).
         </p>
         <div
           class="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-3 font-mono text-sm break-all dark:border-neutral-700 dark:bg-neutral-900"

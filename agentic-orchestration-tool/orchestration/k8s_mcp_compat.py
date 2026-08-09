@@ -192,7 +192,7 @@ def adapt_mcp_catalog_entry_for_kubernetes(entry: dict[str, Any]) -> dict[str, A
 def is_session_tunnel_mcp_entry(entry: dict[str, Any]) -> bool:
     """True for session-overlay MCPs proxied over the owning WebSocket (``tunnel://``).
 
-    These are hosted on the client (e.g. KnowBuddy Mac Gmail/Calendar tunnels), not as
+    These are hosted on the Reach client (e.g. local Gmail/Calendar tunnels), not as
     in-cluster stdio/HTTP sidecars. Kubernetes catalog policy must not strip them —
     otherwise ``direct_agent`` with ``mcpProviderIds: ["client.…"]`` fails with
     "unknown catalog id" after a successful ``session_overlay_ack``.

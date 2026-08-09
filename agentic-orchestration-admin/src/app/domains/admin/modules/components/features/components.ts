@@ -24,7 +24,7 @@ const CATALOG: Array<{
     id: 'engine',
     label: 'Engine',
     kind: 'service',
-    notes: 'KnowBuddy / Reach Remote URL: https://<host>:8765 (NodePort 30765).',
+    notes: 'Reach client Remote URL: https://<host>:8765 (NodePort 30765).',
   },
   {
     id: 'execution',
@@ -58,7 +58,7 @@ const CATALOG: Array<{
   },
   {
     id: 'reach',
-    label: 'AO Reach / KnowBuddy',
+    label: 'AO Reach clients',
     kind: 'client',
     notes: 'Must use engine :8765 / NodePort 30765 — never web :30487.',
   },

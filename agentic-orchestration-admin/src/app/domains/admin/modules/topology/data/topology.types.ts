@@ -61,7 +61,7 @@ export interface TopologyNode {
   count?: number;
   breakdown?: Record<string, number>;
   parent?: string;
-  /** Reach product id (e.g. knowbuddy) when this node belongs to an app group. */
+  /** Reach client appId when this node belongs to an app group. */
   appId?: string;
   /** Connected Reach sessions for this appId (Application header). */
   instanceCount?: number;

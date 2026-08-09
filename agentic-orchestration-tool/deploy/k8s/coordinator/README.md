@@ -55,7 +55,7 @@ Open `http://127.0.0.1:3847`.
 
 - **NodePort** `30487` — Traefik / Warpgate upstream: `http://<jetson>:30487`
 - **Rollouts** — `strategy: Recreate`, no `hostPort` (avoids single-node port deadlock)
-- **Engine API daemon** (KnowBuddy) — separate Deployment; see [`../engine/README.md`](../engine/README.md). Preferred URL: `http://<jetson>:8765`
+- **Engine API daemon** (Reach clients) — separate Deployment; see [`../engine/README.md`](../engine/README.md). Preferred URL: `http://<jetson>:8765`
 
 ## Customize image / worker
 

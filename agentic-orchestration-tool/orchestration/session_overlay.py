@@ -110,12 +110,12 @@ class SessionOverlayDeniedError(SessionOverlayError):
 
 
 def normalize_app_id(raw: Any) -> str:
-    """Require a stable product appId (e.g. ``knowbuddy``, ``comstar``)."""
+    """Require a stable client appId (e.g. ``myapp``, ``field-client``)."""
     app_id = str(raw or "").strip().lower()
     if not app_id:
         raise SessionOverlayDeniedError(
             "Reach registration denied: appId is required "
-            "(product apps must advertise a stable appId such as 'knowbuddy' or 'comstar')",
+            "(clients must advertise a stable appId such as 'myapp' or 'field-client')",
             error="app_id_required",
         )
     if not APP_ID_RE.match(app_id):

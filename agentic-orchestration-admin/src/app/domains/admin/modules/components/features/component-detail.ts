@@ -99,7 +99,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
             <p>{{ notes() }}</p>
             @if (id() === 'reach' || id() === 'engine') {
               <p class="font-medium text-amber-800 dark:text-amber-300">
-                Do not point Reach / KnowBuddy at web :30487 — use engine :8765
+                Do not point Reach clients at web :30487 — use engine :8765
                 (NodePort 30765).
               </p>
             }
@@ -142,7 +142,7 @@ export class ComponentDetailPage implements OnInit {
       mcp: 'MCP servers',
       speech: 'Speech',
       openclaw: 'OpenClaw bridge',
-      reach: 'AO Reach / KnowBuddy',
+      reach: 'AO Reach clients',
     };
     return map[this.id()] || this.id();
   });
@@ -161,7 +161,7 @@ export class ComponentDetailPage implements OnInit {
   readonly notes = computed(() => {
     const map: Record<string, string> = {
       web: 'Serves chat UI and Admin. Host metrics and live logs are sampled here.',
-      engine: 'Python FastAPI daemon for KnowBuddy /api/v1/* and mTLS enroll.',
+      engine: 'Python FastAPI daemon for Reach clients (/api/v1/*) and mTLS enroll.',
       execution: 'Where crew steps run (in-process, subprocess, or Kubernetes).',
       ollama: 'Local LLM runtime used by planner and agents on edge.',
       mcp: 'Browse Capabilities → MCP servers for per-entry gates.',

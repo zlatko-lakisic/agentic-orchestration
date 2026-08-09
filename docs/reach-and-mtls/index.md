@@ -95,7 +95,7 @@ Requires `openssl` on PATH for enrollment. Pin SDK: Reach git ref `v0.4.0`.
 | Jetson (`172.16.90.20`, `omega-jetson-orin`) | Edge / Ada | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
 | NVR (`10.0.10.16`, `nvr.mostardesigns.com`) | AI server | `https://10.0.10.16:8765` | `http://10.0.10.16:30487` |
 
-Do **not** point Reach / KnowBuddy at `:30487` — that is the Node web UI.
+Do **not** point Reach clients at `:30487` — that is the Node web UI.
 
 Server cert SANs must include **IP Address:** entries for any IP URL clients use. Re-issue after the IP-SAN fix:
 
@@ -113,9 +113,9 @@ After enroll, kick a single client without rotating the CA:
 
 ```bash
 python3 -m orchestration.serve.mtls list-clients
-python3 -m orchestration.serve.mtls revoke-client --cn comstar --reason "kick"
+python3 -m orchestration.serve.mtls revoke-client --cn myapp --reason "kick"
 # or: --serial <hex>
-python3 -m orchestration.serve.mtls unrevoke-client --cn comstar
+python3 -m orchestration.serve.mtls unrevoke-client --cn myapp
 ```
 
 Deny-list lives in `__orchestrator_mtls__/revoked.json`. The next HTTP/WS request from that cert gets **403** / policy close; other clients keep working.

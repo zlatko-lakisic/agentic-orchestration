@@ -1,4 +1,4 @@
-# README for the optional Engine API daemon Deployment (KnowBuddy / REST clients).
+# README for the optional Engine API daemon Deployment (Reach / REST clients).
 #
 # This is additive. The Node web UI (`agentic-coordinator`, NodePort 30487) is unchanged.
 #
@@ -6,11 +6,11 @@
 #
 # | Publish | URL | Notes |
 # |---------|-----|--------|
-# | hostPort 8765 | `http://<jetson>:8765` | Preferred KnowBuddy Remote URL |
+# | hostPort 8765 | `http://<jetson>:8765` | Preferred Reach client Remote URL |
 # | NodePort 30765 | `http://<jetson>:30765` | Alternate if hostPort is blocked |
 # | ClusterIP 8765 | `http://agentic-engine.agentic-orchestration.svc:8765` | In-cluster |
 #
-# Web UI stays at `http://<jetson>:30487` — do not point KnowBuddy there
+# Web UI stays at `http://<jetson>:30487` — do not point Reach clients there
 # (`/api/v1/direct-agent` and `/api/v1/kb/*` only exist on the engine).
 #
 # ## Apply (Jetson)
@@ -30,6 +30,6 @@
 #
 # ## One writer
 #
-# KnowBuddy → engine daemon (this Deployment) for KB writes.
+# Reach clients → engine daemon (this Deployment) for KB writes.
 # Browser UI → Node spawn of `main.py` (coordinator emptyDir KB).
 # Avoid pointing both at the same SQLite file concurrently.

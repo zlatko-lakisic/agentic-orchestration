@@ -55,65 +55,65 @@ describe('topology.layout', () => {
   it('minimizes app panels horizontally and hides children until expanded', () => {
     const nodes: TopologyNode[] = [
       n({
-        id: 'app/knowbuddy',
+        id: 'app/myapp',
         kind: 'app',
         band: 'application',
-        appId: 'knowbuddy',
+        appId: 'myapp',
         instanceCount: 2,
       }),
       n({
-        id: 'app/knowbuddy/ui',
+        id: 'app/myapp/ui',
         kind: 'ui',
         band: 'application',
-        appId: 'knowbuddy',
-        parent: 'app/knowbuddy',
+        appId: 'myapp',
+        parent: 'app/myapp',
       }),
       n({
-        id: 'app/knowbuddy/overlays',
+        id: 'app/myapp/overlays',
         kind: 'overlay-source',
         band: 'application',
-        appId: 'knowbuddy',
-        parent: 'app/knowbuddy',
+        appId: 'myapp',
+        parent: 'app/myapp',
       }),
       n({
-        id: 'app/knowbuddy/local-tools',
+        id: 'app/myapp/local-tools',
         kind: 'local-tools',
         band: 'application',
-        appId: 'knowbuddy',
-        parent: 'app/knowbuddy',
+        appId: 'myapp',
+        parent: 'app/myapp',
       }),
       n({
-        id: 'app/comstar',
+        id: 'app/field-client',
         kind: 'app',
         band: 'application',
-        appId: 'comstar',
+        appId: 'field-client',
         instanceCount: 1,
       }),
       n({
-        id: 'app/comstar/ui',
+        id: 'app/field-client/ui',
         kind: 'ui',
         band: 'application',
-        appId: 'comstar',
-        parent: 'app/comstar',
+        appId: 'field-client',
+        parent: 'app/field-client',
       }),
     ];
     const collapsed = layoutTopology(nodes, []);
     expect(collapsed.nodes.map((x) => x.id).sort()).toEqual([
-      'app/comstar',
-      'app/knowbuddy',
+      'app/field-client',
+      'app/myapp',
     ]);
-    const cs = collapsed.nodes.find((x) => x.id === 'app/comstar')!;
-    const kb = collapsed.nodes.find((x) => x.id === 'app/knowbuddy')!;
-    // Horizontal LTR by appId: comstar then knowbuddy
-    expect(cs.y).toBe(kb.y);
-    expect(cs.x).toBeLessThan(kb.x);
+    const fc = collapsed.nodes.find((x) => x.id === 'app/field-client')!;
+    const my = collapsed.nodes.find((x) => x.id === 'app/myapp')!;
+    // Horizontal LTR by appId: field-client then myapp
+    expect(fc.y).toBe(my.y);
+    expect(fc.x).toBeLessThan(my.x);
 
-    const expanded = layoutTopology(nodes, [], { expandedAppId: 'knowbuddy' });
-    expect(expanded.nodes.some((x) => x.id === 'app/knowbuddy/ui')).toBe(true);
-    expect(expanded.nodes.some((x) => x.id === 'app/comstar/ui')).toBe(false);
-    const kbUi = expanded.nodes.find((x) => x.id === 'app/knowbuddy/ui')!;
-    const kbOv = expanded.nodes.find((x) => x.id === 'app/knowbuddy/overlays')!;
-    const kbHeader = expanded.nodes.find((x) => x.id === 'app/knowbuddy')!;
+    const expanded = layoutTopology(nodes, [], { expandedAppId: 'myapp' });
+    expect(expanded.nodes.some((x) => x.id === 'app/myapp/ui')).toBe(true);
+    expect(expanded.nodes.some((x) => x.id === 'app/field-client/ui')).toBe(false);
+    const myUi = expanded.nodes.find((x) => x.id === 'app/myapp/ui')!;
+    const myOv = expanded.nodes.find((x) => x.id === 'app/myapp/overlays')!;
+    const myHeader = expanded.nodes.find((x) => x.id === 'app/myapp')!;
     expect(kbUi.y).toBeGreaterThan(kbHeader.y);
     expect(kbOv.x).toBeGreaterThan(kbUi.x);
   });
