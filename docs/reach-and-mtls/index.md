@@ -65,7 +65,7 @@ python3 -m orchestration.serve.mtls mint-token --client-name alice --ttl 86400
 
 Material lives under `__orchestrator_mtls__/ca/` on the tool hostPath (gitignored runtime).
 
-## Reach (product) enroll + connect
+## Reach client enroll + connect
 
 ```dart
 final material = await ReachMtlsEnroller().enroll(

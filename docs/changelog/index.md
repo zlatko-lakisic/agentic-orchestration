@@ -21,6 +21,63 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Topology Reach / Application bands** — when the engine is up, Reach components (SessionBridge, OverlayPacker, …) always appear; Application shows a waiting placeholder until a Reach client registers a session overlay (mTLS enroll alone is not enough).
+
+### Changed
+
+- **Topology band labels** — band 2 uses the AO mark + “Reach” (no text “AO”); band 3 shows the AO mark left of “Agentic Orchestration”.
+- **Topology Live stamp** — locale-friendly medium date + short time instead of raw ISO.
+
+### Added
+
+- **Admin API access tokens** — mint/revoke Bearer tokens on Access (`GET/POST/DELETE /api/v1/admin/tokens`) with hashed store under `__orchestrator_api_tokens__/` (hostPath `var/agentic-api-tokens` on edge). Orchestrate / chat / responses accept minted tokens or the env shared-secret fallback; usage ledger records appId, IP, path, status, latency.
+- **mTLS per-client revoke** — deny one enrolled Reach client by cert serial or CN (`revoked.json`) without rotating the CA. Enforced on engine HTTP + WebSocket; Admin Access → mTLS clients; CLI `revoke-client` / `unrevoke-client`.
+- **Admin mTLS enroll-token mint** — Access → mTLS clients → **Mint enroll token** (one-time Reach clients cert enroll; not an `ao_…` API token).
+- **Topology Application band by appId** — each connected Reach client (stable client `appId`s) is a group with instance count plus Client UI / Domain overlays / Local tools. Reach and AO node modals show an **Owned by app** label when session overlays currently use that component (bridge, catalogs, sidecars, planner, speech, etc.).
+- **Topology Application accordion panels** — apps start as minimized panels left-to-right; expand one to reveal its components while other apps grey out and stay collapsed.
+- **Topology catalog app members** — Agents / MCP servers / Skills (and MCP sidecars) modals list live Reach overlay ids grouped by `appId` (which `client.*` agents/MCPs/skills each connected app registered).
+
+## [2.0.0] - 2026-08-08
+
+### Breaking
+
+- **Reach `appId` required** — `session_overlay_register` must include `appId` / `app_id` (stable client id such as `myapp` or `field-client`). Missing or invalid values receive `session_overlay_denied` (`app_id_required` / `app_id_invalid`). Active session snapshots expose `appId`. Requires AO Reach ≥ 0.5.0.
+
+### Added
+
+- **Host CPU/GPU temperature (°C)** — `cpu.tempC` / `gpu.tempC` in host metrics (nvidia-smi, Jetson jtop/tegrastats, AMD hwmon, thermal zones). Admin Overview charts plot Temp on a right-hand Celsius axis beside utilization %.
+- **Thermal operating-range library** — curated CSV at `assets/thermal-operating-ranges.csv` (raw GitHub URL) matching CPU/GPU names to min/max °C for chart axes; Overview Temp Y-axis stays stable (no 0–4 °C collapse) with continuous series (no gaps).
+- **AO brand mark** — letter-A / orchestration-arrow lockup under `assets/brand/` (SVGs, favicons, BRAND.md). Wired into Admin, chat UI, GitHub Pages docs/landing, READMEs, and wiki.
+
+### Fixed
+
+- **Web UI Chrome slowdown on long-lived tabs** — pause host-metrics subscribe/paint while the tab is hidden; throttle chart redraws; shrink metrics history; cap crew-log text/SVG and in-memory chat transcript/DOM growth.
+- **Per-platform GPU host metrics** — shared `var/agentic-metrics/` for Jetson (`jtop-metrics.json`), discrete CUDA (`nvidia-metrics.json`), and AMD (`amd-metrics.json`). Deploy auto-selects the writer via `install-host-gpu-metrics.sh`. Restores Ada/CUDA GPU util after the Jetson path remount.
+- **Jetson GPU metrics** — writer falls back to `tegrastats` when jtop group/socket is unavailable; metrics JSON lives under `var/agentic-metrics` (user-writable) and is mounted into coordinator/engine instead of empty `/var/run/agentic`.
+- **Admin topology engine probe** — check in-cluster `agentic-engine` / `host.k3s.internal` (not coordinator loopback); TLS health probes allow the cluster self-signed cert.
+- **Admin toolbar notifications** — replaced Fuse demo notices with live topology attention items.
+- **Admin effective values** — unset keys show code defaults instead of bare `UNSET`; TLS path keys are not masked as secrets; Kubernetes injected `*_SERVICE_*` / `*_PORT_*_TCP*` vars filtered from All settings by default.
+
+### Changed
+
+- **AO Admin Fuse-only UI** — Fuse theme defaults (`#1565C0`, system scheme), Orders status pills, Material cards/tables/settings shells only; removed custom AO tokens/colors and non-Fuse chrome.
+- **Admin Overview** — attention-first triage, collapsed live logs, named healthy components, support-bundle export.
+
+## [1.30.1] - 2026-08-08
+
+### Fixed
+
+- **Coordinator crash on `/api/session`** — `generateWebSessionId` now uses `node:crypto` so Node 18 images no longer throw `ReferenceError: crypto is not defined` (CrashLoopBackOff).
+- **Admin fonts** — Geist `@font-face` URLs point at `/admin/fonts/...` so they load under the Admin base href.
+
+## [1.30.0] - 2026-08-07
+
+### Added
+
+- **AO Admin Phase 0** — Fuse Angular Control Plane at `/admin/` (read-only). Web Admin API: `/api/v1/admin/config/effective`, `/catalogs/*`, `/health/topology`, `/storage`. Secrets never returned. Chat header links to Admin; Jetson/NVR mounts built SPA via hostPath.
+
+### Fixed
+
 - **Server cert IP SANs** — `issue-server --san 10.0.10.16` encodes an **IP Address** SAN (not `DNS:10.0.10.16`) so Dart/Reach clients can dial the engine by IP.
 
 ## [1.29.0] - 2026-08-07
