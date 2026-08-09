@@ -43,7 +43,7 @@ const BY_KIND: Record<string, TopologyKindTheme> = {
 const BY_BAND: Record<TopologyBand, TopologyKindTheme> = {
   application: { accent: '#0d9488', icon: 'monitor', aspect: 'Application' },
   reach: { accent: '#2563eb', icon: 'cable', aspect: 'Reach' },
-  ao: { accent: '#dc2626', icon: 'cpu', aspect: 'AO' },
+  ao: { accent: '#3B6EA5', icon: 'cpu', aspect: 'Orchestration' },
 };
 
 export function themeForKind(

@@ -3,12 +3,13 @@ import { ActivatedRoute } from '@angular/router';
 import { MatCard } from '@angular/material/card';
 import { MatIcon } from '@angular/material/icon';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
+import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 @Component({
   selector: 'ao-integrations-page',
-  imports: [ConfigSettingsPage, MatCard, MatIcon, StatusChip],
+  imports: [ConfigSettingsPage, MatCard, MatIcon, StatusChip, AoMark],
   template: `
     <div
       class="@container mx-auto flex w-full max-w-5xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
@@ -49,8 +50,12 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         >
           <div class="flex flex-col gap-y-2 p-6">
             <div class="flex items-center justify-between gap-2">
-              <div class="truncate text-lg font-medium tracking-tight">
-                AO Reach clients
+              <div
+                class="flex min-w-0 items-center gap-1.5 truncate text-lg font-medium tracking-tight"
+              >
+                <ao-mark size="sm" tint="steel" />
+                <span class="text-[#3B6EA5] dark:text-[#E6EAF0]">Reach</span>
+                <span>clients</span>
               </div>
               <ao-status-chip status="info" label="engine" />
             </div>

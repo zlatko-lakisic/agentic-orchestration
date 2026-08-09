@@ -36,7 +36,7 @@ export const appConfig: ApplicationConfig = {
     provideIcons(),
     provideTheming({
       scheme: 'system',
-      primary: '#1565C0',
+      primary: '#3B6EA5',
       error: '#dc2626',
     }),
     provideTransloco({

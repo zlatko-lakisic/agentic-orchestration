@@ -384,15 +384,14 @@ type AppGroupFrame = {
       display: block;
       width: 14px;
       height: 14px;
-      background: currentColor;
-      color: #737373;
+      background-color: #3b6ea5;
       -webkit-mask: url('/admin/images/logo/ao-mark-small.svg') center / contain
         no-repeat;
       mask: url('/admin/images/logo/ao-mark-small.svg') center / contain no-repeat;
     }
     :host-context(.dark) .ao-band-mark,
     .dark .ao-band-mark {
-      color: #a3a3a3;
+      background-color: #e6eaf0;
     }
     .topo-node[data-status='unknown'] .node-fill {
       stroke-dasharray: 4 3;

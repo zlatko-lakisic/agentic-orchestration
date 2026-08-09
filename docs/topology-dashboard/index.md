@@ -1,0 +1,580 @@
+---
+layout: single
+title: "Topology dashboard"
+permalink: /topology-dashboard/
+toc: true
+toc_label: "On this page"
+toc_icon: "list"
+sidebar:
+  nav: "docs"
+---
+# Topology dashboard
+
+Live Admin **Topology** view of the **current deployment** — not a static architecture diagram. It shows what is present right now across three bands (Application, <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> **Reach**, <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Agentic Orchestration), component health, and the call paths between them. When a Reach client registers overlays, Application nodes appear; when the engine stops answering, its node degrades and paths through it dim.
+
+**Honesty rule:** the diagram may only show what the system reports. Uninstrumented health stays `unknown` (not “healthy”). Edges without telemetry say **no data** (never `0 req/s`). A node the API stops mentioning goes `offline` for a short grace window, then disappears.
+
+Open it from Admin → **Topology**. Help icons on nodes and edges deep-link here (`Topology-dashboard#…`). Related: [System architecture]({{ '/system-architecture/' | relative_url }}), [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}), [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}), [Web UI]({{ '/web-ui/' | relative_url }}), [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Admin page design handoff]({{ '/Admin-page-design-handoff/' | relative_url }}), [External integrations]({{ '/external-integrations/' | relative_url }}), [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+
+---
+
+## How to read the screen
+
+| Question | What to look at |
+|---|---|
+| Is anything broken? | `failed` / `degraded` glyphs (only saturated status colours) |
+| What does this affect? | Hover a node → full upstream/downstream path highlights |
+| Is traffic flowing? | Instrumented edges animate; uninstrumented stay static (**no data**) |
+| Why is this unhealthy? | Click → Health / Traffic / Config / Logs tabs |
+| What’s actually deployed? | Optional sidecars, speech, workers only render when present (or via “Show not deployed”) |
+
+**Toolbar:** Live / Paused (pause freezes the canvas without dropping the socket), band/status filters, “only unhealthy”, show not-deployed, fit-to-width / zoom, legend.
+
+**Layout:** three full-width horizontal bands; columns align vertically so you can follow a mechanism down without tracing sideways (e.g. Domain overlays → Overlay packer → `session_overlay`). Layout is deterministic — no force-directed shuffle on updates.
+
+**Two exception flows** (drawn specially so they stay obvious):
+
+1. **Reverse tunnel** — engine `mcp_tunnel` calls *up* into Reach Local MCP host (distinct dash, upward).
+2. **OpenClaw bypass** — OpenClaw → Web UI on the **right margin**, skipping Reach and the engine.
+
+---
+
+## Health and instrumentation
+
+| State | Meaning |
+|---|---|
+| `healthy` | Probe passing |
+| `degraded` | Passing with warnings / partial replicas |
+| `failed` | Probe failing |
+| `starting` | Present, not ready yet |
+| `draining` | Shutting down, still serving |
+| `unknown` | Present but **not instrumented** — not counted as unhealthy |
+| `offline` | Was present; inside ~30s grace before removal |
+
+Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Most planner / catalog / platform nodes stay `unknown` with reasons like “no live probe”. If the engine is unreachable, Application and Reach bands empty and a note explains why. Engine up with no sessions → “No connected Reach clients” and a waiting Application placeholder.
+
+**Capabilities** on the snapshot (`nodeProbes`, `edgeMetrics`, `sources`) declare what is real telemetry versus structural presence.
+
+---
+
+## Bands
+
+### Application
+
+Client-reported presence via Reach sessions, **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
+
+Apps appear as **minimized panels left-to-right** with instance count (connected sessions). Use the chevron to expand one panel: other apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out. Empty / waiting when no Reach client has registered a session overlay.
+
+**Example — two clients side by side**
+
+| Panel | Instances | When expanded you see |
+|---|---|---|
+| `myapp` | 2 | UI + overlays (`client.domain_expert`, …) + local tools (tunnel MCPs) |
+| `field-client` | 1 | That client’s UI / overlays / tools only |
+
+The platform never sees the client’s internal screens — only what the session **advertised** (agents, MCPs, skills, tunnels, speech sidecars).
+
+OpenClaw may appear in this band as a separate presence when a session id looks like OpenClaw; its path to the Web UI is the **bypass** edge (see [[#openclaw]]).
+
+### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach
+
+`ao_reach` SDK surface ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)): session bridge, overlay packing, local MCP host, speech client, mTLS enroller. Node modals show **Owned by app** when connected clients currently use that Reach component (e.g. Session bridge owned by every connected `appId`; Local MCP host only by apps with tunnel MCPs).
+
+Reach talks to the **engine** (`https`/`wss` :8765), not Warpgate / Web UI :30487. See [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
+
+### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Agentic Orchestration
+
+Engine edge APIs, planner, catalogs, model backends, execution, and platform — ranked top-to-bottom:
+
+| Rank | Layer | Typical nodes |
+|---|---|---|
+| 0 | Edge | Engine :8765, session_overlay, mcp_tunnel, direct_agent, hello.speech, mTLS enrol, speech STT/TTS, Web UI :30487 |
+| 1 | Planning | Planner / Runner |
+| 2 | Capability | Agents / MCP / Skills catalogs, model backends, Ollama / remote LLMs |
+| 3 | Execution | Execution backend, workers, MCP sidecars |
+| 4 | Platform | k3s / Jetson / NVR, storage / GPU |
+
+Modals label **Owned by app** when session overlays (agents, skills, tunnel MCPs, speech, harness/planner path) are active for those clients. Agents / MCP / Skills cluster modals also list the live `client.*` ids each connected `appId` registered.
+
+---
+
+## Worked examples
+
+### Reach client path
+
+1. Client enrolls mTLS (once) → **mTLS enroller** → engine **mTLS enrol**.
+2. **Session bridge** opens `wss://<edge>:8765/ws` with client cert.
+3. **Overlay packer** loads YAML under the client’s overlay root → registers `client.*` agents/MCPs/skills.
+4. Topology Application band shows that `appId` with instance count; expand → Client UI, Overlay source, Local tools.
+5. Planner later resolves catalog agents **plus** those session overlays; catalog modal lists `myapp → client.domain_expert, …`.
+6. When a step needs a device-local MCP, engine **mcp_tunnel** fires a **reverse tunnel** up into **Local MCP host**.
+
+### OpenClaw host (bypass path)
+
+OpenClaw plugin posts to the coordinator Web UI (`POST /api/v1/orchestrate` on :30487) and never joins the Reach session registry as a normal app overlay path. Topology draws **OpenClaw → Web UI** as a **bypass** on the right margin. See [External integrations]({{ '/external-integrations/' | relative_url }}).
+
+### Advertisement vs audio
+
+- Dotted **advertisement**: `hello.speech` → Speech STT (engine told the client *where* STT lives).
+- **Stream** edge: Speech client → Speech STT (actual transcription HTTP).
+
+Do not read the advertisement edge as “the engine pipes mic audio.”
+
+---
+
+## Components
+
+<a id="topology-node"></a>
+### Generic node
+
+A live topology component reported by the current deployment. Every node has an id (stable across snapshots), a kind (drives colour band and wiki help), a status, and optional sublabel (counts, ports, ownership). Click opens a modal; help links here by `wikiKey`.
+
+Components that are never deployed for this install are hidden unless you enable **Show not deployed** (dashed placeholders).
+
+---
+
+<a id="app"></a>
+### App (`appId`)
+
+Header for one Reach product identity. Sublabel is how many connected instances (sessions) advertise that `appId`.
+
+**Example:** `myapp · 2 instances` means two concurrent Reach sessions registered overlays with `appId: "myapp"`. Expand the panel to see that client’s UI / overlays / local-tools column; other apps stay greyed.
+
+Sessions are loaded from the engine admin API (`GET /api/v1/admin/reach-sessions`) and grouped by `appId`.
+
+---
+
+<a id="ui"></a>
+### Client UI
+
+Client UI that connected through <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> **Reach**. The platform sees only what the session advertised — not the client’s internal screens, routes, or widgets.
+
+**Example:** two different client apps both appear as “Client UI” under their respective `appId` panels. Topology does not show product-specific screens — only that a Reach session exists for that client.
+
+---
+
+<a id="overlay-source"></a>
+### Overlay source
+
+Domain overlays the client advertised for this session (plant knowledge, vertical packs, and similar). Sublabel often shows how many `client.*` agent (or related) ids are live.
+
+**Example:** a client packs domain agents from `overlayRoot/agent_providers/*.yaml`. After register, the Overlay source node might read `2 client.*` while the Agents catalog modal lists:
+
+```text
+myapp
+  · client.domain_expert
+  · client.summarizer
+```
+
+Those ids are **session-scoped** overlays, not permanent entries in `config/agent_providers/`. See [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}) and [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
+
+---
+
+<a id="local-tools"></a>
+### Local tools
+
+MCP tools hosted on the client device and reverse-tunneled into the engine via Reach. Sublabel is typically the tunnel / local MCP count.
+
+**Example:** a client advertises:
+
+```json
+{
+  "id": "client.filesystem_local",
+  "streamable_http": { "url": "tunnel://session-mcp/filesystem" }
+}
+```
+
+The engine rewrites `tunnel://…` to call back through the session WebSocket into the device’s Local MCP host — so planners can use on-device tools without opening inbound ports on the client. See [[#local-mcp-host]] and [[#edge-reverse-tunnel]].
+
+---
+
+<a id="openclaw"></a>
+### OpenClaw
+
+OpenClaw host that talks to the Web UI and **bypasses** the Reach band and engine. Drawn on the right margin as a bypass edge.
+
+**When it appears:** graph marks OpenClaw deployed/healthy when some session id contains `"openclaw"` (or equivalent presence signal); otherwise unknown / not deployed.
+
+**Why it matters:** operators often expect “all clients go through Reach.” OpenClaw is the intentional exception — plugin base URL points at Web UI :30487 (`POST /api/v1/orchestrate`), not engine :8765. See [External integrations]({{ '/external-integrations/' | relative_url }}) and [System architecture]({{ '/system-architecture/' | relative_url }}).
+
+---
+
+<a id="session-bridge"></a>
+### Session bridge
+
+Reach `SessionBridge` carrying the authenticated client session to the engine.
+
+Responsibilities typically include:
+
+- WebSocket lifecycle to `wss://<engine>:8765/ws` (mTLS client cert when required)
+- Overlay register / clear (`session_overlay_register` / `session_overlay_clear`)
+- Responding to `mcp_tunnel_request` frames
+- Optional `direct_agent` turns and speech capability discovery from `hello`
+
+**Example ownership:** with `myapp` and `field-client` both connected, the Session bridge modal shows **Owned by app: myapp, field-client**.
+
+---
+
+<a id="overlay-packer"></a>
+### Overlay packer
+
+Packs client overlays before they hit the engine session-overlay API. Reads YAML under the client’s `overlayRoot` (agent providers, skills, MCP descriptors), prefixes / shapes them as `client.*` entries, and sends them on the session WebSocket.
+
+**Conceptual register payload:**
+
+```json
+{
+  "type": "session_overlay_register",
+  "appId": "myapp",
+  "ttlSeconds": 3600,
+  "agents": [{ "id": "client.domain_expert" }],
+  "mcps": [{
+    "id": "client.filesystem_local",
+    "streamable_http": { "url": "tunnel://session-mcp/filesystem" }
+  }],
+  "skills": []
+}
+```
+
+Ack returns accepted `agentIds` / `mcpIds` / `skillIds` and `expiresAt`. Requires `AGENTIC_SERVE_SESSION_OVERLAY=1` on the engine. See [Configuration]({{ '/configuration/' | relative_url }}).
+
+---
+
+<a id="local-mcp-host"></a>
+### Local MCP host
+
+Client-side MCP host. The engine’s `mcp_tunnel` calls **back up** into this host (reverse tunnel).
+
+On the device this is often a loopback `mcp-proxy` (or equivalent) for stdio MCP servers. The engine never dials the client’s LAN address; it sends a tunnel request on the existing authenticated session and the host executes the tool locally.
+
+**Example path:** Planner selects `client.filesystem_local` → worker/engine issues tool call → `mcp_tunnel` → Local MCP host → filesystem MCP on the client → response framed back on the session WS.
+
+Owned by apps that currently advertise tunnel MCPs.
+
+---
+
+<a id="speech-client"></a>
+### Speech client
+
+Reach speech client for STT/TTS against advertised speech sidecars. Audio does **not** ride the session WebSocket; after `hello.speech` advertises base URLs, the client calls those HTTP endpoints directly (stream edges on the canvas).
+
+Gated by speech env on the engine (`AGENTIC_SPEECH_ENABLED` and advertise URLs). See [Configuration]({{ '/configuration/' | relative_url }}).
+
+---
+
+<a id="mtls-enroller"></a>
+### mTLS enroller
+
+Issues and renews client certificates for Reach↔engine mTLS. Reach generates a key+CSR, posts to `POST /api/v1/mtls/enroll` with an admin-minted token, and persists `cert.pem` / `key.pem` / `ca.pem` for steady-state WSS.
+
+Enrollment is one-time (or renewal); session auth afterward is the client cert, not the enroll token. Full procedure: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
+
+---
+
+<a id="engine"></a>
+### Engine
+
+Engine daemon (`python -m orchestration.serve`) — session overlay, MCP tunnel, direct agent, speech hello, and mTLS enroll. Typically **hostPort 8765** (NodePort **30765** on k3s). Probed via `/health`.
+
+Reach clients must target the engine, **never** Web UI :30487. If `AGENTIC_JETSON_ENABLE_ENGINE=0`, the engine node may show as not deployed / unknown rather than failed. See [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+
+---
+
+<a id="endpoint"></a>
+### Endpoint
+
+A concrete engine or speech HTTP (or WS-adjacent) endpoint on the edge rank — overlay, tunnel, direct agent, speech hello, enroll, STT, TTS. Endpoints inherit ownership from active session overlays when relevant.
+
+---
+
+<a id="endpoint-session-overlay"></a>
+### session_overlay
+
+Engine API that applies Reach session overlays for a run. Registration is usually over the session WebSocket (`session_overlay_register` → ack/denied); HTTP admin listing is via reach-sessions.
+
+Overlays are TTL-bound and scoped to the session/`appId`. When they expire or clear, Application overlay/local-tool counts drop and catalog “Reach overlays by app” lists shrink. Env: `AGENTIC_SERVE_SESSION_OVERLAY`.
+
+---
+
+<a id="endpoint-mcp-tunnel"></a>
+### mcp_tunnel
+
+Reverse tunnel endpoint that calls back into the client MCP host. Direction on the canvas is **upward** (engine → Local MCP host) with the reverse-tunnel dash pattern.
+
+Env: `AGENTIC_SERVE_MCP_TUNNEL`. Without this, Local tools / Local MCP host nodes are not meaningfully deployed even if a client wants to advertise tunnels.
+
+---
+
+<a id="endpoint-direct-agent"></a>
+### direct_agent
+
+Direct-agent chat path that skips full dynamic planning for simple turns. Reach (or HTTP `POST /api/v1/direct-agent`) can ask a single agent without the full Planner → CrewAI plan loop — useful for low-latency client replies.
+
+See [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) for the full planner path this bypasses.
+
+---
+
+<a id="endpoint-hello-speech"></a>
+### hello.speech
+
+Advertises speech (STT/TTS) capability to Reach clients — typically URLs/ports for the sidecars. This is an **advertisement**, not the audio path. Actual STT/TTS traffic is Speech client → Speech STT/TTS.
+
+---
+
+<a id="endpoint-mtls-enrol"></a>
+### mTLS enrol
+
+mTLS enrollment endpoint for Reach client certificates (`GET /api/v1/mtls/ca`, `POST /api/v1/mtls/enroll`). Public for enrollment; other engine APIs require a verified client cert when client certs are required. See [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
+
+---
+
+<a id="speech-stt"></a>
+### Speech STT
+
+Speech-to-text sidecar serving transcription requests (commonly advertised on **:8090**). Appears when speech is enabled and advertised; otherwise hidden or “not deployed.”
+
+---
+
+<a id="speech-tts"></a>
+### Speech TTS
+
+Text-to-speech sidecar serving synthesis requests (commonly **:8091**). Same presence rules as STT.
+
+---
+
+<a id="web-ui"></a>
+### Web UI
+
+Coordinator Web UI and Admin console (NodePort **30487**; container often `AGENTIC_WEB_PORT` / 3847). Serves chat, Admin Topology, host metrics, and orchestrate APIs used by OpenClaw.
+
+Topology graph is built in this process (`/api/v1/admin/topology/graph` + admin WS `topology_*` messages). The Web UI node is therefore “always here” when you can see the page. Traefik / Warpgate upstreams should target `:30487`, not host port 80. See [Web UI]({{ '/web-ui/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+
+---
+
+<a id="planner"></a>
+### Planner / Runner
+
+Dynamic planner / runner that turns goals into CrewAI steps (plan → execute → optional replan). On Topology this is usually presence-only (`unknown` until planner probes exist).
+
+When Reach overlays are active, ownership can show which `appId`s are feeding session-scoped agents/skills into planning. Details: [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Workflows and router]({{ '/workflows/' | relative_url }}).
+
+---
+
+<a id="catalog"></a>
+### Catalog cluster
+
+Resolved agent, MCP, or skills catalog cluster used by planning (**aggregated** — not one canvas node per YAML entry). A cluster shows totals and status breakdown; click opens a searchable member table.
+
+The modal also lists **Reach session overlays by app** — which `client.*` ids each connected `appId` currently registered. That merge of static catalog + live overlays is what the planner actually sees for those sessions.
+
+---
+
+<a id="catalog-agents"></a>
+### Agents catalog
+
+Cluster of agent-provider catalog entries available to the planner (from `config/agent_providers/` plus live Reach overlays). Live overlays are grouped by `appId` in the modal.
+
+**Example modal excerpt:**
+
+```text
+Catalog: 183 agents · …
+Reach overlays by app
+  myapp — client.domain_expert, client.summarizer
+  field-client — client.local_tools
+```
+
+See [Agent provider catalog]({{ '/agent-catalog/' | relative_url }}).
+
+---
+
+<a id="catalog-mcp"></a>
+### MCP catalog
+
+Cluster of MCP provider catalog entries available to the planner (static `config/mcp_providers/` plus session tunnel/HTTP MCPs). Live Reach tunnel/MCP overlays are grouped by `appId` in the modal.
+
+See [MCP providers]({{ '/mcp-catalog/' | relative_url }}).
+
+---
+
+<a id="catalog-skills"></a>
+### Skills catalog
+
+Cluster of agent-skill playbooks the planner may attach to tasks (catalog YAML + any session-registered skills). See [Agent skills]({{ '/agent-skills/' | relative_url }}).
+
+---
+
+<a id="model-backend"></a>
+### Model backends
+
+Model backend registry that selects local or remote LLM runtimes for planner and agents. Topology shows the registry node plus concrete runtimes discovered from env (Ollama host, API keys, etc.).
+
+---
+
+<a id="models-backends"></a>
+### Models / backends
+
+Resolved model-backend catalog used to pick LLM runtimes for a run. Distinct from the Agents catalog: this answers “which LLM endpoint,” not “which agent persona.”
+
+---
+
+<a id="model-runtime"></a>
+### Model runtime
+
+A concrete model runtime such as Ollama or a remote provider. Children on the canvas are typically Ollama and/or Remote LLMs when configured.
+
+---
+
+<a id="models-ollama"></a>
+### Ollama
+
+Local Ollama runtime for on-box model inference. Presence usually follows `OLLAMA_HOST` / `OLLAMA_API_BASE` (or equivalent) in the deployment env. Common on Jetson / NVR edge boxes. See [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+
+---
+
+<a id="models-remote"></a>
+### Remote LLMs
+
+Remote LLM providers (OpenAI, Anthropic, …) when credentials exist (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). If keys are absent, the node is not deployed / unknown rather than “failed empty.”
+
+---
+
+<a id="execution-backend"></a>
+### Execution backend
+
+Execution backend that runs steps — `inprocess` (default), `subprocess`, or `kubernetes` / warm pool (`AGENTIC_EXECUTION_BACKEND`). See [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}), [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}).
+
+---
+
+<a id="worker"></a>
+### Workers
+
+Worker pods or processes currently available to run steps. Small counts may expand inline on the canvas; larger sets collapse to a cluster (aggregation rule). Often absent on pure in-process installs.
+
+---
+
+<a id="mcp-sidecar"></a>
+### MCP sidecar
+
+MCP sidecar containers attached to workers for tool execution (k8s / warm-pool path). Hidden when the execution backend does not run sidecars.
+
+---
+
+<a id="platform"></a>
+### Platform
+
+Cluster / host platform layer (k3s node, Jetson, or NVR). Sublabel may reflect `AGENTIC_EDGE_PLATFORM`. This is structural context for where Agentic Orchestration is running — not a substitute for the Infrastructure runbooks. See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
+
+**Typical edge hosts (lab):** Jetson `172.16.90.20`, NVR `10.0.10.16`.
+
+---
+
+<a id="storage"></a>
+### Storage / GPU
+
+Persistent volumes, GPU weights, and host metrics mounts — run-store PVC, model weight paths, jtop / host metrics volume mounts, and similar platform attachments that back long-lived edge state.
+
+---
+
+## Edges
+
+<a id="topology-edge"></a>
+### Generic edge
+
+A structural link between two topology components. Edges have a kind (dash pattern), optional protocol/port, and either live metrics or **no data** when uninstrumented. Hover highlights the two endpoints and the path through the edge; click opens the edge modal.
+
+---
+
+<a id="edge-request"></a>
+### Request edge
+
+A request/response call path between two components (ordinary HTTP/RPC-style). Solid / normal dash flow when instrumented.
+
+**Example:** Web UI → Engine health or orchestrate-related control calls that are not long-lived streams.
+
+---
+
+<a id="edge-stream"></a>
+### Stream edge
+
+A streaming path (WebSocket or chunked HTTP) between components. Long-dash pattern.
+
+**Examples:**
+
+- Session bridge → Engine (`wss`)
+- Speech client → Speech STT / TTS (chunked audio HTTP)
+
+---
+
+<a id="edge-reverse-tunnel"></a>
+### Reverse tunnel
+
+Engine calling back up into a Reach-hosted local MCP host — drawn **upward** with a distinct dash. This is the distinguishing Reach mechanism: tools stay on the device; the engine does not open inbound ports to the client.
+
+**Example:** `engine/mcp-tunnel` → `reach/local-mcp-host` while a client step reads a local file via `client.filesystem_local`.
+
+---
+
+<a id="edge-advertisement"></a>
+### Advertisement
+
+Capability advertisement (not request traffic). Dotted pattern.
+
+**Example:** `hello.speech` → Speech STT publishes “STT is at `http://…:8090`”. No audio flows on this edge. Contrast with the Speech client → STT **stream** edge.
+
+---
+
+<a id="edge-bypass"></a>
+### Bypass
+
+OpenClaw path that skips Reach and hits the Web UI directly, routed on the **right margin** so the skip is spatially obvious.
+
+**Example:** OpenClaw plugin → `http://<jetson>:30487` orchestrate API, while Reach clients stay on `https://<jetson>:8765`.
+
+---
+
+## Ports and env (topology-relevant)
+
+| Port | Role |
+|---|---|
+| **8765** | Engine hostPort (`AGENTIC_SERVE_PORT`) — Reach clients |
+| **30765** | Engine NodePort (alternate in-cluster access) |
+| **30487** | Web UI / Admin NodePort — browsers, OpenClaw, Traefik |
+| **8090 / 8091** | Speech STT / TTS (when enabled) |
+
+| Variable | Effect on the graph |
+|---|---|
+| `AGENTIC_SERVE_SESSION_OVERLAY` | Overlay packer / session_overlay deployed |
+| `AGENTIC_SERVE_MCP_TUNNEL` | Local MCP host / mcp_tunnel deployed |
+| `AGENTIC_SERVE_TLS_*` | https/wss + mTLS enrol surface |
+| `AGENTIC_SPEECH_ENABLED` (+ advertise URLs) | Speech client, hello.speech, STT/TTS |
+| `AGENTIC_JETSON_ENABLE_ENGINE` | Engine presence on Jetson deploys |
+| `AGENTIC_EXECUTION_BACKEND` / warm-pool flags | Execution + workers / sidecars |
+| `OLLAMA_*` / provider API keys | Ollama / Remote LLMs nodes |
+| `AGENTIC_EDGE_PLATFORM` | Platform sublabel |
+| `AGENTIC_WEB_PORT` | Internal web listen port |
+
+Full variable index: [Configuration]({{ '/configuration/' | relative_url }}). Deploy notes: [Infrastructure]({{ '/infrastructure/' | relative_url }}), [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}).
+
+---
+
+## Live data sources
+
+| Source | Role |
+|---|---|
+| `GET /api/v1/admin/topology/graph` | Full snapshot for first paint / resync |
+| Admin WebSocket `topology_subscribe` | `topology_snapshot` / `topology_delta` / `topology_health` / `topology_metrics` |
+| Engine `GET /api/v1/admin/reach-sessions` | Application band grouping + overlay membership |
+| Engine `/health` | Engine node probe |
+
+Implementation lives in `agentic-orchestration-web` (graph builder + WS) and `agentic-orchestration-admin` (Angular Topology page). Design briefs under `agentic-orchestration-admin/docs/topology/`.
+
+---
+
+## Operator tips
+
+1. **Empty Application band** — engine down, overlay flag off, or no Reach client registered yet. Check engine :8765 and `AGENTIC_SERVE_SESSION_OVERLAY`.
+2. **Everything grey / unknown** — expected for uninstrumented layers; focus on Engine + Web UI colour and Application presence.
+3. **Local tools present but reverse-tunnel edge idle** — tunnel env may be off, or no step has invoked a tunnel MCP yet (structural edge still **no data**).
+4. **OpenClaw “missing” from Reach** — correct; use the bypass lane and Web UI, not Session bridge.
+5. **Catalog counts huge, canvas calm** — aggregation is intentional; open the cluster modal for member lists and per-`appId` `client.*` overlays.
+)

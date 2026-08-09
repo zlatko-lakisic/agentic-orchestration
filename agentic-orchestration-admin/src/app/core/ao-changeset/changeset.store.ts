@@ -57,7 +57,7 @@ export class ChangeSetStore {
   /** Phase 0: export local change set as a text diff artefact. */
   exportDiff(): string {
     const lines = [
-      '# AO Admin change set (Phase 0 — local only)',
+      '# Agentic Orchestration Admin change set (Phase 0 — local only)',
       '# Apply manually to the appropriate .env / env.jetson / Secret.',
       `# Generated: ${new Date().toISOString()}`,
       '',

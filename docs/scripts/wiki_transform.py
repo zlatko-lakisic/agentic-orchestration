@@ -27,6 +27,12 @@ ASSET_IMG = re.compile(
     r"!\[(?P<alt>[^\]]*)\]\((?:\./)?assets/(?P<path>[^)]+)\)"
 )
 
+# HTML <img src="assets/..."> (brand marks in headings / tables).
+HTML_ASSET_IMG = re.compile(
+    r'(<img\b[^>]*\bsrc=")(?:\./)?assets/(?P<path>[^"]+)(")',
+    re.IGNORECASE,
+)
+
 FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n+", re.DOTALL)
 
 PAGE_TITLES: dict[str, str] = {
@@ -54,8 +60,9 @@ PAGE_TITLES: dict[str, str] = {
     "GitHub-Pages-publish": "GitHub Pages publish",
     "System-architecture": "System architecture (Kubernetes / Jetson)",
     "RAG-sources": "RAG sources",
-    "Reach-and-mTLS": "AO Reach and engine mTLS",
+    "Reach-and-mTLS": "Reach and engine mTLS",
     "Engine-daemon-plan": "Engine API daemon plan",
+    "Topology-dashboard": "Topology dashboard",
 }
 
 # Wiki root filename → docs/ relative path (None = skip sync)
@@ -82,6 +89,7 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "System-architecture.md": "system-architecture/index.md",
     "RAG-sources.md": "rag-catalog/index.md",
     "Reach-and-mTLS.md": "reach-and-mtls/index.md",
+    "Topology-dashboard.md": "topology-dashboard/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
@@ -128,6 +136,7 @@ PAGE_SLUGS: dict[str, str] = {
     "System-architecture": "system-architecture",
     "RAG-sources": "rag-catalog",
     "Reach-and-mTLS": "reach-and-mtls",
+    "Topology-dashboard": "topology-dashboard",
     "Releases": "changelog",
     "Engine-daemon-plan": "engine-daemon-plan",
     "Execution-backends": "execution-backends",
@@ -187,8 +196,14 @@ def convert_asset_img(match: re.Match[str]) -> str:
     return f"![{alt}]({{{{ '/assets/{path}' | relative_url }}}})"
 
 
+def convert_html_asset_img(match: re.Match[str]) -> str:
+    path = match.group("path").strip()
+    return f'{match.group(1)}{{{{ "/assets/{path}" | relative_url }}}}{match.group(3)}'
+
+
 def convert_text(text: str) -> str:
     text = ASSET_IMG.sub(convert_asset_img, text)
+    text = HTML_ASSET_IMG.sub(convert_html_asset_img, text)
     text = WIKI_LINK.sub(convert_wiki_link, text)
     text = MD_LINK.sub(convert_md_link, text)
     text = text.replace(GITLAB_PUBLISH_ROW, GITHUB_PUBLISH_ROW)

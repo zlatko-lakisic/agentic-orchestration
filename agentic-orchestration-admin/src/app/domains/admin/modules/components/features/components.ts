@@ -5,6 +5,7 @@ import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { TopologyComponent, TopologyResponse } from '@/app/core/ao-api/types';
+import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
@@ -13,6 +14,8 @@ const CATALOG: Array<{
   label: string;
   kind: string;
   notes: string;
+  /** When true, render brand mark + steel “Reach” instead of plain label. */
+  brandReach?: boolean;
 }> = [
   {
     id: 'web',
@@ -58,9 +61,10 @@ const CATALOG: Array<{
   },
   {
     id: 'reach',
-    label: 'AO Reach clients',
+    label: 'Reach clients',
     kind: 'client',
     notes: 'Must use engine :8765 / NodePort 30765 — never web :30487.',
+    brandReach: true,
   },
 ];
 
@@ -75,6 +79,7 @@ const CATALOG: Array<{
     MatIconModule,
     StatusChip,
     ErrorState,
+    AoMark,
   ],
   template: `
     <div
@@ -98,7 +103,15 @@ const CATALOG: Array<{
           <mat-card appearance="outlined">
             <mat-card-header>
               <div class="flex w-full items-center justify-between gap-2">
-                <div class="font-medium">{{ c.label }}</div>
+                @if (c.brandReach) {
+                  <div class="flex items-center gap-1.5 font-medium">
+                    <ao-mark size="sm" tint="steel" />
+                    <span class="text-[#3B6EA5] dark:text-[#E6EAF0]">Reach</span>
+                    <span>clients</span>
+                  </div>
+                } @else {
+                  <div class="font-medium">{{ c.label }}</div>
+                }
                 <ao-status-chip
                   [status]="statusFor(c.id)"
                   [label]="statusFor(c.id)"

@@ -12,8 +12,9 @@
   --color-graphite: #12151c;
   --color-panel: #1a1f29;
   --color-panel-raised: #222834;
-  --color-steel: #6b9aab;
-  --color-steel-dim: #4d7380;
+  /* Brand steel (assets/brand/BRAND.md) */
+  --color-steel: #3b6ea5;
+  --color-steel-dim: #2f5782;
   --color-pass: #5a9a6e;
   --color-mist: #b4bcc8;
   --color-white: #e8ecf2;

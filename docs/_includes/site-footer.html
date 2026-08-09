@@ -1,6 +1,16 @@
 <footer class="site-footer">
   <div class="site-footer__inner">
-    <p class="site-footer__meta">Agentic Orchestration · documentation</p>
+    <p class="site-footer__meta">
+      <img
+        class="site-footer__mark"
+        src="{{ '/assets/logo.svg' | relative_url }}"
+        alt=""
+        width="16"
+        height="16"
+      />
+      <span class="site-footer__brand">Agentic Orchestration</span>
+      <span>· documentation</span>
+    </p>
     <ul class="site-footer__links">
       {%- for link in site.footer.links -%}
         <li>

@@ -83,8 +83,10 @@ docs:
         url: /kubernetes-execution-upgrade/
       - title: "Engine API Daemon"
         url: /engine-daemon-plan/
-      - title: "AO Reach + mTLS"
+      - title: "Reach + mTLS"
         url: /reach-and-mtls/
+      - title: "Topology dashboard"
+        url: /topology-dashboard/
       - title: "Agent Skills Roadmap"
         url: /agent-skills-roadmap/
       - title: "Agent Societies Roadmap"

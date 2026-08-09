@@ -1,6 +1,6 @@
 ---
 layout: single
-title: "AO Reach and engine mTLS"
+title: "Reach and engine mTLS"
 permalink: /reach-and-mtls/
 toc: true
 toc_label: "On this page"
@@ -8,9 +8,9 @@ toc_icon: "list"
 sidebar:
   nav: "docs"
 ---
-# AO Reach and engine mTLS
+# <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach and engine mTLS
 
-Reach ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)) is the Dart client SDK for **session overlays** and **reverse MCP tunnels** against a shared AO **engine** daemon (`python -m orchestration.serve`). It talks to the engine **directly** — not via Warpgate.
+Reach ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)) is the Dart client SDK for **session overlays** and **reverse MCP tunnels** against a shared Agentic Orchestration **engine** daemon (`python -m orchestration.serve`). It talks to the engine **directly** — not via Warpgate.
 
 Canonical SDK docs: Reach `README.md`. Engine serve env: [Configuration]({{ '/configuration/' | relative_url }}). Daemon plan: [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}).
 
@@ -18,12 +18,12 @@ Canonical SDK docs: Reach `README.md`. Engine serve env: [Configuration]({{ '/co
 
 | Component | Version | Notes |
 |-----------|---------|--------|
-| AO engine | **≥ v1.29.0** | TLS/mTLS, CA CLI, enroll API (`main` also has IP-SAN fix for dial-by-IP) |
-| AO Reach | **v0.4.0** | `ReachMtlsConfig`, `ReachMtlsEnroller`, WSS client certs |
+| <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="16" height="16" style="vertical-align:-3px" /> engine | **≥ v1.29.0** | TLS/mTLS, CA CLI, enroll API (`main` also has IP-SAN fix for dial-by-IP) |
+| <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="16" height="16" style="vertical-align:-3px" /> Reach | **v0.4.0** | `ReachMtlsConfig`, `ReachMtlsEnroller`, WSS client certs |
 
 ## Trust model
 
-1. **Enrollment (one-time):** admin mints a token on AO; Reach generates a key+CSR (`openssl`), posts to `POST /api/v1/mtls/enroll`, persists `cert.pem` / `key.pem` / `ca.pem`.
+1. **Enrollment (one-time):** admin mints a token on Agentic Orchestration; Reach generates a key+CSR (`openssl`), posts to `POST /api/v1/mtls/enroll`, persists `cert.pem` / `key.pem` / `ca.pem`.
 2. **Steady state:** Reach connects with `https` / `wss` and presents the client cert. User identity comes from the cert (SAN/CN), not spoofable headers.
 3. **Token TTL ≠ session auth.** A 24h enroll token is only for first-time cert issue. Client certs default to **365 days**.
 

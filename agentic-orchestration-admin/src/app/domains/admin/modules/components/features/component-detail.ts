@@ -6,6 +6,7 @@ import { MatTabLink, MatTabNav, MatTabNavPanel } from '@angular/material/tabs';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { TopologyComponent } from '@/app/core/ao-api/types';
+import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
@@ -20,6 +21,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
     MatTabNavPanel,
     ConfigSettingsPage,
     StatusChip,
+    AoMark,
   ],
   template: `
     <div
@@ -30,8 +32,16 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           <a routerLink="/components" class="text-sm text-neutral-500"
             >← Components</a
           >
-          <div class="mt-1 text-xl font-semibold tracking-tighter sm:text-2xl">
-            {{ title() }}
+          <div
+            class="mt-1 flex items-center gap-2 text-xl font-semibold tracking-tighter sm:text-2xl"
+          >
+            @if (id() === 'reach') {
+              <ao-mark size="sm" tint="steel" />
+              <span class="text-[#3B6EA5] dark:text-[#E6EAF0]">Reach</span>
+              <span>clients</span>
+            } @else {
+              {{ title() }}
+            }
           </div>
           <div class="mt-1 flex items-center gap-2">
             <ao-status-chip [status]="status()" [label]="status()" />
@@ -142,7 +152,7 @@ export class ComponentDetailPage implements OnInit {
       mcp: 'MCP servers',
       speech: 'Speech',
       openclaw: 'OpenClaw bridge',
-      reach: 'AO Reach clients',
+      reach: 'Reach clients',
     };
     return map[this.id()] || this.id();
   });

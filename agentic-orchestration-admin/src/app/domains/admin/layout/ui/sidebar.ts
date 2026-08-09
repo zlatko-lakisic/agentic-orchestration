@@ -4,25 +4,22 @@ import { MatIcon } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
+import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 
 /** Fuse admin sidebar structure with AO branding + environment identity. */
 @Component({
   selector: 'admin-sidebar',
-  imports: [Navigation, User, MatButton, MatIcon],
+  imports: [Navigation, User, MatButton, MatIcon, AoMark],
   host: {
     class: 'flex w-full flex-auto flex-col',
   },
   template: `
     <div class="relative flex items-center gap-x-2.5 pt-5 pr-4 pb-0 pl-6">
-      <span
-        class="ao-brand-mark size-8 shrink-0 bg-[#3B6EA5] dark:bg-[#E6EAF0]"
-        role="img"
-        aria-label="Agentic Orchestration"
-      ></span>
+      <ao-mark size="md" tint="steel" />
 
       <div class="flex min-w-0 flex-col">
         <div
-          class="text-on-surface text-sm leading-tight font-bold tracking-tight"
+          class="text-sm leading-tight font-bold tracking-tight text-[#3B6EA5] dark:text-[#E6EAF0]"
         >
           Agentic Orchestration
         </div>
@@ -77,14 +74,6 @@ import { User } from '@/app/domains/admin/layout/ui/user';
     <div class="p-2">
       <user />
     </div>
-  `,
-  styles: `
-    .ao-brand-mark {
-      display: inline-block;
-      -webkit-mask: url('/admin/images/logo/ao-mark-small.svg') center / contain
-        no-repeat;
-      mask: url('/admin/images/logo/ao-mark-small.svg') center / contain no-repeat;
-    }
   `,
 })
 export class AdminSidebar implements OnInit {
