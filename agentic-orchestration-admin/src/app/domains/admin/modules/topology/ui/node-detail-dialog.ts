@@ -167,6 +167,47 @@ type Pt = { x: number; y: number | null };
                   <span class="text-neutral-500"> — {{ d.members.note }}</span>
                 </div>
               }
+              @if (k8sPods(d); as pods) {
+                <div class="flex flex-col gap-2">
+                  <div
+                    class="text-xs font-medium uppercase tracking-wide text-neutral-500"
+                  >
+                    Pods
+                  </div>
+                  <div
+                    class="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700"
+                  >
+                    <table class="w-full text-left text-xs">
+                      <thead class="bg-neutral-50 text-neutral-500 dark:bg-neutral-900">
+                        <tr>
+                          <th class="px-2 py-1.5 font-medium">Name</th>
+                          <th class="px-2 py-1.5 font-medium">Phase</th>
+                          <th class="px-2 py-1.5 font-medium">Ready</th>
+                          <th class="px-2 py-1.5 font-medium">Restarts</th>
+                          <th class="px-2 py-1.5 font-medium">Node</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (p of pods; track p.name) {
+                          <tr
+                            class="border-t border-neutral-100 dark:border-neutral-800"
+                          >
+                            <td class="px-2 py-1.5 font-mono">{{ p.name }}</td>
+                            <td class="px-2 py-1.5">{{ p.phase }}</td>
+                            <td class="px-2 py-1.5">
+                              {{ p.ready ? 'yes' : 'no' }}
+                            </td>
+                            <td class="px-2 py-1.5">{{ p.restarts }}</td>
+                            <td class="px-2 py-1.5 text-neutral-500">
+                              {{ p.nodeName || '—' }}
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              }
             </div>
           </mat-tab>
           <mat-tab label="Traffic">
@@ -404,6 +445,23 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
         ? d.node.appMembers
         : [];
     return groups.length ? groups : null;
+  }
+
+  k8sPods(
+    d: TopologyNodeDetail
+  ): NonNullable<NonNullable<TopologyNodeDetail['k8sResource']>['pods']> | null {
+    const fromMembers = (
+      d.members as { pods?: NonNullable<TopologyNodeDetail['k8sResource']>['pods'] } | null
+    )?.pods;
+    const pods =
+      fromMembers?.length
+        ? fromMembers
+        : d.k8sResource?.pods?.length
+          ? d.k8sResource.pods
+          : d.node.k8sResource?.pods?.length
+            ? d.node.k8sResource.pods
+            : null;
+    return pods?.length ? pods : null;
   }
 
   healthChartSeries(): ApexAxisChartSeries {

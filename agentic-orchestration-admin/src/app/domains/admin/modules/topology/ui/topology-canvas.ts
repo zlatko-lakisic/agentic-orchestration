@@ -240,6 +240,34 @@ type AppGroupFrame = {
                 </button>
               </foreignObject>
             }
+            @if (n.id === 'platform/k3s' && n.expandable) {
+              <foreignObject
+                [attr.x]="n.width - 36"
+                y="10"
+                width="28"
+                height="32"
+              >
+                <button
+                  xmlns="http://www.w3.org/1999/xhtml"
+                  type="button"
+                  class="k8s-expand-btn"
+                  [attr.aria-expanded]="expandedK8sId() === n.id"
+                  [attr.aria-label]="
+                    (expandedK8sId() === n.id ? 'Collapse ' : 'Expand ') +
+                    n.label
+                  "
+                  (click)="onExpandK8sClick($event, n.id)"
+                >
+                  <mat-icon
+                    [svgIcon]="
+                      expandedK8sId() === n.id
+                        ? 'chevron-down'
+                        : 'chevron-right'
+                    "
+                  ></mat-icon>
+                </button>
+              </foreignObject>
+            }
           </g>
         }
       </svg>
@@ -302,6 +330,28 @@ type AppGroupFrame = {
       background: color-mix(in oklab, #0f766e 22%, transparent);
     }
     .app-expand-btn mat-icon {
+      width: 16px;
+      height: 16px;
+      font-size: 16px;
+    }
+    .k8s-expand-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 32px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      background: color-mix(in oklab, #3b6ea5 14%, transparent);
+      color: #3b6ea5;
+      cursor: pointer;
+    }
+    .k8s-expand-btn:hover {
+      background: color-mix(in oklab, #3b6ea5 26%, transparent);
+    }
+    .k8s-expand-btn mat-icon {
       width: 16px;
       height: 16px;
       font-size: 16px;
@@ -431,6 +481,7 @@ export class TopologyCanvas {
     null
   );
   readonly expandedAppId = input<string | null>(null);
+  readonly expandedK8sId = input<string | null>(null);
   readonly blurred = input(false);
   readonly summary = input('Deployment topology diagram');
 
@@ -438,6 +489,7 @@ export class TopologyCanvas {
   readonly nodeClick = output<PositionedNode>();
   readonly edgeClick = output<PositionedEdge>();
   readonly expandApp = output<string>();
+  readonly expandK8s = output<string>();
 
   /** Bounding frames for each app panel (and expanded children when open). */
   readonly appFrames = computed(() => {
@@ -510,6 +562,12 @@ export class TopologyCanvas {
     this.expandApp.emit(appId);
   }
 
+  onExpandK8sClick(ev: Event, nodeId: string) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.expandK8s.emit(nodeId);
+  }
+
   accent(n: PositionedNode): string {
     return themeForKind(n.kind, n.band).accent;
   }
@@ -519,7 +577,9 @@ export class TopologyCanvas {
   }
 
   labelMax(n: PositionedNode): number {
-    return n.kind === 'app' ? 12 : 14;
+    if (n.kind === 'app') return 12;
+    if (n.kind === 'k8s-workload' || n.id === 'platform/k3s') return 16;
+    return 14;
   }
 
   ariaLabel(n: PositionedNode): string {
@@ -530,7 +590,11 @@ export class TopologyCanvas {
         ? n.appId === this.expandedAppId()
           ? ' expanded'
           : ' collapsed'
-        : '';
+        : n.id === 'platform/k3s' && n.expandable
+          ? this.expandedK8sId() === n.id
+            ? ' expanded'
+            : ' collapsed'
+          : '';
     return `${n.label} ${n.displayStatus}${expand}${owners}`;
   }
 

@@ -36,8 +36,9 @@ const BY_KIND: Record<string, TopologyKindTheme> = {
   worker: { accent: '#a855f7', icon: 'server', aspect: 'Workers' },
   'mcp-sidecar': { accent: '#c026d3', icon: 'puzzle', aspect: 'Sidecar' },
 
-  platform: { accent: '#475569', icon: 'container', aspect: 'Platform' },
+  platform: { accent: '#3B6EA5', icon: 'container', aspect: 'Platform' },
   storage: { accent: '#64748b', icon: 'hard-drive', aspect: 'Storage' },
+  'k8s-workload': { accent: '#3B6EA5', icon: 'server', aspect: 'K8s workload' },
 };
 
 const BY_BAND: Record<TopologyBand, TopologyKindTheme> = {

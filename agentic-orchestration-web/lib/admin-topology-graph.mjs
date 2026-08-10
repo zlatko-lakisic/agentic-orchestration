@@ -8,6 +8,7 @@
  */
 
 import { ingestTopologySample } from "./admin-topology-metrics.mjs";
+import { probeK8sTopology } from "./admin-k8s.mjs";
 
 let _seq = 1;
 
@@ -717,47 +718,175 @@ export async function buildTopologyGraph(ctx) {
     }),
   );
 
-  // Workers / sidecars — Phase 1: presence stubs only when k8s warm pool on
-  if (backend === "kubernetes" || warmPool) {
+  // Live k8s inventory when running in-cluster (pod SA).
+  const k8sProbe = await probeK8sTopology();
+  const useK8sBand =
+    backend === "kubernetes" || warmPool || k8sProbe.reachable;
+  const workerWorkloads = (k8sProbe.workloads || []).filter(
+    (w) => w.group === "workers",
+  );
+  const sidecarWorkloads = (k8sProbe.workloads || []).filter(
+    (w) => w.group === "sidecars",
+  );
+  const platformWorkloads = (k8sProbe.workloads || []).filter(
+    (w) => w.group === "platform" || w.group === "workers" || w.group === "sidecars",
+  );
+
+  if (useK8sBand) {
+    const workerPods = k8sProbe.totals?.workers || 0;
+    const workerReady = workerWorkloads.reduce((n, w) => n + (w.ready || 0), 0);
+    const workerStatus =
+      workerWorkloads.find((w) => w.status === "failed")?.status ||
+      workerWorkloads.find((w) => w.status === "degraded")?.status ||
+      workerWorkloads.find((w) => w.status === "starting")?.status ||
+      (workerPods ? "healthy" : "unknown");
     nodes.push(
       node({
         id: "workers/cluster",
         kind: "worker",
         band: "ao",
         label: "Workers",
-        sublabel: warmPool ? "warm pool" : "k8s",
-        status: "unknown",
-        instrumented: false,
-        count: 0,
-        statusReason: "k8s pod list not available from web process (Phase 1)",
+        sublabel: k8sProbe.reachable
+          ? `${workerReady}/${workerPods} ready`
+          : warmPool
+            ? "warm pool"
+            : "k8s",
+        status: k8sProbe.reachable ? workerStatus : "unknown",
+        instrumented: k8sProbe.reachable,
+        count: workerPods,
+        breakdown: {
+          ready: workerReady,
+          pods: workerPods,
+        },
+        statusReason: k8sProbe.reachable
+          ? workerPods
+            ? undefined
+            : "no worker pods currently"
+          : k8sProbe.note || "k8s not reachable from web process",
+        lastProbeAt: k8sProbe.probedAt,
       }),
     );
+
+    const sidecarPods = k8sProbe.totals?.sidecars || 0;
+    const sidecarReady = sidecarWorkloads.reduce((n, w) => n + (w.ready || 0), 0);
+    const sidecarDeployed = sidecarPods > 0;
     nodes.push(
       node({
         id: "sidecars/cluster",
         kind: "mcp-sidecar",
         band: "ao",
         label: "MCP sidecars",
-        sublabel: "k8s",
-        status: "unknown",
-        instrumented: false,
-        deployed: false,
-        statusReason: "Not discovered from web process",
+        sublabel: k8sProbe.reachable
+          ? sidecarDeployed
+            ? `${sidecarReady}/${sidecarPods} ready`
+            : "none"
+          : "k8s",
+        status: sidecarDeployed
+          ? sidecarWorkloads.some((w) => w.status === "failed")
+            ? "failed"
+            : sidecarWorkloads.some((w) => w.status === "degraded")
+              ? "degraded"
+              : "healthy"
+          : "unknown",
+        instrumented: k8sProbe.reachable && sidecarDeployed,
+        deployed: sidecarDeployed || !k8sProbe.reachable,
+        count: sidecarPods,
+        statusReason: k8sProbe.reachable
+          ? sidecarDeployed
+            ? undefined
+            : "no MCP gateway pods"
+          : k8sProbe.note || "k8s not reachable",
+        lastProbeAt: k8sProbe.probedAt,
       }),
     );
   }
+
+  const platformPodCount = platformWorkloads
+    .filter((w) => w.deployed)
+    .reduce((n, w) => n + w.count, 0);
+  const platformReady = platformWorkloads.reduce((n, w) => n + (w.ready || 0), 0);
+  const platformStatus =
+    platformWorkloads.find((w) => w.deployed && w.status === "failed")?.status ||
+    platformWorkloads.find((w) => w.deployed && w.status === "degraded")?.status ||
+    platformWorkloads.find((w) => w.deployed && w.status === "starting")?.status ||
+    (platformPodCount ? "healthy" : "unknown");
 
   nodes.push(
     node({
       id: "platform/k3s",
       kind: "platform",
       band: "ao",
-      label: "k3s / Jetson",
-      sublabel: process.env.AGENTIC_EDGE_PLATFORM || "local",
-      status: "unknown",
-      instrumented: false,
+      label: "Kubernetes",
+      sublabel: k8sProbe.reachable
+        ? `${platformReady}/${platformPodCount} pods · ${k8sProbe.namespace || "ns"}`
+        : process.env.AGENTIC_EDGE_PLATFORM || "local",
+      status: k8sProbe.reachable ? platformStatus : "unknown",
+      instrumented: k8sProbe.reachable,
+      expandable: k8sProbe.reachable && platformWorkloads.some((w) => w.deployed),
+      clusterKind: "k8s",
+      count: platformPodCount,
+      breakdown: {
+        ready: platformReady,
+        workloads: platformWorkloads.filter((w) => w.deployed).length,
+      },
+      statusReason: k8sProbe.reachable
+        ? undefined
+        : k8sProbe.note || "not in-cluster — expand unavailable",
+      lastProbeAt: k8sProbe.probedAt,
+      k8s: {
+        namespace: k8sProbe.namespace,
+        reachable: k8sProbe.reachable,
+        probedAt: k8sProbe.probedAt,
+      },
     }),
   );
+
+  // Nested workloads — always in graph; canvas accordion shows them when expanded.
+  if (k8sProbe.reachable) {
+    for (const w of platformWorkloads) {
+      if (!w.deployed && w.role !== "worker" && w.role !== "mcp-sidecar") {
+        // Still show core platform targets as not-deployed placeholders when probing.
+        if (!["coordinator", "engine", "broker"].includes(w.role)) continue;
+      }
+      nodes.push(
+        node({
+          id: w.id,
+          kind: "k8s-workload",
+          band: "ao",
+          label: w.label,
+          sublabel: w.deployed
+            ? `${w.ready}/${w.count} ready`
+            : "not deployed",
+          status: w.deployed ? w.status : "unknown",
+          statusReason: w.statusReason,
+          instrumented: w.instrumented && w.deployed,
+          deployed: w.deployed,
+          parent: "platform/k3s",
+          count: w.count,
+          lastProbeAt: k8sProbe.probedAt,
+          k8sResource: {
+            name: w.name,
+            role: w.role,
+            group: w.group,
+            logSource: w.logSource,
+            pods: w.pods,
+          },
+        }),
+      );
+      edges.push(
+        edge({
+          id: `platform/k3s->${w.id}`,
+          from: "platform/k3s",
+          to: w.id,
+          kind: "request",
+          protocol: "k8s",
+          instrumented: false,
+          status: "unknown",
+        }),
+      );
+    }
+  }
+
   nodes.push(
     node({
       id: "platform/storage",
@@ -954,7 +1083,9 @@ export async function buildTopologyGraph(ctx) {
 
   const capabilities = {
     edgeMetrics: [],
-    nodeProbes: ["engine", "web-ui"],
+    nodeProbes: k8sProbe.reachable
+      ? ["engine", "web-ui", "k8s"]
+      : ["engine", "web-ui"],
     historyWindow: "15m",
     sources: {
       web: { reachable: true, role: "coordinator" },
@@ -964,7 +1095,12 @@ export async function buildTopologyGraph(ctx) {
         probeHost: probeHost || null,
         latencyMs: engineLatencyMs,
       },
-      k8s: { reachable: false, role: "cluster", note: "not probed in Phase 1" },
+      k8s: {
+        reachable: k8sProbe.reachable,
+        role: "cluster",
+        note: k8sProbe.note || undefined,
+        namespace: k8sProbe.namespace || undefined,
+      },
     },
   };
 
@@ -1043,7 +1179,11 @@ export async function buildTopologyNodeDetail(id, ctx) {
         ? "engine"
         : id.startsWith("workers")
           ? "warm-pool"
-          : "web";
+          : id.startsWith("k8s/workload/")
+            ? n.k8sResource?.logSource || "web"
+            : id === "platform/k3s"
+              ? "coordinator"
+              : "web";
 
   const configKeys = [];
   if (id === "engine" || id.startsWith("engine/")) {
@@ -1054,7 +1194,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
       "AGENTIC_SPEECH_ENABLED",
     );
   }
-  if (id === "execution" || id.startsWith("workers")) {
+  if (id === "execution" || id.startsWith("workers") || id === "platform/k3s" || id.startsWith("k8s/")) {
     configKeys.push("AGENTIC_EXECUTION_BACKEND", "AGENTIC_K8S_WARM_POOL_ENABLED");
   }
   if (id.startsWith("models/")) {
@@ -1063,6 +1203,44 @@ export async function buildTopologyNodeDetail(id, ctx) {
 
   const ownedByApps = uniqueSorted(n.ownedByApps || []);
   const appMembers = Array.isArray(n.appMembers) ? n.appMembers : [];
+  const members =
+    id === "platform/k3s" && Array.isArray(graph.nodes)
+      ? {
+          count: (graph.nodes || []).filter(
+            (x) => x.parent === "platform/k3s" && x.deployed !== false,
+          ).length,
+          breakdown: n.breakdown || null,
+          note: n.k8s?.namespace
+            ? `namespace ${n.k8s.namespace} — expand the Kubernetes node on the canvas`
+            : "expand the Kubernetes node on the canvas",
+        }
+      : Array.isArray(n.k8sResource?.pods)
+        ? {
+            count: n.k8sResource.pods.length,
+            breakdown: {
+              ready: n.k8sResource.pods.filter((p) => p.ready).length,
+              restarts: n.k8sResource.pods.reduce(
+                (s, p) => s + Number(p.restarts || 0),
+                0,
+              ),
+            },
+            note: `role ${n.k8sResource.role || "workload"}`,
+            pods: n.k8sResource.pods,
+          }
+        : n.count != null
+          ? {
+              count: n.count,
+              breakdown: n.breakdown || null,
+              note:
+                n.kind === "app"
+                  ? `${n.count} connected Reach instance${n.count === 1 ? "" : "s"}`
+                  : appMembers.length
+                    ? "Stock catalog size; Reach session overlays listed by app below"
+                    : n.statusReason ||
+                      "Member list available via Capabilities catalogs",
+            }
+          : null;
+
   return {
     id: n.id,
     node: n,
@@ -1072,26 +1250,15 @@ export async function buildTopologyNodeDetail(id, ctx) {
     configKeys,
     ownedByApps: ownedByApps.length ? ownedByApps : undefined,
     appMembers: appMembers.length ? appMembers : undefined,
+    k8sResource: n.k8sResource || undefined,
     probe: {
       lastProbeAt: n.lastProbeAt || null,
       instrumented: n.instrumented,
       status: n.status,
       statusReason: n.statusReason || null,
     },
-    members:
-      n.count != null
-        ? {
-            count: n.count,
-            breakdown: n.breakdown || null,
-            note:
-              n.kind === "app"
-                ? `${n.count} connected Reach instance${n.count === 1 ? "" : "s"}`
-                : appMembers.length
-                  ? "Stock catalog size; Reach session overlays listed by app below"
-                  : "Member list available via Capabilities catalogs",
-          }
-        : null,
-    generatedAt: new Date().toISOString(),
+    members,
+    generatedAt: graph.generatedAt || new Date().toISOString(),
   };
 }
 

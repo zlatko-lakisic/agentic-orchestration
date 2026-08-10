@@ -34,11 +34,12 @@ export type TopologyNodeKind =
   | 'catalog'
   | 'model-backend'
   | 'model-runtime'
-  | 'execution-backend'
+  |   'execution-backend'
   | 'worker'
   | 'mcp-sidecar'
   | 'platform'
   | 'storage'
+  | 'k8s-workload'
   | string;
 
 /** Overlay ids currently registered by one Reach appId. */
@@ -69,6 +70,36 @@ export interface TopologyNode {
   ownedByApps?: string[];
   /** Per-app overlay member ids (agents / MCPs / skills) for catalog modals. */
   appMembers?: TopologyAppMembers[];
+  /** Canvas accordion: parent can expand nested children (e.g. Kubernetes). */
+  expandable?: boolean;
+  /** Discriminator for expandable clusters (`k8s` vs catalog overlays). */
+  clusterKind?: 'k8s' | string;
+  /** In-cluster probe summary on platform node. */
+  k8s?: {
+    namespace?: string | null;
+    reachable?: boolean;
+    probedAt?: string;
+  };
+  /** Pod inventory for a k8s workload leaf. */
+  k8sResource?: {
+    name?: string;
+    role?: string;
+    group?: string;
+    logSource?: string;
+    pods?: Array<{
+      name: string;
+      phase: string;
+      ready: boolean;
+      restarts: number;
+      nodeName?: string | null;
+      containers?: Array<{
+        name: string;
+        ready: boolean;
+        restartCount: number;
+        state?: string | null;
+      }>;
+    }>;
+  };
   lastProbeAt?: string | null;
 }
 
@@ -114,6 +145,7 @@ export interface TopologyNodeDetail {
   ownedByApps?: string[];
   /** Per-app overlay member ids for Agents / MCP / Skills clusters. */
   appMembers?: TopologyAppMembers[];
+  k8sResource?: TopologyNode['k8sResource'];
   probe?: {
     lastProbeAt?: string | null;
     instrumented?: boolean;
@@ -124,6 +156,7 @@ export interface TopologyNodeDetail {
     count?: number;
     breakdown?: Record<string, number> | null;
     note?: string;
+    pods?: TopologyNode['k8sResource'] extends { pods?: infer P } ? P : unknown;
   } | null;
   generatedAt?: string;
 }

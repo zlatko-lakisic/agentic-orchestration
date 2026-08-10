@@ -41,6 +41,7 @@ const KIND_SLOT: Record<
 
   platform: { band: 'ao', rank: 4, lane: 0, order: 0 },
   storage: { band: 'ao', rank: 4, lane: 1, order: 0 },
+  'k8s-workload': { band: 'ao', rank: 5, lane: 0, order: 0 },
 };
 
 const ENDPOINT_LANE: Record<string, number> = {
@@ -92,6 +93,8 @@ export type LayoutTopologyOpts = {
   showNotDeployed?: boolean;
   /** When set, only that appId's child components are laid out (others stay minimized panels). */
   expandedAppId?: string | null;
+  /** When set to `platform/k3s`, show nested k8s workload children. */
+  expandedK8sId?: string | null;
 };
 
 function uniqueSorted(values: string[]): string[] {
@@ -175,6 +178,14 @@ function slotFor(
   if (node.id === 'speech/stt' || node.id === 'speech/tts') {
     return { band: 'ao', rank: 0, lane: ENDPOINT_LANE[node.id] ?? 3, order: 10 };
   }
+  if (node.kind === 'k8s-workload') {
+    return {
+      band: 'ao',
+      rank: 5,
+      lane: 0,
+      order: 0,
+    };
+  }
   return {
     band: (node.band || base.band) as TopologyBand,
     rank,
@@ -194,6 +205,17 @@ function filterApplicationAccordion(
     if (APP_CHILD_LANE[n.kind] == null) return true;
     // Children only when their app panel is expanded.
     return Boolean(expandedAppId) && n.appId === expandedAppId;
+  });
+}
+
+/** Hide nested k8s workloads until the Kubernetes platform node is expanded. */
+function filterK8sAccordion(
+  nodes: TopologyNode[],
+  expandedK8sId: string | null | undefined
+): TopologyNode[] {
+  return nodes.filter((n) => {
+    if (n.kind !== 'k8s-workload') return true;
+    return expandedK8sId === 'platform/k3s' || expandedK8sId === n.parent;
   });
 }
 
@@ -479,8 +501,10 @@ export function layoutTopology(
 ): LayoutResult {
   const showNotDeployed = opts?.showNotDeployed ?? false;
   const expandedAppId = opts?.expandedAppId ?? null;
+  const expandedK8sId = opts?.expandedK8sId ?? null;
   const deployed = nodes.filter((n) => showNotDeployed || n.deployed !== false);
-  const visible = filterApplicationAccordion(deployed, expandedAppId);
+  const afterApps = filterApplicationAccordion(deployed, expandedAppId);
+  const visible = filterK8sAccordion(afterApps, expandedK8sId);
 
   const appIds = uniqueSorted(
     visible
@@ -489,8 +513,17 @@ export function layoutTopology(
   );
   const appLaneById = new Map(appIds.map((id, i) => [id, i]));
 
+  const k8sIds = uniqueSorted(
+    visible.filter((n) => n.kind === 'k8s-workload').map((n) => n.id)
+  );
+  const k8sLaneById = new Map(k8sIds.map((id, i) => [id, i % MAX_LANES]));
+
   const enriched = visible.map((n) => {
     const s = slotFor(n, appLaneById, expandedAppId);
+    if (n.kind === 'k8s-workload') {
+      const lane = k8sLaneById.get(n.id) ?? 0;
+      return { node: n, band: 'ao' as TopologyBand, rank: 5, lane, order: lane };
+    }
     return { node: n, ...s };
   });
 

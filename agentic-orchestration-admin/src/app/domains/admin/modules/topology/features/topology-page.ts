@@ -173,12 +173,14 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
           [edges]="store.displayEdges()"
           [closure]="store.hoverClosure()"
           [expandedAppId]="store.expandedAppId()"
+          [expandedK8sId]="store.expandedK8sId()"
           [blurred]="dialogOpen()"
           [summary]="a11ySummary()"
           (hover)="onHover($event)"
           (nodeClick)="openNode($event)"
           (edgeClick)="openEdge($event)"
           (expandApp)="store.toggleAppExpanded($event)"
+          (expandK8s)="store.toggleK8sExpanded($event)"
         />
       }
     </div>

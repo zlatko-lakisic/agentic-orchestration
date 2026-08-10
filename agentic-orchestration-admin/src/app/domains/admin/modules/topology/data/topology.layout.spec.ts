@@ -114,8 +114,50 @@ describe('topology.layout', () => {
     const myUi = expanded.nodes.find((x) => x.id === 'app/myapp/ui')!;
     const myOv = expanded.nodes.find((x) => x.id === 'app/myapp/overlays')!;
     const myHeader = expanded.nodes.find((x) => x.id === 'app/myapp')!;
-    expect(kbUi.y).toBeGreaterThan(kbHeader.y);
-    expect(kbOv.x).toBeGreaterThan(kbUi.x);
+    expect(myUi.y).toBeGreaterThan(myHeader.y);
+    expect(myOv.x).toBeGreaterThan(myUi.x);
+  });
+
+  it('hides k8s workloads until platform is expanded', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'platform/k3s',
+        kind: 'platform',
+        band: 'ao',
+        expandable: true,
+      }),
+      n({
+        id: 'k8s/workload/agentic-engine',
+        kind: 'k8s-workload',
+        band: 'ao',
+        parent: 'platform/k3s',
+        label: 'Engine',
+      }),
+      n({
+        id: 'k8s/workload/agentic-warm-pool',
+        kind: 'k8s-workload',
+        band: 'ao',
+        parent: 'platform/k3s',
+        label: 'Warm pool',
+      }),
+    ];
+    const collapsed = layoutTopology(nodes, []);
+    expect(collapsed.nodes.map((x) => x.id)).toEqual(['platform/k3s']);
+
+    const expanded = layoutTopology(nodes, [], {
+      expandedK8sId: 'platform/k3s',
+    });
+    expect(expanded.nodes.some((x) => x.id === 'k8s/workload/agentic-engine')).toBe(
+      true
+    );
+    expect(
+      expanded.nodes.some((x) => x.id === 'k8s/workload/agentic-warm-pool')
+    ).toBe(true);
+    const engine = expanded.nodes.find(
+      (x) => x.id === 'k8s/workload/agentic-engine'
+    )!;
+    const platform = expanded.nodes.find((x) => x.id === 'platform/k3s')!;
+    expect(engine.y).toBeGreaterThan(platform.y);
   });
 
   it('routes unknown kinds to trailing other lane', () => {

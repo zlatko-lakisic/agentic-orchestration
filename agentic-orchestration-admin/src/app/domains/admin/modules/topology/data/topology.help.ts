@@ -94,11 +94,15 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   },
   platform: {
     wikiKey: 'platform',
-    blurb: 'Cluster / host platform layer (k3s node, Jetson, or NVR).',
+    blurb: 'Kubernetes / host platform — expand to see live workloads and pods.',
   },
   storage: {
     wikiKey: 'storage',
     blurb: 'Persistent volumes, GPU weights, and host metrics mounts.',
+  },
+  'k8s-workload': {
+    wikiKey: 'k8s-workload',
+    blurb: 'A Deployment, Job, or other workload running inside the AO namespace.',
   },
 };
 

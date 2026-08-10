@@ -448,23 +448,36 @@ Execution backend that runs steps — `inprocess` (default), `subprocess`, or `k
 <a id="worker"></a>
 ### Workers
 
-Worker pods or processes currently available to run steps. Small counts may expand inline on the canvas; larger sets collapse to a cluster (aggregation rule). Often absent on pure in-process installs.
+Worker pods currently available to run steps (warm pool + orchestrator Jobs). When the web process runs in-cluster, the sublabel shows live `ready/total` from the Kubernetes API. Often absent on pure in-process installs.
 
 ---
 
 <a id="mcp-sidecar"></a>
 ### MCP sidecar
 
-MCP sidecar containers attached to workers for tool execution (k8s / warm-pool path). Hidden when the execution backend does not run sidecars.
+MCP gateway pods attached for tool execution (fetch / filesystem gateways, and similar). Live counts come from the same in-cluster probe as Workers.
 
 ---
 
 <a id="platform"></a>
 ### Platform
 
-Cluster / host platform layer (k3s node, Jetson, or NVR). Sublabel may reflect `AGENTIC_EDGE_PLATFORM`. This is structural context for where Agentic Orchestration is running — not a substitute for the Infrastructure runbooks. See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
+**Kubernetes** node for the AO namespace (k3s on Jetson / NVR, or any cluster the coordinator SA can list). When the Admin web pod is in-cluster, this node is **instrumented** and **expandable**.
+
+Use the chevron to expand: child workloads appear under the platform (Coordinator, Engine, Warm pool, Delegation broker, MCP gateways, Worker jobs, plus any other `agentic-*` labeled workloads). Click a workload for a pod table (phase, ready, restarts, node). Collapse to return to the summary.
+
+Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes.
+
+See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
 
 **Typical edge hosts (lab):** Jetson `172.16.90.20`, NVR `10.0.10.16`.
+
+---
+
+<a id="k8s-workload"></a>
+### K8s workload
+
+A Deployment, Job group, or other workload running inside the AO namespace. Shown only while the Kubernetes platform node is expanded. Modal Health tab lists member pods.
 
 ---
 

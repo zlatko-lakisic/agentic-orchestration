@@ -43,6 +43,8 @@ export class TopologyStore {
   readonly hoverNodeId = signal<string | null>(null);
   /** Application accordion: which appId panel is expanded (null = all minimized). */
   readonly expandedAppId = signal<string | null>(null);
+  /** Kubernetes accordion: expand platform/k3s to show in-cluster workloads. */
+  readonly expandedK8sId = signal<string | null>(null);
   readonly snapshotOnly = signal(false);
   readonly lastError = signal<string | null>(null);
   readonly loading = signal(true);
@@ -68,6 +70,7 @@ export class TopologyStore {
     return layoutTopology(nodes, edges, {
       showNotDeployed: this.showNotDeployed(),
       expandedAppId: this.expandedAppId(),
+      expandedK8sId: this.expandedK8sId(),
     });
   });
 
@@ -177,6 +180,16 @@ export class TopologyStore {
     this.expandedAppId.set(null);
   }
 
+  /** Expand Kubernetes platform node to reveal in-cluster workloads. */
+  toggleK8sExpanded(nodeId: string = 'platform/k3s') {
+    const id = String(nodeId || '').trim() || 'platform/k3s';
+    this.expandedK8sId.update((cur) => (cur === id ? null : id));
+  }
+
+  collapseK8s() {
+    this.expandedK8sId.set(null);
+  }
+
   loadNodeDetail(id: string) {
     return this.api.topologyNode(id);
   }
@@ -227,6 +240,7 @@ export class TopologyStore {
     this.structureNodes.set(graph.nodes || []);
     this.structureEdges.set(graph.edges || []);
     this.pruneExpandedApp(graph.nodes || []);
+    this.pruneExpandedK8s(graph.nodes || []);
     const health: Record<string, { status: string; statusReason?: string }> =
       {};
     for (const n of graph.nodes || []) {
@@ -265,6 +279,7 @@ export class TopologyStore {
     this.structureNodes.set(nextNodes);
     this.healthById.set(health);
     this.pruneExpandedApp(nextNodes);
+    this.pruneExpandedK8s(nextNodes);
 
     const emap = new Map(this.structureEdges().map((e) => [e.id, e]));
     for (const e of edgesUpserted) emap.set(e.id, e);
@@ -288,6 +303,13 @@ export class TopologyStore {
       (n) => n.kind === 'app' && n.appId === cur && n.deployed !== false
     );
     if (!stillThere) this.expandedAppId.set(null);
+  }
+
+  private pruneExpandedK8s(nodes: TopologyNode[]) {
+    const cur = this.expandedK8sId();
+    if (!cur) return;
+    const platform = nodes.find((n) => n.id === cur);
+    if (!platform?.expandable) this.expandedK8sId.set(null);
   }
 
   private patchHealth(
