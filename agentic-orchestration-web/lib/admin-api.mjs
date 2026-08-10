@@ -13,8 +13,11 @@ import {
   buildTopologyNodeDetail,
 } from "./admin-topology-graph.mjs";
 import {
+  CHAT_UI_APP_ID,
   WEB_UI_APP_ID,
+  getChatAssignment,
   getWebAssignment,
+  isChatUiAssigned,
   isWebUiAssigned,
   listTokens,
   listUsage,
@@ -1719,14 +1722,20 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
   const webTls = scheme === "https";
   const orchestrateKeySet = Boolean(e("AGENTIC_ORCHESTRATE_API_KEY")?.set);
   const webUiAssigned = isWebUiAssigned(toolRoot);
+  const chatUiAssigned = isChatUiAssigned(toolRoot);
   const activeTokens = listTokens(toolRoot).filter((t) => t.status === "active").length;
 
   let severity = "ok";
   let verdict = "Access posture looks sound for this process.";
-  if (!webUiAssigned) {
+  if (!webUiAssigned || !chatUiAssigned) {
     severity = "critical";
-    verdict =
-      "Admin Web UI token (ao-web) is not assigned — mint it on Access to unlock Admin APIs.";
+    const missing = [
+      !webUiAssigned ? "Admin (ao-web)" : null,
+      !chatUiAssigned ? "Chat (ao-chat)" : null,
+    ]
+      .filter(Boolean)
+      .join(" and ");
+    verdict = `${missing} token not assigned — mint on Access to unlock first-party UIs.`;
   } else if (!webTls && !identityRequired) {
     severity = "warning";
     verdict =
@@ -1748,6 +1757,7 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
       `Admin is served on ${scheme}://${host}`,
       `API auth enforced (orchestrate / OpenAI proxies always require Bearer)`,
       `Admin Web UI token ${webUiAssigned ? "assigned (ao-web)" : "not assigned"}`,
+      `Chat Web UI token ${chatUiAssigned ? "assigned (ao-chat)" : "not assigned"}`,
       `${activeTokens} active API token${activeTokens === 1 ? "" : "s"}`,
       `identity ${identityRequired ? "required" : "not required"}`,
       `engine TLS ${engineTls ? "configured" : "absent"}`,
@@ -1763,6 +1773,7 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
       orchestrateKeySet,
       apiAuthEnforced: true,
       webUiAssigned,
+      chatUiAssigned,
       activeTokenCount: activeTokens,
     },
   };
@@ -1808,6 +1819,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/meta") return { name: "meta" };
   if (p === "/api/v1/admin/access/posture") return { name: "access_posture" };
   if (p === "/api/v1/admin/web-auth") return { name: "web_auth" };
+  if (p === "/api/v1/admin/chat-auth") return { name: "chat_auth" };
   if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
@@ -1897,7 +1909,9 @@ async function handleAdminApi(req, res, ctx) {
         title: "AO Administration",
         readOnlyMessage: "Read-only except API tokens and mTLS client revoke",
         webUiAppId: WEB_UI_APP_ID,
+        chatUiAppId: CHAT_UI_APP_ID,
         webUiAssigned: isWebUiAssigned(ctx.toolRoot),
+        chatUiAssigned: isChatUiAssigned(ctx.toolRoot),
       });
       return true;
     }
@@ -1915,6 +1929,27 @@ async function handleAdminApi(req, res, ctx) {
       send(200, {
         assigned: true,
         appId: WEB_UI_APP_ID,
+        token: assigned.token,
+        tokenId: assigned.tokenId,
+        prefix: assigned.prefix,
+        assignedAt: assigned.assignedAt,
+      });
+      return true;
+    }
+    if (route.name === "chat_auth" && (method === "GET" || method === "HEAD")) {
+      const assigned = getChatAssignment(ctx.toolRoot);
+      if (!assigned) {
+        send(200, {
+          assigned: false,
+          appId: CHAT_UI_APP_ID,
+          token: null,
+          hint: "Mint an API token with appId ao-chat (or assignToChat) on Access",
+        });
+        return true;
+      }
+      send(200, {
+        assigned: true,
+        appId: CHAT_UI_APP_ID,
         token: assigned.token,
         tokenId: assigned.tokenId,
         prefix: assigned.prefix,
@@ -2063,6 +2098,7 @@ async function handleAdminApi(req, res, ctx) {
             label: body.label,
             expiresAt: body.expiresAt || null,
             assignToWeb: Boolean(body.assignToWeb) || undefined,
+            assignToChat: Boolean(body.assignToChat) || undefined,
           });
           send(201, minted);
         } catch (err) {

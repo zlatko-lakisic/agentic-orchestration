@@ -34,6 +34,7 @@ apply_configmap agentic-web-hotfix-public \
   --from-file=pwa-manifest-data.js="${WEB_ROOT}/public/pwa-manifest-data.js" \
   --from-file=pwa-manifest-link.js="${WEB_ROOT}/public/pwa-manifest-link.js" \
   --from-file=chat-session.js="${WEB_ROOT}/public/chat-session.js" \
+  --from-file=chat-auth.js="${WEB_ROOT}/public/chat-auth.js" \
   --from-file=manifest.webmanifest="${WEB_ROOT}/public/manifest.webmanifest" \
   --from-file=sw.js="${WEB_ROOT}/public/sw.js"
 

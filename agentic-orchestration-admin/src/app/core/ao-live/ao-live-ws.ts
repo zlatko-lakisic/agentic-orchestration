@@ -1,6 +1,7 @@
-import { Injectable, OnDestroy, computed, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { HostMetrics } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 
 export interface MetricsPoint {
   t: number;
@@ -27,6 +28,7 @@ const HISTORY_UI_MIN_MS = 1000;
 
 @Injectable({ providedIn: 'root' })
 export class AoLiveWs implements OnDestroy {
+  private readonly webAuth = inject(WebAuth);
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
@@ -211,10 +213,16 @@ export class AoLiveWs implements OnDestroy {
   private wsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     // ng serve (3873) talks directly to the local web process.
-    if (location.port === '3873') {
-      return 'ws://127.0.0.1:3847/';
+    let base =
+      location.port === '3873'
+        ? 'ws://127.0.0.1:3847/'
+        : `${proto}//${location.host}/`;
+    const token = this.webAuth.bearer();
+    if (token) {
+      const join = base.includes('?') ? '&' : '?';
+      base = `${base}${join}access_token=${encodeURIComponent(token)}`;
     }
-    return `${proto}//${location.host}/`;
+    return base;
   }
 
   private ensureConnected() {

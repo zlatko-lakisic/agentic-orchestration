@@ -1,6 +1,7 @@
 import "./ws-singleton.js";
 import { closeActiveWebSocket, getActiveWebSocket, isActiveWebSocket } from "./ws-singleton.js";
 import { initHostMetricsUi, handleHostMetricsMessage, subscribeHostMetrics, unsubscribeHostMetrics } from "./host-metrics-ui.js";
+import { chatWebSocketUrl, withChatAuth, ensureChatAccessToken } from "./chat-auth.js";
 
 import { initPwaInstall } from "./install-prompt.js";
 import {
@@ -454,7 +455,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
     if (!isWarpgateFronted()) return true;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       try {
-        const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
+        const res = await fetch("/api/session", await withChatAuth({ cache: "no-store" }));
         if (res.ok) return true;
       } catch {
         /* retry */
@@ -794,7 +795,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   async function loadSessionContext() {
     try {
-      const res = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
+      const res = await fetch("/api/session", await withChatAuth({ cache: "no-store" }));
       if (!res.ok) return null;
       const data = await res.json();
       applySessionUserName(data.userName);
@@ -975,7 +976,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       welcomeBubble = null;
       setConnStatus("reconnecting", hadConnectedOnce ? "Reconnecting…" : "Connecting…");
 
-      const url = `${proto()}//${window.location.host}`;
+      const url = await chatWebSocketUrl(`${proto()}//${window.location.host}`);
       const socket = new WebSocket(url);
       ws = socket;
 
@@ -1455,9 +1456,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
     if (!agentPickerSelectEl) return;
     try {
       // Try relative path first (works behind reverse-proxy subpaths), then absolute fallback.
-      let res = await fetch("api/agent-providers", { cache: "no-store" });
+      let res = await fetch("api/agent-providers", await withChatAuth({ cache: "no-store" }));
       if (!res.ok && res.status === 404) {
-        res = await fetch("/api/agent-providers", { cache: "no-store" });
+        res = await fetch("/api/agent-providers", await withChatAuth({ cache: "no-store" }));
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = await res.json();
@@ -1735,6 +1736,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
   }
 
   async function bootApp() {
+    await ensureChatAccessToken();
     await loadSessionContext();
     chatTranscript = loadChatTranscript(browserSessionId);
     if (transcriptHasConversation(chatTranscript)) {

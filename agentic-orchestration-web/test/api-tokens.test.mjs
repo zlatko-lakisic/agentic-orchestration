@@ -8,12 +8,16 @@ import os from "node:os";
 import path from "node:path";
 import {
   WEB_UI_APP_ID,
+  CHAT_UI_APP_ID,
   authenticateBearer,
+  authenticateChatUiBearer,
   authenticateWebUiBearer,
   authRequired,
   clientIp,
+  getChatAssignment,
   getWebAssignment,
   hasActiveTokens,
+  isChatUiAssigned,
   isWebUiAssigned,
   listTokens,
   listUsage,
@@ -79,29 +83,28 @@ test("authenticateBearer accepts minted token and env fallback; never open", () 
   assert.equal(hasActiveTokens(toolRoot), true);
 });
 
-test("ao-web mint auto-assigns and authenticateWebUiBearer succeeds", () => {
+test("ao-chat mint auto-assigns and authenticateChatUiBearer succeeds", () => {
   const toolRoot = tmpTool();
-  assert.equal(isWebUiAssigned(toolRoot), false);
-  const minted = mintToken(toolRoot, { assignToWeb: true });
-  assert.equal(minted.appId, WEB_UI_APP_ID);
-  assert.equal(minted.assignedToWeb, true);
-  assert.equal(isWebUiAssigned(toolRoot), true);
-  const assigned = getWebAssignment(toolRoot);
+  assert.equal(isChatUiAssigned(toolRoot), false);
+  const minted = mintToken(toolRoot, { assignToChat: true });
+  assert.equal(minted.appId, CHAT_UI_APP_ID);
+  assert.equal(minted.assignedToChat, true);
+  assert.equal(isChatUiAssigned(toolRoot), true);
+  const assigned = getChatAssignment(toolRoot);
   assert.ok(assigned);
   assert.equal(assigned.token, minted.token);
-  assert.equal(assigned.tokenId, minted.id);
 
-  const viaWeb = authenticateWebUiBearer(toolRoot, `Bearer ${minted.token}`);
-  assert.equal(viaWeb.ok, true);
-  assert.equal(viaWeb.appId, WEB_UI_APP_ID);
+  const viaChat = authenticateChatUiBearer(toolRoot, `Bearer ${minted.token}`);
+  assert.equal(viaChat.ok, true);
+  assert.equal(viaChat.appId, CHAT_UI_APP_ID);
 
-  const other = mintToken(toolRoot, { appId: "openclaw" });
-  const wrong = authenticateWebUiBearer(toolRoot, `Bearer ${other.token}`);
-  assert.equal(wrong.ok, false);
+  const web = mintToken(toolRoot, { assignToWeb: true });
+  assert.equal(authenticateChatUiBearer(toolRoot, `Bearer ${web.token}`).ok, false);
+  assert.equal(authenticateWebUiBearer(toolRoot, `Bearer ${web.token}`).ok, true);
 
   const listed = listTokens(toolRoot);
-  const webRow = listed.find((t) => t.id === minted.id);
-  assert.equal(webRow?.assignedToWeb, true);
+  assert.equal(listed.find((t) => t.id === minted.id)?.assignedToChat, true);
+  assert.equal(listed.find((t) => t.id === web.id)?.assignedToWeb, true);
 });
 
 test("reminting ao-web replaces assignment and revokes prior ao-web", () => {

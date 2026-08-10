@@ -39,8 +39,9 @@ import { MintTokenDialog } from './mint-token-dialog';
               <div>
                 <div class="text-lg font-medium tracking-tight">API tokens</div>
                 <div class="text-sm text-neutral-500">
-                  Orchestrate / OpenAI proxies always need a minted Bearer.
-                  Mint <code>ao-web</code> for this Admin console (auto-assigned).
+                  Orchestrate / OpenAI proxies always need a minted Bearer. Mint
+                  <code>ao-web</code> for Admin and <code>ao-chat</code> for the
+                  chat page (both auto-assign).
                 </div>
               </div>
               <button matButton="filled" type="button" (click)="openMint()">
@@ -54,7 +55,7 @@ import { MintTokenDialog } from './mint-token-dialog';
             } @else if (!tokens().length) {
               <ao-empty-state
                 title="No API tokens"
-                message="Mint an Admin Web UI (ao-web) token first so this console can call APIs, then mint tokens for OpenClaw and other clients."
+                message="Mint Admin (ao-web) and Chat (ao-chat) tokens first, then mint tokens for OpenClaw and other clients."
               />
             } @else {
               <div class="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
@@ -66,7 +67,13 @@ import { MintTokenDialog } from './mint-token-dialog';
                       @if (t.assignedToWeb) {
                         <span
                           class="ml-2 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-medium text-teal-900 dark:bg-teal-900 dark:text-teal-100"
-                          >Web UI</span
+                          >Admin</span
+                        >
+                      }
+                      @if (t.assignedToChat) {
+                        <span
+                          class="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-900 dark:bg-sky-900 dark:text-sky-100"
+                          >Chat</span
                         >
                       }
                       @if (t.label) {
@@ -244,9 +251,11 @@ export class AccessApiTokens implements OnInit {
 
   openMint() {
     const preferWebUi = !this.webAuth.assigned() && !this.tokens().some((t) => t.assignedToWeb);
+    const preferChatUi =
+      !preferWebUi && !this.tokens().some((t) => t.assignedToChat);
     const ref = this.dialog.open(MintTokenDialog, {
       width: '480px',
-      data: { preferWebUi },
+      data: { preferWebUi, preferChatUi },
     });
     ref.afterClosed().subscribe((result) => {
       if (result) {
@@ -258,11 +267,14 @@ export class AccessApiTokens implements OnInit {
 
   revoke(t: ApiAccessToken) {
     const wasWeb = Boolean(t.assignedToWeb);
+    const wasChat = Boolean(t.assignedToChat);
     if (
       !confirm(
         wasWeb
           ? `Revoke the Admin Web UI token (${t.prefix}…)? Admin APIs will lock until you mint ao-web again.`
-          : `Revoke token for appId "${t.appId}" (${t.prefix}…)? Clients using it will fail auth.`
+          : wasChat
+            ? `Revoke the Chat Web UI token (${t.prefix}…)? The chat page will lock until you mint ao-chat again.`
+            : `Revoke token for appId "${t.appId}" (${t.prefix}…)? Clients using it will fail auth.`
       )
     ) {
       return;

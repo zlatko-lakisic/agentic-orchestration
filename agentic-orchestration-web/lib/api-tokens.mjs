@@ -10,11 +10,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const API_TOKENS_DIR_NAME = "__orchestrator_api_tokens__";
-/** Reserved appId for the Admin / in-product Web UI. Minting this auto-assigns the secret to the SPA. */
+/** Reserved appId for the Admin SPA (`/admin`). Minting auto-assigns the secret to that console. */
 export const WEB_UI_APP_ID = "ao-web";
+/** Reserved appId for the core chat Web UI (`/`). Minting auto-assigns the secret to that page. */
+export const CHAT_UI_APP_ID = "ao-chat";
 const TOKENS_FILE = "tokens.json";
 const USAGE_FILE = "usage.jsonl";
 const WEB_ASSIGNED_FILE = "web-ui.assigned.json";
+const CHAT_ASSIGNED_FILE = "chat-ui.assigned.json";
 const MAX_USAGE_LINES = 10_000;
 const TOKEN_PREFIX_LEN = 8;
 const TOKEN_BYTES = 32;
@@ -24,6 +27,20 @@ const TOKEN_BYTES = 32;
  */
 export function isWebUiAppId(appId) {
   return String(appId || "").trim() === WEB_UI_APP_ID;
+}
+
+/**
+ * @param {unknown} appId
+ */
+export function isChatUiAppId(appId) {
+  return String(appId || "").trim() === CHAT_UI_APP_ID;
+}
+
+/**
+ * @param {unknown} appId
+ */
+export function isFirstPartyUiAppId(appId) {
+  return isWebUiAppId(appId) || isChatUiAppId(appId);
 }
 
 /**
@@ -105,7 +122,7 @@ function saveTokens(toolRoot, tokens) {
  * Public metadata (never includes hash or secret).
  * @param {Record<string, unknown>} entry
  */
-export function publicTokenMeta(entry, assignedTokenId = null) {
+export function publicTokenMeta(entry, assignedIds = {}) {
   const revoked = Boolean(entry.revokedAt);
   let expired = false;
   if (entry.expiresAt) {
@@ -116,6 +133,8 @@ export function publicTokenMeta(entry, assignedTokenId = null) {
   if (revoked) status = "revoked";
   else if (expired) status = "expired";
   const id = String(entry.id || "");
+  const webId = assignedIds.webId != null ? String(assignedIds.webId) : "";
+  const chatId = assignedIds.chatId != null ? String(assignedIds.chatId) : "";
   return {
     id,
     prefix: String(entry.prefix || ""),
@@ -127,7 +146,8 @@ export function publicTokenMeta(entry, assignedTokenId = null) {
     lastUsedAt: entry.lastUsedAt != null ? String(entry.lastUsedAt) : null,
     lastUsedIp: entry.lastUsedIp != null ? String(entry.lastUsedIp) : null,
     status,
-    assignedToWeb: Boolean(assignedTokenId && id === String(assignedTokenId)),
+    assignedToWeb: Boolean(webId && id === webId),
+    assignedToChat: Boolean(chatId && id === chatId),
   };
 }
 
@@ -140,10 +160,28 @@ function webAssignedPath(toolRoot) {
 
 /**
  * @param {string} toolRoot
- * @returns {{ tokenId: string, token: string, appId: string, prefix: string, assignedAt: string }|null}
  */
-export function getWebAssignment(toolRoot) {
-  const file = webAssignedPath(toolRoot);
+function chatAssignedPath(toolRoot) {
+  return path.join(apiTokensRoot(toolRoot), CHAT_ASSIGNED_FILE);
+}
+
+/**
+ * @param {string} toolRoot
+ * @param {string} appId
+ */
+function assignedPathFor(toolRoot, appId) {
+  if (isChatUiAppId(appId)) return chatAssignedPath(toolRoot);
+  return webAssignedPath(toolRoot);
+}
+
+/**
+ * @param {string} toolRoot
+ * @param {string} appId
+ * @returns {{ tokenId: string, token: string, appId: string, prefix: string, assignedAt: string|null }|null}
+ */
+export function getSurfaceAssignment(toolRoot, appId) {
+  const surface = isChatUiAppId(appId) ? CHAT_UI_APP_ID : WEB_UI_APP_ID;
+  const file = assignedPathFor(toolRoot, surface);
   if (!fs.existsSync(file)) return null;
   try {
     const raw = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -153,7 +191,7 @@ export function getWebAssignment(toolRoot) {
     return {
       tokenId,
       token,
-      appId: WEB_UI_APP_ID,
+      appId: surface,
       prefix: String(raw.prefix || token.slice(0, TOKEN_PREFIX_LEN)),
       assignedAt: raw.assignedAt != null ? String(raw.assignedAt) : null,
     };
@@ -165,30 +203,53 @@ export function getWebAssignment(toolRoot) {
 /**
  * @param {string} toolRoot
  */
+export function getWebAssignment(toolRoot) {
+  return getSurfaceAssignment(toolRoot, WEB_UI_APP_ID);
+}
+
+/**
+ * @param {string} toolRoot
+ */
+export function getChatAssignment(toolRoot) {
+  return getSurfaceAssignment(toolRoot, CHAT_UI_APP_ID);
+}
+
+/**
+ * @param {string} toolRoot
+ */
 export function isWebUiAssigned(toolRoot) {
   return Boolean(getWebAssignment(toolRoot));
 }
 
 /**
- * Persist plaintext for the Admin SPA (0600). Only used for the reserved ao-web token.
  * @param {string} toolRoot
+ */
+export function isChatUiAssigned(toolRoot) {
+  return Boolean(getChatAssignment(toolRoot));
+}
+
+/**
+ * Persist plaintext for a first-party UI surface (0600).
+ * @param {string} toolRoot
+ * @param {string} appId
  * @param {{ tokenId: string, token: string, prefix?: string }} opts
  */
-export function assignWebToken(toolRoot, opts) {
+export function assignSurfaceToken(toolRoot, appId, opts) {
+  const surface = isChatUiAppId(appId) ? CHAT_UI_APP_ID : WEB_UI_APP_ID;
   const token = String(opts?.token || "").trim();
   const tokenId = String(opts?.tokenId || "").trim();
   if (!token || !tokenId) {
-    const err = new Error("token and tokenId required to assign web UI");
-    err.code = "invalid_web_assign";
+    const err = new Error("token and tokenId required to assign UI surface");
+    err.code = "invalid_ui_assign";
     throw err;
   }
   const root = apiTokensRoot(toolRoot);
   fs.mkdirSync(root, { recursive: true });
-  const file = webAssignedPath(toolRoot);
+  const file = assignedPathFor(toolRoot, surface);
   const payload = {
     tokenId,
     token,
-    appId: WEB_UI_APP_ID,
+    appId: surface,
     prefix: String(opts.prefix || token.slice(0, TOKEN_PREFIX_LEN)),
     assignedAt: new Date().toISOString(),
   };
@@ -205,14 +266,34 @@ export function assignWebToken(toolRoot, opts) {
 }
 
 /**
+ * Persist plaintext for the Admin SPA (0600).
  * @param {string} toolRoot
- * @param {string} [tokenId] when set, only clear if it matches the assignment
+ * @param {{ tokenId: string, token: string, prefix?: string }} opts
  */
-export function clearWebAssignment(toolRoot, tokenId) {
-  const assigned = getWebAssignment(toolRoot);
+export function assignWebToken(toolRoot, opts) {
+  return assignSurfaceToken(toolRoot, WEB_UI_APP_ID, opts);
+}
+
+/**
+ * Persist plaintext for the chat Web UI (0600).
+ * @param {string} toolRoot
+ * @param {{ tokenId: string, token: string, prefix?: string }} opts
+ */
+export function assignChatToken(toolRoot, opts) {
+  return assignSurfaceToken(toolRoot, CHAT_UI_APP_ID, opts);
+}
+
+/**
+ * @param {string} toolRoot
+ * @param {string} appId
+ * @param {string} [tokenId]
+ */
+export function clearSurfaceAssignment(toolRoot, appId, tokenId) {
+  const surface = isChatUiAppId(appId) ? CHAT_UI_APP_ID : WEB_UI_APP_ID;
+  const assigned = getSurfaceAssignment(toolRoot, surface);
   if (!assigned) return false;
   if (tokenId && String(tokenId) !== assigned.tokenId) return false;
-  const file = webAssignedPath(toolRoot);
+  const file = assignedPathFor(toolRoot, surface);
   try {
     fs.unlinkSync(file);
     return true;
@@ -223,10 +304,33 @@ export function clearWebAssignment(toolRoot, tokenId) {
 
 /**
  * @param {string} toolRoot
+ * @param {string} [tokenId]
+ */
+export function clearWebAssignment(toolRoot, tokenId) {
+  return clearSurfaceAssignment(toolRoot, WEB_UI_APP_ID, tokenId);
+}
+
+/**
+ * @param {string} toolRoot
+ * @param {string} [tokenId]
+ */
+export function clearChatAssignment(toolRoot, tokenId) {
+  return clearSurfaceAssignment(toolRoot, CHAT_UI_APP_ID, tokenId);
+}
+
+function assignedIds(toolRoot) {
+  return {
+    webId: getWebAssignment(toolRoot)?.tokenId || null,
+    chatId: getChatAssignment(toolRoot)?.tokenId || null,
+  };
+}
+
+/**
+ * @param {string} toolRoot
  */
 export function listTokens(toolRoot) {
-  const assignedId = getWebAssignment(toolRoot)?.tokenId || null;
-  return loadTokens(toolRoot).map((e) => publicTokenMeta(e, assignedId));
+  const ids = assignedIds(toolRoot);
+  return loadTokens(toolRoot).map((e) => publicTokenMeta(e, ids));
 }
 
 /**
@@ -238,12 +342,19 @@ export function hasActiveTokens(toolRoot) {
 
 /**
  * @param {string} toolRoot
- * @param {{ appId?: string, label?: string, expiresAt?: string|null, assignToWeb?: boolean }} opts
+ * @param {{ appId?: string, label?: string, expiresAt?: string|null, assignToWeb?: boolean, assignToChat?: boolean }} opts
  */
 export function mintToken(toolRoot, opts) {
   const assignToWeb = Boolean(opts?.assignToWeb) || isWebUiAppId(opts?.appId);
+  const assignToChat = Boolean(opts?.assignToChat) || isChatUiAppId(opts?.appId);
+  if (assignToWeb && assignToChat) {
+    const err = new Error("Mint separately for Admin (ao-web) and Chat (ao-chat)");
+    err.code = "invalid_assign_both";
+    throw err;
+  }
   let appId = String(opts?.appId || "").trim();
   if (assignToWeb) appId = WEB_UI_APP_ID;
+  if (assignToChat) appId = CHAT_UI_APP_ID;
   if (!appId) {
     const err = new Error("appId is required");
     err.code = "invalid_app_id";
@@ -254,7 +365,9 @@ export function mintToken(toolRoot, opts) {
       ? String(opts.label).trim()
       : assignToWeb
         ? "Admin Web UI"
-        : "";
+        : assignToChat
+          ? "Chat Web UI"
+          : "";
   let expiresAt = null;
   if (opts?.expiresAt) {
     const exp = Date.parse(String(opts.expiresAt));
@@ -283,10 +396,11 @@ export function mintToken(toolRoot, opts) {
     lastUsedIp: null,
   };
   const tokens = loadTokens(toolRoot);
-  if (assignToWeb) {
+  if (assignToWeb || assignToChat) {
     const now = new Date().toISOString();
+    const match = assignToChat ? isChatUiAppId : isWebUiAppId;
     for (let i = 0; i < tokens.length; i += 1) {
-      if (isWebUiAppId(tokens[i].appId) && isActiveEntry(tokens[i])) {
+      if (match(tokens[i].appId) && isActiveEntry(tokens[i])) {
         tokens[i] = { ...tokens[i], revokedAt: now };
       }
     }
@@ -295,19 +409,21 @@ export function mintToken(toolRoot, opts) {
   saveTokens(toolRoot, tokens);
 
   let assignedToWeb = false;
+  let assignedToChat = false;
   if (assignToWeb) {
-    assignWebToken(toolRoot, {
-      tokenId: id,
-      token,
-      prefix: entry.prefix,
-    });
+    assignWebToken(toolRoot, { tokenId: id, token, prefix: entry.prefix });
     assignedToWeb = true;
+  }
+  if (assignToChat) {
+    assignChatToken(toolRoot, { tokenId: id, token, prefix: entry.prefix });
+    assignedToChat = true;
   }
 
   return {
     token,
-    ...publicTokenMeta(entry, assignedToWeb ? id : getWebAssignment(toolRoot)?.tokenId || null),
+    ...publicTokenMeta(entry, assignedIds(toolRoot)),
     assignedToWeb,
+    assignedToChat,
   };
 }
 
@@ -329,8 +445,8 @@ export function revokeToken(toolRoot, id) {
     saveTokens(toolRoot, tokens);
   }
   clearWebAssignment(toolRoot, tokenId);
-  const assignedId = getWebAssignment(toolRoot)?.tokenId || null;
-  return publicTokenMeta(tokens[idx], assignedId);
+  clearChatAssignment(toolRoot, tokenId);
+  return publicTokenMeta(tokens[idx], assignedIds(toolRoot));
 }
 
 /**
@@ -403,33 +519,74 @@ export function authenticateBearer(toolRoot, authHeader, envKeys = []) {
 }
 
 /**
- * Authenticate the reserved Admin Web UI token (assigned ao-web).
+ * Authenticate a reserved first-party UI token (ao-web or ao-chat).
  * @param {string} toolRoot
- * @param {string} authHeader
+ * @param {string} appId
+ * @param {string} authHeaderOrToken Bearer header or raw token
  */
-export function authenticateWebUiBearer(toolRoot, authHeader) {
-  const assigned = getWebAssignment(toolRoot);
+export function authenticateSurfaceBearer(toolRoot, appId, authHeaderOrToken) {
+  const surface = isChatUiAppId(appId) ? CHAT_UI_APP_ID : WEB_UI_APP_ID;
+  const assigned = getSurfaceAssignment(toolRoot, surface);
   if (!assigned) {
-    return { ok: false, reason: "web_unassigned" };
+    return { ok: false, reason: surface === CHAT_UI_APP_ID ? "chat_unassigned" : "web_unassigned" };
   }
-  const provided = extractBearer(authHeader);
+  const provided = extractBearer(authHeaderOrToken);
   if (!provided) {
     return { ok: false, reason: "missing" };
   }
   if (!timingSafeEqualString(provided, assigned.token)) {
     return { ok: false, reason: "invalid" };
   }
-  // Ensure registry entry is still active.
   const viaRegistry = authenticateBearer(toolRoot, `Bearer ${provided}`, []);
-  if (!viaRegistry.ok || viaRegistry.appId !== WEB_UI_APP_ID) {
+  if (!viaRegistry.ok || viaRegistry.appId !== surface) {
     return { ok: false, reason: "revoked" };
   }
   return {
     ok: true,
     tokenId: assigned.tokenId,
-    appId: WEB_UI_APP_ID,
+    appId: surface,
     source: "token",
   };
+}
+
+/**
+ * Authenticate the reserved Admin Web UI token (assigned ao-web).
+ * @param {string} toolRoot
+ * @param {string} authHeader
+ */
+export function authenticateWebUiBearer(toolRoot, authHeader) {
+  return authenticateSurfaceBearer(toolRoot, WEB_UI_APP_ID, authHeader);
+}
+
+/**
+ * Authenticate the reserved Chat Web UI token (assigned ao-chat).
+ * @param {string} toolRoot
+ * @param {string} authHeaderOrToken
+ */
+export function authenticateChatUiBearer(toolRoot, authHeaderOrToken) {
+  return authenticateSurfaceBearer(toolRoot, CHAT_UI_APP_ID, authHeaderOrToken);
+}
+
+/**
+ * Accept either assigned first-party UI token (Admin or Chat).
+ * @param {string} toolRoot
+ * @param {string} authHeaderOrToken
+ */
+export function authenticateFirstPartyUiBearer(toolRoot, authHeaderOrToken) {
+  const provided = extractBearer(authHeaderOrToken);
+  if (!provided) return { ok: false, reason: "missing" };
+  if (isWebUiAssigned(toolRoot)) {
+    const web = authenticateWebUiBearer(toolRoot, provided);
+    if (web.ok) return web;
+  }
+  if (isChatUiAssigned(toolRoot)) {
+    const chat = authenticateChatUiBearer(toolRoot, provided);
+    if (chat.ok) return chat;
+  }
+  if (!isWebUiAssigned(toolRoot) && !isChatUiAssigned(toolRoot)) {
+    return { ok: false, reason: "ui_unassigned" };
+  }
+  return { ok: false, reason: "invalid" };
 }
 
 /**
@@ -548,6 +705,7 @@ export function authRequired(_toolRoot, _envKeys = []) {
 export function isAdminBootstrapRoute(routeName, method) {
   const m = String(method || "GET").toUpperCase();
   if (routeName === "web_auth") return m === "GET" || m === "HEAD";
+  if (routeName === "chat_auth") return m === "GET" || m === "HEAD";
   if (routeName === "meta") return m === "GET" || m === "HEAD";
   if (routeName === "access_posture") return m === "GET" || m === "HEAD";
   if (routeName === "tokens") return m === "GET" || m === "HEAD" || m === "POST";

@@ -170,6 +170,7 @@ export class AoApi {
     label?: string;
     expiresAt?: string | null;
     assignToWeb?: boolean;
+    assignToChat?: boolean;
   }) {
     return this.post<ApiAccessToken>('/api/v1/admin/tokens', body);
   }

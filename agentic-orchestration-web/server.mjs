@@ -29,11 +29,15 @@ import {
 } from "./lib/admin-api.mjs";
 import {
   authenticateBearer,
+  authenticateChatUiBearer,
+  authenticateFirstPartyUiBearer,
   authenticateWebUiBearer,
   authRequired,
   clientIp,
+  getChatAssignment,
   getWebAssignment,
   isAdminBootstrapRoute,
+  isChatUiAssigned,
   isWebUiAssigned,
   recordUsage,
 } from "./lib/api-tokens.mjs";
@@ -345,6 +349,14 @@ function applyWebUiAccessGate(req, res, opts = {}) {
     req.agenticAuth = { tokenId: getWebAssignment(TOOL_ROOT)?.tokenId || null, appId: "ao-web", source: "token" };
     return true;
   }
+  if (routeName === "chat_auth" && (method === "GET" || method === "HEAD")) {
+    req.agenticAuth = {
+      tokenId: getChatAssignment(TOOL_ROOT)?.tokenId || null,
+      appId: "ao-chat",
+      source: "token",
+    };
+    return true;
+  }
   const result = authenticateWebUiBearer(TOOL_ROOT, req.headers?.authorization || "");
   if (!result.ok) {
     res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
@@ -357,6 +369,91 @@ function applyWebUiAccessGate(req, res, opts = {}) {
     source: result.source,
   };
   installApiUsageRecorder(req, res, getRequestPathname(req));
+  return true;
+}
+
+/**
+ * Gate core chat HTTP APIs with the assigned ao-chat token.
+ * Before assignment, allow open bootstrap so the chat page can load until mint.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ */
+function applyChatUiAccessGate(req, res) {
+  if (!isChatUiAssigned(TOOL_ROOT)) {
+    req.agenticAuth = { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
+  const result = authenticateChatUiBearer(TOOL_ROOT, req.headers?.authorization || "");
+  if (!result.ok) {
+    res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        error: "Unauthorized",
+        code: result.reason || "invalid",
+        hint: "Mint Chat Web UI (ao-chat) on Access, or refresh after mint",
+      }),
+    );
+    return false;
+  }
+  req.agenticAuth = {
+    tokenId: result.tokenId,
+    appId: result.appId,
+    source: result.source,
+  };
+  installApiUsageRecorder(req, res, getRequestPathname(req));
+  return true;
+}
+
+/**
+ * @param {import("node:http").IncomingMessage} req
+ */
+function extractWsAccessToken(req) {
+  const auth = String(req?.headers?.authorization || "").trim();
+  if (auth) {
+    if (/^Bearer\s+/i.test(auth)) return auth.replace(/^Bearer\s+/i, "").trim();
+    return auth;
+  }
+  try {
+    const u = new URL(req?.url || "/", "http://localhost");
+    return (
+      String(u.searchParams.get("access_token") || u.searchParams.get("token") || "").trim()
+    );
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Chat / Admin live WebSocket: when ao-chat or ao-web is assigned, require a matching first-party token.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("ws").WebSocket} ws
+ */
+function authorizeWsConnection(req, ws) {
+  const webAssigned = isWebUiAssigned(TOOL_ROOT);
+  const chatAssigned = isChatUiAssigned(TOOL_ROOT);
+  if (!webAssigned && !chatAssigned) {
+    req.agenticAuth = { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
+  const token = extractWsAccessToken(req);
+  const result = authenticateFirstPartyUiBearer(TOOL_ROOT, token);
+  if (!result.ok) {
+    try {
+      ws.close(4401, "unauthorized");
+    } catch {
+      try {
+        ws.terminate();
+      } catch {
+        /* ignore */
+      }
+    }
+    return false;
+  }
+  req.agenticAuth = {
+    tokenId: result.tokenId,
+    appId: result.appId,
+    source: result.source,
+  };
   return true;
 }
 
@@ -2184,7 +2281,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isApiSession(req)) {
-    if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
+    if (!applyChatUiAccessGate(req, res)) return;
     const userName = userNameFromRequestHeaders(req.headers);
     const sessionId = resolveSessionIdFromHeaders(req.headers);
     res.writeHead(200, {
@@ -2215,7 +2312,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isAgentProvidersApi(req)) {
-    if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
+    if (!applyChatUiAccessGate(req, res)) return;
     sendAgentProvidersJson(res);
     return;
   }
@@ -3034,10 +3131,12 @@ server.on("error", logListenError);
 wss.on("error", logListenError);
 
 wss.on("connection", (ws, req) => {
+  if (!authorizeWsConnection(req, ws)) return;
   ws._busy = false;
   ws._greetBusy = false;
   ws._userName = userNameFromRequestHeaders(req?.headers || {});
   ws._sessionId = resolveSessionIdFromHeaders(req?.headers || {});
+  ws._agenticAuth = req.agenticAuth || null;
   const plannerGreet = webPlannerGreetEnabled();
   sendJson(ws, {
     type: "hello",

@@ -51,6 +51,9 @@ spec:
               mountPath: /app/web/public/chat-session.js
               subPath: chat-session.js
             - name: web-hotfix-public
+              mountPath: /app/web/public/chat-auth.js
+              subPath: chat-auth.js
+            - name: web-hotfix-public
               mountPath: /app/web/public/manifest.webmanifest
               subPath: manifest.webmanifest
             - name: web-hotfix-public

@@ -191,6 +191,8 @@ export interface ApiAccessToken {
   token?: string;
   /** True when this token is (or was just) assigned to the Admin Web UI (ao-web). */
   assignedToWeb?: boolean;
+  /** True when this token is (or was just) assigned to the Chat Web UI (ao-chat). */
+  assignedToChat?: boolean;
 }
 
 export interface ApiAccessTokenUsage {

@@ -11,11 +11,14 @@ import {
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatRadioModule } from '@angular/material/radio';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { ApiAccessToken } from '@/app/core/ao-api/types';
 import { WebAuth } from '@/app/core/ao-api/web-auth';
 
 export type MintTokenDialogResult = ApiAccessToken | null;
+
+type MintKind = 'client' | 'admin' | 'chat';
 
 @Component({
   selector: 'ao-mint-token-dialog',
@@ -24,6 +27,7 @@ export type MintTokenDialogResult = ApiAccessToken | null;
     MatDialogModule,
     MatButtonModule,
     MatCheckboxModule,
+    MatRadioModule,
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
@@ -33,14 +37,26 @@ export type MintTokenDialogResult = ApiAccessToken | null;
     <mat-dialog-content class="flex min-w-[320px] max-w-lg flex-col gap-3">
       @if (!minted()) {
         <p class="text-sm text-neutral-500">
-          Tokens authenticate
-          <code>/api/v1/orchestrate</code>, OpenAI-compatible proxies, and (for
-          <code>ao-web</code>) the Admin UI. The secret is shown once.
+          Tokens authenticate orchestrate / OpenAI proxies. First-party UI
+          tokens are auto-assigned to Admin (<code>ao-web</code>) or Chat
+          (<code>ao-chat</code>). The secret is shown once.
         </p>
-        <mat-checkbox [(ngModel)]="assignToWeb" name="assignToWeb">
-          Admin Web UI (<code>ao-web</code>) — auto-assign to this console
-        </mat-checkbox>
-        @if (!assignToWeb) {
+        <mat-radio-group
+          class="flex flex-col gap-2"
+          [(ngModel)]="kind"
+          name="kind"
+        >
+          <mat-radio-button value="admin"
+            >Admin Web UI (<code>/admin</code> · ao-web)</mat-radio-button
+          >
+          <mat-radio-button value="chat"
+            >Chat Web UI (<code>/</code> · ao-chat)</mat-radio-button
+          >
+          <mat-radio-button value="client"
+            >External client (custom appId)</mat-radio-button
+          >
+        </mat-radio-group>
+        @if (kind === 'client') {
           <mat-form-field appearance="outline" class="w-full">
             <mat-label>App ID</mat-label>
             <input
@@ -52,10 +68,15 @@ export type MintTokenDialogResult = ApiAccessToken | null;
               placeholder="openclaw"
             />
           </mat-form-field>
+        } @else if (kind === 'admin') {
+          <p class="text-sm text-neutral-600 dark:text-neutral-300">
+            App ID fixed to <code>ao-web</code>. Replaces any previous Admin
+            token and unlocks Admin APIs.
+          </p>
         } @else {
           <p class="text-sm text-neutral-600 dark:text-neutral-300">
-            App ID fixed to <code>ao-web</code>. Replaces any previous Admin Web
-            UI token and unlocks Admin APIs for this deployment.
+            App ID fixed to <code>ao-chat</code>. Replaces any previous Chat
+            token and unlocks the chat page + its WebSocket.
           </p>
         }
         <mat-form-field appearance="outline" class="w-full">
@@ -81,7 +102,12 @@ export type MintTokenDialogResult = ApiAccessToken | null;
         </p>
         @if (minted()!.assignedToWeb) {
           <p class="text-sm text-teal-800 dark:text-teal-200">
-            Assigned to the Admin Web UI — this console will use it automatically.
+            Assigned to Admin Web UI — this console will use it automatically.
+          </p>
+        }
+        @if (minted()!.assignedToChat) {
+          <p class="text-sm text-teal-800 dark:text-teal-200">
+            Assigned to Chat Web UI — <code>/</code> will pick it up on refresh.
           </p>
         }
         <div
@@ -106,7 +132,7 @@ export type MintTokenDialogResult = ApiAccessToken | null;
         <button
           matButton="filled"
           type="button"
-          [disabled]="busy() || (!assignToWeb && !appId.trim())"
+          [disabled]="busy() || (kind === 'client' && !appId.trim())"
           (click)="mint()"
         >
           Mint
@@ -122,11 +148,16 @@ export class MintTokenDialog {
   private readonly webAuth = inject(WebAuth);
   private readonly clipboard = inject(Clipboard);
   private readonly ref = inject(MatDialogRef<MintTokenDialog, MintTokenDialogResult>);
-  readonly data = inject<{ preferWebUi?: boolean } | null>(MAT_DIALOG_DATA, {
-    optional: true,
-  });
+  readonly data = inject<{ preferWebUi?: boolean; preferChatUi?: boolean } | null>(
+    MAT_DIALOG_DATA,
+    { optional: true }
+  );
 
-  assignToWeb = Boolean(this.data?.preferWebUi);
+  kind: MintKind = this.data?.preferChatUi
+    ? 'chat'
+    : this.data?.preferWebUi
+      ? 'admin'
+      : 'client';
   appId = '';
   label = '';
   expiresAt = '';
@@ -137,8 +168,9 @@ export class MintTokenDialog {
 
   mint() {
     if (this.busy()) return;
-    const assignToWeb = this.assignToWeb;
-    const appId = assignToWeb ? 'ao-web' : this.appId.trim();
+    const assignToWeb = this.kind === 'admin';
+    const assignToChat = this.kind === 'chat';
+    const appId = assignToWeb ? 'ao-web' : assignToChat ? 'ao-chat' : this.appId.trim();
     if (!appId) return;
     this.busy.set(true);
     this.error.set(null);
@@ -148,6 +180,7 @@ export class MintTokenDialog {
         label: this.label.trim() || undefined,
         expiresAt: this.expiresAt.trim() || null,
         assignToWeb: assignToWeb || undefined,
+        assignToChat: assignToChat || undefined,
       })
       .subscribe((r) => {
         this.busy.set(false);
