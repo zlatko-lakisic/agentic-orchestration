@@ -378,7 +378,7 @@ describe('topology.layout', () => {
     }
   });
 
-  it('routes edges with orthogonal (right-angle) segments only', () => {
+  it('routes edges with orthogonal segments and soft corner fillets', () => {
     const nodes: TopologyNode[] = [
       n({ id: 'engine', kind: 'engine', band: 'ao' }),
       n({ id: 'planner', kind: 'planner', band: 'ao' }),
@@ -407,8 +407,12 @@ describe('topology.layout', () => {
     ];
     const layout = layoutTopology(nodes, edges);
     for (const e of layout.edges) {
-      expect(e.pathD).not.toMatch(/[CcQqSsAa]/);
+      expect(e.pathD).not.toMatch(/[CcSsAa]/);
       expect(e.pathD).toMatch(/^M /);
+      // Multi-segment routes get quadratic corner fillets.
+      if ((e.pathD.match(/ L /g) || []).length >= 2) {
+        expect(e.pathD).toMatch(/Q /);
+      }
     }
   });
 

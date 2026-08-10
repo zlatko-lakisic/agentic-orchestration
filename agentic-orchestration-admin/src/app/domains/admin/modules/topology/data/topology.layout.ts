@@ -87,8 +87,10 @@ const ROUTE_MARGIN = 72;
 const MAX_LANES = 8;
 /** Inflate node rects so routes keep a visible gap from card edges. */
 const CLEARANCE = 14;
-/** Perpendicular stub so wires leave/enter side centers, never run along card edges. */
-const PORT_STUB = 16;
+/** Perpendicular stub so wires leave/enter with room before the arrowhead. */
+const PORT_STUB = 28;
+/** Soften orthogonal elbows (px). Capped per-corner by adjacent segment length. */
+const CORNER_RADIUS = 10;
 /** Horizontal gap between Reach-apps and Web-API family frames. */
 const APP_FAMILY_GAP = 56;
 /** Extra top padding inside each Application family frame for its label. */
@@ -336,13 +338,18 @@ function pathHitsObstacles(pts: Pt[], obstacles: Rect[]): boolean {
   return false;
 }
 
-/** Parse SVG orthogonal path into points (M/L only). */
+/** Parse SVG path into route points (M/L vertices and Q endpoints; skips Q controls). */
 export function pathPoints(pathD: string): Pt[] {
   const pts: Pt[] = [];
-  const re = /[ML]\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/gi;
+  const re =
+    /([ML])\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)|Q\s*-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(pathD))) {
-    pts.push({ x: Number(m[1]), y: Number(m[2]) });
+    if (m[1]) {
+      pts.push({ x: Number(m[2]), y: Number(m[3]) });
+    } else {
+      pts.push({ x: Number(m[4]), y: Number(m[5]) });
+    }
   }
   return pts;
 }
@@ -409,9 +416,43 @@ function simplifyOrtho(pts: Pt[]): Pt[] {
 
 function toPathD(pts: Pt[]): string {
   const clean = simplifyOrtho(pts);
-  return clean
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${round(p.x)} ${round(p.y)}`)
-    .join(' ');
+  if (clean.length < 2) {
+    return clean
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${round(p.x)} ${round(p.y)}`)
+      .join(' ');
+  }
+  if (clean.length === 2) {
+    return `M ${round(clean[0].x)} ${round(clean[0].y)} L ${round(clean[1].x)} ${round(clean[1].y)}`;
+  }
+
+  // Orthogonal polyline with quadratic fillets at elbows.
+  const parts: string[] = [
+    `M ${round(clean[0].x)} ${round(clean[0].y)}`,
+  ];
+  for (let i = 1; i < clean.length - 1; i++) {
+    const prev = clean[i - 1];
+    const cur = clean[i];
+    const next = clean[i + 1];
+    const dPrev = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    const dNext = Math.hypot(next.x - cur.x, next.y - cur.y);
+    const r = Math.min(CORNER_RADIUS, dPrev / 2, dNext / 2);
+    if (r < 1.5) {
+      parts.push(`L ${round(cur.x)} ${round(cur.y)}`);
+      continue;
+    }
+    const ux = (prev.x - cur.x) / dPrev;
+    const uy = (prev.y - cur.y) / dPrev;
+    const vx = (next.x - cur.x) / dNext;
+    const vy = (next.y - cur.y) / dNext;
+    const enter = { x: cur.x + ux * r, y: cur.y + uy * r };
+    const leave = { x: cur.x + vx * r, y: cur.y + vy * r };
+    parts.push(
+      `L ${round(enter.x)} ${round(enter.y)} Q ${round(cur.x)} ${round(cur.y)} ${round(leave.x)} ${round(leave.y)}`
+    );
+  }
+  const last = clean[clean.length - 1];
+  parts.push(`L ${round(last.x)} ${round(last.y)}`);
+  return parts.join(' ');
 }
 
 function round(n: number): number {
