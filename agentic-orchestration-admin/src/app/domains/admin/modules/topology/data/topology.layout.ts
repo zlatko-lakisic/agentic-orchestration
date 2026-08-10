@@ -91,6 +91,8 @@ const CLEARANCE = 14;
 const PORT_STUB = 28;
 /** Soften orthogonal elbows (px). Capped per-corner by adjacent segment length. */
 const CORNER_RADIUS = 10;
+/** Minimum gap between parallel (collinear-overlapping) edge wires. */
+const EDGE_SEP = 10;
 /** Horizontal gap between Reach-apps and Web-API family frames. */
 const APP_FAMILY_GAP = 56;
 /** Extra top padding inside each Application family frame for its label. */
@@ -338,6 +340,97 @@ function pathHitsObstacles(pts: Pt[], obstacles: Rect[]): boolean {
   return false;
 }
 
+type OrthoSeg = { a: Pt; b: Pt };
+
+function isHoriz(a: Pt, b: Pt): boolean {
+  return Math.abs(a.y - b.y) < 0.5;
+}
+
+function isVert(a: Pt, b: Pt): boolean {
+  return Math.abs(a.x - b.x) < 0.5;
+}
+
+function pathToSegs(pts: Pt[]): OrthoSeg[] {
+  const segs: OrthoSeg[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 2) continue;
+    if (isHoriz(a, b) || isVert(a, b)) segs.push({ a, b });
+  }
+  return segs;
+}
+
+/** Drop port→stub segments; parallel separation applies to the corridor between stubs. */
+function interiorSegs(pts: Pt[]): OrthoSeg[] {
+  const segs = pathToSegs(simplifyOrtho(pts));
+  if (segs.length <= 2) return segs.length === 1 ? segs : [];
+  return segs.slice(1, -1);
+}
+
+function rangesOverlap(
+  a0: number,
+  a1: number,
+  b0: number,
+  b1: number,
+  pad = 1
+): boolean {
+  const amin = Math.min(a0, a1);
+  const amax = Math.max(a0, a1);
+  const bmin = Math.min(b0, b1);
+  const bmax = Math.max(b0, b1);
+  return amin < bmax - pad && bmin < amax - pad;
+}
+
+/** True when two orthogonal segments run parallel and share a stretch (not a 90° cross). */
+export function segsCollinearOverlap(
+  s1: OrthoSeg,
+  s2: OrthoSeg,
+  sep = EDGE_SEP
+): boolean {
+  if (isHoriz(s1.a, s1.b) && isHoriz(s2.a, s2.b)) {
+    if (Math.abs(s1.a.y - s2.a.y) >= sep) return false;
+    return rangesOverlap(s1.a.x, s1.b.x, s2.a.x, s2.b.x);
+  }
+  if (isVert(s1.a, s1.b) && isVert(s2.a, s2.b)) {
+    if (Math.abs(s1.a.x - s2.a.x) >= sep) return false;
+    return rangesOverlap(s1.a.y, s1.b.y, s2.a.y, s2.b.y);
+  }
+  return false;
+}
+
+function pathOverlapsReserved(
+  pts: Pt[],
+  reserved: OrthoSeg[],
+  sep = EDGE_SEP
+): boolean {
+  if (!reserved.length) return false;
+  // Candidates are stub-to-stub; full paths use interior corridor only.
+  const segs = pathToSegs(simplifyOrtho(pts));
+  for (const s of segs) {
+    for (const r of reserved) {
+      if (segsCollinearOverlap(s, r, sep)) return true;
+    }
+  }
+  return false;
+}
+
+/** True when two edge paths share a parallel stretch (90° crossings are fine). */
+export function pathsCollinearOverlap(
+  a: Pt[],
+  b: Pt[],
+  sep = EDGE_SEP
+): boolean {
+  const sa = interiorSegs(a);
+  const sb = interiorSegs(b);
+  for (const s of sa) {
+    for (const r of sb) {
+      if (segsCollinearOverlap(s, r, sep)) return true;
+    }
+  }
+  return false;
+}
+
 /** Parse SVG path into route points (M/L vertices and Q endpoints; skips Q controls). */
 export function pathPoints(pathD: string): Pt[] {
   const pts: Pt[] = [];
@@ -384,18 +477,30 @@ function pathLength(pts: Pt[]): number {
   return n;
 }
 
-function pickClearPath(candidates: Pt[][], obstacles: Rect[]): Pt[] | null {
+function pickClearPath(
+  candidates: Pt[][],
+  obstacles: Rect[],
+  reserved: OrthoSeg[] = []
+): Pt[] | null {
   let best: Pt[] | null = null;
   let bestLen = Infinity;
+  let bestSoft: Pt[] | null = null;
+  let bestSoftLen = Infinity;
   for (const mid of candidates) {
     if (pathHitsObstacles(mid, obstacles)) continue;
     const len = pathLength(mid);
-    if (len < bestLen) {
-      bestLen = len;
-      best = mid;
+    if (!pathOverlapsReserved(mid, reserved)) {
+      if (len < bestLen) {
+        bestLen = len;
+        best = mid;
+      }
+    } else if (len < bestSoftLen) {
+      // Keep a shortest obstacle-clear fallback if every channel is reserved.
+      bestSoftLen = len;
+      bestSoft = mid;
     }
   }
-  return best;
+  return best || bestSoft;
 }
 
 function simplifyOrtho(pts: Pt[]): Pt[] {
@@ -459,24 +564,29 @@ function round(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-function sideCenter(node: PositionedNode, side: Side): Pt {
+function sideCenter(node: PositionedNode, side: Side, along = 0): Pt {
   const cx = node.x + node.width / 2;
   const cy = node.y + node.height / 2;
   switch (side) {
     case 'top':
-      return { x: cx, y: node.y };
+      return { x: cx + along, y: node.y };
     case 'bottom':
-      return { x: cx, y: node.y + node.height };
+      return { x: cx + along, y: node.y + node.height };
     case 'left':
-      return { x: node.x, y: cy };
+      return { x: node.x, y: cy + along };
     case 'right':
-      return { x: node.x + node.width, y: cy };
+      return { x: node.x + node.width, y: cy + along };
   }
 }
 
 /** Point just outside the card, along the side normal. */
-function stubOut(node: PositionedNode, side: Side, stub = PORT_STUB): Pt {
-  const p = sideCenter(node, side);
+function stubOut(
+  node: PositionedNode,
+  side: Side,
+  stub = PORT_STUB,
+  along = 0
+): Pt {
+  const p = sideCenter(node, side, along);
   switch (side) {
     case 'top':
       return { x: p.x, y: p.y - stub };
@@ -513,25 +623,37 @@ function chooseSides(
   return { fromSide: 'left', toSide: 'right' };
 }
 
+export type RouteEdgeOpts = {
+  reserved?: OrthoSeg[];
+  /** Lateral offset along the attach side (fans multiple edges off one port). */
+  fromPortOffset?: number;
+  toPortOffset?: number;
+};
+
 /**
  * Orthogonal route between exterior stubs. Never travels along a card edge:
  * the full path is always [sideCenter → stubOut → …manhattan… → stubIn → sideCenter].
  * Prefers the shortest obstacle-free elbow; detours around intervening panels.
+ * Avoids parallel overlap with already-routed edges (90° crossings are allowed).
  */
-export function routeEdgeOrthogonal(
+export function routeEdgeOrthogonalPoints(
   from: PositionedNode,
   to: PositionedNode,
   kind: string,
   allNodes: PositionedNode[],
-  canvasWidth: number
-): string {
+  canvasWidth: number,
+  opts?: RouteEdgeOpts
+): Pt[] {
   const { fromSide, toSide } = chooseSides(from, to, kind);
-  const portS = sideCenter(from, fromSide);
-  const portT = sideCenter(to, toSide);
-  let a = stubOut(from, fromSide);
-  let b = stubOut(to, toSide);
+  const fromAlong = opts?.fromPortOffset ?? 0;
+  const toAlong = opts?.toPortOffset ?? 0;
+  const portS = sideCenter(from, fromSide, fromAlong);
+  const portT = sideCenter(to, toSide, toAlong);
+  let a = stubOut(from, fromSide, PORT_STUB, fromAlong);
+  let b = stubOut(to, toSide, PORT_STUB, toAlong);
+  const reserved = opts?.reserved ?? [];
 
-  // Reverse-tunnel: slight lateral offset on the stubs only (ports stay centered).
+  // Reverse-tunnel: slight lateral offset on the stubs only (ports stay on-side).
   if (kind === 'reverse-tunnel') {
     const ox = 16;
     a = { x: a.x + ox, y: a.y };
@@ -571,23 +693,24 @@ export function routeEdgeOrthogonal(
     midCandidates.push([a, b]);
   }
 
-  // Standard elbows (route only between stubs — never along node borders)
-  midCandidates.push([a, { x: a.x, y: midY }, { x: b.x, y: midY }, b]);
-  midCandidates.push([a, { x: midX, y: a.y }, { x: midX, y: b.y }, b]);
-  midCandidates.push([
-    a,
-    { x: a.x, y: gutterBelow },
-    { x: b.x, y: gutterBelow },
-    b,
-  ]);
-  midCandidates.push([
-    a,
-    { x: a.x, y: gutterAbove },
-    { x: b.x, y: gutterAbove },
-    b,
-  ]);
-  midCandidates.push([a, { x: leftX, y: a.y }, { x: leftX, y: b.y }, b]);
-  midCandidates.push([a, { x: rightX, y: a.y }, { x: rightX, y: b.y }, b]);
+  // Channel offsets so parallel wires can take neighboring gutters.
+  const yChannels = new Set<number>();
+  const xChannels = new Set<number>();
+  for (let k = -5; k <= 5; k++) {
+    yChannels.add(midY + k * EDGE_SEP);
+    yChannels.add(gutterAbove + k * EDGE_SEP);
+    yChannels.add(gutterBelow + k * EDGE_SEP);
+    xChannels.add(midX + k * EDGE_SEP);
+    xChannels.add(leftX + k * EDGE_SEP);
+    xChannels.add(rightX + k * EDGE_SEP);
+  }
+
+  for (const y of yChannels) {
+    midCandidates.push([a, { x: a.x, y }, { x: b.x, y }, b]);
+  }
+  for (const x of xChannels) {
+    midCandidates.push([a, { x, y: a.y }, { x, y: b.y }, b]);
+  }
   midCandidates.push([
     a,
     { x: a.x, y: gutterBelow },
@@ -611,10 +734,34 @@ export function routeEdgeOrthogonal(
     const right = o.x + o.w + 2;
     const top = o.y - 2;
     const bottom = o.y + o.h + 2;
-    midCandidates.push([a, { x: a.x, y: top }, { x: b.x, y: top }, b]);
-    midCandidates.push([a, { x: a.x, y: bottom }, { x: b.x, y: bottom }, b]);
-    midCandidates.push([a, { x: left, y: a.y }, { x: left, y: b.y }, b]);
-    midCandidates.push([a, { x: right, y: a.y }, { x: right, y: b.y }, b]);
+    for (const dy of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+      midCandidates.push([
+        a,
+        { x: a.x, y: top + dy },
+        { x: b.x, y: top + dy },
+        b,
+      ]);
+      midCandidates.push([
+        a,
+        { x: a.x, y: bottom + dy },
+        { x: b.x, y: bottom + dy },
+        b,
+      ]);
+    }
+    for (const dx of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+      midCandidates.push([
+        a,
+        { x: left + dx, y: a.y },
+        { x: left + dx, y: b.y },
+        b,
+      ]);
+      midCandidates.push([
+        a,
+        { x: right + dx, y: a.y },
+        { x: right + dx, y: b.y },
+        b,
+      ]);
+    }
     midCandidates.push([
       a,
       { x: a.x, y: top },
@@ -656,15 +803,34 @@ export function routeEdgeOrthogonal(
 
   // Far channels outside the union of all obstacles.
   if (obstacles.length) {
-    midCandidates.push([a, { x: farLeft, y: a.y }, { x: farLeft, y: b.y }, b]);
-    midCandidates.push([a, { x: farRight, y: a.y }, { x: farRight, y: b.y }, b]);
-    midCandidates.push([a, { x: a.x, y: farTop }, { x: b.x, y: farTop }, b]);
-    midCandidates.push([
-      a,
-      { x: a.x, y: farBottom },
-      { x: b.x, y: farBottom },
-      b,
-    ]);
+    for (const dx of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+      midCandidates.push([
+        a,
+        { x: farLeft + dx, y: a.y },
+        { x: farLeft + dx, y: b.y },
+        b,
+      ]);
+      midCandidates.push([
+        a,
+        { x: farRight + dx, y: a.y },
+        { x: farRight + dx, y: b.y },
+        b,
+      ]);
+    }
+    for (const dy of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+      midCandidates.push([
+        a,
+        { x: a.x, y: farTop + dy },
+        { x: b.x, y: farTop + dy },
+        b,
+      ]);
+      midCandidates.push([
+        a,
+        { x: a.x, y: farBottom + dy },
+        { x: b.x, y: farBottom + dy },
+        b,
+      ]);
+    }
     midCandidates.push([
       a,
       { x: a.x, y: farBottom },
@@ -683,28 +849,64 @@ export function routeEdgeOrthogonal(
     ]);
   }
 
-  const best = pickClearPath(midCandidates, obstacles);
+  const best = pickClearPath(midCandidates, obstacles, reserved);
   if (best) {
-    return toPathD([portS, ...best, portT]);
+    return [portS, ...best, portT];
   }
 
   // Last resort: outer ring channels (prefer clear; else far-right).
-  const fallbacks: Pt[][] = [
-    [a, { x: farRight + 24, y: a.y }, { x: farRight + 24, y: b.y }, b],
-    [a, { x: farLeft - 24, y: a.y }, { x: farLeft - 24, y: b.y }, b],
-    [a, { x: a.x, y: farTop - 24 }, { x: b.x, y: farTop - 24 }, b],
-    [a, { x: a.x, y: farBottom + 24 }, { x: b.x, y: farBottom + 24 }, b],
-    [
+  const fallbacks: Pt[][] = [];
+  for (const dx of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+    fallbacks.push([
       a,
-      { x: a.x, y: farBottom + 24 },
-      { x: farRight + 24, y: farBottom + 24 },
-      { x: farRight + 24, y: farTop - 24 },
-      { x: b.x, y: farTop - 24 },
+      { x: farRight + 24 + dx, y: a.y },
+      { x: farRight + 24 + dx, y: b.y },
       b,
-    ],
-  ];
-  const fb = pickClearPath(fallbacks, obstacles) || fallbacks[0];
-  return toPathD([portS, ...fb, portT]);
+    ]);
+    fallbacks.push([
+      a,
+      { x: farLeft - 24 + dx, y: a.y },
+      { x: farLeft - 24 + dx, y: b.y },
+      b,
+    ]);
+  }
+  for (const dy of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+    fallbacks.push([
+      a,
+      { x: a.x, y: farTop - 24 + dy },
+      { x: b.x, y: farTop - 24 + dy },
+      b,
+    ]);
+    fallbacks.push([
+      a,
+      { x: a.x, y: farBottom + 24 + dy },
+      { x: b.x, y: farBottom + 24 + dy },
+      b,
+    ]);
+  }
+  fallbacks.push([
+    a,
+    { x: a.x, y: farBottom + 24 },
+    { x: farRight + 24, y: farBottom + 24 },
+    { x: farRight + 24, y: farTop - 24 },
+    { x: b.x, y: farTop - 24 },
+    b,
+  ]);
+  const fb = pickClearPath(fallbacks, obstacles, reserved) || fallbacks[0];
+  return [portS, ...fb, portT];
+}
+
+export function routeEdgeOrthogonal(
+  from: PositionedNode,
+  to: PositionedNode,
+  kind: string,
+  allNodes: PositionedNode[],
+  canvasWidth: number,
+  opts?: RouteEdgeOpts
+): string {
+  return toPathD(
+    routeEdgeOrthogonalPoints(from, to, kind, allNodes, canvasWidth, opts)
+  );
 }
 
 /** Parse path endpoints for tests. */
@@ -722,22 +924,26 @@ export function isSideCenter(
   p: Pt,
   tol = 1.5
 ): Side | null {
-  const cx = node.x + node.width / 2;
-  const cy = node.y + node.height / 2;
-  if (Math.abs(p.x - cx) <= tol && Math.abs(p.y - node.y) <= tol) return 'top';
-  if (
-    Math.abs(p.x - cx) <= tol &&
-    Math.abs(p.y - (node.y + node.height)) <= tol
-  ) {
-    return 'bottom';
-  }
-  if (Math.abs(p.y - cy) <= tol && Math.abs(p.x - node.x) <= tol) return 'left';
-  if (
-    Math.abs(p.y - cy) <= tol &&
-    Math.abs(p.x - (node.x + node.width)) <= tol
-  ) {
-    return 'right';
-  }
+  const onTop =
+    Math.abs(p.y - node.y) <= tol &&
+    p.x >= node.x - tol &&
+    p.x <= node.x + node.width + tol;
+  if (onTop) return 'top';
+  const onBottom =
+    Math.abs(p.y - (node.y + node.height)) <= tol &&
+    p.x >= node.x - tol &&
+    p.x <= node.x + node.width + tol;
+  if (onBottom) return 'bottom';
+  const onLeft =
+    Math.abs(p.x - node.x) <= tol &&
+    p.y >= node.y - tol &&
+    p.y <= node.y + node.height + tol;
+  if (onLeft) return 'left';
+  const onRight =
+    Math.abs(p.x - (node.x + node.width)) <= tol &&
+    p.y >= node.y - tol &&
+    p.y <= node.y + node.height + tol;
+  if (onRight) return 'right';
   return null;
 }
 
@@ -1014,22 +1220,88 @@ export function layoutTopology(
   }
 
   const byId = new Map(positioned.map((n) => [n.id, n]));
-  const positionedEdges: PositionedEdge[] = [];
+
+  // Fan multiple edges off the same side so port stubs do not stack.
+  type EdgePlan = {
+    edge: TopologyEdge;
+    from: PositionedNode;
+    to: PositionedNode;
+    fromSide: Side;
+    toSide: Side;
+    fromPortOffset: number;
+    toPortOffset: number;
+  };
+  const plans: EdgePlan[] = [];
+  const sideCounts = new Map<string, number>();
   for (const e of edges) {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
-    const pathD = routeEdgeOrthogonal(
+    const { fromSide, toSide } = chooseSides(
       from,
       to,
-      String(e.kind || 'request'),
-      positioned,
-      width
+      String(e.kind || 'request')
     );
+    const fk = `${from.id}:${fromSide}`;
+    const tk = `${to.id}:${toSide}`;
+    sideCounts.set(fk, (sideCounts.get(fk) || 0) + 1);
+    sideCounts.set(tk, (sideCounts.get(tk) || 0) + 1);
+    plans.push({
+      edge: e,
+      from,
+      to,
+      fromSide,
+      toSide,
+      fromPortOffset: 0,
+      toPortOffset: 0,
+    });
+  }
+  const sideIndex = new Map<string, number>();
+  const portOffsetFor = (
+    node: PositionedNode,
+    side: Side,
+    key: string
+  ): number => {
+    const n = sideCounts.get(key) || 1;
+    const i = sideIndex.get(key) || 0;
+    sideIndex.set(key, i + 1);
+    if (n <= 1) return 0;
+    const raw = (i - (n - 1) / 2) * EDGE_SEP;
+    const maxAlong =
+      side === 'top' || side === 'bottom'
+        ? Math.max(0, node.width / 2 - 12)
+        : Math.max(0, node.height / 2 - 12);
+    return Math.max(-maxAlong, Math.min(maxAlong, raw));
+  };
+  for (const p of plans) {
+    p.fromPortOffset = portOffsetFor(
+      p.from,
+      p.fromSide,
+      `${p.from.id}:${p.fromSide}`
+    );
+    p.toPortOffset = portOffsetFor(p.to, p.toSide, `${p.to.id}:${p.toSide}`);
+  }
+
+  const reserved: OrthoSeg[] = [];
+  const positionedEdges: PositionedEdge[] = [];
+  for (const p of plans) {
+    const pts = routeEdgeOrthogonalPoints(
+      p.from,
+      p.to,
+      String(p.edge.kind || 'request'),
+      positioned,
+      width,
+      {
+        reserved,
+        fromPortOffset: p.fromPortOffset,
+        toPortOffset: p.toPortOffset,
+      }
+    );
+    for (const s of interiorSegs(pts)) reserved.push(s);
     positionedEdges.push({
-      ...e,
+      ...p.edge,
       points: '',
-      pathD,
+      pathD: toPathD(pts),
     });
   }
 
@@ -1037,9 +1309,9 @@ export function layoutTopology(
   let outWidth = width;
   let outHeight = y + MARGIN;
   for (const e of positionedEdges) {
-    for (const p of pathPoints(e.pathD)) {
-      outWidth = Math.max(outWidth, p.x + MARGIN);
-      outHeight = Math.max(outHeight, p.y + MARGIN);
+    for (const pt of pathPoints(e.pathD)) {
+      outWidth = Math.max(outWidth, pt.x + MARGIN);
+      outHeight = Math.max(outHeight, pt.y + MARGIN);
     }
   }
 

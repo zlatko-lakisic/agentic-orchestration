@@ -6,7 +6,10 @@ import {
   nodesOverlap,
   pathClosure,
   pathEndpoints,
+  pathPoints,
+  pathsCollinearOverlap,
   routeEdgeOrthogonal,
+  routeEdgeOrthogonalPoints,
   slotForKind,
 } from './topology.layout';
 import { TopologyEdge, TopologyNode } from './topology.types';
@@ -499,7 +502,85 @@ describe('topology.layout', () => {
     }
   });
 
-  it('attaches every edge at side centers (not corners)', () => {
+  it('keeps parallel edge runs from overlapping (90° crosses ok)', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'planner', kind: 'planner', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+      n({ id: 'catalog/agents', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/mcp', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/skills', kind: 'catalog', band: 'ao' }),
+      n({ id: 'execution', kind: 'execution-backend', band: 'ao' }),
+      n({ id: 'workers/cluster', kind: 'worker', band: 'ao' }),
+    ];
+    const edges: TopologyEdge[] = [
+      { id: 'e1', from: 'engine', to: 'planner', kind: 'request' },
+      { id: 'e2', from: 'web-ui', to: 'planner', kind: 'request' },
+      { id: 'e3', from: 'planner', to: 'catalog/agents', kind: 'request' },
+      { id: 'e4', from: 'planner', to: 'catalog/mcp', kind: 'request' },
+      { id: 'e5', from: 'planner', to: 'catalog/skills', kind: 'request' },
+      { id: 'e6', from: 'planner', to: 'execution', kind: 'request' },
+      { id: 'e7', from: 'execution', to: 'workers/cluster', kind: 'request' },
+    ];
+    const layout = layoutTopology(nodes, edges);
+    const skeletons = layout.edges.map((e) => pathPoints(e.pathD));
+    for (let i = 0; i < skeletons.length; i++) {
+      for (let j = i + 1; j < skeletons.length; j++) {
+        expect(pathsCollinearOverlap(skeletons[i], skeletons[j])).toBe(false);
+      }
+    }
+  });
+
+  it('offsets a second parallel corridor when the first is reserved', () => {
+    const from = {
+      id: 'from',
+      kind: 'catalog' as const,
+      band: 'ao' as const,
+      label: 'From',
+      status: 'healthy' as const,
+      instrumented: false,
+      deployed: true,
+      x: 40,
+      y: 40,
+      width: 140,
+      height: 52,
+      lane: 0,
+      rank: 0,
+      order: 0,
+      displayStatus: 'healthy',
+    };
+    const toA = { ...from, id: 'toA', x: 40, y: 200, lane: 0 };
+    const toB = { ...from, id: 'toB', x: 220, y: 200, lane: 1 };
+    const first = routeEdgeOrthogonalPoints(
+      from,
+      toA,
+      'request',
+      [from, toA, toB],
+      500
+    );
+    // Same reservation rule as layoutTopology: interior corridor only.
+    const reserved = first
+      .map((a, i) =>
+        i < first.length - 1 ? { a, b: first[i + 1] } : null
+      )
+      .filter((s): s is { a: { x: number; y: number }; b: { x: number; y: number } } =>
+        Boolean(s)
+      );
+    // Drop port stubs (first + last).
+    const interior =
+      reserved.length > 2 ? reserved.slice(1, -1) : reserved.slice();
+    const second = routeEdgeOrthogonalPoints(
+      from,
+      toB,
+      'request',
+      [from, toA, toB],
+      500,
+      { reserved: interior, fromPortOffset: 10 }
+    );
+    expect(pathsCollinearOverlap(first, second)).toBe(false);
+  });
+
+  it('attaches every edge on a card side (not corners)', () => {
     const nodes: TopologyNode[] = [
       n({ id: 'engine', kind: 'engine', band: 'ao' }),
       n({ id: 'planner', kind: 'planner', band: 'ao' }),
