@@ -125,6 +125,32 @@ type Pt = { x: number; y: number | null };
                   }
                 </div>
               }
+              @if (d.clientIps?.length) {
+                <div class="flex flex-col gap-2">
+                  <div class="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                    Connecting IPs
+                  </div>
+                  <div
+                    class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-900 dark:bg-sky-950"
+                  >
+                    <ul class="space-y-1 font-mono text-xs text-sky-950 dark:text-sky-100">
+                      @for (c of d.clientIps; track c.ip) {
+                        <li class="flex items-baseline justify-between gap-3">
+                          <span>{{ c.ip }}</span>
+                          <span class="text-[10px] text-sky-700 dark:text-sky-300">
+                            @if (c.count != null) {
+                              ×{{ c.count }}
+                            }
+                            @if (c.lastSeenAt) {
+                              · {{ c.lastSeenAt }}
+                            }
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                </div>
+              }
               @if (d.probe?.statusReason || d.node.statusReason) {
                 <div class="text-neutral-500">
                   {{ d.probe?.statusReason || d.node.statusReason }}

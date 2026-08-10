@@ -21,9 +21,11 @@ import {
   isWebUiAssigned,
   listTokens,
   listUsage,
+  listClientIpsForAppId,
   mintToken,
   recordUsage,
   revokeToken,
+  summarizeWebApiApps,
 } from "../lib/api-tokens.mjs";
 
 function tmpTool() {
@@ -194,4 +196,53 @@ test("AGENTIC_API_TOKENS_DIR overrides store location", () => {
     if (prev === undefined) delete process.env.AGENTIC_API_TOKENS_DIR;
     else process.env.AGENTIC_API_TOKENS_DIR = prev;
   }
+});
+
+test("summarizeWebApiApps groups tokens by appId and aggregates client IPs", () => {
+  const toolRoot = tmpTool();
+  const a = mintToken(toolRoot, { appId: "KnowBuddy", label: "kb" });
+  const b = mintToken(toolRoot, { appId: "KnowBuddy", label: "kb2" });
+  mintToken(toolRoot, { appId: "home-assistant" });
+  recordUsage(toolRoot, {
+    tokenId: a.id,
+    appId: "KnowBuddy",
+    ip: "10.0.10.50",
+    path: "/api/v1/orchestrate",
+    status: 200,
+    latencyMs: 12,
+  });
+  recordUsage(toolRoot, {
+    tokenId: b.id,
+    appId: "KnowBuddy",
+    ip: "10.0.10.51",
+    path: "/v1/chat/completions",
+    status: 200,
+    latencyMs: 8,
+  });
+  recordUsage(toolRoot, {
+    tokenId: a.id,
+    appId: "KnowBuddy",
+    ip: "10.0.10.50",
+    path: "/api/v1/orchestrate",
+    status: 200,
+    latencyMs: 9,
+  });
+
+  const apps = summarizeWebApiApps(toolRoot);
+  const kb = apps.find((x) => x.appId === "KnowBuddy");
+  const ha = apps.find((x) => x.appId === "home-assistant");
+  assert.ok(kb);
+  assert.equal(kb.tokenCount, 2);
+  assert.equal(kb.clientIpCount, 2);
+  assert.equal(kb.recent, true);
+  assert.ok(kb.clientIps.some((c) => c.ip === "10.0.10.50" && c.count >= 2));
+  assert.ok(ha);
+  assert.equal(ha.tokenCount, 1);
+  assert.equal(ha.clientIpCount, 0);
+
+  const ips = listClientIpsForAppId(toolRoot, "KnowBuddy");
+  assert.deepEqual(
+    ips.map((c) => c.ip).sort(),
+    ["10.0.10.50", "10.0.10.51"],
+  );
 });

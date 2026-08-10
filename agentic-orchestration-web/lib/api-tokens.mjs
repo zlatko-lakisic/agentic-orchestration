@@ -688,6 +688,136 @@ export function listUsage(toolRoot, tokenId, limit = 100) {
   return out;
 }
 
+const RECENT_USAGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Aggregate connecting client IPs for one appId from the usage ledger (+ token lastUsedIp).
+ * @param {string} toolRoot
+ * @param {string} appId
+ * @param {{ maxIps?: number, maxScan?: number }} [opts]
+ * @returns {Array<{ ip: string, lastSeenAt: string|null, count: number }>}
+ */
+export function listClientIpsForAppId(toolRoot, appId, opts = {}) {
+  const want = String(appId || "").trim();
+  if (!want) return [];
+  const maxIps = Math.min(Math.max(Number(opts.maxIps) || 50, 1), 200);
+  const maxScan = Math.min(Math.max(Number(opts.maxScan) || 8000, 100), 20000);
+  /** @type {Map<string, { ip: string, lastSeenAt: string|null, count: number }>} */
+  const byIp = new Map();
+
+  function touch(ipRaw, ts) {
+    const ip = String(ipRaw || "").trim();
+    if (!ip) return;
+    const prev = byIp.get(ip);
+    const seen = ts ? String(ts) : null;
+    if (!prev) {
+      byIp.set(ip, { ip, lastSeenAt: seen, count: 1 });
+      return;
+    }
+    prev.count += 1;
+    if (seen && (!prev.lastSeenAt || seen > prev.lastSeenAt)) {
+      prev.lastSeenAt = seen;
+    }
+  }
+
+  for (const t of listTokens(toolRoot)) {
+    if (String(t.appId || "") !== want) continue;
+    if (t.lastUsedIp) touch(t.lastUsedIp, t.lastUsedAt);
+  }
+
+  const file = usagePath(toolRoot);
+  if (fs.existsSync(file)) {
+    let text = "";
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      text = "";
+    }
+    const lines = text.split("\n");
+    let scanned = 0;
+    for (let i = lines.length - 1; i >= 0 && scanned < maxScan; i -= 1) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      scanned += 1;
+      try {
+        const row = JSON.parse(line);
+        if (String(row.appId || "") !== want) continue;
+        touch(row.ip, row.ts);
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  return [...byIp.values()]
+    .sort((a, b) => {
+      const ta = a.lastSeenAt || "";
+      const tb = b.lastSeenAt || "";
+      if (ta !== tb) return tb.localeCompare(ta);
+      return b.count - a.count || a.ip.localeCompare(b.ip);
+    })
+    .slice(0, maxIps);
+}
+
+/**
+ * Active minted API apps for Topology Web API family (grouped by appId).
+ * @param {string} toolRoot
+ * @returns {Array<{
+ *   appId: string,
+ *   label: string,
+ *   tokenCount: number,
+ *   lastUsedAt: string|null,
+ *   lastUsedIp: string|null,
+ *   clientIps: Array<{ ip: string, lastSeenAt: string|null, count: number }>,
+ *   clientIpCount: number,
+ *   recent: boolean,
+ * }>}
+ */
+export function summarizeWebApiApps(toolRoot) {
+  /** @type {Map<string, { appId: string, label: string, tokenCount: number, lastUsedAt: string|null, lastUsedIp: string|null }>} */
+  const byApp = new Map();
+  for (const t of listTokens(toolRoot)) {
+    if (t.status !== "active") continue;
+    const appId = String(t.appId || "").trim();
+    if (!appId || appId === "env") continue;
+    const cur = byApp.get(appId) || {
+      appId,
+      label: "",
+      tokenCount: 0,
+      lastUsedAt: null,
+      lastUsedIp: null,
+    };
+    cur.tokenCount += 1;
+    if (!cur.label && t.label) cur.label = String(t.label);
+    const used = t.lastUsedAt ? String(t.lastUsedAt) : null;
+    if (used && (!cur.lastUsedAt || used > cur.lastUsedAt)) {
+      cur.lastUsedAt = used;
+      cur.lastUsedIp = t.lastUsedIp ? String(t.lastUsedIp) : cur.lastUsedIp;
+    } else if (!cur.lastUsedIp && t.lastUsedIp) {
+      cur.lastUsedIp = String(t.lastUsedIp);
+    }
+    byApp.set(appId, cur);
+  }
+
+  const now = Date.now();
+  return [...byApp.values()]
+    .map((app) => {
+      const clientIps = listClientIpsForAppId(toolRoot, app.appId);
+      const recent = Boolean(
+        app.lastUsedAt &&
+          Number.isFinite(Date.parse(app.lastUsedAt)) &&
+          now - Date.parse(app.lastUsedAt) <= RECENT_USAGE_MS,
+      );
+      return {
+        ...app,
+        clientIps,
+        clientIpCount: clientIps.length,
+        recent,
+      };
+    })
+    .sort((a, b) => a.appId.localeCompare(b.appId));
+}
+
 /**
  * Orchestrate / OpenAI-proxy routes always require authentication.
  * @param {string} [_toolRoot]

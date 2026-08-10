@@ -25,6 +25,9 @@ import {
   WEB_UI_APP_ID,
   getChatAssignment,
   getWebAssignment,
+  isFirstPartyUiAppId,
+  listClientIpsForAppId,
+  summarizeWebApiApps,
 } from "./api-tokens.mjs";
 
 let _seq = 1;
@@ -317,6 +320,14 @@ export async function buildTopologyGraph(ctx) {
   const webAssign = getWebAssignment(toolRoot);
   const chatAssign = getChatAssignment(toolRoot);
   const reservedAppIds = new Set([WEB_UI_APP_ID, CHAT_UI_APP_ID]);
+  const webApiSummaries = summarizeWebApiApps(toolRoot);
+  const webApiById = new Map(webApiSummaries.map((a) => [a.appId, a]));
+
+  function webApiIpHint(appId) {
+    const s = webApiById.get(appId);
+    if (!s?.clientIpCount) return "";
+    return ` · ${s.clientIpCount} IP${s.clientIpCount === 1 ? "" : "s"}`;
+  }
 
   // First-party Web UIs — Application band / Web API family (bypass Reach).
   nodes.push(
@@ -325,11 +336,13 @@ export async function buildTopologyGraph(ctx) {
       kind: "ao-web",
       band: "application",
       appGroup: "web-api",
+      appId: WEB_UI_APP_ID,
       label: WEB_UI_APP_ID,
-      sublabel: "Admin · bypass web",
+      sublabel: `Admin · bypass web${webApiIpHint(WEB_UI_APP_ID)}`,
       status: webAssign ? "healthy" : "unknown",
       instrumented: Boolean(webAssign),
       deployed: true,
+      clientIpCount: webApiById.get(WEB_UI_APP_ID)?.clientIpCount || 0,
       statusReason: webAssign
         ? "First-party Admin SPA (/admin) → Web UI with ao-web token assigned"
         : "Admin SPA (/admin) served by Web UI; mint ao-web on Access to assign API token",
@@ -341,16 +354,50 @@ export async function buildTopologyGraph(ctx) {
       kind: "ao-chat",
       band: "application",
       appGroup: "web-api",
+      appId: CHAT_UI_APP_ID,
       label: CHAT_UI_APP_ID,
-      sublabel: "Chat · bypass web",
+      sublabel: `Chat · bypass web${webApiIpHint(CHAT_UI_APP_ID)}`,
       status: chatAssign ? "healthy" : "unknown",
       instrumented: Boolean(chatAssign),
       deployed: true,
+      clientIpCount: webApiById.get(CHAT_UI_APP_ID)?.clientIpCount || 0,
       statusReason: chatAssign
         ? "First-party chat UI (/) → Web UI with ao-chat token assigned"
         : "Chat UI (/) served by Web UI; mint ao-chat on Access to assign API token",
     }),
   );
+
+  // External minted API clients (KnowBuddy, home-assistant, …) — one node per appId.
+  for (const app of webApiSummaries) {
+    if (isFirstPartyUiAppId(app.appId)) continue;
+    const nTok = app.tokenCount;
+    const ipN = app.clientIpCount;
+    nodes.push(
+      node({
+        id: `app/${app.appId}`,
+        kind: "web-api-client",
+        band: "application",
+        appGroup: "web-api",
+        appId: app.appId,
+        label: app.appId,
+        sublabel: [
+          app.label || "API token",
+          `${nTok} token${nTok === 1 ? "" : "s"}`,
+          ipN ? `${ipN} IP${ipN === 1 ? "" : "s"}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        status: app.recent ? "healthy" : app.lastUsedAt ? "degraded" : "unknown",
+        instrumented: Boolean(app.lastUsedAt),
+        deployed: true,
+        count: nTok,
+        clientIpCount: ipN,
+        statusReason: app.lastUsedAt
+          ? `Last API call ${app.lastUsedAt}${app.lastUsedIp ? ` from ${app.lastUsedIp}` : ""}`
+          : "Active Access token(s); no API usage recorded yet",
+      }),
+    );
+  }
 
   // —— Application + Reach bands (Reach always when engine is up) ——
   if (!engineOk) {
@@ -479,22 +526,26 @@ export async function buildTopologyGraph(ctx) {
       }
     }
 
-    nodes.push(
-      node({
-        id: "app/openclaw",
-        kind: "openclaw",
-        band: "application",
-        appGroup: "web-api",
-        label: "OpenClaw",
-        sublabel: "bypass web",
-        status: openclawHint ? "healthy" : "unknown",
-        instrumented: false,
-        deployed: openclawHint,
-        statusReason: openclawHint
-          ? "Session id suggests OpenClaw"
-          : "Not detected from Reach sessions (may use web API only)",
-      }),
-    );
+    // OpenClaw presence hint when no minted openclaw API token already created a node.
+    if (!nodes.some((n) => n.id === "app/openclaw")) {
+      nodes.push(
+        node({
+          id: "app/openclaw",
+          kind: "openclaw",
+          band: "application",
+          appGroup: "web-api",
+          appId: "openclaw",
+          label: "OpenClaw",
+          sublabel: "bypass web",
+          status: openclawHint ? "healthy" : "unknown",
+          instrumented: false,
+          deployed: openclawHint,
+          statusReason: openclawHint
+            ? "Session id suggests OpenClaw"
+            : "Not detected from Reach sessions (may use web API only)",
+        }),
+      );
+    }
 
     // —— Reach band (always when engine reachable) ——
     nodes.push(
@@ -1173,17 +1224,13 @@ export async function buildTopologyGraph(ctx) {
     }
   }
 
-  // Bypass paths → Web UI (first-party UIs + OpenClaw; skip Reach / engine)
-  for (const bypassId of [
-    `app/${WEB_UI_APP_ID}`,
-    `app/${CHAT_UI_APP_ID}`,
-    "app/openclaw",
-  ]) {
-    if (!nodes.some((n) => n.id === bypassId && n.deployed)) continue;
+  // Bypass paths → Web UI (Web API family; skip Reach / engine)
+  for (const n of nodes) {
+    if (n.appGroup !== "web-api" || n.deployed === false) continue;
     edges.push(
       edge({
-        id: `${bypassId}->web-ui`,
-        from: bypassId,
+        id: `${n.id}->web-ui`,
+        from: n.id,
         to: "web-ui",
         kind: "bypass",
         protocol: "https",
@@ -1373,6 +1420,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
 
   const inbound = (graph.edges || []).filter((e) => e.to === id);
   const outbound = (graph.edges || []).filter((e) => e.from === id);
+  const toolRoot = ctx?.toolRoot;
 
   const logSource =
     id === "web-ui" || id === "web"
@@ -1405,6 +1453,14 @@ export async function buildTopologyNodeDetail(id, ctx) {
 
   const ownedByApps = uniqueSorted(n.ownedByApps || []);
   const appMembers = Array.isArray(n.appMembers) ? n.appMembers : [];
+  const webApiAppId =
+    n.appGroup === "web-api"
+      ? String(n.appId || String(n.id || "").replace(/^app\//, "")).trim()
+      : "";
+  const clientIps =
+    webApiAppId && toolRoot
+      ? listClientIpsForAppId(toolRoot, webApiAppId)
+      : undefined;
   const members =
     id === "platform/k3s" && Array.isArray(graph.nodes)
       ? {
@@ -1452,6 +1508,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
     configKeys,
     ownedByApps: ownedByApps.length ? ownedByApps : undefined,
     appMembers: appMembers.length ? appMembers : undefined,
+    clientIps: clientIps && clientIps.length ? clientIps : undefined,
     k8sResource: n.k8sResource || undefined,
     probe: {
       lastProbeAt: n.lastProbeAt || null,

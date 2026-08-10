@@ -17,6 +17,7 @@ const BY_KIND: Record<string, TopologyKindTheme> = {
   openclaw: { accent: '#7c3aed', icon: 'bot', aspect: 'OpenClaw' },
   'ao-web': { accent: '#0284c7', icon: 'layout-dashboard', aspect: 'Admin UI' },
   'ao-chat': { accent: '#0d9488', icon: 'messages-square', aspect: 'Chat UI' },
+  'web-api-client': { accent: '#0369a1', icon: 'key-round', aspect: 'API client' },
 
   'session-bridge': { accent: '#2563eb', icon: 'cable', aspect: 'Reach bridge' },
   'overlay-packer': { accent: '#4f46e5', icon: 'package', aspect: 'Overlay pack' },

@@ -27,6 +27,7 @@ export type TopologyNodeKind =
   | 'openclaw'
   | 'ao-web'
   | 'ao-chat'
+  | 'web-api-client'
   | 'session-bridge'
   | 'overlay-packer'
   | 'local-mcp-host'
@@ -74,6 +75,8 @@ export interface TopologyNode {
    * Drives the two labeled frames inside band 1.
    */
   appGroup?: TopologyAppGroup;
+  /** Distinct connecting client IPs seen for this Web API app (graph summary). */
+  clientIpCount?: number;
   /** Connected Reach sessions for this appId (Application header). */
   instanceCount?: number;
   /** Apps currently owning / using this Reach or AO component. */
@@ -155,6 +158,12 @@ export interface TopologyNodeDetail {
   ownedByApps?: string[];
   /** Per-app overlay member ids for Agents / MCP / Skills clusters. */
   appMembers?: TopologyAppMembers[];
+  /** Connecting client IPs for Web API apps (from token usage ledger). */
+  clientIps?: Array<{
+    ip: string;
+    lastSeenAt?: string | null;
+    count?: number;
+  }>;
   k8sResource?: TopologyNode['k8sResource'];
   probe?: {
     lastProbeAt?: string | null;

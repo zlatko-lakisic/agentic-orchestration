@@ -41,6 +41,11 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
     wikiKey: 'ao-chat',
     blurb: 'Chat UI in the Web API family (/) → Web UI with ao-chat token.',
   },
+  'web-api-client': {
+    wikiKey: 'web-api-client',
+    blurb:
+      'External appId with minted Access token(s) calling the Web UI API (bypass Reach).',
+  },
   'session-bridge': {
     wikiKey: 'session-bridge',
     blurb: 'Reach SessionBridge carrying the authenticated client session.',

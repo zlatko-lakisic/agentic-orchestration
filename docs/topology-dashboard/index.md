@@ -87,7 +87,7 @@ Reach apps appear as **wider minimized panels left-to-right** (accordion headers
 
 The platform never sees the client’s internal screens — only what the session **advertised** (agents, MCPs, skills, tunnels, speech sidecars).
 
-**Web API family (right):** **ao-web** (Admin `/admin`), **ao-chat** (chat `/`), and **OpenClaw** when detected. None use the Reach accordion. See [[#ao-web]], [[#ao-chat]], [[#openclaw]].
+**Web API family (right):** first-party **ao-web** / **ao-chat**, minted external **appId** tokens (one node per appId), and **OpenClaw** when detected. Each node bypasses to Web UI. Click a Web API node to see **connecting client IPs** from the Access token usage ledger. See [[#ao-web]], [[#ao-chat]], [[#web-api-client]], [[#openclaw]].
 
 ### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach
 
@@ -232,6 +232,19 @@ First-party Admin console at `/admin`. Always present in the Application band wi
 First-party chat page at `/`. Always present in the Application band with a **bypass** edge to Web UI (not Reach). Status is healthy when the reserved **`ao-chat`** API token is assigned on Access; otherwise unknown until mint.
 
 **Why it matters:** chat shares `/api/session` and orchestrate paths with the Web UI; it is not a Reach accordion app. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
+
+---
+
+<a id="web-api-client"></a>
+### Web API client (external appId)
+
+One Application-band node per **active** minted Access token `appId` (for example `KnowBuddy`, `home-assistant`). Multiple tokens that share an `appId` collapse to a single node. Bypass edge to Web UI.
+
+**Health:** healthy when the app called the API within ~24h; degraded if used earlier; unknown if minted but never used.
+
+**Connecting IPs:** node modal Health tab lists distinct client IPs from the usage ledger (`lastUsedIp` + `usage.jsonl`), with last-seen time and call count.
+
+See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
 
 ---
 
