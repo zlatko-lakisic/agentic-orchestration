@@ -9,6 +9,17 @@
 
 import { ingestTopologySample } from "./admin-topology-metrics.mjs";
 import { probeK8sTopology } from "./admin-k8s.mjs";
+import {
+  probeCatalogLoad,
+  probeEngineEndpoint,
+  probeExecutionBackend,
+  probeModelBackends,
+  probeOllama,
+  probePlannerFromEngine,
+  probeSpeechStt,
+  probeSpeechTts,
+  probeStorageGpu,
+} from "./admin-topology-probes.mjs";
 
 let _seq = 1;
 
@@ -259,12 +270,45 @@ export async function buildTopologyGraph(ctx) {
     overlaysOnEnv || Boolean(reachSessions.sessionOverlayEnabled);
   const tunnelOn = tunnelOnEnv || Boolean(reachSessions.mcpTunnelEnabled);
 
+  const nowIso = () => new Date().toISOString();
+
+  // Parallel HTTP probes (ollama + speech) — independent of engine.
+  const [ollamaProbe, sttProbe, ttsProbe] = await Promise.all([
+    probeOllama(fetchJson),
+    probeSpeechStt(fetchJson, { enabled: speechOn }),
+    probeSpeechTts(fetchJson, { enabled: speechOn }),
+  ]);
+
   const a = buildCatalogs("agents", { toolRoot }) || {};
   const m = buildCatalogs("mcp", { toolRoot }) || {};
   const s = buildCatalogs("skills", { toolRoot }) || {};
   const agentList = a.entries || a.items || (Array.isArray(a) ? a : []);
   const mcpList = m.entries || m.items || (Array.isArray(m) ? m : []);
   const skillList = s.entries || s.items || (Array.isArray(s) ? s : []);
+  const agentsProbe = probeCatalogLoad(a, "agent");
+  const mcpProbe = probeCatalogLoad(m, "MCP");
+  const skillsProbe = probeCatalogLoad(s, "skill");
+  // Prefer engine warm-catalog signal for agents when available.
+  if (engineOk && engineJson.catalogs && typeof engineJson.catalogs === "object") {
+    const warm = engineJson.catalogs;
+    if (warm.ok === false) {
+      agentsProbe.ok = false;
+      agentsProbe.status = "failed";
+      agentsProbe.reason = warm.error || "engine warm agent catalog failed";
+    } else if (warm.ok === true && warm.agentProviders != null) {
+      agentsProbe.ok = true;
+      agentsProbe.status = Number(warm.agentProviders) > 0 ? "healthy" : "degraded";
+      agentsProbe.count = Number(warm.agentProviders);
+      agentsProbe.reason = `engine warm · ${warm.agentProviders} providers`;
+    }
+  }
+
+  const plannerProbe = probePlannerFromEngine(engineHealth);
+  const backendsProbe = probeModelBackends({
+    ollama: ollamaProbe,
+    remoteConfigured,
+  });
+  const storageProbe = probeStorageGpu(engineHealth);
 
   const nodes = [];
   const edges = [];
@@ -439,10 +483,16 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "OverlayPacker",
         sublabel: overlaysOn ? "enabled" : "off",
-        status: overlaysOn ? "healthy" : "unknown",
-        instrumented: false,
+        status: overlaysOn && engineOk ? "healthy" : overlaysOn ? "failed" : "unknown",
+        instrumented: overlaysOn,
         deployed: overlaysOn,
         ownedByApps: appsWithAgents.length ? appsWithAgents : connectedAppIds,
+        statusReason: overlaysOn
+          ? engineOk
+            ? "session overlay enabled (engine)"
+            : "overlay enabled but engine down"
+          : "session overlay disabled",
+        lastProbeAt: overlaysOn ? nowIso() : undefined,
       }),
     );
     nodes.push(
@@ -452,13 +502,37 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "LocalMcpHost",
         sublabel: tunnelOn ? "tunnel" : "off",
-        status: tunnelOn && totalTunnels > 0 ? "healthy" : tunnelOn ? "unknown" : "unknown",
-        instrumented: false,
+        status:
+          tunnelOn && engineOk
+            ? totalTunnels > 0
+              ? "healthy"
+              : "degraded"
+            : tunnelOn
+              ? "failed"
+              : "unknown",
+        instrumented: tunnelOn,
         deployed: tunnelOn,
         ownedByApps: appsWithTunnels.length ? appsWithTunnels : appsWithMcps,
+        statusReason: tunnelOn
+          ? engineOk
+            ? totalTunnels > 0
+              ? `${totalTunnels} tunnel MCP(s) across sessions`
+              : "MCP tunnel enabled — no active tunnel MCPs yet"
+            : "tunnel enabled but engine down"
+          : "MCP tunnel disabled",
+        lastProbeAt: tunnelOn ? nowIso() : undefined,
       }),
     );
     const speechNegotiated = Boolean(reachSessions.speechEnabled) || speechOn;
+    const speechClientOk =
+      speechNegotiated &&
+      ((sttProbe.configured && sttProbe.ok) || (ttsProbe.configured && ttsProbe.ok));
+    const speechClientFailed =
+      speechNegotiated &&
+      sttProbe.configured &&
+      ttsProbe.configured &&
+      !sttProbe.ok &&
+      !ttsProbe.ok;
     nodes.push(
       node({
         id: "reach/speech-client",
@@ -466,10 +540,20 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "SpeechClient",
         sublabel: speechNegotiated ? "STT/TTS" : "off",
-        status: "unknown",
-        instrumented: false,
+        status: speechNegotiated
+          ? speechClientFailed
+            ? "failed"
+            : speechClientOk
+              ? "healthy"
+              : "degraded"
+          : "unknown",
+        instrumented: speechNegotiated && (sttProbe.configured || ttsProbe.configured),
         deployed: speechNegotiated,
         ownedByApps: speechNegotiated ? connectedAppIds : [],
+        statusReason: speechNegotiated
+          ? `STT ${sttProbe.ok ? "ok" : "down"} · TTS ${ttsProbe.ok ? "ok" : "down"}`
+          : "speech not negotiated",
+        lastProbeAt: speechNegotiated ? nowIso() : undefined,
       }),
     );
     const mtlsOn = Boolean(reachSessions.mtlsRequired) || Boolean(engineJson.mtls);
@@ -480,10 +564,16 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "MtlsEnroller",
         sublabel: mtlsOn ? "mTLS" : "optional",
-        status: "unknown",
-        instrumented: false,
+        status: mtlsOn && engineOk ? "healthy" : mtlsOn ? "failed" : "unknown",
+        instrumented: mtlsOn,
         deployed: mtlsOn,
         ownedByApps: mtlsOn ? connectedAppIds : [],
+        statusReason: mtlsOn
+          ? engineOk
+            ? "mTLS material reported by engine /health"
+            : "mTLS expected but engine down"
+          : "mTLS not required",
+        lastProbeAt: mtlsOn ? nowIso() : undefined,
       }),
     );
 
@@ -548,44 +638,57 @@ export async function buildTopologyGraph(ctx) {
       kind: "endpoint",
       label: "session_overlay",
       deployed: overlaysOn,
+      detail: "session overlay flag from engine",
     },
     {
       id: "engine/mcp-tunnel",
       kind: "endpoint",
       label: "mcp_tunnel",
       deployed: tunnelOn,
+      detail: "MCP tunnel flag from engine",
     },
     {
       id: "engine/direct-agent",
       kind: "endpoint",
       label: "direct_agent",
       deployed: true,
+      detail: "direct_agent path via engine serve",
     },
     {
       id: "engine/hello-speech",
       kind: "endpoint",
       label: "hello.speech",
       deployed: speechOn,
+      detail: "speech advertisement enabled",
     },
     {
       id: "engine/mtls-enrol",
       kind: "endpoint",
       label: "mTLS enrol",
       deployed: Boolean(engineJson.mtls) || engineTls,
+      detail: "mTLS enroll from engine /health",
     },
   ];
   for (const ep of endpointDefs) {
+    const epProbe = probeEngineEndpoint({
+      engineOk,
+      deployed: ep.deployed,
+      label: ep.label,
+      detail: ep.detail,
+    });
     nodes.push(
       node({
         id: ep.id,
         kind: ep.kind,
         band: "ao",
         label: ep.label,
-        sublabel: ep.deployed ? "on" : "off",
-        status: engineOk && ep.deployed ? "healthy" : "unknown",
-        instrumented: false,
+        sublabel: epProbe.sublabel,
+        status: epProbe.status,
+        instrumented: epProbe.instrumented,
         deployed: ep.deployed,
         parent: "engine",
+        statusReason: epProbe.reason,
+        lastProbeAt: epProbe.instrumented ? nowIso() : undefined,
       }),
     );
     if (ep.deployed) {
@@ -620,9 +723,10 @@ export async function buildTopologyGraph(ctx) {
       band: "ao",
       label: "Planner/Runner",
       sublabel: "CrewAI",
-      status: "unknown",
-      instrumented: false,
-      statusReason: "Presence inferred from web process — no live probe",
+      status: plannerProbe.status,
+      instrumented: plannerProbe.instrumented,
+      statusReason: plannerProbe.reason,
+      lastProbeAt: plannerProbe.instrumented ? nowIso() : undefined,
     }),
   );
 
@@ -633,11 +737,13 @@ export async function buildTopologyGraph(ctx) {
       kind: "catalog",
       band: "ao",
       label: "Agents",
-      sublabel: `${agentList.length} providers`,
-      status: "unknown",
-      instrumented: false,
-      count: agentList.length,
+      sublabel: `${agentsProbe.count ?? agentList.length} providers`,
+      status: agentsProbe.status,
+      instrumented: agentsProbe.instrumented,
+      count: agentsProbe.count ?? agentList.length,
       breakdown: agentBd,
+      statusReason: agentsProbe.reason,
+      lastProbeAt: agentsProbe.instrumented ? nowIso() : undefined,
     }),
   );
   nodes.push(
@@ -646,11 +752,13 @@ export async function buildTopologyGraph(ctx) {
       kind: "catalog",
       band: "ao",
       label: "MCP servers",
-      sublabel: `${mcpList.length} providers`,
-      status: "unknown",
-      instrumented: false,
-      count: mcpList.length,
+      sublabel: `${mcpProbe.count ?? mcpList.length} providers`,
+      status: mcpProbe.status,
+      instrumented: mcpProbe.instrumented,
+      count: mcpProbe.count ?? mcpList.length,
       breakdown: catalogBreakdown(mcpList),
+      statusReason: mcpProbe.reason,
+      lastProbeAt: mcpProbe.instrumented ? nowIso() : undefined,
     }),
   );
   nodes.push(
@@ -659,11 +767,13 @@ export async function buildTopologyGraph(ctx) {
       kind: "catalog",
       band: "ao",
       label: "Skills",
-      sublabel: `${skillList.length} skills`,
-      status: "unknown",
-      instrumented: false,
-      count: skillList.length,
+      sublabel: `${skillsProbe.count ?? skillList.length} skills`,
+      status: skillsProbe.status,
+      instrumented: skillsProbe.instrumented,
+      count: skillsProbe.count ?? skillList.length,
       breakdown: catalogBreakdown(skillList),
+      statusReason: skillsProbe.reason,
+      lastProbeAt: skillsProbe.instrumented ? nowIso() : undefined,
     }),
   );
 
@@ -674,8 +784,10 @@ export async function buildTopologyGraph(ctx) {
       band: "ao",
       label: "Model backends",
       sublabel: "providers",
-      status: "unknown",
-      instrumented: false,
+      status: backendsProbe.status,
+      instrumented: backendsProbe.instrumented,
+      statusReason: backendsProbe.reason,
+      lastProbeAt: backendsProbe.instrumented ? nowIso() : undefined,
     }),
   );
   nodes.push(
@@ -684,13 +796,22 @@ export async function buildTopologyGraph(ctx) {
       kind: "model-runtime",
       band: "ao",
       label: "Ollama",
-      sublabel: ollamaConfigured ? "local" : "unset",
-      status: ollamaConfigured ? "unknown" : "unknown",
-      instrumented: false,
-      deployed: ollamaConfigured,
-      statusReason: ollamaConfigured
-        ? process.env.OLLAMA_API_BASE || process.env.OLLAMA_HOST
-        : "OLLAMA_HOST not configured",
+      sublabel: ollamaProbe.configured
+        ? ollamaProbe.ok
+          ? ollamaProbe.modelCount != null
+            ? `${ollamaProbe.modelCount} models`
+            : "local"
+          : "down"
+        : "unset",
+      status: ollamaProbe.configured
+        ? ollamaProbe.ok
+          ? "healthy"
+          : "failed"
+        : "unknown",
+      instrumented: ollamaProbe.configured,
+      deployed: ollamaProbe.configured,
+      statusReason: ollamaProbe.reason,
+      lastProbeAt: ollamaProbe.configured ? nowIso() : undefined,
     }),
   );
   nodes.push(
@@ -703,18 +824,9 @@ export async function buildTopologyGraph(ctx) {
       status: "unknown",
       instrumented: false,
       deployed: remoteConfigured,
-    }),
-  );
-
-  nodes.push(
-    node({
-      id: "execution",
-      kind: "execution-backend",
-      band: "ao",
-      label: "Backends",
-      sublabel: backend,
-      status: "unknown",
-      instrumented: false,
+      statusReason: remoteConfigured
+        ? "API keys present — remote providers are not health-probed"
+        : "no remote API keys configured",
     }),
   );
 
@@ -893,9 +1005,11 @@ export async function buildTopologyGraph(ctx) {
       kind: "storage",
       band: "ao",
       label: "PVCs / GPU",
-      sublabel: "weights",
-      status: "unknown",
-      instrumented: false,
+      sublabel: storageProbe.sublabel || "weights",
+      status: storageProbe.status,
+      instrumented: storageProbe.instrumented,
+      statusReason: storageProbe.reason,
+      lastProbeAt: storageProbe.instrumented ? nowIso() : undefined,
     }),
   );
 
@@ -907,10 +1021,12 @@ export async function buildTopologyGraph(ctx) {
         kind: "endpoint",
         band: "ao",
         label: "STT :8090",
-        sublabel: "whisper",
-        status: "unknown",
-        instrumented: false,
+        sublabel: sttProbe.ok ? "whisper" : "down",
+        status: sttProbe.ok ? "healthy" : "failed",
+        instrumented: sttProbe.configured,
         deployed: true,
+        statusReason: sttProbe.reason,
+        lastProbeAt: sttProbe.configured ? nowIso() : undefined,
       }),
     );
     nodes.push(
@@ -919,10 +1035,45 @@ export async function buildTopologyGraph(ctx) {
         kind: "endpoint",
         band: "ao",
         label: "TTS :8091",
-        sublabel: "piper",
-        status: "unknown",
-        instrumented: false,
+        sublabel: ttsProbe.ok ? "piper" : "down",
+        status: ttsProbe.ok ? "healthy" : "failed",
+        instrumented: ttsProbe.configured,
         deployed: true,
+        statusReason: ttsProbe.reason,
+        lastProbeAt: ttsProbe.configured ? nowIso() : undefined,
+      }),
+    );
+  }
+
+  // Execution backend — after workers known.
+  {
+    const workerPodsEarly = k8sProbe.totals?.workers || 0;
+    const workerWorkloadsEarly = (k8sProbe.workloads || []).filter(
+      (w) => w.group === "workers",
+    );
+    const workerStatusEarly =
+      workerWorkloadsEarly.find((w) => w.status === "failed")?.status ||
+      workerWorkloadsEarly.find((w) => w.status === "degraded")?.status ||
+      workerWorkloadsEarly.find((w) => w.status === "starting")?.status ||
+      (workerPodsEarly ? "healthy" : "unknown");
+    const execProbe = probeExecutionBackend({
+      backend,
+      engineOk,
+      k8sReachable: k8sProbe.reachable,
+      workerStatus: workerStatusEarly,
+      workerPods: workerPodsEarly,
+    });
+    nodes.push(
+      node({
+        id: "execution",
+        kind: "execution-backend",
+        band: "ao",
+        label: "Backends",
+        sublabel: backend,
+        status: execProbe.status,
+        instrumented: execProbe.instrumented,
+        statusReason: execProbe.reason,
+        lastProbeAt: execProbe.instrumented ? nowIso() : undefined,
       }),
     );
   }
@@ -1081,11 +1232,24 @@ export async function buildTopologyGraph(ctx) {
     }),
   );
 
+  const nodeProbes = new Set(["engine", "web-ui"]);
+  if (k8sProbe.reachable) nodeProbes.add("k8s");
+  if (ollamaProbe.configured) nodeProbes.add("ollama");
+  if (sttProbe.configured) nodeProbes.add("speech-stt");
+  if (ttsProbe.configured) nodeProbes.add("speech-tts");
+  if (plannerProbe.instrumented) nodeProbes.add("planner");
+  if (agentsProbe.instrumented) nodeProbes.add("catalog-agents");
+  if (mcpProbe.instrumented) nodeProbes.add("catalog-mcp");
+  if (skillsProbe.instrumented) nodeProbes.add("catalog-skills");
+  if (backendsProbe.instrumented) nodeProbes.add("model-backends");
+  if (storageProbe.instrumented) nodeProbes.add("storage");
+  nodeProbes.add("execution");
+  nodeProbes.add("engine-endpoints");
+  // Remote LLMs intentionally omitted — no health probe.
+
   const capabilities = {
     edgeMetrics: [],
-    nodeProbes: k8sProbe.reachable
-      ? ["engine", "web-ui", "k8s"]
-      : ["engine", "web-ui"],
+    nodeProbes: [...nodeProbes],
     historyWindow: "15m",
     sources: {
       web: { reachable: true, role: "coordinator" },
@@ -1101,6 +1265,20 @@ export async function buildTopologyGraph(ctx) {
         note: k8sProbe.note || undefined,
         namespace: k8sProbe.namespace || undefined,
       },
+      ollama: ollamaProbe.configured
+        ? {
+            reachable: ollamaProbe.ok,
+            role: "model-runtime",
+            base: ollamaProbe.base || null,
+            latencyMs: ollamaProbe.latencyMs,
+          }
+        : { reachable: false, role: "model-runtime", note: "not configured" },
+      speech: speechOn
+        ? {
+            stt: { reachable: sttProbe.ok, base: sttProbe.base || null },
+            tts: { reachable: ttsProbe.ok, base: ttsProbe.base || null },
+          }
+        : { reachable: false, note: "disabled" },
     },
   };
 

@@ -55,7 +55,7 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 | `unknown` | Present but **not instrumented** — not counted as unhealthy |
 | `offline` | Was present; inside ~30s grace before removal |
 
-Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Most planner / catalog / platform nodes stay `unknown` with reasons like “no live probe”. If the engine is unreachable, Application and Reach bands empty and a note explains why. Engine up with no sessions → “No connected Reach clients” and a waiting Application placeholder.
+Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Additional live probes (when configured / in-cluster) include **Ollama** (`/api/tags`), **speech STT/TTS** (`/health`), **catalog loads**, **planner** (via engine warm catalogs), **execution backend**, **storage/GPU** (engine hardware snapshot), **engine endpoints** (derived from the same engine probe + feature flags), and **Kubernetes** workloads. **Remote LLMs** stay `unknown` by design — API keys are not a health probe. If the engine is unreachable, Application and Reach bands empty and a note explains why. Engine up with no sessions → “No connected Reach clients” and a waiting Application placeholder.
 
 **Capabilities** on the snapshot (`nodeProbes`, `edgeMetrics`, `sources`) declare what is real telemetry versus structural presence.
 
