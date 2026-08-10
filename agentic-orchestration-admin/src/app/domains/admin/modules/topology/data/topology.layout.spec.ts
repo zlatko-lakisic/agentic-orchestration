@@ -83,6 +83,67 @@ describe('topology.layout', () => {
     expect(families.find((f) => f.id === 'web-api')!.label).toBe('Web API');
   });
 
+  it('bumps Web API right when a Reach app is expanded', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'app/myapp',
+        kind: 'app',
+        band: 'application',
+        appId: 'myapp',
+        appGroup: 'reach',
+      }),
+      n({
+        id: 'app/myapp/ui',
+        kind: 'ui',
+        band: 'application',
+        appId: 'myapp',
+        appGroup: 'reach',
+        parent: 'app/myapp',
+      }),
+      n({
+        id: 'app/myapp/overlays',
+        kind: 'overlay-source',
+        band: 'application',
+        appId: 'myapp',
+        appGroup: 'reach',
+        parent: 'app/myapp',
+      }),
+      n({
+        id: 'app/myapp/local-tools',
+        kind: 'local-tools',
+        band: 'application',
+        appId: 'myapp',
+        appGroup: 'reach',
+        parent: 'app/myapp',
+      }),
+      n({
+        id: 'app/ao-web',
+        kind: 'ao-web',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/ao-chat',
+        kind: 'ao-chat',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+    ];
+    const collapsed = layoutTopology(nodes, [], { expandedAppId: null });
+    const expanded = layoutTopology(nodes, [], { expandedAppId: 'myapp' });
+    const webCollapsed = collapsed.nodes.find((x) => x.id === 'app/ao-web')!;
+    const webExpanded = expanded.nodes.find((x) => x.id === 'app/ao-web')!;
+    const ui = expanded.nodes.find((x) => x.id === 'app/myapp/ui')!;
+    const tools = expanded.nodes.find((x) => x.id === 'app/myapp/local-tools')!;
+    expect(webExpanded.x).toBeGreaterThan(webCollapsed.x);
+    expect(webExpanded.x).toBeGreaterThan(tools.x + tools.width);
+    expect(ui.rank).toBe(1);
+    const family = expanded.applicationFamilies!.find((f) => f.id === 'web-api')!;
+    expect(family.x).toBeGreaterThan(
+      collapsed.applicationFamilies!.find((f) => f.id === 'web-api')!.x
+    );
+  });
+
   it('leaves empty lanes as gaps (does not re-center)', () => {
     const nodes: TopologyNode[] = [
       n({ id: 'app/ui', kind: 'ui', band: 'application', appGroup: 'reach' }),

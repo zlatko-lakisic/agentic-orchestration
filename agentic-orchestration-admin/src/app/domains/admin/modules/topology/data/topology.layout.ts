@@ -577,6 +577,9 @@ export function layoutTopology(
   );
   const reachPanelCount = reachFamilyNodes.filter((n) => n.kind === 'app').length;
   const webApiCount = webApiIds.length;
+  /** Expanded Reach children occupy lanes 0–2 on the grid under the headers. */
+  const reachChildRowW =
+    3 * NODE_W + Math.max(0, 2) * COL_GAP;
   let reachSectionW = 0;
   if (reachPanelCount > 0) {
     reachSectionW =
@@ -587,6 +590,11 @@ export function layoutTopology(
     reachSectionW =
       reachFamilyNodes.length * NODE_W +
       Math.max(0, reachFamilyNodes.length - 1) * COL_GAP;
+  }
+  // When a Reach app is expanded, the child row can be wider than the header row —
+  // push Web API far enough right so it does not sit on top of UI / overlays / tools.
+  if (expandedAppId) {
+    reachSectionW = Math.max(reachSectionW, reachChildRowW);
   }
   const webApiSectionW =
     webApiCount > 0
