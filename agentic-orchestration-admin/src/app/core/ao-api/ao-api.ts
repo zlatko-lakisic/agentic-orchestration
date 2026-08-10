@@ -165,7 +165,12 @@ export class AoApi {
     );
   }
 
-  mintApiToken(body: { appId: string; label?: string; expiresAt?: string | null }) {
+  mintApiToken(body: {
+    appId: string;
+    label?: string;
+    expiresAt?: string | null;
+    assignToWeb?: boolean;
+  }) {
     return this.post<ApiAccessToken>('/api/v1/admin/tokens', body);
   }
 

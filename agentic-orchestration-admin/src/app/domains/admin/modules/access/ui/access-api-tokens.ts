@@ -8,6 +8,7 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
@@ -38,7 +39,8 @@ import { MintTokenDialog } from './mint-token-dialog';
               <div>
                 <div class="text-lg font-medium tracking-tight">API tokens</div>
                 <div class="text-sm text-neutral-500">
-                  Mint and revoke Bearer tokens; usage shows appId and client IP
+                  Orchestrate / OpenAI proxies always need a minted Bearer.
+                  Mint <code>ao-web</code> for this Admin console (auto-assigned).
                 </div>
               </div>
               <button matButton="filled" type="button" (click)="openMint()">
@@ -52,7 +54,7 @@ import { MintTokenDialog } from './mint-token-dialog';
             } @else if (!tokens().length) {
               <ao-empty-state
                 title="No API tokens"
-                message="Mint a token for OpenClaw or other clients. The env shared secret remains a fallback."
+                message="Mint an Admin Web UI (ao-web) token first so this console can call APIs, then mint tokens for OpenClaw and other clients."
               />
             } @else {
               <div class="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
@@ -61,6 +63,12 @@ import { MintTokenDialog } from './mint-token-dialog';
                     <th mat-header-cell *matHeaderCellDef>App ID</th>
                     <td mat-cell *matCellDef="let t" class="font-medium">
                       {{ t.appId }}
+                      @if (t.assignedToWeb) {
+                        <span
+                          class="ml-2 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-medium text-teal-900 dark:bg-teal-900 dark:text-teal-100"
+                          >Web UI</span
+                        >
+                      }
                       @if (t.label) {
                         <div class="text-xs font-normal text-neutral-500">
                           {{ t.label }}
@@ -193,6 +201,7 @@ import { MintTokenDialog } from './mint-token-dialog';
 })
 export class AccessApiTokens implements OnInit {
   private readonly api = inject(AoApi);
+  private readonly webAuth = inject(WebAuth);
   private readonly dialog = inject(MatDialog);
 
   readonly columns = [
@@ -234,16 +243,26 @@ export class AccessApiTokens implements OnInit {
   }
 
   openMint() {
-    const ref = this.dialog.open(MintTokenDialog, { width: '480px' });
+    const preferWebUi = !this.webAuth.assigned() && !this.tokens().some((t) => t.assignedToWeb);
+    const ref = this.dialog.open(MintTokenDialog, {
+      width: '480px',
+      data: { preferWebUi },
+    });
     ref.afterClosed().subscribe((result) => {
-      if (result) this.reload();
+      if (result) {
+        this.reload();
+        void this.webAuth.refreshOnce();
+      }
     });
   }
 
   revoke(t: ApiAccessToken) {
+    const wasWeb = Boolean(t.assignedToWeb);
     if (
       !confirm(
-        `Revoke token for appId "${t.appId}" (${t.prefix}…)? Clients using it will fail auth.`
+        wasWeb
+          ? `Revoke the Admin Web UI token (${t.prefix}…)? Admin APIs will lock until you mint ao-web again.`
+          : `Revoke token for appId "${t.appId}" (${t.prefix}…)? Clients using it will fail auth.`
       )
     ) {
       return;
@@ -255,7 +274,9 @@ export class AccessApiTokens implements OnInit {
         this.error.set(r.message);
         return;
       }
+      if (wasWeb) this.webAuth.clear();
       this.reload();
+      void this.webAuth.refreshOnce();
     });
   }
 

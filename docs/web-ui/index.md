@@ -60,7 +60,7 @@ Health endpoints and metadata:
 
 `POST /api/v1/orchestrate` runs a dynamic orchestration turn and returns `{ ok: true, output }`.
 
-- **Auth:** `Authorization: Bearer <key>` or `X-Api-Key` using `AGENTIC_ORCHESTRATE_API_KEY` (fallback: `AGENTIC_CHAT_COMPLETIONS_API_KEY`).
+- **Auth (required):** `Authorization: Bearer <token>`. Prefer minted Admin **API tokens** (`ao_…`, bound to an `appId`). Env shared secrets `AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY` remain a fallback. Anonymous calls are rejected. Mint reserved **`ao-web`** (Access → Mint → “Admin Web UI”) to auto-assign a key to the Admin SPA; other clients each need their own minted token.
 - **Body:** JSON with the user prompt (and optional session continuity fields).
 - **Connectors:** OpenClaw plugin and future host adapters — see [External integrations]({{ '/external-integrations/' | relative_url }}).
 

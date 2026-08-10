@@ -10,11 +10,21 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const API_TOKENS_DIR_NAME = "__orchestrator_api_tokens__";
+/** Reserved appId for the Admin / in-product Web UI. Minting this auto-assigns the secret to the SPA. */
+export const WEB_UI_APP_ID = "ao-web";
 const TOKENS_FILE = "tokens.json";
 const USAGE_FILE = "usage.jsonl";
+const WEB_ASSIGNED_FILE = "web-ui.assigned.json";
 const MAX_USAGE_LINES = 10_000;
 const TOKEN_PREFIX_LEN = 8;
 const TOKEN_BYTES = 32;
+
+/**
+ * @param {unknown} appId
+ */
+export function isWebUiAppId(appId) {
+  return String(appId || "").trim() === WEB_UI_APP_ID;
+}
 
 /**
  * @param {string} toolRoot
@@ -95,7 +105,7 @@ function saveTokens(toolRoot, tokens) {
  * Public metadata (never includes hash or secret).
  * @param {Record<string, unknown>} entry
  */
-export function publicTokenMeta(entry) {
+export function publicTokenMeta(entry, assignedTokenId = null) {
   const revoked = Boolean(entry.revokedAt);
   let expired = false;
   if (entry.expiresAt) {
@@ -105,8 +115,9 @@ export function publicTokenMeta(entry) {
   let status = "active";
   if (revoked) status = "revoked";
   else if (expired) status = "expired";
+  const id = String(entry.id || "");
   return {
-    id: String(entry.id || ""),
+    id,
     prefix: String(entry.prefix || ""),
     appId: String(entry.appId || ""),
     label: entry.label != null ? String(entry.label) : "",
@@ -116,14 +127,106 @@ export function publicTokenMeta(entry) {
     lastUsedAt: entry.lastUsedAt != null ? String(entry.lastUsedAt) : null,
     lastUsedIp: entry.lastUsedIp != null ? String(entry.lastUsedIp) : null,
     status,
+    assignedToWeb: Boolean(assignedTokenId && id === String(assignedTokenId)),
   };
 }
 
 /**
  * @param {string} toolRoot
  */
+function webAssignedPath(toolRoot) {
+  return path.join(apiTokensRoot(toolRoot), WEB_ASSIGNED_FILE);
+}
+
+/**
+ * @param {string} toolRoot
+ * @returns {{ tokenId: string, token: string, appId: string, prefix: string, assignedAt: string }|null}
+ */
+export function getWebAssignment(toolRoot) {
+  const file = webAssignedPath(toolRoot);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    const token = String(raw?.token || "").trim();
+    const tokenId = String(raw?.tokenId || "").trim();
+    if (!token || !tokenId) return null;
+    return {
+      tokenId,
+      token,
+      appId: WEB_UI_APP_ID,
+      prefix: String(raw.prefix || token.slice(0, TOKEN_PREFIX_LEN)),
+      assignedAt: raw.assignedAt != null ? String(raw.assignedAt) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} toolRoot
+ */
+export function isWebUiAssigned(toolRoot) {
+  return Boolean(getWebAssignment(toolRoot));
+}
+
+/**
+ * Persist plaintext for the Admin SPA (0600). Only used for the reserved ao-web token.
+ * @param {string} toolRoot
+ * @param {{ tokenId: string, token: string, prefix?: string }} opts
+ */
+export function assignWebToken(toolRoot, opts) {
+  const token = String(opts?.token || "").trim();
+  const tokenId = String(opts?.tokenId || "").trim();
+  if (!token || !tokenId) {
+    const err = new Error("token and tokenId required to assign web UI");
+    err.code = "invalid_web_assign";
+    throw err;
+  }
+  const root = apiTokensRoot(toolRoot);
+  fs.mkdirSync(root, { recursive: true });
+  const file = webAssignedPath(toolRoot);
+  const payload = {
+    tokenId,
+    token,
+    appId: WEB_UI_APP_ID,
+    prefix: String(opts.prefix || token.slice(0, TOKEN_PREFIX_LEN)),
+    assignedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(file, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* ignore */
+  }
+  return payload;
+}
+
+/**
+ * @param {string} toolRoot
+ * @param {string} [tokenId] when set, only clear if it matches the assignment
+ */
+export function clearWebAssignment(toolRoot, tokenId) {
+  const assigned = getWebAssignment(toolRoot);
+  if (!assigned) return false;
+  if (tokenId && String(tokenId) !== assigned.tokenId) return false;
+  const file = webAssignedPath(toolRoot);
+  try {
+    fs.unlinkSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {string} toolRoot
+ */
 export function listTokens(toolRoot) {
-  return loadTokens(toolRoot).map(publicTokenMeta);
+  const assignedId = getWebAssignment(toolRoot)?.tokenId || null;
+  return loadTokens(toolRoot).map((e) => publicTokenMeta(e, assignedId));
 }
 
 /**
@@ -135,16 +238,23 @@ export function hasActiveTokens(toolRoot) {
 
 /**
  * @param {string} toolRoot
- * @param {{ appId: string, label?: string, expiresAt?: string|null }} opts
+ * @param {{ appId?: string, label?: string, expiresAt?: string|null, assignToWeb?: boolean }} opts
  */
 export function mintToken(toolRoot, opts) {
-  const appId = String(opts?.appId || "").trim();
+  const assignToWeb = Boolean(opts?.assignToWeb) || isWebUiAppId(opts?.appId);
+  let appId = String(opts?.appId || "").trim();
+  if (assignToWeb) appId = WEB_UI_APP_ID;
   if (!appId) {
     const err = new Error("appId is required");
     err.code = "invalid_app_id";
     throw err;
   }
-  const label = opts?.label != null ? String(opts.label).trim() : "";
+  const label =
+    opts?.label != null && String(opts.label).trim()
+      ? String(opts.label).trim()
+      : assignToWeb
+        ? "Admin Web UI"
+        : "";
   let expiresAt = null;
   if (opts?.expiresAt) {
     const exp = Date.parse(String(opts.expiresAt));
@@ -173,9 +283,32 @@ export function mintToken(toolRoot, opts) {
     lastUsedIp: null,
   };
   const tokens = loadTokens(toolRoot);
+  if (assignToWeb) {
+    const now = new Date().toISOString();
+    for (let i = 0; i < tokens.length; i += 1) {
+      if (isWebUiAppId(tokens[i].appId) && isActiveEntry(tokens[i])) {
+        tokens[i] = { ...tokens[i], revokedAt: now };
+      }
+    }
+  }
   tokens.push(entry);
   saveTokens(toolRoot, tokens);
-  return { token, ...publicTokenMeta(entry) };
+
+  let assignedToWeb = false;
+  if (assignToWeb) {
+    assignWebToken(toolRoot, {
+      tokenId: id,
+      token,
+      prefix: entry.prefix,
+    });
+    assignedToWeb = true;
+  }
+
+  return {
+    token,
+    ...publicTokenMeta(entry, assignedToWeb ? id : getWebAssignment(toolRoot)?.tokenId || null),
+    assignedToWeb,
+  };
 }
 
 /**
@@ -195,7 +328,9 @@ export function revokeToken(toolRoot, id) {
     };
     saveTokens(toolRoot, tokens);
   }
-  return publicTokenMeta(tokens[idx]);
+  clearWebAssignment(toolRoot, tokenId);
+  const assignedId = getWebAssignment(toolRoot)?.tokenId || null;
+  return publicTokenMeta(tokens[idx], assignedId);
 }
 
 /**
@@ -228,6 +363,7 @@ function extractBearer(authHeader) {
 
 /**
  * Authenticate Authorization header against minted tokens and/or env shared secrets.
+ * Always requires a credential — never returns the legacy open/anonymous success.
  *
  * @param {string} toolRoot
  * @param {string} authHeader
@@ -239,10 +375,6 @@ export function authenticateBearer(toolRoot, authHeader, envKeys = []) {
   const keys = (Array.isArray(envKeys) ? envKeys : [envKeys])
     .map((k) => String(k || "").trim())
     .filter(Boolean);
-  const activePresent = hasActiveTokens(toolRoot);
-  if (!activePresent && keys.length === 0) {
-    return { ok: true, tokenId: null, appId: "open", source: "env" };
-  }
   if (!provided) {
     return { ok: false, reason: "missing" };
   }
@@ -268,6 +400,36 @@ export function authenticateBearer(toolRoot, authHeader, envKeys = []) {
   }
 
   return { ok: false, reason: "invalid" };
+}
+
+/**
+ * Authenticate the reserved Admin Web UI token (assigned ao-web).
+ * @param {string} toolRoot
+ * @param {string} authHeader
+ */
+export function authenticateWebUiBearer(toolRoot, authHeader) {
+  const assigned = getWebAssignment(toolRoot);
+  if (!assigned) {
+    return { ok: false, reason: "web_unassigned" };
+  }
+  const provided = extractBearer(authHeader);
+  if (!provided) {
+    return { ok: false, reason: "missing" };
+  }
+  if (!timingSafeEqualString(provided, assigned.token)) {
+    return { ok: false, reason: "invalid" };
+  }
+  // Ensure registry entry is still active.
+  const viaRegistry = authenticateBearer(toolRoot, `Bearer ${provided}`, []);
+  if (!viaRegistry.ok || viaRegistry.appId !== WEB_UI_APP_ID) {
+    return { ok: false, reason: "revoked" };
+  }
+  return {
+    ok: true,
+    tokenId: assigned.tokenId,
+    appId: WEB_UI_APP_ID,
+    source: "token",
+  };
 }
 
 /**
@@ -370,13 +532,24 @@ export function listUsage(toolRoot, tokenId, limit = 100) {
 }
 
 /**
- * Whether auth is required (active minted tokens or env keys present).
- * @param {string} toolRoot
- * @param {string|string[]} envKeys
+ * Orchestrate / OpenAI-proxy routes always require authentication.
+ * @param {string} [_toolRoot]
+ * @param {string|string[]} [_envKeys]
  */
-export function authRequired(toolRoot, envKeys = []) {
-  const keys = (Array.isArray(envKeys) ? envKeys : [envKeys])
-    .map((k) => String(k || "").trim())
-    .filter(Boolean);
-  return keys.length > 0 || hasActiveTokens(toolRoot);
+export function authRequired(_toolRoot, _envKeys = []) {
+  return true;
+}
+
+/**
+ * Admin HTTP routes that may be hit before an ao-web token is assigned (bootstrap).
+ * @param {string} routeName
+ * @param {string} method
+ */
+export function isAdminBootstrapRoute(routeName, method) {
+  const m = String(method || "GET").toUpperCase();
+  if (routeName === "web_auth") return m === "GET" || m === "HEAD";
+  if (routeName === "meta") return m === "GET" || m === "HEAD";
+  if (routeName === "access_posture") return m === "GET" || m === "HEAD";
+  if (routeName === "tokens") return m === "GET" || m === "HEAD" || m === "POST";
+  return false;
 }

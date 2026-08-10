@@ -1,7 +1,9 @@
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   ApplicationConfig,
+  inject,
   isDevMode,
+  provideAppInitializer,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
 import { provideNativeDateAdapter } from '@angular/material/core';
@@ -15,12 +17,15 @@ import { provideTransloco } from '@jsverse/transloco';
 import { provideIcons } from '@/app/core/icons/provider';
 import { provideTheming } from '@/app/core/theming';
 import { TranslocoHttpLoader } from '@/app/core/transloco/transloco-http-loader';
+import { webAuthInterceptor } from '@/app/core/ao-api/web-auth.interceptor';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideHttpClient(withFetch()),
+    provideHttpClient(withFetch(), withInterceptors([webAuthInterceptor])),
+    provideAppInitializer(() => inject(WebAuth).refreshOnce()),
     provideRouter(
       routes,
       withComponentInputBinding(),

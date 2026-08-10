@@ -13,6 +13,9 @@ import {
   buildTopologyNodeDetail,
 } from "./admin-topology-graph.mjs";
 import {
+  WEB_UI_APP_ID,
+  getWebAssignment,
+  isWebUiAssigned,
   listTokens,
   listUsage,
   mintToken,
@@ -1715,16 +1718,23 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
   );
   const webTls = scheme === "https";
   const orchestrateKeySet = Boolean(e("AGENTIC_ORCHESTRATE_API_KEY")?.set);
+  const webUiAssigned = isWebUiAssigned(toolRoot);
+  const activeTokens = listTokens(toolRoot).filter((t) => t.status === "active").length;
 
   let severity = "ok";
   let verdict = "Access posture looks sound for this process.";
-  if (!webTls && !identityRequired) {
+  if (!webUiAssigned) {
     severity = "critical";
     verdict =
-      "This deployment accepts unauthenticated requests over plaintext HTTP.";
+      "Admin Web UI token (ao-web) is not assigned — mint it on Access to unlock Admin APIs.";
+  } else if (!webTls && !identityRequired) {
+    severity = "warning";
+    verdict =
+      "API auth is enforced, but Admin is reachable over plaintext HTTP without upstream identity.";
   } else if (!identityRequired) {
     severity = "warning";
-    verdict = "Identity is not required — anyone who can reach Admin can use it.";
+    verdict =
+      "API tokens are required; consider requiring upstream identity (Warpgate / AGENTIC_REQUIRE_IDENTITY) as well.";
   } else if (!webTls) {
     severity = "warning";
     verdict = "Admin is served over plaintext HTTP (TLS not terminating here).";
@@ -1736,10 +1746,13 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
     verdict,
     details: [
       `Admin is served on ${scheme}://${host}`,
+      `API auth enforced (orchestrate / OpenAI proxies always require Bearer)`,
+      `Admin Web UI token ${webUiAssigned ? "assigned (ao-web)" : "not assigned"}`,
+      `${activeTokens} active API token${activeTokens === 1 ? "" : "s"}`,
       `identity ${identityRequired ? "required" : "not required"}`,
       `engine TLS ${engineTls ? "configured" : "absent"}`,
       `web TLS ${webTls ? "present (or terminated upstream)" : "absent"}`,
-      `orchestrate API key ${orchestrateKeySet ? "set" : "unset"}`,
+      `orchestrate API key ${orchestrateKeySet ? "set (env fallback)" : "unset"}`,
     ],
     flags: {
       scheme,
@@ -1748,6 +1761,9 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
       engineTls,
       webTls,
       orchestrateKeySet,
+      apiAuthEnforced: true,
+      webUiAssigned,
+      activeTokenCount: activeTokens,
     },
   };
 }
@@ -1791,6 +1807,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/storage") return { name: "storage" };
   if (p === "/api/v1/admin/meta") return { name: "meta" };
   if (p === "/api/v1/admin/access/posture") return { name: "access_posture" };
+  if (p === "/api/v1/admin/web-auth") return { name: "web_auth" };
   if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
@@ -1879,6 +1896,29 @@ async function handleAdminApi(req, res, ctx) {
         writeApi: { tokens: true, mtlsClients: true },
         title: "AO Administration",
         readOnlyMessage: "Read-only except API tokens and mTLS client revoke",
+        webUiAppId: WEB_UI_APP_ID,
+        webUiAssigned: isWebUiAssigned(ctx.toolRoot),
+      });
+      return true;
+    }
+    if (route.name === "web_auth" && (method === "GET" || method === "HEAD")) {
+      const assigned = getWebAssignment(ctx.toolRoot);
+      if (!assigned) {
+        send(200, {
+          assigned: false,
+          appId: WEB_UI_APP_ID,
+          token: null,
+          hint: "Mint an API token with appId ao-web (or assignToWeb) on Access",
+        });
+        return true;
+      }
+      send(200, {
+        assigned: true,
+        appId: WEB_UI_APP_ID,
+        token: assigned.token,
+        tokenId: assigned.tokenId,
+        prefix: assigned.prefix,
+        assignedAt: assigned.assignedAt,
       });
       return true;
     }
@@ -2022,6 +2062,7 @@ async function handleAdminApi(req, res, ctx) {
             appId: body.appId,
             label: body.label,
             expiresAt: body.expiresAt || null,
+            assignToWeb: Boolean(body.assignToWeb) || undefined,
           });
           send(201, minted);
         } catch (err) {

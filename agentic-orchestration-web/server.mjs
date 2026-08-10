@@ -29,8 +29,12 @@ import {
 } from "./lib/admin-api.mjs";
 import {
   authenticateBearer,
+  authenticateWebUiBearer,
   authRequired,
   clientIp,
+  getWebAssignment,
+  isAdminBootstrapRoute,
+  isWebUiAssigned,
   recordUsage,
 } from "./lib/api-tokens.mjs";
 import {
@@ -260,6 +264,7 @@ loadToolEnvFile(TOOL_ROOT);
 
 /**
  * Gate orchestrate / OpenAI-proxy routes with minted API tokens + env shared-secret fallback.
+ * Always requires credentials (no anonymous open mode).
  * Returns false when a 401 was already written.
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
@@ -268,10 +273,8 @@ loadToolEnvFile(TOOL_ROOT);
 function applyApiAccessGate(req, res, opts) {
   const envKeys = (opts.envKeys || []).map((k) => String(k || "").trim()).filter(Boolean);
   const cors = opts.cors || {};
-  if (!authRequired(TOOL_ROOT, envKeys)) {
-    req.agenticAuth = { tokenId: null, appId: "open", source: "env" };
-    return true;
-  }
+  // authRequired is always true; keep the call for clarity / future policy hooks.
+  void authRequired(TOOL_ROOT, envKeys);
   const result = authenticateBearer(TOOL_ROOT, req.headers?.authorization || "", envKeys);
   if (!result.ok) {
     if (opts.openAiStyle) {
@@ -302,13 +305,69 @@ function applyApiAccessGate(req, res, opts) {
 }
 
 /**
+ * Gate Admin + same-origin operator APIs with the assigned ao-web token.
+ * Before assignment, bootstrap routes stay open so operators can mint ao-web.
+ * Returns false when a 401 was already written.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ * @param {{ routeName?: string|null, allowBootstrap?: boolean }} [opts]
+ */
+function applyWebUiAccessGate(req, res, opts = {}) {
+  const assigned = isWebUiAssigned(TOOL_ROOT);
+  const routeName = opts.routeName || null;
+  const method = String(req.method || "GET").toUpperCase();
+  if (!assigned) {
+    if (opts.allowBootstrap === false) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          error: "Admin Web UI token not assigned — mint appId ao-web on Access",
+          code: "web_ui_unassigned",
+        }),
+      );
+      return false;
+    }
+    if (routeName && !isAdminBootstrapRoute(routeName, method)) {
+      res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          error: "Mint and assign an Admin Web UI token (ao-web) before using this API",
+          code: "web_ui_unassigned",
+        }),
+      );
+      return false;
+    }
+    req.agenticAuth = { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
+  if (routeName === "web_auth" && (method === "GET" || method === "HEAD")) {
+    // SPA boot: deliver the assigned secret so the interceptor can attach Bearer.
+    req.agenticAuth = { tokenId: getWebAssignment(TOOL_ROOT)?.tokenId || null, appId: "ao-web", source: "token" };
+    return true;
+  }
+  const result = authenticateWebUiBearer(TOOL_ROOT, req.headers?.authorization || "");
+  if (!result.ok) {
+    res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "Unauthorized", code: result.reason || "invalid" }));
+    return false;
+  }
+  req.agenticAuth = {
+    tokenId: result.tokenId,
+    appId: result.appId,
+    source: result.source,
+  };
+  installApiUsageRecorder(req, res, getRequestPathname(req));
+  return true;
+}
+
+/**
  * Record one usage row when the response headers are written (token/env auth only).
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
  * @param {string} pathLabel
  */
 function installApiUsageRecorder(req, res, pathLabel) {
-  if (!req.agenticAuth || req.agenticAuth.appId === "open") return;
+  if (!req.agenticAuth || req.agenticAuth.appId === "open" || req.agenticAuth.appId === "bootstrap") return;
   if (res.__agenticUsageInstalled) return;
   res.__agenticUsageInstalled = true;
   const started = Date.now();
@@ -2125,6 +2184,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isApiSession(req)) {
+    if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
     const userName = userNameFromRequestHeaders(req.headers);
     const sessionId = resolveSessionIdFromHeaders(req.headers);
     res.writeHead(200, {
@@ -2135,6 +2195,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isApiHostMetrics(req)) {
+    if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
     sampleHostMetrics()
       .then((metrics) => {
         res.writeHead(200, {
@@ -2154,6 +2215,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isAgentProvidersApi(req)) {
+    if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
     sendAgentProvidersJson(res);
     return;
   }
@@ -2176,13 +2238,16 @@ function handleHttp(req, res) {
     return;
   }
   const adminPath = getRequestPathname(req);
-  if (matchAdminRoute(adminPath)) {
+  const adminRoute = matchAdminRoute(adminPath);
+  if (adminRoute) {
+    if (!applyWebUiAccessGate(req, res, { routeName: adminRoute.name })) return;
     handleAdminApi(req, res, {
       pathname: adminPath,
       toolRoot: TOOL_ROOT,
       webRoot: __dirname,
       webInstanceId: WEB_INSTANCE_ID,
       webPid: process.pid,
+      req,
     }).catch((err) => {
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });

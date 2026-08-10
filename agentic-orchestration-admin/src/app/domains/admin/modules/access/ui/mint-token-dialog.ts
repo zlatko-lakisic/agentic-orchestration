@@ -2,6 +2,7 @@ import { Clipboard } from '@angular/cdk/clipboard';
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import {
   MAT_DIALOG_DATA,
   MatDialogModule,
@@ -12,6 +13,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { ApiAccessToken } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 
 export type MintTokenDialogResult = ApiAccessToken | null;
 
@@ -21,6 +23,7 @@ export type MintTokenDialogResult = ApiAccessToken | null;
     FormsModule,
     MatDialogModule,
     MatButtonModule,
+    MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
@@ -31,13 +34,30 @@ export type MintTokenDialogResult = ApiAccessToken | null;
       @if (!minted()) {
         <p class="text-sm text-neutral-500">
           Tokens authenticate
-          <code>/api/v1/orchestrate</code> and OpenAI-compatible proxies. The
-          secret is shown once.
+          <code>/api/v1/orchestrate</code>, OpenAI-compatible proxies, and (for
+          <code>ao-web</code>) the Admin UI. The secret is shown once.
         </p>
-        <mat-form-field appearance="outline" class="w-full">
-          <mat-label>App ID</mat-label>
-          <input matInput [(ngModel)]="appId" name="appId" required autocomplete="off" />
-        </mat-form-field>
+        <mat-checkbox [(ngModel)]="assignToWeb" name="assignToWeb">
+          Admin Web UI (<code>ao-web</code>) — auto-assign to this console
+        </mat-checkbox>
+        @if (!assignToWeb) {
+          <mat-form-field appearance="outline" class="w-full">
+            <mat-label>App ID</mat-label>
+            <input
+              matInput
+              [(ngModel)]="appId"
+              name="appId"
+              required
+              autocomplete="off"
+              placeholder="openclaw"
+            />
+          </mat-form-field>
+        } @else {
+          <p class="text-sm text-neutral-600 dark:text-neutral-300">
+            App ID fixed to <code>ao-web</code>. Replaces any previous Admin Web
+            UI token and unlocks Admin APIs for this deployment.
+          </p>
+        }
         <mat-form-field appearance="outline" class="w-full">
           <mat-label>Label (optional)</mat-label>
           <input matInput [(ngModel)]="label" name="label" autocomplete="off" />
@@ -59,6 +79,11 @@ export type MintTokenDialogResult = ApiAccessToken | null;
         <p class="text-sm text-amber-700 dark:text-amber-300">
           Copy this token now — it will not be shown again.
         </p>
+        @if (minted()!.assignedToWeb) {
+          <p class="text-sm text-teal-800 dark:text-teal-200">
+            Assigned to the Admin Web UI — this console will use it automatically.
+          </p>
+        }
         <div
           class="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-3 font-mono text-sm break-all dark:border-neutral-700 dark:bg-neutral-900"
         >
@@ -81,7 +106,7 @@ export type MintTokenDialogResult = ApiAccessToken | null;
         <button
           matButton="filled"
           type="button"
-          [disabled]="busy() || !appId.trim()"
+          [disabled]="busy() || (!assignToWeb && !appId.trim())"
           (click)="mint()"
         >
           Mint
@@ -94,10 +119,14 @@ export type MintTokenDialogResult = ApiAccessToken | null;
 })
 export class MintTokenDialog {
   private readonly api = inject(AoApi);
+  private readonly webAuth = inject(WebAuth);
   private readonly clipboard = inject(Clipboard);
   private readonly ref = inject(MatDialogRef<MintTokenDialog, MintTokenDialogResult>);
-  readonly data = inject(MAT_DIALOG_DATA, { optional: true });
+  readonly data = inject<{ preferWebUi?: boolean } | null>(MAT_DIALOG_DATA, {
+    optional: true,
+  });
 
+  assignToWeb = Boolean(this.data?.preferWebUi);
   appId = '';
   label = '';
   expiresAt = '';
@@ -107,8 +136,10 @@ export class MintTokenDialog {
   readonly copied = signal(false);
 
   mint() {
-    const appId = this.appId.trim();
-    if (!appId || this.busy()) return;
+    if (this.busy()) return;
+    const assignToWeb = this.assignToWeb;
+    const appId = assignToWeb ? 'ao-web' : this.appId.trim();
+    if (!appId) return;
     this.busy.set(true);
     this.error.set(null);
     this.api
@@ -116,6 +147,7 @@ export class MintTokenDialog {
         appId,
         label: this.label.trim() || undefined,
         expiresAt: this.expiresAt.trim() || null,
+        assignToWeb: assignToWeb || undefined,
       })
       .subscribe((r) => {
         this.busy.set(false);
@@ -124,6 +156,7 @@ export class MintTokenDialog {
           return;
         }
         this.minted.set(r.data);
+        this.webAuth.adoptMinted(r.data.token, Boolean(r.data.assignedToWeb));
       });
   }
 

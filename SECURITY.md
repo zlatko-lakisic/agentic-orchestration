@@ -63,7 +63,8 @@ We may publish a GitHub Security Advisory (and CVE when appropriate) and credit 
 |----------|------------|
 | **Operator host** | Whoever can run the tool/web process or `kubectl` in the cluster is trusted like a local developer or admin |
 | **Web UI / WebSocket** | Unauthenticated by default for local use; **must not** be exposed to untrusted networks without an auth proxy (Warpgate, Traefik forward-auth, VPN, etc.) |
-| **`POST /api/v1/orchestrate` and chat-completions proxies** | Protected only when `AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY` are set; empty key means no gate |
+| **`POST /api/v1/orchestrate` and chat-completions / responses proxies** | **Always** require `Authorization: Bearer` — minted `ao_…` API token or env shared secret (`AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY`). No anonymous open mode. |
+| **Admin / operator HTTP (`/api/v1/admin/*`, host-metrics, …)** | Require the assigned reserved **`ao-web`** Web UI token. Until that token is minted/assigned, only Access bootstrap routes stay open so operators can mint it. |
 | **LLM providers** | Prompts and tool results leave the host when cloud APIs are configured |
 | **MCP tools** | Credentialed integrations (Home Assistant, search, filesystem, media, Xquik, …) inherit the privilege of those credentials and allowed paths |
 | **Kubernetes workers** | Can access mounted secrets, run-store PVC, and any network the pod can reach |

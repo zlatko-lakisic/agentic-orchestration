@@ -7,10 +7,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  WEB_UI_APP_ID,
   authenticateBearer,
+  authenticateWebUiBearer,
   authRequired,
   clientIp,
+  getWebAssignment,
   hasActiveTokens,
+  isWebUiAssigned,
   listTokens,
   listUsage,
   mintToken,
@@ -31,6 +35,7 @@ test("mintToken stores hash only and returns plaintext once", () => {
   assert.equal(minted.status, "active");
   assert.ok(minted.prefix);
   assert.ok(minted.id);
+  assert.equal(minted.assignedToWeb, false);
 
   const listed = listTokens(toolRoot);
   assert.equal(listed.length, 1);
@@ -47,8 +52,13 @@ test("mintToken stores hash only and returns plaintext once", () => {
   assert.equal(disk[0].hash.includes(minted.token), false);
 });
 
-test("authenticateBearer accepts minted token and env fallback", () => {
+test("authenticateBearer accepts minted token and env fallback; never open", () => {
   const toolRoot = tmpTool();
+  assert.equal(authRequired(toolRoot, []), true);
+  const open = authenticateBearer(toolRoot, "", []);
+  assert.equal(open.ok, false);
+  assert.equal(open.reason, "missing");
+
   const minted = mintToken(toolRoot, { appId: "reach-app" });
   const envKey = "shared-env-secret";
 
@@ -66,34 +76,65 @@ test("authenticateBearer accepts minted token and env fallback", () => {
   const bad = authenticateBearer(toolRoot, "Bearer nope", [envKey]);
   assert.equal(bad.ok, false);
 
-  assert.equal(authRequired(toolRoot, []), true);
   assert.equal(hasActiveTokens(toolRoot), true);
 });
 
-test("revokeToken rejects further use", () => {
+test("ao-web mint auto-assigns and authenticateWebUiBearer succeeds", () => {
+  const toolRoot = tmpTool();
+  assert.equal(isWebUiAssigned(toolRoot), false);
+  const minted = mintToken(toolRoot, { assignToWeb: true });
+  assert.equal(minted.appId, WEB_UI_APP_ID);
+  assert.equal(minted.assignedToWeb, true);
+  assert.equal(isWebUiAssigned(toolRoot), true);
+  const assigned = getWebAssignment(toolRoot);
+  assert.ok(assigned);
+  assert.equal(assigned.token, minted.token);
+  assert.equal(assigned.tokenId, minted.id);
+
+  const viaWeb = authenticateWebUiBearer(toolRoot, `Bearer ${minted.token}`);
+  assert.equal(viaWeb.ok, true);
+  assert.equal(viaWeb.appId, WEB_UI_APP_ID);
+
+  const other = mintToken(toolRoot, { appId: "openclaw" });
+  const wrong = authenticateWebUiBearer(toolRoot, `Bearer ${other.token}`);
+  assert.equal(wrong.ok, false);
+
+  const listed = listTokens(toolRoot);
+  const webRow = listed.find((t) => t.id === minted.id);
+  assert.equal(webRow?.assignedToWeb, true);
+});
+
+test("reminting ao-web replaces assignment and revokes prior ao-web", () => {
+  const toolRoot = tmpTool();
+  const first = mintToken(toolRoot, { appId: WEB_UI_APP_ID });
+  const second = mintToken(toolRoot, { assignToWeb: true });
+  assert.equal(getWebAssignment(toolRoot)?.tokenId, second.id);
+  assert.equal(authenticateWebUiBearer(toolRoot, `Bearer ${first.token}`).ok, false);
+  assert.equal(authenticateWebUiBearer(toolRoot, `Bearer ${second.token}`).ok, true);
+  const firstMeta = listTokens(toolRoot).find((t) => t.id === first.id);
+  assert.equal(firstMeta?.status, "revoked");
+});
+
+test("revokeToken rejects further use and clears web assignment", () => {
   const toolRoot = tmpTool();
   const minted = mintToken(toolRoot, { appId: "tmp" });
-  const stillActive = mintToken(toolRoot, { appId: "keep" });
+  const web = mintToken(toolRoot, { assignToWeb: true });
   const revoked = revokeToken(toolRoot, minted.id);
   assert.ok(revoked);
   assert.equal(revoked.status, "revoked");
   assert.ok(revoked.revokedAt);
 
-  // Gate still required because another active token remains.
   assert.equal(authRequired(toolRoot, []), true);
   const auth = authenticateBearer(toolRoot, `Bearer ${minted.token}`, []);
   assert.equal(auth.ok, false);
 
-  const other = authenticateBearer(toolRoot, `Bearer ${stillActive.token}`, []);
-  assert.equal(other.ok, true);
-  assert.equal(other.appId, "keep");
-
-  revokeToken(toolRoot, stillActive.id);
-  assert.equal(authRequired(toolRoot, []), false);
-  const open = authenticateBearer(toolRoot, "", []);
-  assert.equal(open.ok, true);
-  assert.equal(open.appId, "open");
+  assert.equal(isWebUiAssigned(toolRoot), true);
+  revokeToken(toolRoot, web.id);
+  assert.equal(isWebUiAssigned(toolRoot), false);
+  assert.equal(authenticateWebUiBearer(toolRoot, `Bearer ${web.token}`).ok, false);
+  assert.equal(authenticateBearer(toolRoot, "", []).ok, false);
 });
+
 test("recordUsage and listUsage track IP and path", () => {
   const toolRoot = tmpTool();
   const minted = mintToken(toolRoot, { appId: "metrics-app" });
@@ -129,9 +170,11 @@ test("clientIp prefers x-forwarded-for", () => {
   assert.equal(clientIp({ headers: {}, socket: { remoteAddress: "::ffff:10.1.2.3" } }), "10.1.2.3");
 });
 
-test("mintToken requires appId", () => {
+test("mintToken requires appId unless assignToWeb", () => {
   const toolRoot = tmpTool();
   assert.throws(() => mintToken(toolRoot, { appId: "  " }), /appId/);
+  const web = mintToken(toolRoot, { assignToWeb: true, appId: "" });
+  assert.equal(web.appId, WEB_UI_APP_ID);
 });
 
 test("AGENTIC_API_TOKENS_DIR overrides store location", () => {

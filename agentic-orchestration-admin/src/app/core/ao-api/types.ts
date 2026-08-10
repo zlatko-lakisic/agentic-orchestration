@@ -189,6 +189,8 @@ export interface ApiAccessToken {
   status?: 'active' | 'revoked' | 'expired' | string;
   /** Plaintext secret — only present on mint response. */
   token?: string;
+  /** True when this token is (or was just) assigned to the Admin Web UI (ao-web). */
+  assignedToWeb?: boolean;
 }
 
 export interface ApiAccessTokenUsage {
