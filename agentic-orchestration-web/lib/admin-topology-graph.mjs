@@ -106,14 +106,6 @@ function groupSessionsByAppId(sessionList) {
   return [...byApp.values()].sort((a, b) => a.appId.localeCompare(b.appId));
 }
 
-function setOwnedByApps(nodes, id, apps) {
-  const n = (nodes || []).find((x) => x.id === id);
-  if (!n) return;
-  const list = uniqueSorted(apps);
-  if (list.length) n.ownedByApps = list;
-  else delete n.ownedByApps;
-}
-
 /**
  * Per-app overlay member ids for catalog / sidecar modals.
  * @param {'agents'|'mcps'|'skills'} field
@@ -315,13 +307,6 @@ export async function buildTopologyGraph(ctx) {
   const notes = [];
 
   const appGroups = groupSessionsByAppId(sessionList);
-  const connectedAppIds = appGroups.map((g) => g.appId);
-  const appsWithAgents = appGroups.filter((g) => g.agentCount > 0).map((g) => g.appId);
-  const appsWithMcps = appGroups.filter((g) => g.mcpCount > 0).map((g) => g.appId);
-  const appsWithTunnels = appGroups
-    .filter((g) => g.tunnelMcpCount > 0)
-    .map((g) => g.appId);
-  const appsWithSkills = appGroups.filter((g) => g.skillCount > 0).map((g) => g.appId);
   const totalTunnels = sessionList.reduce((n, s) => n + (s.tunnelMcpCount || 0), 0);
 
   // —— Application + Reach bands (Reach always when engine is up) ——
@@ -470,7 +455,6 @@ export async function buildTopologyGraph(ctx) {
         status: hasReachClients ? "healthy" : "unknown",
         instrumented: true,
         deployed: true,
-        ownedByApps: connectedAppIds,
         statusReason: hasReachClients
           ? `${sessionList.length} active Reach session${sessionList.length === 1 ? "" : "s"}`
           : "No active Reach session overlays (mTLS enroll alone does not populate this)",
@@ -486,7 +470,6 @@ export async function buildTopologyGraph(ctx) {
         status: overlaysOn && engineOk ? "healthy" : overlaysOn ? "failed" : "unknown",
         instrumented: overlaysOn,
         deployed: overlaysOn,
-        ownedByApps: appsWithAgents.length ? appsWithAgents : connectedAppIds,
         statusReason: overlaysOn
           ? engineOk
             ? "session overlay enabled (engine)"
@@ -512,7 +495,6 @@ export async function buildTopologyGraph(ctx) {
               : "unknown",
         instrumented: tunnelOn,
         deployed: tunnelOn,
-        ownedByApps: appsWithTunnels.length ? appsWithTunnels : appsWithMcps,
         statusReason: tunnelOn
           ? engineOk
             ? totalTunnels > 0
@@ -549,7 +531,6 @@ export async function buildTopologyGraph(ctx) {
           : "unknown",
         instrumented: speechNegotiated && (sttProbe.configured || ttsProbe.configured),
         deployed: speechNegotiated,
-        ownedByApps: speechNegotiated ? connectedAppIds : [],
         statusReason: speechNegotiated
           ? `STT ${sttProbe.ok ? "ok" : "down"} · TTS ${ttsProbe.ok ? "ok" : "down"}`
           : "speech not negotiated",
@@ -567,7 +548,6 @@ export async function buildTopologyGraph(ctx) {
         status: mtlsOn && engineOk ? "healthy" : mtlsOn ? "failed" : "unknown",
         instrumented: mtlsOn,
         deployed: mtlsOn,
-        ownedByApps: mtlsOn ? connectedAppIds : [],
         statusReason: mtlsOn
           ? engineOk
             ? "mTLS material reported by engine /health"
@@ -1305,24 +1285,11 @@ export async function buildTopologyGraph(ctx) {
     },
   };
 
-  // Ownership labels + per-app overlay member lists for catalog modals.
+  // Per-app overlay member lists for catalog / sidecar / planner modals.
+  // "Owned by app" stays only on Application injection children (ui / overlays / local-tools).
   const agentMembers = appMembersFor(appGroups, "agents");
   const mcpMembers = appMembersFor(appGroups, "mcps");
   const skillMembers = appMembersFor(appGroups, "skills");
-  if (connectedAppIds.length) {
-    setOwnedByApps(nodes, "engine/session-overlay", connectedAppIds);
-    setOwnedByApps(nodes, "engine/mcp-tunnel", appsWithTunnels.length ? appsWithTunnels : appsWithMcps);
-    setOwnedByApps(nodes, "engine/direct-agent", appsWithAgents.length ? appsWithAgents : connectedAppIds);
-    setOwnedByApps(nodes, "engine/hello-speech", connectedAppIds);
-    setOwnedByApps(nodes, "catalog/agents", appsWithAgents);
-    setOwnedByApps(nodes, "catalog/mcp", appsWithMcps);
-    setOwnedByApps(nodes, "catalog/skills", appsWithSkills);
-    setOwnedByApps(nodes, "speech/stt", connectedAppIds);
-    setOwnedByApps(nodes, "speech/tts", connectedAppIds);
-    setOwnedByApps(nodes, "sidecars/cluster", appsWithMcps);
-    // Planner/harness path is used when session overlays run client agents.
-    setOwnedByApps(nodes, "planner", appsWithAgents.length ? appsWithAgents : connectedAppIds);
-  }
   setAppMembers(nodes, "catalog/agents", agentMembers);
   setAppMembers(nodes, "catalog/mcp", mcpMembers);
   setAppMembers(nodes, "catalog/skills", skillMembers);

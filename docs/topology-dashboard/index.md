@@ -84,7 +84,7 @@ OpenClaw may appear in this band as a separate presence when a session id looks 
 
 ### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach
 
-`ao_reach` SDK surface ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)): session bridge, overlay packing, local MCP host, speech client, mTLS enroller. Node modals show **Owned by app** when connected clients currently use that Reach component (e.g. Session bridge owned by every connected `appId`; Local MCP host only by apps with tunnel MCPs).
+`ao_reach` SDK surface ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)): session bridge, overlay packing, local MCP host, speech client, mTLS enroller. These are **shared platform** Reach components — they are not labeled **Owned by app** (that badge is only on Application injection children: Client UI, Domain overlays, Local tools).
 
 Reach talks to the **engine** (`https`/`wss` :8765), not Warpgate / Web UI :30487. See [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
 
@@ -101,7 +101,7 @@ Engine edge APIs, planner, catalogs, model backends, execution, and platform —
 | 4 | Platform | **Kubernetes** (expandable accordion — see [[#platform-expand]]), storage / GPU |
 | 5 | K8s workloads | Nested only while Kubernetes is expanded ([[#k8s-workload]]) |
 
-Modals label **Owned by app** when session overlays (agents, skills, tunnel MCPs, speech, harness/planner path) are active for those clients. Agents / MCP / Skills cluster modals also list the live `client.*` ids each connected `appId` registered.
+**Owned by app** appears only on Application injection children (Client UI, Domain overlays, Local tools) under a connected `appId`. Shared Reach / AO core (bridge, mTLS enroller, planner, catalogs, speech endpoints, …) stay unlabeled. Agents / MCP / Skills cluster modals still list live `client.*` ids each connected `appId` registered.
 
 ---
 
@@ -156,7 +156,7 @@ Sessions are loaded from the engine admin API (`GET /api/v1/admin/reach-sessions
 
 Client UI that connected through <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> **Reach**. The platform sees only what the session advertised — not the client’s internal screens, routes, or widgets.
 
-**Example:** two different client apps both appear as “Client UI” under their respective `appId` panels. Topology does not show product-specific screens — only that a Reach session exists for that client.
+**Example:** two different client apps both appear as “Client UI” under their respective `appId` panels. Topology does not show product-specific screens — only that a Reach session exists for that client. Modal **Owned by app** names that `appId`.
 
 ---
 
@@ -218,7 +218,7 @@ Responsibilities typically include:
 - Responding to `mcp_tunnel_request` frames
 - Optional `direct_agent` turns and speech capability discovery from `hello`
 
-**Example ownership:** with `myapp` and `field-client` both connected, the Session bridge modal shows **Owned by app: myapp, field-client**.
+Shared Reach core — not labeled **Owned by app** (app affiliation shows on Application injection children).
 
 ---
 
@@ -256,7 +256,7 @@ On the device this is often a loopback `mcp-proxy` (or equivalent) for stdio MCP
 
 **Example path:** Planner selects `client.filesystem_local` → worker/engine issues tool call → `mcp_tunnel` → Local MCP host → filesystem MCP on the client → response framed back on the session WS.
 
-Owned by apps that currently advertise tunnel MCPs.
+Shared Reach core — tunnel MCP affiliation shows under each app’s **Local tools** injection, not as ownership of this host.
 
 ---
 
@@ -290,7 +290,7 @@ Reach clients must target the engine, **never** Web UI :30487. If `AGENTIC_JETSO
 <a id="endpoint"></a>
 ### Endpoint
 
-A concrete engine or speech HTTP (or WS-adjacent) endpoint on the edge rank — overlay, tunnel, direct agent, speech hello, enroll, STT, TTS. Endpoints inherit ownership from active session overlays when relevant.
+A concrete engine or speech HTTP (or WS-adjacent) endpoint on the edge rank — overlay, tunnel, direct agent, speech hello, enroll, STT, TTS. Shared AO edge surface (not labeled **Owned by app**).
 
 ---
 
@@ -363,7 +363,7 @@ Topology graph is built in this process (`/api/v1/admin/topology/graph` + admin 
 
 Dynamic planner / runner that turns goals into CrewAI steps (plan → execute → optional replan). On Topology this is usually presence-only (`unknown` until planner probes exist).
 
-When Reach overlays are active, ownership can show which `appId`s are feeding session-scoped agents/skills into planning. Details: [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Workflows and router]({{ '/workflows/' | relative_url }}).
+When Reach overlays are active, the modal can list which `appId`s are feeding session-scoped agents into planning (overlay members — not an **Owned by app** badge). Details: [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}), [Workflows and router]({{ '/workflows/' | relative_url }}).
 
 ---
 

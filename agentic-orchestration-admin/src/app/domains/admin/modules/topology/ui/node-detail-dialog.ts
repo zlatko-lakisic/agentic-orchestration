@@ -416,6 +416,12 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
   }
 
   ownerLabel(d: TopologyNodeDetail): string | null {
+    // Only Application injection children (Client UI / Domain overlays / Local tools).
+    // Reach and AO core nodes (bridge, mTLS enroller, planner, …) are shared platform surface.
+    const injectionKinds = new Set(['ui', 'overlay-source', 'local-tools']);
+    if (d.node.band !== 'application' || !injectionKinds.has(d.node.kind)) {
+      return null;
+    }
     const apps =
       d.ownedByApps?.length
         ? d.ownedByApps
@@ -424,18 +430,7 @@ export class NodeDetailDialog implements OnInit, OnDestroy {
           : d.node.appId
             ? [d.node.appId]
             : [];
-    if (!apps.length) return null;
-    // Only surface ownership on Reach / AO layers (and app children for clarity).
-    if (d.node.band === 'application' && d.node.kind === 'app') {
-      return apps.join(', ');
-    }
-    if (d.node.band === 'reach' || d.node.band === 'ao') {
-      return apps.join(', ');
-    }
-    if (d.node.band === 'application' && d.node.appId) {
-      return d.node.appId;
-    }
-    return null;
+    return apps.length ? apps.join(', ') : null;
   }
 
   appMembers(d: TopologyNodeDetail): TopologyAppMembers[] | null {
