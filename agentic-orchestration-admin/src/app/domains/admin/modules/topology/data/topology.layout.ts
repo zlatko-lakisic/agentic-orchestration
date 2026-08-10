@@ -818,6 +818,23 @@ function boundsOfNodes(
   };
 }
 
+function familyHasVisibleApps(
+  family: TopologyAppGroup,
+  list: PositionedNode[]
+): boolean {
+  if (!list.length) return false;
+  if (family === 'reach') {
+    // Real Reach clients only (ignore legacy waiting placeholders).
+    return list.some(
+      (n) =>
+        (n.kind === 'app' && Boolean(n.appId) && n.id !== 'app/waiting') ||
+        Boolean(n.appId && APP_CHILD_LANE[n.kind] != null)
+    );
+  }
+  // Web API: any deployed bypass client counts.
+  return list.some((n) => n.deployed !== false);
+}
+
 function buildApplicationFamilyFrames(
   positioned: PositionedNode[]
 ): NonNullable<LayoutResult['applicationFamilies']> {
@@ -825,6 +842,7 @@ function buildApplicationFamilyFrames(
   for (const n of positioned) {
     const family = resolveAppGroup(n);
     if (!family) continue;
+    if (n.id === 'app/waiting') continue;
     const list = byFamily.get(family) || [];
     list.push(n);
     byFamily.set(family, list);
@@ -832,7 +850,7 @@ function buildApplicationFamilyFrames(
   const frames: NonNullable<LayoutResult['applicationFamilies']> = [];
   for (const id of ['reach', 'web-api'] as TopologyAppGroup[]) {
     const list = byFamily.get(id);
-    if (!list?.length) continue;
+    if (!list?.length || !familyHasVisibleApps(id, list)) continue;
     const box = boundsOfNodes(list, APP_FAMILY_PAD);
     frames.push({
       id,

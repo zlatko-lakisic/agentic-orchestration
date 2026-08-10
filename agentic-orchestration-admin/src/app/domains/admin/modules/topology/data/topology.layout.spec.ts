@@ -144,6 +144,27 @@ describe('topology.layout', () => {
     );
   });
 
+  it('hides Reach apps family frame when there are no Reach clients', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'app/ao-web',
+        kind: 'ao-web',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/ao-chat',
+        kind: 'ao-chat',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    const families = layout.applicationFamilies || [];
+    expect(families.map((f) => f.id)).toEqual(['web-api']);
+    expect(families.find((f) => f.id === 'reach')).toBeUndefined();
+  });
+
   it('leaves empty lanes as gaps (does not re-center)', () => {
     const nodes: TopologyNode[] = [
       n({ id: 'app/ui', kind: 'ui', band: 'application', appGroup: 'reach' }),

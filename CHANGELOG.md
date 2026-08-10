@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Topology Application family frames** — **Reach apps** / **Web API** group frames are hidden when that family has no apps (no more “No Reach clients” placeholder card).
 - **Jetson web hotfix mounts `admin-k8s.mjs`** — expandable Kubernetes Topology imports this module; without the ConfigMap + volume mount the coordinator CrashLoopBackOff'd after hotfix.
 - **Topology Reach / Application bands** — when the engine is up, Reach components (SessionBridge, OverlayPacker, …) always appear; Application shows a waiting placeholder until a Reach client registers a session overlay (mTLS enroll alone is not enough).
 

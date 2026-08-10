@@ -410,21 +410,8 @@ export async function buildTopologyGraph(ctx) {
     );
 
     if (!hasReachClients) {
-      notes.push("No connected Reach clients");
-      nodes.push(
-        node({
-          id: "app/waiting",
-          kind: "app",
-          band: "application",
-          appGroup: "reach",
-          label: "No Reach clients",
-          sublabel: "waiting",
-          status: "unknown",
-          instrumented: false,
-          deployed: true,
-          statusReason:
-            "Engine is up, but no active session overlays. Connect an AO Reach client with appId to populate Application groups.",
-        }),
+      notes.push(
+        "No connected Reach clients — Reach apps group hidden until a client registers",
       );
     } else {
       for (const g of appGroups) {

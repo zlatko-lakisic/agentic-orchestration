@@ -55,7 +55,7 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 | `unknown` | Present but **not instrumented** — not counted as unhealthy |
 | `offline` | Was present; inside ~30s grace before removal |
 
-Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Additional live probes (when configured / in-cluster) include **Ollama** (`/api/tags`), **speech STT/TTS** (`/health`), **catalog loads**, **planner** (via engine warm catalogs), **execution backend**, **storage/GPU** (engine hardware snapshot), **engine endpoints** (derived from the same engine probe + feature flags), and **Kubernetes** workloads. **Remote LLMs** stay `unknown` by design — API keys are not a health probe. If the engine is unreachable, the Reach band empties and a note explains why; first-party Web UIs (**ao-web** / **ao-chat**) still appear on the Application bypass lane. Engine up with no Reach sessions → “No connected Reach clients” and a waiting Reach-client placeholder (alongside the first-party UIs).
+Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Additional live probes (when configured / in-cluster) include **Ollama** (`/api/tags`), **speech STT/TTS** (`/health`), **catalog loads**, **planner** (via engine warm catalogs), **execution backend**, **storage/GPU** (engine hardware snapshot), **engine endpoints** (derived from the same engine probe + feature flags), and **Kubernetes** workloads. **Remote LLMs** stay `unknown` by design — API keys are not a health probe. If the engine is unreachable, the Reach band empties and a note explains why; first-party Web UIs (**ao-web** / **ao-chat**) still appear on the Application bypass lane. Engine up with no Reach sessions → the **Reach apps** family is hidden (note only); Web API family stays.
 
 **Capabilities** on the snapshot (`nodeProbes`, `edgeMetrics`, `sources`) declare what is real telemetry versus structural presence.
 
@@ -71,12 +71,12 @@ The Application band has **two labeled families**:
 
 | Family | What it shows | Path |
 |---|---|---|
-| **Reach apps** | Connected Reach clients grouped by required `appId` (accordion panels) | Through Reach → engine :8765 |
-| **Web API** | First-party **ao-web** / **ao-chat** and **OpenClaw** | Bypass → Web UI :30487 |
+| **Reach apps** | Connected Reach clients grouped by required `appId` (accordion panels). Hidden when none are connected. | Through Reach → engine :8765 |
+| **Web API** | First-party **ao-web** / **ao-chat**, minted external tokens, and **OpenClaw**. Hidden when empty. | Bypass → Web UI :30487 |
 
 Client-reported Reach presence is **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
 
-Reach apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other Reach apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. Empty / waiting when no Reach client has registered a session overlay.
+Reach apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other Reach apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. When no Reach client has registered a session overlay, the **Reach apps** family (frame + nodes) is hidden.
 
 **Example — two Reach clients side by side**
 
@@ -676,7 +676,7 @@ Implementation lives in `agentic-orchestration-web` (graph builder + WS) and `ag
 
 ## Operator tips
 
-1. **Empty Reach / waiting Application placeholder** — engine down, overlay flag off, or no Reach client registered yet. First-party **ao-web** / **ao-chat** still show on the bypass lane. Check engine :8765 and `AGENTIC_SERVE_SESSION_OVERLAY` for Reach apps.
+1. **Reach apps family missing** — expected when no Reach client is connected (or engine overlay off). Web API family still shows. Check engine :8765 and `AGENTIC_SERVE_SESSION_OVERLAY` for Reach apps.
 2. **Everything grey / unknown** — expected for uninstrumented layers; focus on Engine + Web UI colour and Application presence.
 3. **Local tools present but reverse-tunnel edge idle** — tunnel env may be off, or no step has invoked a tunnel MCP yet (structural edge still **no data**).
 4. **OpenClaw / ao-web / ao-chat “missing” from Reach** — correct; use the bypass lane and Web UI, not Session bridge.
