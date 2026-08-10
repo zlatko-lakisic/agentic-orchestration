@@ -20,6 +20,12 @@ import {
   probeSpeechTts,
   probeStorageGpu,
 } from "./admin-topology-probes.mjs";
+import {
+  CHAT_UI_APP_ID,
+  WEB_UI_APP_ID,
+  getChatAssignment,
+  getWebAssignment,
+} from "./api-tokens.mjs";
 
 let _seq = 1;
 
@@ -308,10 +314,49 @@ export async function buildTopologyGraph(ctx) {
 
   const appGroups = groupSessionsByAppId(sessionList);
   const totalTunnels = sessionList.reduce((n, s) => n + (s.tunnelMcpCount || 0), 0);
+  const webAssign = getWebAssignment(toolRoot);
+  const chatAssign = getChatAssignment(toolRoot);
+  const reservedAppIds = new Set([WEB_UI_APP_ID, CHAT_UI_APP_ID]);
+
+  // First-party Web UIs — Application band / Web API family (bypass Reach).
+  nodes.push(
+    node({
+      id: `app/${WEB_UI_APP_ID}`,
+      kind: "ao-web",
+      band: "application",
+      appGroup: "web-api",
+      label: WEB_UI_APP_ID,
+      sublabel: "Admin · bypass web",
+      status: webAssign ? "healthy" : "unknown",
+      instrumented: Boolean(webAssign),
+      deployed: true,
+      statusReason: webAssign
+        ? "First-party Admin SPA (/admin) → Web UI with ao-web token assigned"
+        : "Admin SPA (/admin) served by Web UI; mint ao-web on Access to assign API token",
+    }),
+  );
+  nodes.push(
+    node({
+      id: `app/${CHAT_UI_APP_ID}`,
+      kind: "ao-chat",
+      band: "application",
+      appGroup: "web-api",
+      label: CHAT_UI_APP_ID,
+      sublabel: "Chat · bypass web",
+      status: chatAssign ? "healthy" : "unknown",
+      instrumented: Boolean(chatAssign),
+      deployed: true,
+      statusReason: chatAssign
+        ? "First-party chat UI (/) → Web UI with ao-chat token assigned"
+        : "Chat UI (/) served by Web UI; mint ao-chat on Access to assign API token",
+    }),
+  );
 
   // —— Application + Reach bands (Reach always when engine is up) ——
   if (!engineOk) {
-    notes.push("Engine unreachable — Application and Reach bands empty");
+    notes.push(
+      "Engine unreachable — Reach band empty; first-party Web UIs (ao-web / ao-chat) still shown",
+    );
   } else {
     const openclawHint = sessionList.some((s) =>
       String(s.sessionId || "").toLowerCase().includes("openclaw"),
@@ -324,6 +369,7 @@ export async function buildTopologyGraph(ctx) {
           id: "app/waiting",
           kind: "app",
           band: "application",
+          appGroup: "reach",
           label: "No Reach clients",
           sublabel: "waiting",
           status: "unknown",
@@ -335,6 +381,7 @@ export async function buildTopologyGraph(ctx) {
       );
     } else {
       for (const g of appGroups) {
+        if (reservedAppIds.has(g.appId)) continue;
         const parentId = `app/${g.appId}`;
         const nInst = g.instanceCount;
         nodes.push(
@@ -342,6 +389,7 @@ export async function buildTopologyGraph(ctx) {
             id: parentId,
             kind: "app",
             band: "application",
+            appGroup: "reach",
             label: g.appId,
             sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}`,
             status: "healthy",
@@ -358,6 +406,7 @@ export async function buildTopologyGraph(ctx) {
             id: `${parentId}/ui`,
             kind: "ui",
             band: "application",
+            appGroup: "reach",
             label: "Client UI",
             sublabel: `${nInst} session${nInst === 1 ? "" : "s"}`,
             status: "healthy",
@@ -374,6 +423,7 @@ export async function buildTopologyGraph(ctx) {
             id: `${parentId}/overlays`,
             kind: "overlay-source",
             band: "application",
+            appGroup: "reach",
             label: "Domain overlays",
             sublabel: `${g.agentCount} client.*`,
             status: g.agentCount > 0 ? "healthy" : "unknown",
@@ -389,6 +439,7 @@ export async function buildTopologyGraph(ctx) {
             id: `${parentId}/local-tools`,
             kind: "local-tools",
             band: "application",
+            appGroup: "reach",
             label: "Local tools",
             sublabel: `${g.tunnelMcpCount || g.mcpCount} MCP`,
             status: g.mcpCount > 0 ? "healthy" : "unknown",
@@ -433,6 +484,7 @@ export async function buildTopologyGraph(ctx) {
         id: "app/openclaw",
         kind: "openclaw",
         band: "application",
+        appGroup: "web-api",
         label: "OpenClaw",
         sublabel: "bypass web",
         status: openclawHint ? "healthy" : "unknown",
@@ -1121,12 +1173,17 @@ export async function buildTopologyGraph(ctx) {
     }
   }
 
-  // OpenClaw bypass (structural; may be undeployed)
-  if (nodes.some((n) => n.id === "app/openclaw" && n.deployed)) {
+  // Bypass paths → Web UI (first-party UIs + OpenClaw; skip Reach / engine)
+  for (const bypassId of [
+    `app/${WEB_UI_APP_ID}`,
+    `app/${CHAT_UI_APP_ID}`,
+    "app/openclaw",
+  ]) {
+    if (!nodes.some((n) => n.id === bypassId && n.deployed)) continue;
     edges.push(
       edge({
-        id: "app/openclaw->web-ui",
-        from: "app/openclaw",
+        id: `${bypassId}->web-ui`,
+        from: bypassId,
         to: "web-ui",
         kind: "bypass",
         protocol: "https",

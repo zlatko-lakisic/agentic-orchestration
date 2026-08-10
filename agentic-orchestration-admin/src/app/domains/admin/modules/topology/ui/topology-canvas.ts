@@ -155,6 +155,26 @@ function boundsOf(
           }
         }
 
+        @for (f of familyFrames(); track f.id) {
+          <rect
+            [attr.x]="f.x"
+            [attr.y]="f.y"
+            [attr.width]="f.width"
+            [attr.height]="f.height"
+            rx="14"
+            class="app-family-frame"
+            [attr.data-family]="f.id"
+          />
+          <text
+            [attr.x]="f.x + 14"
+            [attr.y]="f.y + 16"
+            class="app-family-label fill-neutral-500 text-[10px] font-medium tracking-wide uppercase"
+            [attr.data-family]="f.id"
+          >
+            {{ f.label }}
+          </text>
+        }
+
         @for (g of appFrames(); track g.appId) {
           <rect
             [attr.x]="g.x"
@@ -330,6 +350,34 @@ function boundsOf(
     .band-rect[data-band='application'] {
       fill: color-mix(in oklab, #0d9488 8%, transparent);
       stroke: color-mix(in oklab, #0d9488 28%, transparent);
+    }
+    .app-family-frame {
+      fill: transparent;
+      stroke-width: 1.35;
+      stroke-dasharray: 6 5;
+      pointer-events: none;
+    }
+    .app-family-frame[data-family='reach'] {
+      stroke: color-mix(in oklab, #0f766e 42%, transparent);
+      fill: color-mix(in oklab, #0f766e 4%, transparent);
+    }
+    .app-family-frame[data-family='web-api'] {
+      stroke: color-mix(in oklab, #0284c7 42%, transparent);
+      fill: color-mix(in oklab, #0284c7 4%, transparent);
+    }
+    .app-family-label[data-family='reach'] {
+      fill: #0f766e;
+    }
+    .app-family-label[data-family='web-api'] {
+      fill: #0284c7;
+    }
+    :host-context(.dark) .app-family-label[data-family='reach'],
+    .dark .app-family-label[data-family='reach'] {
+      fill: #5eead4;
+    }
+    :host-context(.dark) .app-family-label[data-family='web-api'],
+    .dark .app-family-label[data-family='web-api'] {
+      fill: #7dd3fc;
     }
     .app-group-frame {
       fill: color-mix(in oklab, #0f766e 6%, transparent);
@@ -548,6 +596,11 @@ export class TopologyCanvas {
   readonly edgeClick = output<PositionedEdge>();
   readonly expandApp = output<string>();
   readonly expandK8s = output<string>();
+
+  /** Reach apps vs Web API frames inside the Application band. */
+  readonly familyFrames = computed(
+    () => this.layout().applicationFamilies || []
+  );
 
   /** Bounding frames for each app panel (and expanded children when open). */
   readonly appFrames = computed(() => {

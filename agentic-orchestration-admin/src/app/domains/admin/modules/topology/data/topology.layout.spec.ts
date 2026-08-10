@@ -41,10 +41,57 @@ describe('topology.layout', () => {
     expect(slotForKind('planner')?.rank).toBe(1);
   });
 
+  it('groups Reach apps left and Web API right with family frames', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'app/myapp',
+        kind: 'app',
+        band: 'application',
+        appId: 'myapp',
+        appGroup: 'reach',
+      }),
+      n({
+        id: 'app/openclaw',
+        kind: 'openclaw',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/ao-web',
+        kind: 'ao-web',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/ao-chat',
+        kind: 'ao-chat',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    const reach = layout.nodes.find((x) => x.id === 'app/myapp')!;
+    const web = layout.nodes.find((x) => x.id === 'app/ao-web')!;
+    const chat = layout.nodes.find((x) => x.id === 'app/ao-chat')!;
+    const oc = layout.nodes.find((x) => x.id === 'app/openclaw')!;
+    expect(web.x).toBeGreaterThan(reach.x + reach.width);
+    expect(chat.x).toBeGreaterThan(web.x);
+    expect(oc.x).toBeGreaterThan(chat.x);
+    const families = layout.applicationFamilies || [];
+    expect(families.map((f) => f.id).sort()).toEqual(['reach', 'web-api']);
+    expect(families.find((f) => f.id === 'reach')!.label).toBe('Reach apps');
+    expect(families.find((f) => f.id === 'web-api')!.label).toBe('Web API');
+  });
+
   it('leaves empty lanes as gaps (does not re-center)', () => {
     const nodes: TopologyNode[] = [
-      n({ id: 'app/ui', kind: 'ui', band: 'application' }),
-      n({ id: 'app/openclaw', kind: 'openclaw', band: 'application' }),
+      n({ id: 'app/ui', kind: 'ui', band: 'application', appGroup: 'reach' }),
+      n({
+        id: 'app/openclaw',
+        kind: 'openclaw',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
     ];
     const layout = layoutTopology(nodes, []);
     const ui = layout.nodes.find((x) => x.id === 'app/ui')!;

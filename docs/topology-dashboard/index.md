@@ -39,7 +39,7 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 **Two exception flows** (drawn specially so they stay obvious):
 
 1. **Reverse tunnel** — engine `mcp_tunnel` calls *up* into Reach Local MCP host (distinct dash, upward).
-2. **OpenClaw bypass** — OpenClaw → Web UI on the **right margin**, skipping Reach and the engine.
+2. **Web UI bypass** — **ao-web**, **ao-chat**, and **OpenClaw** → Web UI on the **right margin**, skipping Reach and the engine.
 
 ---
 
@@ -55,7 +55,7 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 | `unknown` | Present but **not instrumented** — not counted as unhealthy |
 | `offline` | Was present; inside ~30s grace before removal |
 
-Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Additional live probes (when configured / in-cluster) include **Ollama** (`/api/tags`), **speech STT/TTS** (`/health`), **catalog loads**, **planner** (via engine warm catalogs), **execution backend**, **storage/GPU** (engine hardware snapshot), **engine endpoints** (derived from the same engine probe + feature flags), and **Kubernetes** workloads. **Remote LLMs** stay `unknown` by design — API keys are not a health probe. If the engine is unreachable, Application and Reach bands empty and a note explains why. Engine up with no sessions → “No connected Reach clients” and a waiting Application placeholder.
+Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (the process building the graph). Additional live probes (when configured / in-cluster) include **Ollama** (`/api/tags`), **speech STT/TTS** (`/health`), **catalog loads**, **planner** (via engine warm catalogs), **execution backend**, **storage/GPU** (engine hardware snapshot), **engine endpoints** (derived from the same engine probe + feature flags), and **Kubernetes** workloads. **Remote LLMs** stay `unknown` by design — API keys are not a health probe. If the engine is unreachable, the Reach band empties and a note explains why; first-party Web UIs (**ao-web** / **ao-chat**) still appear on the Application bypass lane. Engine up with no Reach sessions → “No connected Reach clients” and a waiting Reach-client placeholder (alongside the first-party UIs).
 
 **Capabilities** on the snapshot (`nodeProbes`, `edgeMetrics`, `sources`) declare what is real telemetry versus structural presence.
 
@@ -67,11 +67,18 @@ Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (t
 
 <a id="app-accordion"></a>
 
-Client-reported presence via Reach sessions, **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
+The Application band has **two labeled families**:
 
-Apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. Empty / waiting when no Reach client has registered a session overlay.
+| Family | What it shows | Path |
+|---|---|---|
+| **Reach apps** | Connected Reach clients grouped by required `appId` (accordion panels) | Through Reach → engine :8765 |
+| **Web API** | First-party **ao-web** / **ao-chat** and **OpenClaw** | Bypass → Web UI :30487 |
 
-**Example — two clients side by side**
+Client-reported Reach presence is **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
+
+Reach apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other Reach apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. Empty / waiting when no Reach client has registered a session overlay.
+
+**Example — two Reach clients side by side**
 
 | Panel | Instances | When expanded you see |
 |---|---|---|
@@ -80,7 +87,7 @@ Apps appear as **wider minimized panels left-to-right** (accordion headers) with
 
 The platform never sees the client’s internal screens — only what the session **advertised** (agents, MCPs, skills, tunnels, speech sidecars).
 
-OpenClaw may appear in this band as a separate presence when a session id looks like OpenClaw; its path to the Web UI is the **bypass** edge (see [[#openclaw]]).
+**Web API family (right):** **ao-web** (Admin `/admin`), **ao-chat** (chat `/`), and **OpenClaw** when detected. None use the Reach accordion. See [[#ao-web]], [[#ao-chat]], [[#openclaw]].
 
 ### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach
 
@@ -115,6 +122,10 @@ Engine edge APIs, planner, catalogs, model backends, execution, and platform —
 4. Topology Application band shows that `appId` with instance count; expand → Client UI, Overlay source, Local tools.
 5. Planner later resolves catalog agents **plus** those session overlays; catalog modal lists `myapp → client.domain_expert, …`.
 6. When a step needs a device-local MCP, engine **mcp_tunnel** fires a **reverse tunnel** up into **Local MCP host**.
+
+### First-party Web UIs (bypass path)
+
+**ao-web** (Admin SPA at `/admin`) and **ao-chat** (core chat at `/`) are served by the coordinator Web UI. They are **not** Reach clients — Topology draws each as an Application-band node with a **bypass** edge to Web UI (:30487). Health turns healthy when the matching Access token is assigned (`ao-web` / `ao-chat`). See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
 
 ### OpenClaw host (bypass path)
 
@@ -203,6 +214,24 @@ OpenClaw host that talks to the Web UI and **bypasses** the Reach band and engin
 **When it appears:** graph marks OpenClaw deployed/healthy when some session id contains `"openclaw"` (or equivalent presence signal); otherwise unknown / not deployed.
 
 **Why it matters:** operators often expect “all clients go through Reach.” OpenClaw is the intentional exception — plugin base URL points at Web UI :30487 (`POST /api/v1/orchestrate`), not engine :8765. See [External integrations]({{ '/external-integrations/' | relative_url }}) and [System architecture]({{ '/system-architecture/' | relative_url }}).
+
+---
+
+<a id="ao-web"></a>
+### ao-web (Admin SPA)
+
+First-party Admin console at `/admin`. Always present in the Application band with a **bypass** edge to Web UI (not Reach). Status is healthy when the reserved **`ao-web`** API token is assigned on Access; otherwise unknown until mint.
+
+**Why it matters:** same class of exception as OpenClaw — browsers talk to Web UI :30487 (Warpgate / Traefik), never to engine :8765 as a Reach session. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
+
+---
+
+<a id="ao-chat"></a>
+### ao-chat (Chat UI)
+
+First-party chat page at `/`. Always present in the Application band with a **bypass** edge to Web UI (not Reach). Status is healthy when the reserved **`ao-chat`** API token is assigned on Access; otherwise unknown until mint.
+
+**Why it matters:** chat shares `/api/session` and orchestrate paths with the Web UI; it is not a Reach accordion app. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
 
 ---
 
@@ -588,9 +617,9 @@ Capability advertisement (not request traffic). Dotted pattern.
 <a id="edge-bypass"></a>
 ### Bypass
 
-OpenClaw path that skips Reach and hits the Web UI directly, routed on the **right margin** so the skip is spatially obvious.
+Path that skips Reach and hits the Web UI directly (**ao-web**, **ao-chat**, OpenClaw), routed on the **right margin** so the skip is spatially obvious.
 
-**Example:** OpenClaw plugin → `http://<jetson>:30487` orchestrate API, while Reach clients stay on `https://<jetson>:8765`.
+**Examples:** Admin / chat browsers → `http://<edge>:30487`; OpenClaw plugin → orchestrate API on the same port. Reach clients stay on `https://<edge>:8765`.
 
 ---
 
@@ -600,7 +629,7 @@ OpenClaw path that skips Reach and hits the Web UI directly, routed on the **rig
 |---|---|
 | **8765** | Engine hostPort (`AGENTIC_SERVE_PORT`) — Reach clients |
 | **30765** | Engine NodePort (alternate in-cluster access) |
-| **30487** | Web UI / Admin NodePort — browsers, OpenClaw, Traefik |
+| **30487** | Web UI / Admin NodePort — browsers (ao-web / ao-chat), OpenClaw, Traefik |
 | **8090 / 8091** | Speech STT / TTS (when enabled) |
 
 | Variable | Effect on the graph |
@@ -634,9 +663,8 @@ Implementation lives in `agentic-orchestration-web` (graph builder + WS) and `ag
 
 ## Operator tips
 
-1. **Empty Application band** — engine down, overlay flag off, or no Reach client registered yet. Check engine :8765 and `AGENTIC_SERVE_SESSION_OVERLAY`.
+1. **Empty Reach / waiting Application placeholder** — engine down, overlay flag off, or no Reach client registered yet. First-party **ao-web** / **ao-chat** still show on the bypass lane. Check engine :8765 and `AGENTIC_SERVE_SESSION_OVERLAY` for Reach apps.
 2. **Everything grey / unknown** — expected for uninstrumented layers; focus on Engine + Web UI colour and Application presence.
 3. **Local tools present but reverse-tunnel edge idle** — tunnel env may be off, or no step has invoked a tunnel MCP yet (structural edge still **no data**).
-4. **OpenClaw “missing” from Reach** — correct; use the bypass lane and Web UI, not Session bridge.
+4. **OpenClaw / ao-web / ao-chat “missing” from Reach** — correct; use the bypass lane and Web UI, not Session bridge.
 5. **Catalog counts huge, canvas calm** — aggregation is intentional; open the cluster modal for member lists and per-`appId` `client.*` overlays.
-)

@@ -1,5 +1,8 @@
 export type TopologyBand = 'application' | 'reach' | 'ao';
 
+/** Sub-grouping inside the Application band. */
+export type TopologyAppGroup = 'reach' | 'web-api';
+
 export type TopologyNodeStatus =
   | 'healthy'
   | 'degraded'
@@ -22,6 +25,8 @@ export type TopologyNodeKind =
   | 'overlay-source'
   | 'local-tools'
   | 'openclaw'
+  | 'ao-web'
+  | 'ao-chat'
   | 'session-bridge'
   | 'overlay-packer'
   | 'local-mcp-host'
@@ -64,6 +69,11 @@ export interface TopologyNode {
   parent?: string;
   /** Reach client appId when this node belongs to an app group. */
   appId?: string;
+  /**
+   * Application-band family: Reach-framework clients vs Web API / bypass clients.
+   * Drives the two labeled frames inside band 1.
+   */
+  appGroup?: TopologyAppGroup;
   /** Connected Reach sessions for this appId (Application header). */
   instanceCount?: number;
   /** Apps currently owning / using this Reach or AO component. */
@@ -184,6 +194,15 @@ export interface LayoutResult {
     id: TopologyBand;
     label: string;
     y: number;
+    height: number;
+  }>;
+  /** Labeled frames for Reach apps vs Web API inside the Application band. */
+  applicationFamilies?: Array<{
+    id: TopologyAppGroup;
+    label: string;
+    x: number;
+    y: number;
+    width: number;
     height: number;
   }>;
   nodes: PositionedNode[];

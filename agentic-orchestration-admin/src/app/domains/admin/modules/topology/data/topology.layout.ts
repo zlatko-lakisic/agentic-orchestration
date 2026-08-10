@@ -2,6 +2,7 @@ import {
   LayoutResult,
   PositionedEdge,
   PositionedNode,
+  TopologyAppGroup,
   TopologyBand,
   TopologyEdge,
   TopologyNode,
@@ -17,7 +18,9 @@ const KIND_SLOT: Record<
   ui: { band: 'application', rank: 1, lane: 0, order: 0 },
   'overlay-source': { band: 'application', rank: 1, lane: 1, order: 0 },
   'local-tools': { band: 'application', rank: 1, lane: 2, order: 0 },
-  openclaw: { band: 'application', rank: 0, lane: 3, order: 0 },
+  openclaw: { band: 'application', rank: 0, lane: 0, order: 0 },
+  'ao-web': { band: 'application', rank: 0, lane: 1, order: 0 },
+  'ao-chat': { band: 'application', rank: 0, lane: 2, order: 0 },
 
   'session-bridge': { band: 'reach', rank: 0, lane: 0, order: 0 },
   'overlay-packer': { band: 'reach', rank: 0, lane: 1, order: 0 },
@@ -82,12 +85,61 @@ const MAX_LANES = 8;
 const CLEARANCE = 8;
 /** Perpendicular stub so wires leave/enter side centers, never run along card edges. */
 const PORT_STUB = 14;
+/** Horizontal gap between Reach-apps and Web-API family frames. */
+const APP_FAMILY_GAP = 56;
+/** Extra top padding inside each Application family frame for its label. */
+const APP_FAMILY_LABEL_H = 20;
+const APP_FAMILY_PAD = 12;
 
 const APP_CHILD_LANE: Record<string, number> = {
   ui: 0,
   'overlay-source': 1,
   'local-tools': 2,
 };
+
+/** Non-Reach Application clients that bypass to Web UI (right family). */
+const BYPASS_APP_LANE: Record<string, number> = {
+  openclaw: 0,
+  'ao-web': 1,
+  'ao-chat': 2,
+};
+
+/** Preferred left-to-right order inside the Web API family. */
+const WEB_API_KIND_ORDER: Record<string, number> = {
+  'ao-web': 0,
+  'ao-chat': 1,
+  openclaw: 2,
+};
+
+function sortWebApiIds(ids: string[], kindById: Map<string, string>): string[] {
+  return [...ids].sort((a, b) => {
+    const ka = WEB_API_KIND_ORDER[kindById.get(a) || ''] ?? 50;
+    const kb = WEB_API_KIND_ORDER[kindById.get(b) || ''] ?? 50;
+    if (ka !== kb) return ka - kb;
+    return a.localeCompare(b);
+  });
+}
+
+const APP_FAMILY_LABEL: Record<TopologyAppGroup, string> = {
+  reach: 'Reach apps',
+  'web-api': 'Web API',
+};
+
+function isBypassAppKind(kind: string): boolean {
+  return BYPASS_APP_LANE[kind] != null;
+}
+
+/** Resolve Application-band family (Reach framework vs Web API bypass). */
+export function resolveAppGroup(
+  node: Pick<TopologyNode, 'band' | 'kind' | 'appGroup'>
+): TopologyAppGroup | null {
+  if (node.band !== 'application') return null;
+  if (node.appGroup === 'reach' || node.appGroup === 'web-api') {
+    return node.appGroup;
+  }
+  if (isBypassAppKind(String(node.kind))) return 'web-api';
+  return 'reach';
+}
 
 export type LayoutTopologyOpts = {
   showNotDeployed?: boolean;
@@ -150,13 +202,13 @@ function slotFor(
     }
   }
 
-  if (node.kind === 'openclaw') {
-    const hasApps = Boolean(appLaneById?.size);
+  if (isBypassAppKind(node.kind)) {
+    // Web API family sits on the header row (rank 0), beside Reach panels.
     return {
       band: 'application',
-      rank: hasApps && expandedAppId ? 2 : hasApps ? 1 : 0,
-      lane: 3,
-      order: 0,
+      rank: 0,
+      lane: BYPASS_APP_LANE[node.kind] ?? 0,
+      order: BYPASS_APP_LANE[node.kind] ?? 0,
     };
   }
 
@@ -201,7 +253,7 @@ function filterApplicationAccordion(
 ): TopologyNode[] {
   return nodes.filter((n) => {
     if (n.band !== 'application' || !n.appId) return true;
-    if (n.kind === 'app' || n.kind === 'openclaw') return true;
+    if (n.kind === 'app' || isBypassAppKind(n.kind)) return true;
     if (APP_CHILD_LANE[n.kind] == null) return true;
     // Children only when their app panel is expanded.
     return Boolean(expandedAppId) && n.appId === expandedAppId;
@@ -513,6 +565,36 @@ export function layoutTopology(
   );
   const appLaneById = new Map(appIds.map((id, i) => [id, i]));
 
+  const webApiRawIds = visible
+    .filter((n) => resolveAppGroup(n) === 'web-api')
+    .map((n) => n.id);
+  const kindById = new Map(visible.map((n) => [n.id, String(n.kind)]));
+  const webApiIds = sortWebApiIds(uniqueSorted(webApiRawIds), kindById);
+  const webApiLaneById = new Map(webApiIds.map((id, i) => [id, i]));
+
+  const reachFamilyNodes = visible.filter(
+    (n) => resolveAppGroup(n) === 'reach'
+  );
+  const reachPanelCount = reachFamilyNodes.filter((n) => n.kind === 'app').length;
+  const webApiCount = webApiIds.length;
+  let reachSectionW = 0;
+  if (reachPanelCount > 0) {
+    reachSectionW =
+      reachPanelCount * EXPAND_PANEL_W +
+      Math.max(0, reachPanelCount - 1) * COL_GAP;
+  } else if (reachFamilyNodes.length > 0) {
+    // Tests / odd graphs with Reach children but no app header still reserve left space.
+    reachSectionW =
+      reachFamilyNodes.length * NODE_W +
+      Math.max(0, reachFamilyNodes.length - 1) * COL_GAP;
+  }
+  const webApiSectionW =
+    webApiCount > 0
+      ? webApiCount * NODE_W + Math.max(0, webApiCount - 1) * COL_GAP
+      : 0;
+  const webApiOriginX =
+    MARGIN + (reachSectionW > 0 ? reachSectionW + APP_FAMILY_GAP : 0);
+
   const k8sIds = uniqueSorted(
     visible.filter((n) => n.kind === 'k8s-workload').map((n) => n.id)
   );
@@ -523,6 +605,16 @@ export function layoutTopology(
     if (n.kind === 'k8s-workload') {
       const lane = k8sLaneById.get(n.id) ?? 0;
       return { node: n, band: 'ao' as TopologyBand, rank: 5, lane, order: lane };
+    }
+    if (resolveAppGroup(n) === 'web-api') {
+      const lane = webApiLaneById.get(n.id) ?? s.lane;
+      return {
+        node: n,
+        band: 'application' as TopologyBand,
+        rank: 0,
+        lane,
+        order: lane,
+      };
     }
     return { node: n, ...s };
   });
@@ -540,10 +632,9 @@ export function layoutTopology(
 
   const colWidth = NODE_W + COL_GAP;
   const appRowW =
-    appIds.length > 0
-      ? appIds.length * EXPAND_PANEL_W +
-        Math.max(0, appIds.length - 1) * COL_GAP
-      : 0;
+    (reachSectionW > 0 ? reachSectionW : 0) +
+    (reachSectionW > 0 && webApiSectionW > 0 ? APP_FAMILY_GAP : 0) +
+    webApiSectionW;
   const k8sChildCount = k8sIds.length;
   const k8sExpandRowW =
     k8sChildCount > 0
@@ -590,17 +681,22 @@ export function layoutTopology(
 
     const bandTop = y;
     y += BAND_PAD_Y + BAND_LABEL_H;
+    // Room for Reach apps / Web API family labels above the node row.
+    if (band === 'application' && (reachPanelCount > 0 || webApiCount > 0)) {
+      y += APP_FAMILY_LABEL_H + 4;
+    }
 
     for (const [, rowNodes] of bandRows) {
       const usedLanes = new Set<number>();
       for (const e of rowNodes) {
         const isAppHeader = e.node.kind === 'app';
+        const isWebApi = resolveAppGroup(e.node) === 'web-api';
         const isExpandHeader =
           isAppHeader ||
           Boolean(e.node.expandable && e.node.kind === 'platform');
         const isK8sChild = e.node.kind === 'k8s-workload';
         let lane = e.lane;
-        if (!isAppHeader) {
+        if (!isAppHeader && !isWebApi) {
           // K8s children may exceed MAX_LANES when the panel is expanded —
           // keep their assigned lane so the group frame can grow wider.
           if (isK8sChild) {
@@ -621,18 +717,23 @@ export function layoutTopology(
           }
         }
         const nodeW = isExpandHeader ? EXPAND_PANEL_W : NODE_W;
-        // App accordion headers use their own horizontal pitch (not the 140px grid).
+        // Reach accordion headers: own pitch. Web API family: right of Reach section.
         // Expandable platform keeps the AO column grid but uses the wider card.
-        const x = isAppHeader
-          ? MARGIN + e.lane * (EXPAND_PANEL_W + COL_GAP)
-          : MARGIN + lane * colWidth;
+        let x: number;
+        if (isWebApi) {
+          x = webApiOriginX + e.lane * colWidth;
+        } else if (isAppHeader) {
+          x = MARGIN + e.lane * (EXPAND_PANEL_W + COL_GAP);
+        } else {
+          x = MARGIN + lane * colWidth;
+        }
         positioned.push({
           ...e.node,
           x,
           y,
           width: nodeW,
           height: NODE_H,
-          lane: isAppHeader ? e.lane : lane,
+          lane: isAppHeader || isWebApi ? e.lane : lane,
           rank: e.rank,
           order: e.order,
           displayStatus: displayStatus(e.node),
@@ -672,13 +773,66 @@ export function layoutTopology(
     });
   }
 
+  const applicationFamilies = buildApplicationFamilyFrames(positioned);
+
   return {
     width,
     height: y + MARGIN,
     bands,
+    applicationFamilies,
     nodes: positioned,
     edges: positionedEdges,
   };
+}
+
+function boundsOfNodes(
+  list: PositionedNode[],
+  pad: number
+): { x: number; y: number; width: number; height: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const n of list) {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + n.height);
+  }
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: maxX - minX + pad * 2,
+    height: maxY - minY + pad * 2,
+  };
+}
+
+function buildApplicationFamilyFrames(
+  positioned: PositionedNode[]
+): NonNullable<LayoutResult['applicationFamilies']> {
+  const byFamily = new Map<TopologyAppGroup, PositionedNode[]>();
+  for (const n of positioned) {
+    const family = resolveAppGroup(n);
+    if (!family) continue;
+    const list = byFamily.get(family) || [];
+    list.push(n);
+    byFamily.set(family, list);
+  }
+  const frames: NonNullable<LayoutResult['applicationFamilies']> = [];
+  for (const id of ['reach', 'web-api'] as TopologyAppGroup[]) {
+    const list = byFamily.get(id);
+    if (!list?.length) continue;
+    const box = boundsOfNodes(list, APP_FAMILY_PAD);
+    frames.push({
+      id,
+      label: APP_FAMILY_LABEL[id],
+      x: box.x,
+      y: box.y - APP_FAMILY_LABEL_H,
+      width: box.width,
+      height: box.height + APP_FAMILY_LABEL_H,
+    });
+  }
+  return frames;
 }
 
 /** Transitive closure for path highlight. */

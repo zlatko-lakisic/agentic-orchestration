@@ -35,6 +35,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Topology first-party Web UIs** — Application band splits into **Reach apps** (left) and **Web API** (right) families. **ao-web** (Admin `/admin`) and **ao-chat** (chat `/`) sit in Web API with **bypass** edges to Web UI (same family as OpenClaw; not Reach accordions). Healthy when the matching Access token is assigned.
 - **Admin API access tokens** — mint/revoke Bearer tokens on Access (`GET/POST/DELETE /api/v1/admin/tokens`) with hashed store under `__orchestrator_api_tokens__/` (hostPath `var/agentic-api-tokens` on edge). Orchestrate / chat / responses accept minted tokens or the env shared-secret fallback; usage ledger records appId, IP, path, status, latency.
 - **mTLS per-client revoke** — deny one enrolled Reach client by cert serial or CN (`revoked.json`) without rotating the CA. Enforced on engine HTTP + WebSocket; Admin Access → mTLS clients; CLI `revoke-client` / `unrevoke-client`.
 - **Admin mTLS enroll-token mint** — Access → mTLS clients → **Mint enroll token** (one-time Reach clients cert enroll; not an `ao_…` API token).

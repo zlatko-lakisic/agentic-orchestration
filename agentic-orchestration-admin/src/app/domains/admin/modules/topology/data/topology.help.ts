@@ -15,7 +15,7 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   app: {
     wikiKey: 'app-accordion',
     blurb:
-      'Product appId accordion — wider panel; expand for UI / overlays / local tools.',
+      'Reach appId accordion (left family) — expand for UI / overlays / local tools.',
   },
   ui: {
     wikiKey: 'ui',
@@ -31,7 +31,15 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   },
   openclaw: {
     wikiKey: 'openclaw',
-    blurb: 'OpenClaw host that talks to the Web UI and bypasses Reach.',
+    blurb: 'OpenClaw host in the Web API family — talks to Web UI, bypasses Reach.',
+  },
+  'ao-web': {
+    wikiKey: 'ao-web',
+    blurb: 'Admin SPA in the Web API family (/admin) → Web UI with ao-web token.',
+  },
+  'ao-chat': {
+    wikiKey: 'ao-chat',
+    blurb: 'Chat UI in the Web API family (/) → Web UI with ao-chat token.',
   },
   'session-bridge': {
     wikiKey: 'session-bridge',
@@ -215,7 +223,8 @@ const EDGE_BY_KIND: Record<string, TopologyHelp> = {
   },
   bypass: {
     wikiKey: 'edge-bypass',
-    blurb: 'OpenClaw path that skips Reach and hits the Web UI directly.',
+    blurb:
+      'Path that skips Reach and hits the Web UI directly (ao-web, ao-chat, OpenClaw).',
   },
 };
 
