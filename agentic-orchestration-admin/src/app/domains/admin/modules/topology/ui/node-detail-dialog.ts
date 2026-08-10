@@ -125,6 +125,35 @@ type Pt = { x: number; y: number | null };
                   }
                 </div>
               }
+              @if (d.addresses; as addr) {
+                <div class="flex flex-col gap-1">
+                  <div class="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                    Addresses
+                  </div>
+                  <div
+                    class="rounded-lg border border-neutral-200 px-3 py-2 font-mono text-xs dark:border-neutral-700"
+                  >
+                    @if (addr.internalIP) {
+                      <div>internal {{ addr.internalIP }}</div>
+                    }
+                    @if (addr.hostIP) {
+                      <div>host {{ addr.hostIP }}</div>
+                    }
+                    @if (addr.podIP) {
+                      <div>pod {{ addr.podIP }}</div>
+                    }
+                    @if (addr.clusterIP) {
+                      <div>cluster {{ addr.clusterIP }}</div>
+                    }
+                    @if (addr.externalIP) {
+                      <div>external {{ addr.externalIP }}</div>
+                    }
+                    @if (addr.nodeName) {
+                      <div>node {{ addr.nodeName }}</div>
+                    }
+                  </div>
+                </div>
+              }
               @if (d.clientIps?.length) {
                 <div class="flex flex-col gap-2">
                   <div class="text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -209,8 +238,10 @@ type Pt = { x: number; y: number | null };
                           <th class="px-2 py-1.5 font-medium">Name</th>
                           <th class="px-2 py-1.5 font-medium">Phase</th>
                           <th class="px-2 py-1.5 font-medium">Ready</th>
-                          <th class="px-2 py-1.5 font-medium">Restarts</th>
+                          <th class="px-2 py-1.5 font-medium">Pod IP</th>
+                          <th class="px-2 py-1.5 font-medium">Host IP</th>
                           <th class="px-2 py-1.5 font-medium">Node</th>
+                          <th class="px-2 py-1.5 font-medium">Restarts</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -223,10 +254,16 @@ type Pt = { x: number; y: number | null };
                             <td class="px-2 py-1.5">
                               {{ p.ready ? 'yes' : 'no' }}
                             </td>
-                            <td class="px-2 py-1.5">{{ p.restarts }}</td>
+                            <td class="px-2 py-1.5 font-mono text-neutral-600">
+                              {{ p.podIP || '—' }}
+                            </td>
+                            <td class="px-2 py-1.5 font-mono text-neutral-600">
+                              {{ p.hostIP || '—' }}
+                            </td>
                             <td class="px-2 py-1.5 text-neutral-500">
                               {{ p.nodeName || '—' }}
                             </td>
+                            <td class="px-2 py-1.5">{{ p.restarts }}</td>
                           </tr>
                         }
                       </tbody>

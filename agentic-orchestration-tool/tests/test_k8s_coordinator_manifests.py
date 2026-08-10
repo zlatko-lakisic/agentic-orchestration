@@ -28,18 +28,31 @@ def test_coordinator_deployment_uses_service_account_and_run_store() -> None:
 
 
 @pytest.mark.unit
-def test_coordinator_role_can_manage_jobs() -> None:
+def test_coordinator_role_can_list_services_and_endpoints() -> None:
     doc = _load_yaml("role.yaml")
     rules = doc["rules"]
-    job_rule = next(r for r in rules if r["resources"] == ["jobs"])
-    assert "create" in job_rule["verbs"]
-    assert "get" in job_rule["verbs"]
+    svc = next(r for r in rules if r.get("resources") == ["services", "endpoints"])
+    assert "list" in svc["verbs"]
+    assert "get" in svc["verbs"]
+
+
+@pytest.mark.unit
+def test_coordinator_clusterrole_can_list_nodes() -> None:
+    docs = list(
+        yaml.safe_load_all(
+            (_COORDINATOR_DIR / "clusterrole-nodes.yaml").read_text(encoding="utf-8")
+        )
+    )
+    cr = next(d for d in docs if d and d.get("kind") == "ClusterRole")
+    assert cr["rules"][0]["resources"] == ["nodes"]
+    assert "list" in cr["rules"][0]["verbs"]
 
 
 @pytest.mark.unit
 def test_coordinator_kustomization_lists_core_resources() -> None:
     doc = _load_yaml("kustomization.yaml")
     resources = set(doc["resources"])
+    assert "clusterrole-nodes.yaml" in resources
     assert "deployment.yaml" in resources
     assert "role.yaml" in resources
     assert "service.yaml" in resources

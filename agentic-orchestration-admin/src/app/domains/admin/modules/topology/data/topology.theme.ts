@@ -42,6 +42,9 @@ const BY_KIND: Record<string, TopologyKindTheme> = {
   platform: { accent: '#3B6EA5', icon: 'container', aspect: 'Platform' },
   storage: { accent: '#64748b', icon: 'hard-drive', aspect: 'Storage' },
   'k8s-workload': { accent: '#3B6EA5', icon: 'server', aspect: 'K8s workload' },
+  'k8s-node': { accent: '#1d4ed8', icon: 'server', aspect: 'K8s node' },
+  'k8s-pod': { accent: '#2563eb', icon: 'boxes', aspect: 'K8s pod' },
+  'k8s-service': { accent: '#0ea5e9', icon: 'cable', aspect: 'K8s service' },
 };
 
 const BY_BAND: Record<TopologyBand, TopologyKindTheme> = {

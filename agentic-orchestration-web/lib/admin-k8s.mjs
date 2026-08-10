@@ -182,7 +182,9 @@ export async function listPods(sa, labelSelector) {
 export function summarizePod(pod) {
   const name = String(pod?.metadata?.name || "");
   const phase = String(pod?.status?.phase || "Unknown");
-  const nodeName = pod?.status?.nodeName || null;
+  const nodeName = pod?.spec?.nodeName || pod?.status?.nodeName || null;
+  const podIP = pod?.status?.podIP || null;
+  const hostIP = pod?.status?.hostIP || null;
   const containers = [];
   let ready = true;
   let restarts = 0;
@@ -202,14 +204,23 @@ export function summarizePod(pod) {
     });
   }
   if (!statuses.length && phase !== "Succeeded") ready = phase === "Running";
+  const labels = pod?.metadata?.labels || {};
+  const workloadName =
+    labels["app.kubernetes.io/name"] ||
+    labels.app ||
+    labels["job-name"] ||
+    null;
   return {
     name,
     phase,
     ready: phase === "Running" ? ready : phase === "Succeeded",
     restarts,
     nodeName,
+    podIP,
+    hostIP,
+    workloadName,
     containers,
-    labels: pod?.metadata?.labels || {},
+    labels,
   };
 }
 
@@ -240,6 +251,112 @@ export function statusFromPods(pods) {
 }
 
 /**
+ * @param {NonNullable<ReturnType<typeof readServiceAccount>>} sa
+ */
+export async function listServices(sa) {
+  const path = `/api/v1/namespaces/${encodeURIComponent(sa.namespace)}/services`;
+  const body = await k8sRequest(sa, path, { timeoutMs: 8000 });
+  const json = JSON.parse(body);
+  return Array.isArray(json.items) ? json.items : [];
+}
+
+/**
+ * @param {NonNullable<ReturnType<typeof readServiceAccount>>} sa
+ */
+export async function listEndpoints(sa) {
+  const path = `/api/v1/namespaces/${encodeURIComponent(sa.namespace)}/endpoints`;
+  const body = await k8sRequest(sa, path, { timeoutMs: 8000 });
+  const json = JSON.parse(body);
+  return Array.isArray(json.items) ? json.items : [];
+}
+
+/**
+ * Cluster-scoped Nodes (needs ClusterRole). Returns [] when unauthorized.
+ * @param {NonNullable<ReturnType<typeof readServiceAccount>>} sa
+ */
+export async function listNodes(sa) {
+  try {
+    const body = await k8sRequest(sa, "/api/v1/nodes", { timeoutMs: 8000 });
+    const json = JSON.parse(body);
+    return Array.isArray(json.items) ? json.items : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {object} node
+ */
+export function summarizeNode(node) {
+  const name = String(node?.metadata?.name || "");
+  const addresses = Array.isArray(node?.status?.addresses) ? node.status.addresses : [];
+  const internalIP =
+    addresses.find((a) => a.type === "InternalIP")?.address ||
+    addresses.find((a) => a.type === "Hostname")?.address ||
+    null;
+  const externalIP = addresses.find((a) => a.type === "ExternalIP")?.address || null;
+  const ready =
+    Array.isArray(node?.status?.conditions) &&
+    node.status.conditions.some((c) => c.type === "Ready" && c.status === "True");
+  return {
+    name,
+    internalIP,
+    externalIP,
+    ready,
+    addresses: addresses.map((a) => ({ type: a.type, address: a.address })),
+  };
+}
+
+/**
+ * @param {object} svc
+ * @param {Map<string, string[]>} endpointsByService — service name → pod names
+ */
+export function summarizeService(svc, endpointsByService) {
+  const name = String(svc?.metadata?.name || "");
+  const clusterIP = svc?.spec?.clusterIP && svc.spec.clusterIP !== "None" ? svc.spec.clusterIP : null;
+  const type = String(svc?.spec?.type || "ClusterIP");
+  const ports = (svc?.spec?.ports || []).map((p) => ({
+    name: p.name || null,
+    port: p.port,
+    targetPort: p.targetPort,
+    protocol: p.protocol || "TCP",
+    nodePort: p.nodePort || null,
+  }));
+  const selector = svc?.spec?.selector || {};
+  const endpointPods = endpointsByService.get(name) || [];
+  return {
+    name,
+    clusterIP,
+    type,
+    ports,
+    selector,
+    endpointPods,
+  };
+}
+
+/**
+ * @param {object[]} endpoints
+ * @returns {Map<string, string[]>}
+ */
+export function endpointPodNamesByService(endpoints) {
+  /** @type {Map<string, string[]>} */
+  const out = new Map();
+  for (const ep of endpoints || []) {
+    const name = String(ep?.metadata?.name || "");
+    if (!name) continue;
+    const pods = new Set();
+    for (const subset of ep?.subsets || []) {
+      for (const addr of subset?.addresses || []) {
+        const pod = addr?.targetRef?.kind === "Pod" ? addr.targetRef.name : null;
+        if (pod) pods.add(String(pod));
+      }
+    }
+    out.set(name, [...pods].sort());
+  }
+  return out;
+}
+
+/**
  * Probe AO namespace pods and group by known workloads.
  * Cached briefly so topology WS ticks do not hammer the API.
  *
@@ -249,7 +366,10 @@ export function statusFromPods(pods) {
  *   probedAt: string,
  *   note?: string,
  *   workloads: Array<object>,
- *   totals: { pods: number, ready: number, workers: number, sidecars: number },
+ *   clusterNodes: Array<object>,
+ *   services: Array<object>,
+ *   networkPaths: Array<object>,
+ *   totals: { pods: number, ready: number, workers: number, sidecars: number, nodes: number, services: number },
  * }>}
  */
 export async function probeK8sTopology() {
@@ -267,18 +387,26 @@ export async function probeK8sTopology() {
       probedAt,
       note: "not in-cluster (no service account)",
       workloads: [],
-      totals: { pods: 0, ready: 0, workers: 0, sidecars: 0 },
+      clusterNodes: [],
+      services: [],
+      networkPaths: [],
+      totals: { pods: 0, ready: 0, workers: 0, sidecars: 0, nodes: 0, services: 0 },
     };
     _cache = { at: now, value };
     return value;
   }
 
   try {
-    // List namespace pods (coordinator SA already has get/list/watch).
-    const items = await listPods(sa);
+    const [items, servicesRaw, endpointsRaw, nodesRaw] = await Promise.all([
+      listPods(sa),
+      listServices(sa).catch(() => []),
+      listEndpoints(sa).catch(() => []),
+      listNodes(sa),
+    ]);
 
     /** @type {Map<string, object[]>} */
     const byName = new Map();
+    const allSummarized = [];
     for (const pod of items) {
       const labels = pod?.metadata?.labels || {};
       const appName =
@@ -288,6 +416,7 @@ export async function probeK8sTopology() {
         "other";
       if (!byName.has(appName)) byName.set(appName, []);
       byName.get(appName).push(pod);
+      allSummarized.push(summarizePod(pod));
     }
 
     const workloads = [];
@@ -316,7 +445,6 @@ export async function probeK8sTopology() {
       });
     }
 
-    // Surface unexpected labeled workloads (DaemonSets, extras).
     for (const [name, podsRaw] of byName) {
       if (seen.has(name)) continue;
       if (!String(name).startsWith("agentic-")) continue;
@@ -339,12 +467,74 @@ export async function probeK8sTopology() {
       });
     }
 
+    const nodeMeta = new Map(nodesRaw.map((n) => {
+      const s = summarizeNode(n);
+      return [s.name, s];
+    }));
+
+    /** @type {Map<string, ReturnType<typeof summarizePod>[]>} */
+    const podsByNode = new Map();
+    for (const p of allSummarized) {
+      const nn = p.nodeName || "_unscheduled";
+      if (!podsByNode.has(nn)) podsByNode.set(nn, []);
+      podsByNode.get(nn).push(p);
+    }
+
+    const clusterNodes = [];
+    const nodeNames = new Set([...podsByNode.keys(), ...nodeMeta.keys()]);
+    for (const name of [...nodeNames].sort()) {
+      if (name === "_unscheduled" && !(podsByNode.get(name) || []).length) continue;
+      const pods = podsByNode.get(name) || [];
+      const meta = nodeMeta.get(name);
+      const hostIP = pods.find((p) => p.hostIP)?.hostIP || null;
+      const { status, reason } = statusFromPods(pods);
+      clusterNodes.push({
+        id: `k8s/node/${name}`,
+        name,
+        label: name === "_unscheduled" ? "Unscheduled" : name,
+        internalIP: meta?.internalIP || hostIP,
+        externalIP: meta?.externalIP || null,
+        hostIP,
+        ready: meta ? meta.ready : pods.some((p) => p.ready),
+        count: pods.length,
+        readyPods: pods.filter((p) => p.ready).length,
+        status: pods.length ? status : meta?.ready ? "healthy" : "unknown",
+        statusReason: pods.length ? reason : meta ? "node listed (no AO pods)" : "no pods",
+        pods,
+      });
+    }
+
+    const epBySvc = endpointPodNamesByService(endpointsRaw);
+    const services = (servicesRaw || [])
+      .map((s) => summarizeService(s, epBySvc))
+      .filter((s) => s.name && String(s.name).startsWith("agentic-"));
+
+    /** @type {Array<{ id: string, from: string, to: string, protocol?: string, port?: number, kind: string }>} */
+    const networkPaths = [];
+    for (const svc of services) {
+      const port = svc.ports[0]?.port;
+      const protocol = String(svc.ports[0]?.protocol || "TCP").toLowerCase();
+      for (const podName of svc.endpointPods) {
+        networkPaths.push({
+          id: `k8s/svc/${svc.name}->k8s/pod/${podName}`,
+          from: `k8s/svc/${svc.name}`,
+          to: `k8s/pod/${podName}`,
+          kind: "request",
+          protocol,
+          port: port != null ? Number(port) : undefined,
+        });
+      }
+    }
+
     const allPods = workloads.flatMap((w) => w.pods);
     const value = {
       reachable: true,
       namespace: sa.namespace,
       probedAt,
       workloads,
+      clusterNodes,
+      services,
+      networkPaths,
       totals: {
         pods: allPods.length,
         ready: allPods.filter((p) => p.ready).length,
@@ -354,6 +544,8 @@ export async function probeK8sTopology() {
         sidecars: workloads
           .filter((w) => w.group === "sidecars" && w.deployed)
           .reduce((n, w) => n + w.count, 0),
+        nodes: clusterNodes.filter((n) => n.name !== "_unscheduled").length,
+        services: services.length,
       },
     };
     _cache = { at: now, value };
@@ -365,7 +557,10 @@ export async function probeK8sTopology() {
       probedAt,
       note: String(err?.message || err),
       workloads: [],
-      totals: { pods: 0, ready: 0, workers: 0, sidecars: 0 },
+      clusterNodes: [],
+      services: [],
+      networkPaths: [],
+      totals: { pods: 0, ready: 0, workers: 0, sidecars: 0, nodes: 0, services: 0 },
     };
     _cache = { at: now, value };
     return value;

@@ -88,6 +88,8 @@ class SessionOverlay:
     skills: list[dict[str, Any]] = field(default_factory=list)
     expires_at: float = 0.0
     byte_size: int = 0
+    #: Peer IP of the Reach WebSocket client (best-effort; may be empty).
+    client_ip: str = ""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -279,6 +281,7 @@ def register_overlay(
     ttl_seconds: float | None = None,
     catalog_root: Any | None = None,
     stock_ids: set[str] | None = None,
+    client_ip: str | None = None,
 ) -> SessionOverlay:
     """Replace (not merge-patch) the overlay for ``(user_id, session_id)``."""
     if not session_overlay_enabled():
@@ -369,6 +372,7 @@ def register_overlay(
         skills=validated_skills,
         expires_at=now + ttl,
         byte_size=byte_size,
+        client_ip=str(client_ip or "").strip(),
     )
     with _lock:
         sweep_expired_locked(now=now)
@@ -527,6 +531,7 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     "userId": overlay.user_id,
                     "sessionId": overlay.session_id,
                     "connectionId": overlay.connection_id,
+                    "clientIp": overlay.client_ip or None,
                     "agentCount": len(overlay.agents),
                     "mcpCount": len(overlay.mcps),
                     "skillCount": len(overlay.skills),

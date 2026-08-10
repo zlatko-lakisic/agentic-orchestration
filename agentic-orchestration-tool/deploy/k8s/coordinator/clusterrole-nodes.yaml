@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentic-coordinator-nodes
+  labels:
+    app.kubernetes.io/name: agentic-coordinator
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentic-coordinator-nodes
+  labels:
+    app.kubernetes.io/name: agentic-coordinator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentic-coordinator-nodes
+subjects:
+  - kind: ServiceAccount
+    name: agentic-coordinator
+    namespace: agentic-orchestration

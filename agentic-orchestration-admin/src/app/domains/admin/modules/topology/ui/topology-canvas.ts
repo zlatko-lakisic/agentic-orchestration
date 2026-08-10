@@ -624,18 +624,39 @@ export class TopologyCanvas {
     return frames;
   });
 
-  /** Bounding frame for expandable Kubernetes platform + workload children. */
+  /** Bounding frame for expandable Kubernetes platform + node/pod/service children. */
   readonly k8sFrames = computed(() => {
     const list = this.nodes().filter(
       (n) =>
         n.id === 'platform/k3s' ||
         n.kind === 'k8s-workload' ||
-        n.parent === 'platform/k3s'
+        n.kind === 'k8s-node' ||
+        n.kind === 'k8s-pod' ||
+        n.kind === 'k8s-service' ||
+        n.parent === 'platform/k3s' ||
+        String(n.parent || '').startsWith('k8s/node/')
     );
     if (!list.some((n) => n.id === 'platform/k3s' && n.expandable)) return [];
     const frames: ExpandGroupFrame[] = [
       { id: 'platform/k3s', ...boundsOf(list, 8) },
     ];
+    // Per-node group frames so pods read as "inside" the node.
+    const byNode = new Map<string, PositionedNode[]>();
+    for (const n of list) {
+      if (n.kind === 'k8s-node') {
+        const arr = byNode.get(n.id) || [];
+        arr.push(n);
+        byNode.set(n.id, arr);
+      } else if (n.kind === 'k8s-pod' && n.parent) {
+        const arr = byNode.get(n.parent) || [];
+        arr.push(n);
+        byNode.set(n.parent, arr);
+      }
+    }
+    for (const [id, members] of byNode) {
+      if (members.length < 2) continue;
+      frames.push({ id, ...boundsOf(members, 6) });
+    }
     return frames;
   });
 

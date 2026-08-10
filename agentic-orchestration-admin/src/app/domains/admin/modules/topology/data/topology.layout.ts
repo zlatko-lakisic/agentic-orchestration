@@ -233,10 +233,18 @@ function slotFor(
   if (node.id === 'speech/stt' || node.id === 'speech/tts') {
     return { band: 'ao', rank: 0, lane: ENDPOINT_LANE[node.id] ?? 3, order: 10 };
   }
-  if (node.kind === 'k8s-workload') {
+  if (node.kind === 'k8s-workload' || node.kind === 'k8s-node' || node.kind === 'k8s-service') {
     return {
       band: 'ao',
       rank: 5,
+      lane: 0,
+      order: 0,
+    };
+  }
+  if (node.kind === 'k8s-pod') {
+    return {
+      band: 'ao',
+      rank: 6,
       lane: 0,
       order: 0,
     };
@@ -263,13 +271,14 @@ function filterApplicationAccordion(
   });
 }
 
-/** Hide nested k8s workloads until the Kubernetes platform node is expanded. */
+/** Hide nested k8s inventory until the Kubernetes platform node is expanded. */
 function filterK8sAccordion(
   nodes: TopologyNode[],
   expandedK8sId: string | null | undefined
 ): TopologyNode[] {
+  const k8sKinds = new Set(['k8s-workload', 'k8s-node', 'k8s-pod', 'k8s-service']);
   return nodes.filter((n) => {
-    if (n.kind !== 'k8s-workload') return true;
+    if (!k8sKinds.has(String(n.kind))) return true;
     return expandedK8sId === 'platform/k3s' || expandedK8sId === n.parent;
   });
 }
@@ -606,16 +615,50 @@ export function layoutTopology(
   const webApiOriginX =
     MARGIN + (reachSectionW > 0 ? reachSectionW + APP_FAMILY_GAP : 0);
 
-  const k8sIds = uniqueSorted(
-    visible.filter((n) => n.kind === 'k8s-workload').map((n) => n.id)
+  const k8sNodeIds = uniqueSorted(
+    visible.filter((n) => n.kind === 'k8s-node').map((n) => n.id)
   );
-  const k8sLaneById = new Map(k8sIds.map((id, i) => [id, i]));
+  const k8sNodeLaneById = new Map(k8sNodeIds.map((id, i) => [id, i]));
+  const k8sSvcIds = uniqueSorted(
+    visible.filter((n) => n.kind === 'k8s-service' || n.kind === 'k8s-workload').map((n) => n.id)
+  );
+  // Services sit to the right of node columns.
+  const k8sSvcLaneById = new Map(
+    k8sSvcIds.map((id, i) => [id, k8sNodeIds.length + i])
+  );
+  const podsByParent = new Map<string, string[]>();
+  for (const n of visible) {
+    if (n.kind !== 'k8s-pod' || !n.parent) continue;
+    const list = podsByParent.get(n.parent) || [];
+    list.push(n.id);
+    podsByParent.set(n.parent, list);
+  }
+  for (const [parent, ids] of podsByParent) {
+    podsByParent.set(parent, uniqueSorted(ids));
+  }
 
   const enriched = visible.map((n) => {
     const s = slotFor(n, appLaneById, expandedAppId);
-    if (n.kind === 'k8s-workload') {
-      const lane = k8sLaneById.get(n.id) ?? 0;
+    if (n.kind === 'k8s-node') {
+      const lane = k8sNodeLaneById.get(n.id) ?? 0;
       return { node: n, band: 'ao' as TopologyBand, rank: 5, lane, order: lane };
+    }
+    if (n.kind === 'k8s-service' || n.kind === 'k8s-workload') {
+      const lane = k8sSvcLaneById.get(n.id) ?? 0;
+      return { node: n, band: 'ao' as TopologyBand, rank: 5, lane, order: lane };
+    }
+    if (n.kind === 'k8s-pod') {
+      const parentLane = k8sNodeLaneById.get(String(n.parent || '')) ?? 0;
+      const siblings = podsByParent.get(String(n.parent || '')) || [];
+      const order = Math.max(0, siblings.indexOf(n.id));
+      return {
+        node: n,
+        band: 'ao' as TopologyBand,
+        // Stack pods vertically under their node column.
+        rank: 6 + order,
+        lane: parentLane,
+        order: 0,
+      };
     }
     if (resolveAppGroup(n) === 'web-api') {
       const lane = webApiLaneById.get(n.id) ?? s.lane;
@@ -646,12 +689,26 @@ export function layoutTopology(
     (reachSectionW > 0 ? reachSectionW : 0) +
     (reachSectionW > 0 && webApiSectionW > 0 ? APP_FAMILY_GAP : 0) +
     webApiSectionW;
-  const k8sChildCount = k8sIds.length;
+  const k8sChildCount = Math.max(
+    k8sNodeIds.length + k8sSvcIds.length,
+    ...[...podsByParent.values()].map((ids, i) => {
+      const lane = i; // width driven below
+      return ids.length;
+    }),
+    0
+  );
+  // Prefer widest row: node+svc columns, or max pods under a single node.
+  const maxPodsInColumn = Math.max(
+    0,
+    ...[...podsByParent.values()].map((ids) => ids.length)
+  );
   const k8sExpandRowW =
-    k8sChildCount > 0
+    k8sChildCount > 0 || maxPodsInColumn > 0
       ? Math.max(
           EXPAND_PANEL_W,
-          k8sChildCount * NODE_W + Math.max(0, k8sChildCount - 1) * COL_GAP
+          (k8sNodeIds.length + k8sSvcIds.length) * NODE_W +
+            Math.max(0, k8sNodeIds.length + k8sSvcIds.length - 1) * COL_GAP,
+          maxPodsInColumn * NODE_W + Math.max(0, maxPodsInColumn - 1) * COL_GAP
         )
       : 0;
   const canvasContentW = Math.max(
@@ -705,13 +762,22 @@ export function layoutTopology(
         const isExpandHeader =
           isAppHeader ||
           Boolean(e.node.expandable && e.node.kind === 'platform');
-        const isK8sChild = e.node.kind === 'k8s-workload';
+        const isK8sChild =
+          e.node.kind === 'k8s-workload' ||
+          e.node.kind === 'k8s-node' ||
+          e.node.kind === 'k8s-service' ||
+          e.node.kind === 'k8s-pod';
         let lane = e.lane;
         if (!isAppHeader && !isWebApi) {
           // K8s children may exceed MAX_LANES when the panel is expanded —
           // keep their assigned lane so the group frame can grow wider.
           if (isK8sChild) {
-            lane = Math.max(0, e.lane);
+            if (e.node.kind === 'k8s-pod') {
+              // Stack pods under their node column; offset by order within column.
+              lane = Math.max(0, e.lane);
+            } else {
+              lane = Math.max(0, e.lane);
+            }
           } else {
             lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
             while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;

@@ -94,6 +94,7 @@ function groupSessionsByAppId(sessionList) {
         agentIds: [],
         mcpIds: [],
         skillIds: [],
+        clientIps: [],
       });
     }
     const g = byApp.get(appId);
@@ -105,11 +106,15 @@ function groupSessionsByAppId(sessionList) {
     for (const id of s.agentIds || []) g.agentIds.push(id);
     for (const id of s.mcpIds || []) g.mcpIds.push(id);
     for (const id of s.skillIds || []) g.skillIds.push(id);
+    const ip = String(s.clientIp || s.client_ip || "").trim();
+    if (ip) g.clientIps.push(ip);
   }
   for (const g of byApp.values()) {
     g.agentIds = uniqueSorted(g.agentIds);
     g.mcpIds = uniqueSorted(g.mcpIds);
     g.skillIds = uniqueSorted(g.skillIds);
+    g.clientIps = uniqueSorted(g.clientIps);
+    g.clientIpCount = g.clientIps.length;
     g.instanceCount = g.sessions.length;
   }
   return [...byApp.values()].sort((a, b) => a.appId.localeCompare(b.appId));
@@ -418,6 +423,9 @@ export async function buildTopologyGraph(ctx) {
         if (reservedAppIds.has(g.appId)) continue;
         const parentId = `app/${g.appId}`;
         const nInst = g.instanceCount;
+        const ipN = g.clientIpCount || 0;
+        const ipHint = ipN ? ` · ${ipN} IP${ipN === 1 ? "" : "s"}` : "";
+        const ipList = Array.isArray(g.clientIps) ? g.clientIps : [];
         nodes.push(
           node({
             id: parentId,
@@ -425,14 +433,18 @@ export async function buildTopologyGraph(ctx) {
             band: "application",
             appGroup: "reach",
             label: g.appId,
-            sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}`,
+            sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}${ipHint}`,
             status: "healthy",
             instrumented: true,
             deployed: true,
             appId: g.appId,
             instanceCount: nInst,
             count: nInst,
-            statusReason: `${nInst} Reach session${nInst === 1 ? "" : "s"} advertising appId=${g.appId}`,
+            clientIpCount: ipN,
+            clientIps: ipList,
+            statusReason: `${nInst} Reach session${nInst === 1 ? "" : "s"} advertising appId=${g.appId}${
+              ipList.length ? ` from ${ipList.join(", ")}` : ""
+            }`,
           }),
         );
         nodes.push(
@@ -1000,16 +1012,21 @@ export async function buildTopologyGraph(ctx) {
       band: "ao",
       label: "Kubernetes",
       sublabel: k8sProbe.reachable
-        ? `${platformReady}/${platformPodCount} pods · ${k8sProbe.namespace || "ns"}`
+        ? `${platformReady}/${platformPodCount} pods · ${k8sProbe.totals?.nodes || 0} nodes · ${k8sProbe.namespace || "ns"}`
         : process.env.AGENTIC_EDGE_PLATFORM || "local",
       status: k8sProbe.reachable ? platformStatus : "unknown",
       instrumented: k8sProbe.reachable,
-      expandable: k8sProbe.reachable && platformWorkloads.some((w) => w.deployed),
+      expandable:
+        k8sProbe.reachable &&
+        ((k8sProbe.clusterNodes || []).length > 0 ||
+          platformWorkloads.some((w) => w.deployed)),
       clusterKind: "k8s",
       count: platformPodCount,
       breakdown: {
         ready: platformReady,
         workloads: platformWorkloads.filter((w) => w.deployed).length,
+        nodes: k8sProbe.totals?.nodes || 0,
+        services: k8sProbe.totals?.services || 0,
       },
       statusReason: k8sProbe.reachable
         ? undefined
@@ -1023,49 +1040,207 @@ export async function buildTopologyGraph(ctx) {
     }),
   );
 
-  // Nested workloads — always in graph; canvas accordion shows them when expanded.
+  // Nested cluster topology: nodes → pods, services → pods (network paths).
   if (k8sProbe.reachable) {
-    for (const w of platformWorkloads) {
-      if (!w.deployed && w.role !== "worker" && w.role !== "mcp-sidecar") {
-        // Still show core platform targets as not-deployed placeholders when probing.
-        if (!["coordinator", "engine", "broker"].includes(w.role)) continue;
-      }
+    for (const cn of k8sProbe.clusterNodes || []) {
+      const addr =
+        cn.internalIP || cn.hostIP || cn.externalIP || null;
       nodes.push(
         node({
-          id: w.id,
-          kind: "k8s-workload",
+          id: cn.id,
+          kind: "k8s-node",
           band: "ao",
-          label: w.label,
-          sublabel: w.deployed
-            ? `${w.ready}/${w.count} ready`
-            : "not deployed",
-          status: w.deployed ? w.status : "unknown",
-          statusReason: w.statusReason,
-          instrumented: w.instrumented && w.deployed,
-          deployed: w.deployed,
+          label: cn.label || cn.name,
+          sublabel: addr
+            ? `${cn.readyPods || 0}/${cn.count || 0} pods · ${addr}`
+            : `${cn.readyPods || 0}/${cn.count || 0} pods`,
+          status: cn.status || "unknown",
+          statusReason: cn.statusReason,
+          instrumented: true,
+          deployed: true,
           parent: "platform/k3s",
-          count: w.count,
+          count: cn.count,
           lastProbeAt: k8sProbe.probedAt,
+          addresses: {
+            internalIP: cn.internalIP || null,
+            hostIP: cn.hostIP || null,
+            externalIP: cn.externalIP || null,
+          },
           k8sResource: {
-            name: w.name,
-            role: w.role,
-            group: w.group,
-            logSource: w.logSource,
-            pods: w.pods,
+            name: cn.name,
+            role: "node",
+            group: "nodes",
+            pods: cn.pods || [],
           },
         }),
       );
       edges.push(
         edge({
-          id: `platform/k3s->${w.id}`,
+          id: `platform/k3s->${cn.id}`,
           from: "platform/k3s",
-          to: w.id,
+          to: cn.id,
           kind: "request",
           protocol: "k8s",
           instrumented: false,
           status: "unknown",
         }),
       );
+
+      for (const p of cn.pods || []) {
+        const podId = `k8s/pod/${p.name}`;
+        const wl = p.workloadName ? String(p.workloadName).replace(/^agentic-/, "") : "";
+        nodes.push(
+          node({
+            id: podId,
+            kind: "k8s-pod",
+            band: "ao",
+            label: p.name,
+            sublabel: [p.podIP, wl, p.phase].filter(Boolean).join(" · "),
+            status: p.ready
+              ? "healthy"
+              : p.phase === "Pending"
+                ? "starting"
+                : p.phase === "Failed"
+                  ? "failed"
+                  : "degraded",
+            statusReason: `${p.phase}${p.podIP ? ` · pod ${p.podIP}` : ""}${
+              p.hostIP ? ` · host ${p.hostIP}` : ""
+            }`,
+            instrumented: true,
+            deployed: true,
+            parent: cn.id,
+            lastProbeAt: k8sProbe.probedAt,
+            addresses: {
+              podIP: p.podIP || null,
+              hostIP: p.hostIP || null,
+              nodeName: p.nodeName || cn.name,
+            },
+            k8sResource: {
+              name: p.name,
+              role: "pod",
+              group: "pods",
+              workloadName: p.workloadName || null,
+              pods: [p],
+            },
+          }),
+        );
+        edges.push(
+          edge({
+            id: `${cn.id}->${podId}`,
+            from: cn.id,
+            to: podId,
+            kind: "request",
+            protocol: "k8s",
+            instrumented: false,
+            status: "unknown",
+          }),
+        );
+      }
+    }
+
+    for (const svc of k8sProbe.services || []) {
+      const svcId = `k8s/svc/${svc.name}`;
+      const portHint = svc.ports?.[0]
+        ? `:${svc.ports[0].port}`
+        : "";
+      nodes.push(
+        node({
+          id: svcId,
+          kind: "k8s-service",
+          band: "ao",
+          label: svc.name.replace(/^agentic-/, ""),
+          sublabel: svc.clusterIP
+            ? `${svc.clusterIP}${portHint}`
+            : `${svc.type}${portHint}`,
+          status: (svc.endpointPods || []).length ? "healthy" : "unknown",
+          statusReason: `${svc.type} · ${(svc.endpointPods || []).length} endpoint(s)`,
+          instrumented: true,
+          deployed: true,
+          parent: "platform/k3s",
+          lastProbeAt: k8sProbe.probedAt,
+          addresses: {
+            clusterIP: svc.clusterIP || null,
+          },
+          k8sResource: {
+            name: svc.name,
+            role: "service",
+            group: "services",
+            ports: svc.ports,
+            endpointPods: svc.endpointPods,
+          },
+        }),
+      );
+      edges.push(
+        edge({
+          id: `platform/k3s->${svcId}`,
+          from: "platform/k3s",
+          to: svcId,
+          kind: "request",
+          protocol: "k8s",
+          instrumented: false,
+          status: "unknown",
+        }),
+      );
+    }
+
+    for (const path of k8sProbe.networkPaths || []) {
+      edges.push(
+        edge({
+          id: path.id,
+          from: path.from,
+          to: path.to,
+          kind: path.kind || "request",
+          protocol: path.protocol || "tcp",
+          port: path.port,
+          instrumented: true,
+          status: "healthy",
+        }),
+      );
+    }
+
+    // Keep workload summaries for logs/detail when node inventory is empty.
+    if (!(k8sProbe.clusterNodes || []).length) {
+      for (const w of platformWorkloads) {
+        if (!w.deployed && w.role !== "worker" && w.role !== "mcp-sidecar") {
+          if (!["coordinator", "engine", "broker"].includes(w.role)) continue;
+        }
+        nodes.push(
+          node({
+            id: w.id,
+            kind: "k8s-workload",
+            band: "ao",
+            label: w.label,
+            sublabel: w.deployed
+              ? `${w.ready}/${w.count} ready`
+              : "not deployed",
+            status: w.deployed ? w.status : "unknown",
+            statusReason: w.statusReason,
+            instrumented: w.instrumented && w.deployed,
+            deployed: w.deployed,
+            parent: "platform/k3s",
+            count: w.count,
+            lastProbeAt: k8sProbe.probedAt,
+            k8sResource: {
+              name: w.name,
+              role: w.role,
+              group: w.group,
+              logSource: w.logSource,
+              pods: w.pods,
+            },
+          }),
+        );
+        edges.push(
+          edge({
+            id: `platform/k3s->${w.id}`,
+            from: "platform/k3s",
+            to: w.id,
+            kind: "request",
+            protocol: "k8s",
+            instrumented: false,
+            status: "unknown",
+          }),
+        );
+      }
     }
   }
 
@@ -1367,6 +1542,7 @@ export async function buildTopologyGraph(ctx) {
       environment: process.env.AGENTIC_EDGE_PLATFORM || "local",
       hostname: process.env.HOSTNAME || null,
       engineLatencyMs,
+      reachSessions: sessionList,
       ports: {
         web: webPort,
         webNodePort: 30487,
@@ -1416,7 +1592,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
         ? "engine"
         : id.startsWith("workers")
           ? "warm-pool"
-          : id.startsWith("k8s/workload/")
+          : id.startsWith("k8s/workload/") || id.startsWith("k8s/pod/") || id.startsWith("k8s/node/")
             ? n.k8sResource?.logSource || "web"
             : id === "platform/k3s"
               ? "coordinator"
@@ -1444,10 +1620,38 @@ export async function buildTopologyNodeDetail(id, ctx) {
     n.appGroup === "web-api"
       ? String(n.appId || String(n.id || "").replace(/^app\//, "")).trim()
       : "";
-  const clientIps =
+  let clientIps =
     webApiAppId && toolRoot
       ? listClientIpsForAppId(toolRoot, webApiAppId)
       : undefined;
+  if ((!clientIps || !clientIps.length) && Array.isArray(n.clientIps) && n.clientIps.length) {
+    clientIps = n.clientIps.map((ip) =>
+      typeof ip === "string" ? { ip, lastSeenAt: null, count: 1 } : ip,
+    );
+  }
+  if (
+    (!clientIps || !clientIps.length) &&
+    n.appGroup === "reach" &&
+    n.kind === "app" &&
+    n.appId
+  ) {
+    const sessions = (graph.meta?.reachSessions || []).filter(
+      (s) => String(s.appId || "").toLowerCase() === String(n.appId).toLowerCase(),
+    );
+    const byIp = new Map();
+    for (const s of sessions) {
+      const ip = String(s.clientIp || "").trim();
+      if (!ip) continue;
+      byIp.set(ip, (byIp.get(ip) || 0) + 1);
+    }
+    if (byIp.size) {
+      clientIps = [...byIp.entries()].map(([ip, count]) => ({
+        ip,
+        count,
+        lastSeenAt: null,
+      }));
+    }
+  }
   const members =
     id === "platform/k3s" && Array.isArray(graph.nodes)
       ? {
@@ -1497,6 +1701,7 @@ export async function buildTopologyNodeDetail(id, ctx) {
     appMembers: appMembers.length ? appMembers : undefined,
     clientIps: clientIps && clientIps.length ? clientIps : undefined,
     k8sResource: n.k8sResource || undefined,
+    addresses: n.addresses || undefined,
     probe: {
       lastProbeAt: n.lastProbeAt || null,
       instrumented: n.instrumented,

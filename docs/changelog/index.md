@@ -19,7 +19,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Reach app client IPs on Topology** — engine WebSocket peer IP stored on session overlays; shown on Reach Application nodes + Connecting IPs modal.
+- **Kubernetes expand: nodes, pods, services, network paths** — cluster nodes as groups with pods (podIP/hostIP), Services with clusterIP, Service→Pod edges.
+
 ### Fixed
+
 
 - **`/v1/chat/completions` HA / OpenAI SDK routing** — stopped hard-wiring every completion through `main.py` (which broke ADA vision on missing Ollama and overloaded Jetson under sequential watering). Default **auto** backend: `gpt-*` / `o1*` → OpenAI cloud (`OPENAI_API_KEY`); Ollama `name:tag` → `OLLAMA_API_BASE` OpenAI-compat API (concurrency-capped); otherwise orchestrate. Override with `AGENTIC_CHAT_COMPLETIONS_BACKEND` or `agentic.backend` / `agentic.runMode`. Hotfix mounts include `chat-completions-backend.mjs`.
 - **Topology Application family frames** — **Reach apps** / **Web API** group frames are hidden when that family has no apps (no more “No Reach clients” placeholder card).

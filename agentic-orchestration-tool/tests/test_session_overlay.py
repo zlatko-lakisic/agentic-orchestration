@@ -219,9 +219,22 @@ def test_list_active_overlays_summarizes_sessions() -> None:
     assert rows[0]["tunnelMcpCount"] == 1
     assert rows[0]["agentIds"] == ["client.kb_researcher"]
     assert rows[0]["mcpIds"] == ["client.filesystem_local"]
+    assert rows[0].get("clientIp") is None
 
 
-def test_register_overlay_requires_app_id() -> None:
+def test_list_active_overlays_includes_client_ip() -> None:
+    register_overlay(
+        user_id="ada",
+        session_id="s1",
+        connection_id="c1",
+        app_id="testapp",
+        agents=[_agent()],
+        stock_ids=set(),
+        client_ip="10.0.10.50",
+    )
+    rows = list_active_overlays()
+    assert rows[0]["clientIp"] == "10.0.10.50"
+
     with pytest.raises(SessionOverlayDeniedError, match="appId is required") as exc:
         register_overlay(
             user_id="ada",

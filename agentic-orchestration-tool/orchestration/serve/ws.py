@@ -47,6 +47,21 @@ WS_CLOSE_POLICY_VIOLATION = 1008
 MAX_CONCURRENT_RUNS_DEFAULT = 8
 
 
+def client_ip_from_websocket(websocket: WebSocket) -> str:
+    """Best-effort peer IP for Reach Topology (X-Forwarded-For, then socket)."""
+    headers = websocket.headers
+    for key in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
+        raw = headers.get(key)
+        if raw and str(raw).strip():
+            return str(raw).split(",")[0].strip()
+    client = websocket.client
+    if client and getattr(client, "host", None):
+        return str(client.host).strip()
+    if isinstance(client, (tuple, list)) and client:
+        return str(client[0]).strip()
+    return ""
+
+
 def max_concurrent_runs() -> int:
     import os
 
@@ -83,6 +98,7 @@ class WsConnection:
         self.tool_root = tool_root
         self.identity: Identity | None = None
         self.connection_id = str(uuid.uuid4())
+        self.client_ip = client_ip_from_websocket(websocket)
         self._send_lock = asyncio.Lock()
         self._busy = False
         self._runs: set[asyncio.Task[None]] = set()
@@ -270,6 +286,7 @@ class WsConnection:
                 skills=message.get("skills") if isinstance(message.get("skills"), list) else [],
                 ttl_seconds=ttl,
                 catalog_root=self.tool_root,
+                client_ip=self.client_ip,
             )
         except SessionOverlayDeniedError as exc:
             await self.send(

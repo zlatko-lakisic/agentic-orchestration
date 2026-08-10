@@ -109,7 +109,7 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   platform: {
     wikiKey: 'platform-expand',
     blurb:
-      'Kubernetes platform — wider accordion header; expand for live workloads and pods.',
+      'Kubernetes platform — expand for cluster nodes, pods with addresses, Services, and Service→Pod network paths.',
   },
   storage: {
     wikiKey: 'storage',
@@ -118,6 +118,18 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
   'k8s-workload': {
     wikiKey: 'k8s-workload',
     blurb: 'A Deployment, Job, or other workload running inside the AO namespace.',
+  },
+  'k8s-node': {
+    wikiKey: 'platform-expand',
+    blurb: 'Cluster node group — pods scheduled here with host/internal IPs.',
+  },
+  'k8s-pod': {
+    wikiKey: 'platform-expand',
+    blurb: 'Individual pod with podIP / hostIP and workload label.',
+  },
+  'k8s-service': {
+    wikiKey: 'platform-expand',
+    blurb: 'Kubernetes Service (clusterIP) with edges to endpoint pods.',
   },
 };
 

@@ -46,6 +46,9 @@ export type TopologyNodeKind =
   | 'platform'
   | 'storage'
   | 'k8s-workload'
+  | 'k8s-node'
+  | 'k8s-pod'
+  | 'k8s-service'
   | string;
 
 /** Overlay ids currently registered by one Reach appId. */
@@ -75,8 +78,10 @@ export interface TopologyNode {
    * Drives the two labeled frames inside band 1.
    */
   appGroup?: TopologyAppGroup;
-  /** Distinct connecting client IPs seen for this Web API app (graph summary). */
+  /** Distinct connecting client IPs (Web API ledger or Reach peer IPs). */
   clientIpCount?: number;
+  /** Optional inline IP list for Reach apps (from live sessions). */
+  clientIps?: Array<string | { ip: string; lastSeenAt?: string | null; count?: number }>;
   /** Connected Reach sessions for this appId (Application header). */
   instanceCount?: number;
   /** Apps currently owning / using this Reach or AO component. */
@@ -93,18 +98,30 @@ export interface TopologyNode {
     reachable?: boolean;
     probedAt?: string;
   };
-  /** Pod inventory for a k8s workload leaf. */
+  /** Pod / node / service inventory for k8s leaves. */
   k8sResource?: {
     name?: string;
     role?: string;
     group?: string;
     logSource?: string;
+    workloadName?: string | null;
+    ports?: Array<{
+      name?: string | null;
+      port?: number;
+      targetPort?: number | string;
+      protocol?: string;
+      nodePort?: number | null;
+    }>;
+    endpointPods?: string[];
     pods?: Array<{
       name: string;
       phase: string;
       ready: boolean;
       restarts: number;
       nodeName?: string | null;
+      podIP?: string | null;
+      hostIP?: string | null;
+      workloadName?: string | null;
       containers?: Array<{
         name: string;
         ready: boolean;
@@ -112,6 +129,15 @@ export interface TopologyNode {
         state?: string | null;
       }>;
     }>;
+  };
+  /** Internal / cluster addresses for k8s nodes, pods, and services. */
+  addresses?: {
+    internalIP?: string | null;
+    hostIP?: string | null;
+    externalIP?: string | null;
+    podIP?: string | null;
+    clusterIP?: string | null;
+    nodeName?: string | null;
   };
   lastProbeAt?: string | null;
 }
@@ -158,13 +184,14 @@ export interface TopologyNodeDetail {
   ownedByApps?: string[];
   /** Per-app overlay member ids for Agents / MCP / Skills clusters. */
   appMembers?: TopologyAppMembers[];
-  /** Connecting client IPs for Web API apps (from token usage ledger). */
+  /** Connecting client IPs for Web API / Reach apps. */
   clientIps?: Array<{
     ip: string;
     lastSeenAt?: string | null;
     count?: number;
   }>;
   k8sResource?: TopologyNode['k8sResource'];
+  addresses?: TopologyNode['addresses'];
   probe?: {
     lastProbeAt?: string | null;
     instrumented?: boolean;
