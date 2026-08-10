@@ -20,7 +20,19 @@ import {
   userDisplayNameSpawnEnv,
   userNameFromRequestHeaders,
 } from "./lib/user-context.mjs";
-import { startOllamaKeepAliveLoop, beginOrchestrateOllamaBusy, endOrchestrateOllamaBusy } from "./lib/ollama-keepalive.mjs";
+import {
+  startOllamaKeepAliveLoop,
+  beginOrchestrateOllamaBusy,
+  endOrchestrateOllamaBusy,
+  resolveOllamaApiBase,
+  normalizeOllamaLoopbackBase,
+} from "./lib/ollama-keepalive.mjs";
+import {
+  resolveChatCompletionsBackend,
+  modelForOllamaUpstream,
+  createConcurrencyGate,
+  ollamaProxyMaxConcurrent,
+} from "./lib/chat-completions-backend.mjs";
 import {
   handleAdminApi,
   matchAdminRoute,
@@ -1378,6 +1390,179 @@ function effectiveOpenAiProxyAgentProviderIds(agenticSelected) {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/** Serialize heavy Ollama /v1 chat calls so HA watering (~9 zones) does not pile on. */
+const ollamaChatProxyGate = createConcurrencyGate(ollamaProxyMaxConcurrent());
+
+/**
+ * Resolve upstream OpenAI-compat base + API key for chat/completions|responses proxy.
+ * @param {"openai"|"ollama"} kind
+ * @returns {{ base: string, apiKey: string, rewriteModel?: (m: string) => string }}
+ */
+function resolveChatCompletionsUpstream(kind) {
+  if (kind === "ollama") {
+    const raw = resolveOllamaApiBase();
+    return {
+      base: normalizeOpenAiBaseUrl(normalizeOllamaLoopbackBase(raw)),
+      apiKey: String(process.env.OLLAMA_API_KEY || process.env.OPENAI_API_KEY || "ollama").trim() || "ollama",
+      rewriteModel: modelForOllamaUpstream,
+    };
+  }
+  const rawBase =
+    String(process.env.OPENAI_BASE_URL || "").trim() ||
+    String(process.env.OPENAI_API_BASE || "").trim() ||
+    "https://api.openai.com";
+  return {
+    base: normalizeOpenAiBaseUrl(rawBase),
+    // Client Bearer is the AO gate token; cloud/upstream key stays server-side.
+    apiKey: String(process.env.OPENAI_API_KEY || "").trim(),
+  };
+}
+
+/**
+ * Forward an OpenAI-shaped body to OpenAI cloud or Ollama's OpenAI-compat API.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ * @param {{ cors: Record<string, string>, payload: object, pathSuffix: "chat/completions"|"responses", kind: "openai"|"ollama", pathLabel: string }} opts
+ */
+async function proxyOpenAiCompatibleUpstream(req, res, opts) {
+  const { cors, payload, pathSuffix, kind, pathLabel } = opts;
+  const upstreamCfg = resolveChatCompletionsUpstream(kind);
+  if (kind === "openai" && !upstreamCfg.apiKey) {
+    res.writeHead(503, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message:
+            "OPENAI_API_KEY is not configured on this orchestrator. Set it in the edge env/secret for cloud chat/completions proxy (e.g. Home Assistant gpt-* models).",
+          type: "api_error",
+          param: null,
+          code: "openai_api_key_missing",
+        },
+      }),
+    );
+    return;
+  }
+
+  let forwardPayload = openAiPayloadForUpstream(payload);
+  if (typeof upstreamCfg.rewriteModel === "function" && typeof forwardPayload.model === "string") {
+    forwardPayload = { ...forwardPayload, model: upstreamCfg.rewriteModel(forwardPayload.model) };
+  }
+  const bodyBuf = Buffer.from(JSON.stringify(forwardPayload), "utf8");
+  const url = `${upstreamCfg.base.replace(/\/+$/, "")}/${pathSuffix}`;
+
+  if (orchestrationRequestLogEnabled()) {
+    console.error(
+      `[agentic-orchestration-web] ${pathLabel} proxy`,
+      JSON.stringify({
+        kind,
+        model: typeof payload.model === "string" ? payload.model.trim() : "",
+        upstreamModel: typeof forwardPayload.model === "string" ? forwardPayload.model : "",
+        remote: req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "",
+        url,
+        stream: Boolean(payload.stream),
+      }),
+    );
+  }
+
+  const upstreamHeaders = {
+    "Content-Type": "application/json",
+  };
+  if (upstreamCfg.apiKey) {
+    upstreamHeaders.Authorization = `Bearer ${upstreamCfg.apiKey}`;
+  }
+  const org = req.headers["openai-organization"];
+  if (org && String(org).trim()) {
+    upstreamHeaders["OpenAI-Organization"] = String(org).trim();
+  }
+  const project = req.headers["openai-project"];
+  if (project && String(project).trim()) {
+    upstreamHeaders["OpenAI-Project"] = String(project).trim();
+  }
+  const beta = req.headers["openai-beta"];
+  if (beta && String(beta).trim()) {
+    upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
+  }
+
+  const runProxy = async () => {
+    let upstream;
+    try {
+      upstream = await fetch(url, {
+        method: "POST",
+        headers: upstreamHeaders,
+        body: bodyBuf,
+      });
+    } catch (err) {
+      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: clientErrorMessage(err, "Upstream request failed"),
+            type: "api_error",
+            param: null,
+            code: "upstream_unreachable",
+          },
+        }),
+      );
+      return;
+    }
+
+    const wantsStream = Boolean(payload.stream);
+    if (wantsStream && upstream.ok && upstream.body) {
+      try {
+        const nodeReadable = Readable.fromWeb(upstream.body);
+        const fwd = collectForwardResponseHeaders(upstream);
+        res.writeHead(upstream.status, fwd);
+        await new Promise((resolve, reject) => {
+          nodeReadable.on("error", (err) => {
+            try {
+              res.destroy();
+            } catch {
+              /* ignore */
+            }
+            reject(err);
+          });
+          res.on("close", () => {
+            try {
+              nodeReadable.destroy();
+            } catch {
+              /* ignore */
+            }
+            resolve();
+          });
+          nodeReadable.on("end", resolve);
+          nodeReadable.pipe(res);
+        });
+      } catch {
+        if (!res.headersSent) {
+          res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+          res.end(
+            JSON.stringify({
+              error: {
+                message: "Streaming proxy failed in this Node runtime.",
+                type: "api_error",
+                param: null,
+                code: "streaming_unavailable",
+              },
+            }),
+          );
+        }
+      }
+      return;
+    }
+
+    const outBuf = Buffer.from(await upstream.arrayBuffer());
+    const fwd = collectForwardResponseHeaders(upstream);
+    res.writeHead(upstream.status, fwd);
+    res.end(outBuf);
+  };
+
+  if (kind === "ollama") {
+    await ollamaChatProxyGate.run(runProxy);
+  } else {
+    await runProxy();
+  }
+}
+
 async function handleOpenAiChatCompletions(req, res) {
   const cors = chatCompletionsCorsHeaders();
 
@@ -1470,12 +1655,11 @@ async function handleOpenAiChatCompletions(req, res) {
   }
 
   const agentic = normalizeAgenticExtension(payload.agentic);
-  const upstreamPayloadJson = JSON.stringify(openAiPayloadForUpstream(payload));
-  const upstreamBodyBuf = Buffer.from(upstreamPayloadJson, "utf8");
+  const backend = resolveChatCompletionsBackend(payload.model, agentic);
 
-  // This endpoint is configured to always run through local orchestration (main.py),
-  // never as a direct upstream OpenAI proxy.
-  if (true) {
+  // openai / ollama: real LLM proxy (HA LLM Vision, watering, OpenAI SDKs).
+  // orchestrate: spawn main.py dynamic run (OpenClaw / agentic clients).
+  if (backend === "orchestrate") {
     const wantStream = Boolean(payload.stream);
 
     let dynamicText = messagesToDynamicText(payload.messages);
@@ -1649,109 +1833,13 @@ async function handleOpenAiChatCompletions(req, res) {
     return;
   }
 
-  const rawBase =
-    String(process.env.OPENAI_BASE_URL || "").trim() ||
-    String(process.env.OPENAI_API_BASE || "").trim() ||
-    "https://api.openai.com";
-  const base = normalizeOpenAiBaseUrl(rawBase);
-  const url = `${base.replace(/\/+$/, "")}/chat/completions`;
-
-  /** When a proxy gate key is configured, the client Bearer is only for that gate; upstream uses env. */
-  let apiKey = "";
-  if (gate) {
-    apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  } else {
-    const authHdr = String(req.headers.authorization || "").trim();
-    if (/^bearer\s+/i.test(authHdr)) {
-      apiKey = authHdr.replace(/^bearer\s+/i, "").trim();
-    }
-    if (!apiKey) {
-      apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-    }
-  }
-
-  const upstreamHeaders = {
-    "Content-Type": "application/json",
-  };
-  if (apiKey) {
-    upstreamHeaders.Authorization = `Bearer ${apiKey}`;
-  }
-  const org = req.headers["openai-organization"];
-  if (org && String(org).trim()) {
-    upstreamHeaders["OpenAI-Organization"] = String(org).trim();
-  }
-  const project = req.headers["openai-project"];
-  if (project && String(project).trim()) {
-    upstreamHeaders["OpenAI-Project"] = String(project).trim();
-  }
-  const beta = req.headers["openai-beta"];
-  if (beta && String(beta).trim()) {
-    upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
-  }
-
-  let upstream;
-  try {
-    upstream = await fetch(url, {
-      method: "POST",
-      headers: upstreamHeaders,
-      body: upstreamBodyBuf,
-    });
-  } catch (err) {
-    res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-    res.end(
-      JSON.stringify({
-        error: {
-          message: clientErrorMessage(err, "Upstream request failed"),
-          type: "api_error",
-          param: null,
-          code: "upstream_unreachable",
-        },
-      }),
-    );
-    return;
-  }
-
-  const wantsStream = Boolean(payload.stream);
-  if (wantsStream && upstream.ok && upstream.body) {
-    try {
-      const nodeReadable = Readable.fromWeb(upstream.body);
-      const fwd = collectForwardResponseHeaders(upstream);
-      res.writeHead(upstream.status, fwd);
-      nodeReadable.on("error", () => {
-        try {
-          res.destroy();
-        } catch {
-          /* ignore */
-        }
-      });
-      res.on("close", () => {
-        try {
-          nodeReadable.destroy();
-        } catch {
-          /* ignore */
-        }
-      });
-      nodeReadable.pipe(res);
-    } catch {
-      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: "Streaming proxy failed in this Node runtime.",
-            type: "api_error",
-            param: null,
-            code: "streaming_unavailable",
-          },
-        }),
-      );
-    }
-    return;
-  }
-
-  const outBuf = Buffer.from(await upstream.arrayBuffer());
-  const fwd = collectForwardResponseHeaders(upstream);
-  res.writeHead(upstream.status, fwd);
-  res.end(outBuf);
+  await proxyOpenAiCompatibleUpstream(req, res, {
+    cors,
+    payload,
+    pathSuffix: "chat/completions",
+    kind: backend,
+    pathLabel: "/v1/chat/completions",
+  });
 }
 
 async function handleOpenAiResponses(req, res) {
@@ -1840,9 +1928,9 @@ async function handleOpenAiResponses(req, res) {
   }
 
   const agentic = normalizeAgenticExtension(payload.agentic);
-  // This endpoint is configured to always run through local orchestration (main.py),
-  // never as a direct upstream OpenAI proxy.
-  if (true) {
+  const backend = resolveChatCompletionsBackend(payload.model, agentic);
+
+  if (backend === "orchestrate") {
     if (Boolean(payload.stream)) {
       res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
@@ -1992,108 +2080,13 @@ async function handleOpenAiResponses(req, res) {
     return;
   }
 
-  const rawBase =
-    String(process.env.OPENAI_BASE_URL || "").trim() ||
-    String(process.env.OPENAI_API_BASE || "").trim() ||
-    "https://api.openai.com";
-  const base = normalizeOpenAiBaseUrl(rawBase);
-  const url = `${base.replace(/\/+$/, "")}/responses`;
-
-  let apiKey = "";
-  if (gate) {
-    apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  } else {
-    const authHdr = String(req.headers.authorization || "").trim();
-    if (/^bearer\s+/i.test(authHdr)) {
-      apiKey = authHdr.replace(/^bearer\s+/i, "").trim();
-    }
-    if (!apiKey) {
-      apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-    }
-  }
-
-  const upstreamHeaders = {
-    "Content-Type": "application/json",
-  };
-  if (apiKey) {
-    upstreamHeaders.Authorization = `Bearer ${apiKey}`;
-  }
-  const org = req.headers["openai-organization"];
-  if (org && String(org).trim()) {
-    upstreamHeaders["OpenAI-Organization"] = String(org).trim();
-  }
-  const project = req.headers["openai-project"];
-  if (project && String(project).trim()) {
-    upstreamHeaders["OpenAI-Project"] = String(project).trim();
-  }
-  const beta = req.headers["openai-beta"];
-  if (beta && String(beta).trim()) {
-    upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
-  }
-
-  let upstream;
-  try {
-    upstream = await fetch(url, {
-      method: "POST",
-      headers: upstreamHeaders,
-      body: Buffer.from(JSON.stringify(openAiPayloadForUpstream(payload)), "utf8"),
-    });
-  } catch (err) {
-    res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-    res.end(
-      JSON.stringify({
-        error: {
-          message: clientErrorMessage(err, "Upstream request failed"),
-          type: "api_error",
-          param: null,
-          code: "upstream_unreachable",
-        },
-      }),
-    );
-    return;
-  }
-
-  const wantsStream = Boolean(payload.stream);
-  if (wantsStream && upstream.ok && upstream.body) {
-    try {
-      const nodeReadable = Readable.fromWeb(upstream.body);
-      const fwd = collectForwardResponseHeaders(upstream);
-      res.writeHead(upstream.status, fwd);
-      nodeReadable.on("error", () => {
-        try {
-          res.destroy();
-        } catch {
-          /* ignore */
-        }
-      });
-      res.on("close", () => {
-        try {
-          nodeReadable.destroy();
-        } catch {
-          /* ignore */
-        }
-      });
-      nodeReadable.pipe(res);
-    } catch {
-      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: "Streaming proxy failed in this Node runtime.",
-            type: "api_error",
-            param: null,
-            code: "streaming_unavailable",
-          },
-        }),
-      );
-    }
-    return;
-  }
-
-  const outBuf = Buffer.from(await upstream.arrayBuffer());
-  const fwd = collectForwardResponseHeaders(upstream);
-  res.writeHead(upstream.status, fwd);
-  res.end(outBuf);
+  await proxyOpenAiCompatibleUpstream(req, res, {
+    cors,
+    payload,
+    pathSuffix: "responses",
+    kind: backend,
+    pathLabel: "/v1/responses",
+  });
 }
 
 /**

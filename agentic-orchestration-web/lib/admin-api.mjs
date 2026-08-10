@@ -111,6 +111,18 @@ const KEY_META = {
     tier: TIER_RESTART,
     label: "Proxy dynamic provider IDs",
   },
+  AGENTIC_CHAT_COMPLETIONS_BACKEND: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Chat completions backend",
+    default: "auto",
+  },
+  AGENTIC_CHAT_COMPLETIONS_OLLAMA_MAX_CONCURRENT: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Ollama proxy max concurrent",
+    default: "2",
+  },
 
   // Planner
   AGENTIC_DYNAMIC_ITERATIVE_ROUNDS: {

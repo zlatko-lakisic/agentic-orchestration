@@ -21,6 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **`/v1/chat/completions` HA / OpenAI SDK routing** — stopped hard-wiring every completion through `main.py` (which broke ADA vision on missing Ollama and overloaded Jetson under sequential watering). Default **auto** backend: `gpt-*` / `o1*` → OpenAI cloud (`OPENAI_API_KEY`); Ollama `name:tag` → `OLLAMA_API_BASE` OpenAI-compat API (concurrency-capped); otherwise orchestrate. Override with `AGENTIC_CHAT_COMPLETIONS_BACKEND` or `agentic.backend` / `agentic.runMode`. Hotfix mounts include `chat-completions-backend.mjs`.
 - **Topology Application family frames** — **Reach apps** / **Web API** group frames are hidden when that family has no apps (no more “No Reach clients” placeholder card).
 - **Jetson web hotfix mounts `admin-k8s.mjs`** — expandable Kubernetes Topology imports this module; without the ConfigMap + volume mount the coordinator CrashLoopBackOff'd after hotfix.
 - **Topology Reach / Application bands** — when the engine is up, Reach components (SessionBridge, OverlayPacker, …) always appear; Application shows a waiting placeholder until a Reach client registers a session overlay (mTLS enroll alone is not enough).

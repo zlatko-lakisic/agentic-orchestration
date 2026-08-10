@@ -122,6 +122,8 @@ curl -sS -X POST "https://ada.ao.example.com/api/v1/orchestrate" \
 
 Point the SDK `baseURL` at the web origin (for example `https://ada.ao.example.com/v1`) and set `apiKey` to the minted `ao_…` token. The gate uses that Bearer; upstream cloud keys (if any) stay on the server.
 
+**Backend routing (auto):** `gpt-*` / `chatgpt-*` / `o1`/`o3`/`o4` → OpenAI (`OPENAI_API_KEY`); Ollama-style `name:tag` or `ollama/…` → `OLLAMA_API_BASE` `/v1/chat/completions`; other models → dynamic orchestration. Set `AGENTIC_CHAT_COMPLETIONS_BACKEND=orchestrate|openai|ollama` to force one path, or per-request `agentic.backend` / `agentic.runMode: dynamic`.
+
 **What external tokens do *not* unlock**
 
 - Admin REST (`/api/v1/admin/*` except bootstrap auth endpoints) — reserved for `ao-web`

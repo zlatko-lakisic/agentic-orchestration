@@ -72,6 +72,9 @@ spec:
               mountPath: /app/web/lib/ollama-keepalive.mjs
               subPath: ollama-keepalive.mjs
             - name: web-hotfix-root
+              mountPath: /app/web/lib/chat-completions-backend.mjs
+              subPath: chat-completions-backend.mjs
+            - name: web-hotfix-root
               mountPath: /app/web/lib/chat-output.mjs
               subPath: chat-output.mjs
             - name: web-hotfix-root

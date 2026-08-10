@@ -43,6 +43,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=host-metrics.mjs="${WEB_ROOT}/host-metrics.mjs" \
   --from-file=perf-options.mjs="${WEB_ROOT}/lib/perf-options.mjs" \
   --from-file=ollama-keepalive.mjs="${WEB_ROOT}/lib/ollama-keepalive.mjs" \
+  --from-file=chat-completions-backend.mjs="${WEB_ROOT}/lib/chat-completions-backend.mjs" \
   --from-file=chat-output.mjs="${WEB_ROOT}/lib/chat-output.mjs" \
   --from-file=text-normalize.mjs="${WEB_ROOT}/lib/text-normalize.mjs" \
   --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
