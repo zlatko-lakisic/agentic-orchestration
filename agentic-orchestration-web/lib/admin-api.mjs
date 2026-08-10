@@ -123,6 +123,11 @@ const KEY_META = {
     label: "Ollama proxy max concurrent",
     default: "2",
   },
+  AGENTIC_CHAT_COMPLETIONS_OLLAMA_FALLBACK_MODEL: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Ollama proxy fallback model",
+  },
 
   // Planner
   AGENTIC_DYNAMIC_ITERATIVE_ROUNDS: {
