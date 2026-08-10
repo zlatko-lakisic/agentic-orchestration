@@ -15,6 +15,36 @@ type AppGroupFrame = {
   height: number;
 };
 
+type ExpandGroupFrame = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function boundsOf(
+  list: PositionedNode[],
+  pad: number
+): { x: number; y: number; width: number; height: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const n of list) {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + n.height);
+  }
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: maxX - minX + pad * 2,
+    height: maxY - minY + pad * 2,
+  };
+}
+
 @Component({
   selector: 'ao-topology-canvas',
   imports: [MatIconModule],
@@ -140,6 +170,18 @@ type AppGroupFrame = {
           />
         }
 
+        @for (g of k8sFrames(); track g.id) {
+          <rect
+            [attr.x]="g.x"
+            [attr.y]="g.y"
+            [attr.width]="g.width"
+            [attr.height]="g.height"
+            rx="12"
+            class="expand-group-frame"
+            [class.expand-group-frame-active]="expandedK8sId() === g.id"
+          />
+        }
+
         @for (e of edges(); track e.id) {
           <path
             [attr.d]="e.pathD"
@@ -161,6 +203,8 @@ type AppGroupFrame = {
             [class.highlighted]="isHighlightedNode(n.id)"
             [class.app-panel-dim]="isAppPanelDimmed(n)"
             [class.app-panel-expanded]="isAppPanelExpanded(n)"
+            [class.expand-panel]="isExpandPanel(n)"
+            [class.expand-panel-open]="isExpandPanelOpen(n)"
             [attr.data-status]="n.displayStatus"
             [attr.data-band]="n.band"
             [attr.data-kind]="n.kind"
@@ -304,11 +348,25 @@ type AppGroupFrame = {
       opacity: 0.28;
       filter: grayscale(0.85);
     }
+    .expand-group-frame {
+      fill: color-mix(in oklab, #3b6ea5 6%, transparent);
+      stroke: color-mix(in oklab, #3b6ea5 34%, transparent);
+      stroke-width: 1.25;
+      stroke-dasharray: 5 4;
+      pointer-events: none;
+      transition: opacity 160ms ease, fill 160ms ease;
+    }
+    .expand-group-frame-active {
+      fill: color-mix(in oklab, #3b6ea5 12%, transparent);
+      stroke: color-mix(in oklab, #3b6ea5 58%, transparent);
+      stroke-dasharray: none;
+    }
     .topo-node.app-panel-dim {
       opacity: 0.32;
       filter: grayscale(0.9);
     }
-    .topo-node.app-panel-expanded {
+    .topo-node.app-panel-expanded,
+    .topo-node.expand-panel-open {
       opacity: 1;
       filter: none;
     }
@@ -504,24 +562,23 @@ export class TopologyCanvas {
     const pad = 8;
     for (const [appId, list] of byApp) {
       if (!list.length) continue;
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const n of list) {
-        minX = Math.min(minX, n.x);
-        minY = Math.min(minY, n.y);
-        maxX = Math.max(maxX, n.x + n.width);
-        maxY = Math.max(maxY, n.y + n.height);
-      }
-      frames.push({
-        appId,
-        x: minX - pad,
-        y: minY - pad,
-        width: maxX - minX + pad * 2,
-        height: maxY - minY + pad * 2,
-      });
+      frames.push({ appId, ...boundsOf(list, pad) });
     }
+    return frames;
+  });
+
+  /** Bounding frame for expandable Kubernetes platform + workload children. */
+  readonly k8sFrames = computed(() => {
+    const list = this.nodes().filter(
+      (n) =>
+        n.id === 'platform/k3s' ||
+        n.kind === 'k8s-workload' ||
+        n.parent === 'platform/k3s'
+    );
+    if (!list.some((n) => n.id === 'platform/k3s' && n.expandable)) return [];
+    const frames: ExpandGroupFrame[] = [
+      { id: 'platform/k3s', ...boundsOf(list, 8) },
+    ];
     return frames;
   });
 
@@ -556,6 +613,24 @@ export class TopologyCanvas {
     return Boolean(expanded && n.appId === expanded);
   }
 
+  isExpandPanel(n: PositionedNode): boolean {
+    return (
+      n.kind === 'app' ||
+      Boolean(n.expandable && (n.kind === 'platform' || n.id === 'platform/k3s'))
+    );
+  }
+
+  isExpandPanelOpen(n: PositionedNode): boolean {
+    if (n.kind === 'app') return this.isAppPanelExpanded(n);
+    if (n.id === 'platform/k3s' || n.kind === 'platform') {
+      return this.expandedK8sId() === n.id;
+    }
+    if (n.kind === 'k8s-workload') {
+      return this.expandedK8sId() === 'platform/k3s' || this.expandedK8sId() === n.parent;
+    }
+    return false;
+  }
+
   onExpandClick(ev: Event, appId: string) {
     ev.preventDefault();
     ev.stopPropagation();
@@ -577,8 +652,8 @@ export class TopologyCanvas {
   }
 
   labelMax(n: PositionedNode): number {
-    if (n.kind === 'app') return 12;
-    if (n.kind === 'k8s-workload' || n.id === 'platform/k3s') return 16;
+    if (this.isExpandPanel(n)) return 14;
+    if (n.kind === 'k8s-workload') return 16;
     return 14;
   }
 

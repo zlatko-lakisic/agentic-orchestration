@@ -27,10 +27,14 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 | Is traffic flowing? | Instrumented edges animate; uninstrumented stay static (**no data**) |
 | Why is this unhealthy? | Click → Health / Traffic / Config / Logs tabs |
 | What’s actually deployed? | Optional sidecars, speech, workers only render when present (or via “Show not deployed”) |
+| What’s inside an accordion? | Chevron on **app** / **Kubernetes** → wider panel + group frame ([[#expandable-panels]]) |
 
 **Toolbar:** Live / Paused (pause freezes the canvas without dropping the socket), band/status filters, “only unhealthy”, show not-deployed, fit-to-width / zoom, legend.
 
 **Layout:** three full-width horizontal bands; columns align vertically so you can follow a mechanism down without tracing sideways (e.g. Domain overlays → Overlay packer → `session_overlay`). Layout is deterministic — no force-directed shuffle on updates.
+
+<a id="expandable-panels"></a>
+**Expandable panels:** nodes with a chevron (Application `appId` groups and in-cluster **Kubernetes**) use a **wider header card** than ordinary nodes. Expanding draws a dashed **group frame** around the header plus its children (same visual language for apps and Kubernetes). Collapse returns to the summary row. See [[#app-accordion]] and [[#platform-expand]].
 
 **Two exception flows** (drawn specially so they stay obvious):
 
@@ -61,9 +65,11 @@ Phase 1 probes typically cover **Engine** (`/health` on :8765) and **Web UI** (t
 
 ### Application
 
+<a id="app-accordion"></a>
+
 Client-reported presence via Reach sessions, **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
 
-Apps appear as **minimized panels left-to-right** with instance count (connected sessions). Use the chevron to expand one panel: other apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out. Empty / waiting when no Reach client has registered a session overlay.
+Apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. Empty / waiting when no Reach client has registered a session overlay.
 
 **Example — two clients side by side**
 
@@ -92,7 +98,8 @@ Engine edge APIs, planner, catalogs, model backends, execution, and platform —
 | 1 | Planning | Planner / Runner |
 | 2 | Capability | Agents / MCP / Skills catalogs, model backends, Ollama / remote LLMs |
 | 3 | Execution | Execution backend, workers, MCP sidecars |
-| 4 | Platform | k3s / Jetson / NVR, storage / GPU |
+| 4 | Platform | **Kubernetes** (expandable accordion — see [[#platform-expand]]), storage / GPU |
+| 5 | K8s workloads | Nested only while Kubernetes is expanded ([[#k8s-workload]]) |
 
 Modals label **Owned by app** when session overlays (agents, skills, tunnel MCPs, speech, harness/planner path) are active for those clients. Agents / MCP / Skills cluster modals also list the live `client.*` ids each connected `appId` registered.
 
@@ -136,7 +143,7 @@ Components that are never deployed for this install are hidden unless you enable
 <a id="app"></a>
 ### App (`appId`)
 
-Header for one Reach product identity. Sublabel is how many connected instances (sessions) advertise that `appId`.
+Header for one Reach product identity (wider accordion card — see [[#app-accordion]] / [[#expandable-panels]]). Sublabel is how many connected instances (sessions) advertise that `appId`.
 
 **Example:** `myapp · 2 instances` means two concurrent Reach sessions registered overlays with `appId: "myapp"`. Expand the panel to see that client’s UI / overlays / local-tools column; other apps stay greyed.
 
@@ -462,11 +469,18 @@ MCP gateway pods attached for tool execution (fetch / filesystem gateways, and s
 <a id="platform"></a>
 ### Platform
 
-**Kubernetes** node for the AO namespace (k3s on Jetson / NVR, or any cluster the coordinator SA can list). When the Admin web pod is in-cluster, this node is **instrumented** and **expandable**.
+**Kubernetes** node for the AO namespace (k3s on Jetson / NVR, or any cluster the coordinator SA can list). When the Admin web pod is in-cluster, this node is **instrumented** and **expandable** (same wider accordion header + group frame as Application panels — see [[#expandable-panels]]).
 
-Use the chevron to expand: child workloads appear under the platform (Coordinator, Engine, Warm pool, Delegation broker, MCP gateways, Worker jobs, plus any other `agentic-*` labeled workloads). Click a workload for a pod table (phase, ready, restarts, node). Collapse to return to the summary.
+<a id="platform-expand"></a>
+#### Expand Kubernetes
 
-Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes.
+1. Chevron on the **Kubernetes** card (wider header) → expand.
+2. A steel-blue dashed **group frame** grows around the platform header plus child workloads.
+3. Child cards appear on the next rank (left → right): Coordinator, Engine, Warm pool, Delegation broker, MCP gateways, Worker jobs, plus any other `agentic-*` labeled workloads.
+4. Sublabel on the platform shows live `ready/total` pods for the namespace; each child shows its own `ready/total`.
+5. Click a workload → Health tab with a **pod table** (phase, ready, restarts, node). Collapse the chevron to hide children and shrink the frame back to the summary card.
+
+Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes. The chevron only appears when the in-cluster probe finds at least one deployed workload.
 
 See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
 
@@ -477,7 +491,42 @@ See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architect
 <a id="k8s-workload"></a>
 ### K8s workload
 
-A Deployment, Job group, or other workload running inside the AO namespace. Shown only while the Kubernetes platform node is expanded. Modal Health tab lists member pods.
+A Deployment, Job group, or other workload running inside the AO namespace. Shown only while the Kubernetes platform node is expanded ([[#platform-expand]]). Modal Health tab lists member pods. Known roles deep-link below.
+
+<a id="k8s-coordinator"></a>
+#### Coordinator
+
+`agentic-coordinator` Deployment — Web UI + Admin + graph builder. Hosts the Topology API that probes the rest of the namespace.
+
+<a id="k8s-engine"></a>
+#### Engine
+
+`agentic-engine` Deployment — `orchestration.serve` on :8765 (session overlay, MCP tunnel, direct agent, mTLS enrol, speech hello).
+
+<a id="k8s-warm-pool"></a>
+#### Warm pool
+
+`agentic-warm-pool` Deployment — pre-warmed worker replicas ready for k8s step execution.
+
+<a id="k8s-broker"></a>
+#### Delegation broker
+
+`agentic-delegation-broker` — routes delegated tasks into the warm pool / worker jobs.
+
+<a id="k8s-mcp-fetch"></a>
+#### MCP fetch
+
+Fetch MCP gateway sidecar Deployment used by workers for HTTP tool calls.
+
+<a id="k8s-mcp-filesystem"></a>
+#### MCP filesystem
+
+Filesystem MCP gateway sidecar Deployment for path-scoped tool access.
+
+<a id="k8s-worker-jobs"></a>
+#### Worker jobs
+
+Orchestrator Jobs / short-lived worker pods spun for individual steps (not the warm-pool Deployment).
 
 ---
 

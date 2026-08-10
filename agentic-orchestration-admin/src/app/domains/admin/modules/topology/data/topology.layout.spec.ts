@@ -143,6 +143,7 @@ describe('topology.layout', () => {
     ];
     const collapsed = layoutTopology(nodes, []);
     expect(collapsed.nodes.map((x) => x.id)).toEqual(['platform/k3s']);
+    expect(collapsed.nodes[0].width).toBe(168);
 
     const expanded = layoutTopology(nodes, [], {
       expandedK8sId: 'platform/k3s',
@@ -158,6 +159,11 @@ describe('topology.layout', () => {
     )!;
     const platform = expanded.nodes.find((x) => x.id === 'platform/k3s')!;
     expect(engine.y).toBeGreaterThan(platform.y);
+    // Expandable Kubernetes header uses the wider accordion panel width.
+    expect(platform.width).toBe(168);
+    expect(engine.x).toBeLessThan(
+      expanded.nodes.find((x) => x.id === 'k8s/workload/agentic-warm-pool')!.x
+    );
   });
 
   it('routes unknown kinds to trailing other lane', () => {

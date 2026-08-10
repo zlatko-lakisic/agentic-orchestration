@@ -13,8 +13,9 @@ export type TopologyHelp = {
 
 const NODE_BY_KIND: Record<string, TopologyHelp> = {
   app: {
-    wikiKey: 'app',
-    blurb: 'Product appId group — how many Reach instances are connected under this name.',
+    wikiKey: 'app-accordion',
+    blurb:
+      'Product appId accordion — wider panel; expand for UI / overlays / local tools.',
   },
   ui: {
     wikiKey: 'ui',
@@ -93,8 +94,9 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
     blurb: 'MCP sidecar containers attached to workers for tool execution.',
   },
   platform: {
-    wikiKey: 'platform',
-    blurb: 'Kubernetes / host platform — expand to see live workloads and pods.',
+    wikiKey: 'platform-expand',
+    blurb:
+      'Kubernetes platform — wider accordion header; expand for live workloads and pods.',
   },
   storage: {
     wikiKey: 'storage',
@@ -158,6 +160,39 @@ const NODE_BY_ID: Record<string, TopologyHelp> = {
   'models/remote': {
     wikiKey: 'models-remote',
     blurb: 'Remote LLM providers (OpenAI, Anthropic, …) when credentials exist.',
+  },
+  'platform/k3s': {
+    wikiKey: 'platform-expand',
+    blurb:
+      'In-cluster Kubernetes — expand the wider panel for namespace workloads.',
+  },
+  'k8s/workload/agentic-coordinator': {
+    wikiKey: 'k8s-coordinator',
+    blurb: 'Coordinator Deployment — Web UI, Admin, and Topology graph builder.',
+  },
+  'k8s/workload/agentic-engine': {
+    wikiKey: 'k8s-engine',
+    blurb: 'Engine Deployment — orchestration.serve on :8765.',
+  },
+  'k8s/workload/agentic-warm-pool': {
+    wikiKey: 'k8s-warm-pool',
+    blurb: 'Warm-pool Deployment — pre-warmed workers for k8s steps.',
+  },
+  'k8s/workload/agentic-delegation-broker': {
+    wikiKey: 'k8s-broker',
+    blurb: 'Delegation broker — routes tasks into the warm pool / jobs.',
+  },
+  'k8s/workload/agentic-mcp-fetch': {
+    wikiKey: 'k8s-mcp-fetch',
+    blurb: 'Fetch MCP gateway sidecar for HTTP tool calls.',
+  },
+  'k8s/workload/agentic-mcp-filesystem': {
+    wikiKey: 'k8s-mcp-filesystem',
+    blurb: 'Filesystem MCP gateway sidecar for path-scoped tools.',
+  },
+  'k8s/workload/agentic-orchestrator-worker': {
+    wikiKey: 'k8s-worker-jobs',
+    blurb: 'Short-lived orchestrator Jobs for individual steps.',
   },
 };
 

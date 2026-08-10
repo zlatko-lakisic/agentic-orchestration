@@ -341,7 +341,7 @@ Society members are **catalog agent providers**, not arbitrary foreign processes
 
 **Blackboard and `delegate_task`:** both operate on **internal** members that resolve through the merged agent-provider catalog. Delegation to an unknown `agent_provider_id` fails fast. Cross-tenant or internet-facing societies without auth remain non-goals (ADR 0001).
 
-**Enterprise pitch (honest):** AO is an orchestration layer over catalogs, APIs, and MCP — not a binary that hosts third-party agent runtimes unchanged. Bring models and tools into the catalog; do not expect foreign agent processes to join a panel without an adapter.
+**Enterprise pitch (honest):** <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="16" height="16" style="vertical-align:-3px" /> is an orchestration layer over catalogs, APIs, and MCP — not a binary that hosts third-party agent runtimes unchanged. Bring models and tools into the catalog; do not expect foreign agent processes to join a panel without an adapter.
 
 - [x] Section above shipped with K6.1 docs polish (2026-07-29)
 

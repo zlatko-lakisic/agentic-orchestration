@@ -68,8 +68,8 @@ const MODEL_LANE: Record<string, number> = {
 
 const NODE_W = 140;
 const NODE_H = 52;
-/** Minimized Application panel (horizontal accordion row). */
-const APP_PANEL_W = 168;
+/** Wider header card for accordion expanders (Application appId or Kubernetes). */
+const EXPAND_PANEL_W = 168;
 const COL_GAP = 52;
 const ROW_GAP = 64;
 const BAND_PAD_Y = 28;
@@ -516,7 +516,7 @@ export function layoutTopology(
   const k8sIds = uniqueSorted(
     visible.filter((n) => n.kind === 'k8s-workload').map((n) => n.id)
   );
-  const k8sLaneById = new Map(k8sIds.map((id, i) => [id, i % MAX_LANES]));
+  const k8sLaneById = new Map(k8sIds.map((id, i) => [id, i]));
 
   const enriched = visible.map((n) => {
     const s = slotFor(n, appLaneById, expandedAppId);
@@ -541,11 +541,21 @@ export function layoutTopology(
   const colWidth = NODE_W + COL_GAP;
   const appRowW =
     appIds.length > 0
-      ? appIds.length * APP_PANEL_W + Math.max(0, appIds.length - 1) * COL_GAP
+      ? appIds.length * EXPAND_PANEL_W +
+        Math.max(0, appIds.length - 1) * COL_GAP
+      : 0;
+  const k8sChildCount = k8sIds.length;
+  const k8sExpandRowW =
+    k8sChildCount > 0
+      ? Math.max(
+          EXPAND_PANEL_W,
+          k8sChildCount * NODE_W + Math.max(0, k8sChildCount - 1) * COL_GAP
+        )
       : 0;
   const canvasContentW = Math.max(
     MAX_LANES * colWidth + ROUTE_MARGIN,
-    appRowW + ROUTE_MARGIN
+    appRowW + ROUTE_MARGIN,
+    k8sExpandRowW + ROUTE_MARGIN
   );
   const width = canvasContentW + MARGIN * 2;
 
@@ -585,25 +595,36 @@ export function layoutTopology(
       const usedLanes = new Set<number>();
       for (const e of rowNodes) {
         const isAppHeader = e.node.kind === 'app';
+        const isExpandHeader =
+          isAppHeader ||
+          Boolean(e.node.expandable && e.node.kind === 'platform');
+        const isK8sChild = e.node.kind === 'k8s-workload';
         let lane = e.lane;
         if (!isAppHeader) {
-          lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
-          while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;
-          // If still colliding at the end, wrap search leftward
-          if (usedLanes.has(lane)) {
-            for (let i = 0; i < MAX_LANES; i++) {
-              if (!usedLanes.has(i)) {
-                lane = i;
-                break;
+          // K8s children may exceed MAX_LANES when the panel is expanded —
+          // keep their assigned lane so the group frame can grow wider.
+          if (isK8sChild) {
+            lane = Math.max(0, e.lane);
+          } else {
+            lane = Math.max(0, Math.min(MAX_LANES - 1, e.lane));
+            while (usedLanes.has(lane) && lane < MAX_LANES - 1) lane += 1;
+            // If still colliding at the end, wrap search leftward
+            if (usedLanes.has(lane)) {
+              for (let i = 0; i < MAX_LANES; i++) {
+                if (!usedLanes.has(i)) {
+                  lane = i;
+                  break;
+                }
               }
             }
+            usedLanes.add(lane);
           }
-          usedLanes.add(lane);
         }
-        const nodeW = isAppHeader ? APP_PANEL_W : NODE_W;
-        // App panels use their own horizontal pitch (not the 140px node grid).
+        const nodeW = isExpandHeader ? EXPAND_PANEL_W : NODE_W;
+        // App accordion headers use their own horizontal pitch (not the 140px grid).
+        // Expandable platform keeps the AO column grid but uses the wider card.
         const x = isAppHeader
-          ? MARGIN + e.lane * (APP_PANEL_W + COL_GAP)
+          ? MARGIN + e.lane * (EXPAND_PANEL_W + COL_GAP)
           : MARGIN + lane * colWidth;
         positioned.push({
           ...e.node,

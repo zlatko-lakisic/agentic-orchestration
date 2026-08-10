@@ -14,6 +14,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Changed
 
+- **Expandable Topology panels** — Application and Kubernetes accordion headers use the wider panel width; Kubernetes expands with a group frame (same pattern as app folders). Wiki anchors: `#expandable-panels`, `#app-accordion`, `#platform-expand`, plus per-workload `#k8s-*`.
 - **Topology band labels** — band 2 uses the AO mark + “Reach” (no text “AO”); band 3 shows the AO mark left of “Agentic Orchestration”.
 - **Topology Live stamp** — locale-friendly medium date + short time instead of raw ISO.
 
