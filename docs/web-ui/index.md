@@ -60,9 +60,80 @@ Health endpoints and metadata:
 
 `POST /api/v1/orchestrate` runs a dynamic orchestration turn and returns `{ ok: true, output }`.
 
-- **Auth (required):** `Authorization: Bearer <token>`. Prefer minted Admin **API tokens** (`ao_…`, bound to an `appId`). Env shared secrets `AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY` remain a fallback. Anonymous calls are rejected. Mint reserved **`ao-web`** (Access → Mint → “Admin Web UI”) to auto-assign a key to the Admin SPA; other clients each need their own minted token.
-- **Body:** JSON with the user prompt (and optional session continuity fields).
+OpenAI-compatible proxies on the same web process:
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+
+All three **require** `Authorization: Bearer <token>` (anonymous calls are rejected). See [[#api-access-tokens]].
+
+- **Body (orchestrate):** JSON with the user prompt (and optional session continuity fields).
 - **Connectors:** OpenClaw plugin and future host adapters — see [External integrations]({{ '/external-integrations/' | relative_url }}).
+
+---
+
+<a id="api-access-tokens"></a>
+## API access tokens
+
+Mint and revoke tokens in **Admin → Access → API tokens**. Secrets are shown once at mint time; the server stores only a hash (plus plaintext for the two first-party UI assignments below).
+
+### First-party UIs (auto-assign)
+
+| Mint choice | `appId` | Used by |
+|---|---|---|
+| Admin Web UI | `ao-web` | Admin SPA (`/admin`) — auto-assigned; SPA loads it via `GET /api/v1/admin/web-auth` |
+| Chat Web UI | `ao-chat` | Built-in chat (`/`) — auto-assigned; page loads it via `GET /api/v1/admin/chat-auth` and attaches it to HTTP + WebSocket |
+
+You do **not** paste these into the browser. Minting assigns them; revoke and remint if compromised.
+
+### External web apps and connectors
+
+Any other product that calls AO over HTTP (another site, OpenClaw, CI, a field app using the OpenAI SDK against your edge) needs its **own** minted token with a stable **`appId`** for that client (for example `openclaw`, `my-portal`, `field-client`).
+
+**How to use**
+
+1. Admin → Access → **Mint token** → **External client (custom appId)** → set `appId` (and optional label / expiry).
+2. Copy the `ao_…` secret once into the external app’s secret store (env, vault, plugin config). Never commit it.
+3. On every request, send:
+
+```http
+Authorization: Bearer ao_<secret>
+Content-Type: application/json
+```
+
+**Endpoints that accept external tokens**
+
+| Endpoint | Typical client |
+|---|---|
+| `POST /api/v1/orchestrate` | OpenClaw, custom bridges |
+| `POST /v1/chat/completions` | Apps using an OpenAI-compatible chat SDK |
+| `POST /v1/responses` | Apps using an OpenAI-compatible responses SDK |
+
+**Example (orchestrate)**
+
+```bash
+curl -sS -X POST "https://ada.ao.example.com/api/v1/orchestrate" \
+  -H "Authorization: Bearer ao_…" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Summarize today’s irrigation plan"}'
+```
+
+**Example (OpenAI-compatible chat)**
+
+Point the SDK `baseURL` at the web origin (for example `https://ada.ao.example.com/v1`) and set `apiKey` to the minted `ao_…` token. The gate uses that Bearer; upstream cloud keys (if any) stay on the server.
+
+**What external tokens do *not* unlock**
+
+- Admin REST (`/api/v1/admin/*` except bootstrap auth endpoints) — reserved for `ao-web`
+- Built-in chat session / agent-provider HTTP and the chat WebSocket once `ao-chat` is assigned — reserved for `ao-chat`
+
+Usage (appId, IP, path, status, latency) is recorded per token under Access → Usage.
+
+**Env shared-secret fallback (legacy)**
+
+If set, `AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY` still work as Bearer values for orchestrate / OpenAI proxies (`appId: env` in the ledger). Prefer per-app minted tokens so you can revoke one client without rotating a global secret.
+
+Store path: `AGENTIC_API_TOKENS_DIR` (edge default: hostPath under `var/agentic-api-tokens`). See [Configuration]({{ '/configuration/' | relative_url }}).
 
 ## Scripts
 

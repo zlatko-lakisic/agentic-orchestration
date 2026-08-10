@@ -23,7 +23,7 @@ This page is the inventory of **first-party connectors**. MCP servers and LLM pr
 | **Bridge API** | Today: `POST /api/v1/orchestrate` on `agentic-orchestration-web` (see [Web UI]({{ '/web-ui/' | relative_url }})) |
 | **Engine** | Dynamic / iterative planner, agent + MCP catalogs, CrewAI / Kubernetes backends |
 
-Connectors should stay thin: map host credentials → engine env, pass prompt + session key, return one reply string (or structured payload). Prefer the shared orchestrate endpoint over re-implementing planner logic in each host.
+Connectors should stay thin: map host credentials → engine env, pass prompt + session key, return one reply string (or structured payload). Prefer the shared orchestrate endpoint over re-implementing planner logic in each host. Authenticate with a **minted per-app API token** (see [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens)), not the first-party `ao-web` / `ao-chat` UI tokens.
 
 ## Inventory
 
@@ -44,7 +44,7 @@ When you add a connector, add a row here and a dedicated section (or linked subp
 | **Install** | `openclaw plugins install clawhub:@zlatko-lakisic/openclaw-agentic-orchestration` |
 | **Hook** | `before_agent_reply` (requires `hooks.allowConversationAccess: true`) |
 | **Engine API** | `POST /api/v1/orchestrate` → `{ ok: true, output }` |
-| **Auth** | `AGENTIC_ORCHESTRATE_API_KEY` or `AGENTIC_CHAT_COMPLETIONS_API_KEY` on the web server; optional matching `apiKey` in plugin config |
+| **Auth** | Minted API token (`ao_…`) with a dedicated `appId` (Admin → Access), or env fallback `AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY`. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens). |
 
 ### What you get
 
