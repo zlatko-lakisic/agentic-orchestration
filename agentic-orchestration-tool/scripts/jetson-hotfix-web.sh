@@ -49,6 +49,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=api-tokens.mjs="${WEB_ROOT}/lib/api-tokens.mjs" \
   --from-file=admin-logs.mjs="${WEB_ROOT}/lib/admin-logs.mjs" \
   --from-file=admin-topology-graph.mjs="${WEB_ROOT}/lib/admin-topology-graph.mjs" \
+  --from-file=admin-k8s.mjs="${WEB_ROOT}/lib/admin-k8s.mjs" \
   --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
   --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs"
 
