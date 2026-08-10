@@ -11,8 +11,11 @@ import {
   probeModelBackends,
   probeOllama,
   probePlannerFromEngine,
+  probeSpeechStt,
   probeStorageGpu,
+  speechSttCandidates,
   speechSttUrl,
+  speechTtsCandidates,
   speechTtsUrl,
 } from "../lib/admin-topology-probes.mjs";
 
@@ -30,7 +33,7 @@ test("ollamaBaseUrl normalizes host without scheme", () => {
   else process.env.OLLAMA_HOST = prevH;
 });
 
-test("speech URLs prefer advertise then local", () => {
+test("speech candidates prefer advertise URL first", () => {
   const prev = {
     aS: process.env.AGENTIC_SPEECH_ADVERTISE_STT_URL,
     aT: process.env.AGENTIC_SPEECH_ADVERTISE_TTS_URL,
@@ -41,12 +44,38 @@ test("speech URLs prefer advertise then local", () => {
   process.env.AGENTIC_SPEECH_ADVERTISE_TTS_URL = "http://10.0.10.16:8091";
   process.env.AGENTIC_SPEECH_STT_URL = "http://127.0.0.1:8090";
   process.env.AGENTIC_SPEECH_TTS_URL = "http://127.0.0.1:8091";
-  const { speechSttCandidates, speechTtsCandidates } = await import(
-    "../lib/admin-topology-probes.mjs"
-  );
-  // dynamic import already loaded — use exports from top
+  assert.equal(speechSttCandidates()[0], "http://10.0.10.16:8090");
+  assert.equal(speechTtsCandidates()[0], "http://10.0.10.16:8091");
+  assert.ok(speechSttCandidates().includes("http://127.0.0.1:8090"));
+  assert.equal(speechSttUrl(), "http://10.0.10.16:8090");
+  assert.equal(speechTtsUrl(), "http://10.0.10.16:8091");
+  for (const [k, v] of Object.entries({
+    AGENTIC_SPEECH_ADVERTISE_STT_URL: prev.aS,
+    AGENTIC_SPEECH_ADVERTISE_TTS_URL: prev.aT,
+    AGENTIC_SPEECH_STT_URL: prev.s,
+    AGENTIC_SPEECH_TTS_URL: prev.t,
+  })) {
+    if (v == null) delete process.env[k];
+    else process.env[k] = v;
+  }
 });
 
+test("probeSpeechStt tries advertise before failing on loopback", async () => {
+  process.env.AGENTIC_SPEECH_ENABLED = "1";
+  process.env.AGENTIC_SPEECH_ADVERTISE_STT_URL = "http://10.0.10.16:8090";
+  process.env.AGENTIC_SPEECH_STT_URL = "http://127.0.0.1:8090";
+  const seen = [];
+  const r = await probeSpeechStt(async (url) => {
+    seen.push(url);
+    if (url.includes("10.0.10.16")) {
+      return { ok: true, status: 200, json: { ok: true } };
+    }
+    return { ok: false, error: "ECONNREFUSED" };
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.base, "http://10.0.10.16:8090");
+  assert.ok(seen[0].includes("10.0.10.16"));
+});
 
 test("probeOllama skips when unset", async () => {
   const prevA = process.env.OLLAMA_API_BASE;
