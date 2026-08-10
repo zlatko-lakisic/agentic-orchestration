@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  edgePathHitsOtherNodes,
   isSideCenter,
   layoutTopology,
   nodesOverlap,
   pathClosure,
   pathEndpoints,
+  routeEdgeOrthogonal,
   slotForKind,
 } from './topology.layout';
 import { TopologyEdge, TopologyNode } from './topology.types';
@@ -407,6 +409,89 @@ describe('topology.layout', () => {
     for (const e of layout.edges) {
       expect(e.pathD).not.toMatch(/[CcQqSsAa]/);
       expect(e.pathD).toMatch(/^M /);
+    }
+  });
+
+  it('routes edges around intervening panels (no card underlap)', () => {
+    // Gaps match live COL_GAP so stubs sit in the wire channel, not in clearance.
+    const from = {
+      id: 'from',
+      kind: 'catalog' as const,
+      band: 'ao' as const,
+      label: 'From',
+      status: 'healthy' as const,
+      instrumented: false,
+      deployed: true,
+      x: 40,
+      y: 100,
+      width: 140,
+      height: 52,
+      lane: 0,
+      rank: 0,
+      order: 0,
+      displayStatus: 'healthy',
+    };
+    const blocker = {
+      ...from,
+      id: 'blocker',
+      label: 'Blocker',
+      x: 40 + 140 + 72,
+      lane: 1,
+    };
+    const to = {
+      ...from,
+      id: 'to',
+      label: 'To',
+      x: blocker.x + 140 + 72,
+      lane: 2,
+    };
+    const pathD = routeEdgeOrthogonal(
+      from,
+      to,
+      'request',
+      [from, blocker, to],
+      700
+    );
+    expect(
+      edgePathHitsOtherNodes(pathD, 'from', 'to', [from, blocker, to])
+    ).toBe(false);
+    // Must not take the straight line through the blocker centerline.
+    const pts = pathD.match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
+    const ys = [];
+    for (let i = 1; i < pts.length; i += 2) ys.push(pts[i]);
+    const midY = from.y + from.height / 2;
+    const wentAround = ys.some((y) => Math.abs(y - midY) > 20);
+    expect(wentAround).toBe(true);
+  });
+
+  it('keeps live layout edges clear of other node cards', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'planner', kind: 'planner', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+      n({ id: 'catalog/agents', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/mcp', kind: 'catalog', band: 'ao' }),
+      n({ id: 'catalog/skills', kind: 'catalog', band: 'ao' }),
+      n({ id: 'models/backends', kind: 'model-backend', band: 'ao' }),
+      n({ id: 'execution', kind: 'execution-backend', band: 'ao' }),
+      n({ id: 'workers/cluster', kind: 'worker', band: 'ao' }),
+      n({ id: 'platform/k3s', kind: 'platform', band: 'ao' }),
+    ];
+    const edges: TopologyEdge[] = [
+      { id: 'e1', from: 'engine', to: 'planner', kind: 'request' },
+      { id: 'e2', from: 'web-ui', to: 'planner', kind: 'request' },
+      { id: 'e3', from: 'planner', to: 'catalog/agents', kind: 'request' },
+      { id: 'e4', from: 'planner', to: 'catalog/mcp', kind: 'request' },
+      { id: 'e5', from: 'planner', to: 'execution', kind: 'request' },
+      { id: 'e6', from: 'execution', to: 'workers/cluster', kind: 'request' },
+      { id: 'e7', from: 'execution', to: 'platform/k3s', kind: 'request' },
+      { id: 'e8', from: 'catalog/agents', to: 'models/backends', kind: 'request' },
+    ];
+    const layout = layoutTopology(nodes, edges);
+    for (const e of layout.edges) {
+      expect(
+        edgePathHitsOtherNodes(e.pathD, e.from, e.to, layout.nodes)
+      ).toBe(false);
     }
   });
 

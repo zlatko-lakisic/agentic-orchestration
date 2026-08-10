@@ -74,18 +74,21 @@ const NODE_W = 140;
 const NODE_H = 52;
 /** Wider header card for accordion expanders (Application appId or Kubernetes). */
 const EXPAND_PANEL_W = 168;
-const COL_GAP = 52;
-const ROW_GAP = 64;
+/** Horizontal gap between columns — leave a wire channel so edges can pass between cards. */
+const COL_GAP = 72;
+/** Vertical gap between rows — leave a wire channel so edges can pass between cards. */
+const ROW_GAP = 80;
 const BAND_PAD_Y = 28;
 const BAND_LABEL_H = 22;
 /** Vertical air between Application · Reach · AO band rectangles. */
 const BAND_GAP = 56;
 const MARGIN = 32;
-const ROUTE_MARGIN = 56;
+const ROUTE_MARGIN = 72;
 const MAX_LANES = 8;
-const CLEARANCE = 8;
+/** Inflate node rects so routes keep a visible gap from card edges. */
+const CLEARANCE = 14;
 /** Perpendicular stub so wires leave/enter side centers, never run along card edges. */
-const PORT_STUB = 14;
+const PORT_STUB = 16;
 /** Horizontal gap between Reach-apps and Web-API family frames. */
 const APP_FAMILY_GAP = 56;
 /** Extra top padding inside each Application family frame for its label. */
@@ -301,6 +304,10 @@ function inflate(n: PositionedNode, pad: number): Rect {
   };
 }
 
+function pointInRect(p: Pt, r: Rect): boolean {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+}
+
 /** Orthogonal segment vs axis-aligned rect (inclusive). */
 function segHitsRect(a: Pt, b: Pt, r: Rect): boolean {
   const minX = Math.min(a.x, b.x);
@@ -327,6 +334,61 @@ function pathHitsObstacles(pts: Pt[], obstacles: Rect[]): boolean {
     }
   }
   return false;
+}
+
+/** Parse SVG orthogonal path into points (M/L only). */
+export function pathPoints(pathD: string): Pt[] {
+  const pts: Pt[] = [];
+  const re = /[ML]\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(pathD))) {
+    pts.push({ x: Number(m[1]), y: Number(m[2]) });
+  }
+  return pts;
+}
+
+/**
+ * True when an edge path crosses any card other than its endpoints
+ * (with the same clearance the router uses).
+ */
+export function edgePathHitsOtherNodes(
+  pathD: string,
+  fromId: string,
+  toId: string,
+  allNodes: PositionedNode[],
+  clearance = CLEARANCE
+): boolean {
+  const pts = pathPoints(pathD);
+  if (pts.length < 2) return false;
+  const obstacles = allNodes
+    .filter((n) => n.id !== fromId && n.id !== toId)
+    .map((n) => inflate(n, clearance));
+  // Skip the short port→stub segments at each end (they touch the endpoint cards).
+  const mid =
+    pts.length >= 4 ? pts.slice(1, pts.length - 1) : pts;
+  return pathHitsObstacles(mid, obstacles);
+}
+
+function pathLength(pts: Pt[]): number {
+  let n = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    n += Math.abs(pts[i].x - pts[i + 1].x) + Math.abs(pts[i].y - pts[i + 1].y);
+  }
+  return n;
+}
+
+function pickClearPath(candidates: Pt[][], obstacles: Rect[]): Pt[] | null {
+  let best: Pt[] | null = null;
+  let bestLen = Infinity;
+  for (const mid of candidates) {
+    if (pathHitsObstacles(mid, obstacles)) continue;
+    const len = pathLength(mid);
+    if (len < bestLen) {
+      bestLen = len;
+      best = mid;
+    }
+  }
+  return best;
 }
 
 function simplifyOrtho(pts: Pt[]): Pt[] {
@@ -413,6 +475,7 @@ function chooseSides(
 /**
  * Orthogonal route between exterior stubs. Never travels along a card edge:
  * the full path is always [sideCenter → stubOut → …manhattan… → stubIn → sideCenter].
+ * Prefers the shortest obstacle-free elbow; detours around intervening panels.
  */
 export function routeEdgeOrthogonal(
   from: PositionedNode,
@@ -436,14 +499,17 @@ export function routeEdgeOrthogonal(
 
   const obstacles = allNodes
     .filter((n) => n.id !== from.id && n.id !== to.id)
-    .map((n) => inflate(n, CLEARANCE));
+    .map((n) => inflate(n, CLEARANCE))
+    // Ignore cards whose clearance swallows a port stub (cramped neighbors);
+    // live layout keeps COL_GAP/ROW_GAP wide enough that this rarely applies.
+    .filter((o) => !pointInRect(a, o) && !pointInRect(b, o));
 
-  const leftX = MARGIN / 2;
-  const rightX = canvasWidth - MARGIN / 2;
+  const leftX = Math.min(MARGIN / 2, a.x, b.x) - 8;
+  const rightX = Math.max(canvasWidth - MARGIN / 2, a.x, b.x) + 8;
   const midY = (a.y + b.y) / 2;
   const midX = (a.x + b.x) / 2;
-  const gutterAbove = Math.min(a.y, b.y) - Math.max(12, ROW_GAP / 4);
-  const gutterBelow = Math.max(a.y, b.y) + Math.max(12, ROW_GAP / 4);
+  const gutterAbove = Math.min(a.y, b.y) - Math.max(20, ROW_GAP / 3);
+  const gutterBelow = Math.max(a.y, b.y) + Math.max(20, ROW_GAP / 3);
 
   const midCandidates: Pt[][] = [];
 
@@ -479,18 +545,8 @@ export function routeEdgeOrthogonal(
     { x: b.x, y: gutterAbove },
     b,
   ]);
-  midCandidates.push([
-    a,
-    { x: leftX, y: a.y },
-    { x: leftX, y: b.y },
-    b,
-  ]);
-  midCandidates.push([
-    a,
-    { x: rightX, y: a.y },
-    { x: rightX, y: b.y },
-    b,
-  ]);
+  midCandidates.push([a, { x: leftX, y: a.y }, { x: leftX, y: b.y }, b]);
+  midCandidates.push([a, { x: rightX, y: a.y }, { x: rightX, y: b.y }, b]);
   midCandidates.push([
     a,
     { x: a.x, y: gutterBelow },
@@ -508,20 +564,106 @@ export function routeEdgeOrthogonal(
     b,
   ]);
 
-  for (const mid of midCandidates) {
-    if (!pathHitsObstacles(mid, obstacles)) {
-      return toPathD([portS, ...mid, portT]);
-    }
+  // Detour around each intervening panel (common when k8s / app frames expand).
+  for (const o of obstacles) {
+    const left = o.x - 2;
+    const right = o.x + o.w + 2;
+    const top = o.y - 2;
+    const bottom = o.y + o.h + 2;
+    midCandidates.push([a, { x: a.x, y: top }, { x: b.x, y: top }, b]);
+    midCandidates.push([a, { x: a.x, y: bottom }, { x: b.x, y: bottom }, b]);
+    midCandidates.push([a, { x: left, y: a.y }, { x: left, y: b.y }, b]);
+    midCandidates.push([a, { x: right, y: a.y }, { x: right, y: b.y }, b]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: top },
+      { x: left, y: top },
+      { x: left, y: b.y },
+      b,
+    ]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: bottom },
+      { x: right, y: bottom },
+      { x: right, y: b.y },
+      b,
+    ]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: top },
+      { x: right, y: top },
+      { x: right, y: b.y },
+      b,
+    ]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: bottom },
+      { x: left, y: bottom },
+      { x: left, y: b.y },
+      b,
+    ]);
   }
 
-  return toPathD([
-    portS,
-    a,
-    { x: rightX, y: a.y },
-    { x: rightX, y: b.y },
-    b,
-    portT,
-  ]);
+  const farLeft =
+    Math.min(leftX, ...obstacles.map((o) => o.x), a.x, b.x) - 28;
+  const farRight =
+    Math.max(rightX, ...obstacles.map((o) => o.x + o.w), a.x, b.x) + 28;
+  const farTop =
+    Math.min(gutterAbove, ...obstacles.map((o) => o.y), a.y, b.y) - 28;
+  const farBottom =
+    Math.max(gutterBelow, ...obstacles.map((o) => o.y + o.h), a.y, b.y) + 28;
+
+  // Far channels outside the union of all obstacles.
+  if (obstacles.length) {
+    midCandidates.push([a, { x: farLeft, y: a.y }, { x: farLeft, y: b.y }, b]);
+    midCandidates.push([a, { x: farRight, y: a.y }, { x: farRight, y: b.y }, b]);
+    midCandidates.push([a, { x: a.x, y: farTop }, { x: b.x, y: farTop }, b]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: farBottom },
+      { x: b.x, y: farBottom },
+      b,
+    ]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: farBottom },
+      { x: farRight, y: farBottom },
+      { x: farRight, y: farTop },
+      { x: b.x, y: farTop },
+      b,
+    ]);
+    midCandidates.push([
+      a,
+      { x: a.x, y: farTop },
+      { x: farLeft, y: farTop },
+      { x: farLeft, y: farBottom },
+      { x: b.x, y: farBottom },
+      b,
+    ]);
+  }
+
+  const best = pickClearPath(midCandidates, obstacles);
+  if (best) {
+    return toPathD([portS, ...best, portT]);
+  }
+
+  // Last resort: outer ring channels (prefer clear; else far-right).
+  const fallbacks: Pt[][] = [
+    [a, { x: farRight + 24, y: a.y }, { x: farRight + 24, y: b.y }, b],
+    [a, { x: farLeft - 24, y: a.y }, { x: farLeft - 24, y: b.y }, b],
+    [a, { x: a.x, y: farTop - 24 }, { x: b.x, y: farTop - 24 }, b],
+    [a, { x: a.x, y: farBottom + 24 }, { x: b.x, y: farBottom + 24 }, b],
+    [
+      a,
+      { x: a.x, y: farBottom + 24 },
+      { x: farRight + 24, y: farBottom + 24 },
+      { x: farRight + 24, y: farTop - 24 },
+      { x: b.x, y: farTop - 24 },
+      b,
+    ],
+  ];
+  const fb = pickClearPath(fallbacks, obstacles) || fallbacks[0];
+  return toPathD([portS, ...fb, portT]);
 }
 
 /** Parse path endpoints for tests. */
@@ -716,7 +858,7 @@ export function layoutTopology(
     appRowW + ROUTE_MARGIN,
     k8sExpandRowW + ROUTE_MARGIN
   );
-  const width = canvasContentW + MARGIN * 2;
+  const width = canvasContentW + MARGIN * 2 + ROUTE_MARGIN;
 
   type RowKey = string;
   const rows = new Map<RowKey, typeof enriched>();
@@ -850,11 +992,21 @@ export function layoutTopology(
     });
   }
 
+  // Grow canvas so far-channel detours are not clipped.
+  let outWidth = width;
+  let outHeight = y + MARGIN;
+  for (const e of positionedEdges) {
+    for (const p of pathPoints(e.pathD)) {
+      outWidth = Math.max(outWidth, p.x + MARGIN);
+      outHeight = Math.max(outHeight, p.y + MARGIN);
+    }
+  }
+
   const applicationFamilies = buildApplicationFamilyFrames(positioned);
 
   return {
-    width,
-    height: y + MARGIN,
+    width: outWidth,
+    height: outHeight,
     bands,
     applicationFamilies,
     nodes: positioned,

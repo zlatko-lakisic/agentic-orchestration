@@ -238,6 +238,7 @@ function boundsOf(
             (click)="nodeClick.emit(n)"
             (keydown.enter)="nodeClick.emit(n)"
           >
+            <title>{{ nodeHoverTitle(n) }}</title>
             <rect
               [attr.width]="n.width"
               [attr.height]="n.height"
@@ -266,6 +267,7 @@ function boundsOf(
               y="22"
               class="fill-neutral-900 text-[12px] font-medium dark:fill-neutral-100"
             >
+              <title>{{ n.label }}</title>
               {{ truncate(n.label, labelMax(n)) }}
             </text>
             <text
@@ -273,6 +275,7 @@ function boundsOf(
               y="38"
               class="text-[10px]"
             >
+              <title>{{ n.sublabel || n.displayStatus }}</title>
               <tspan [attr.fill]="statusGlyphColor(n.displayStatus)">{{
                 statusGlyph(n.displayStatus)
               }}</tspan>
@@ -754,6 +757,14 @@ export class TopologyCanvas {
   truncate(s: string, max: number): string {
     const t = String(s || '');
     return t.length > max ? t.slice(0, max - 1) + '…' : t;
+  }
+
+  /** Full label (+ sublabel) for native SVG hover tooltip when text is truncated. */
+  nodeHoverTitle(n: PositionedNode): string {
+    const label = String(n.label || '').trim();
+    const sub = String(n.sublabel || n.displayStatus || '').trim();
+    if (label && sub && sub !== label) return `${label} — ${sub}`;
+    return label || sub || n.id;
   }
 
   statusGlyph(status: string): string {
