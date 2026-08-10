@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 /**
  * Live Topology node probes (Admin).
  *
@@ -10,6 +12,40 @@ function truthy(v) {
   return ["1", "true", "yes", "on"].includes(String(v || "").trim().toLowerCase());
 }
 
+function inCluster() {
+  try {
+    return fs.existsSync("/var/run/secrets/kubernetes.io/serviceaccount/token");
+  } catch {
+    return false;
+  }
+}
+
+function stripSlash(u) {
+  return String(u || "").trim().replace(/\/+$/, "");
+}
+
+function isLoopbackUrl(url) {
+  try {
+    const u = new URL(url);
+    return ["127.0.0.1", "localhost", "::1"].includes(u.hostname);
+  } catch {
+    return /127\.0\.0\.1|localhost/i.test(String(url));
+  }
+}
+
+/** Rewrite loopback → host.k3s.internal so in-cluster pods can reach host sidecars. */
+export function rewriteLoopbackForCluster(url) {
+  const s = stripSlash(url);
+  if (!s || !inCluster() || !isLoopbackUrl(s)) return s;
+  try {
+    const u = new URL(s);
+    u.hostname = "host.k3s.internal";
+    return stripSlash(u.toString());
+  } catch {
+    return s.replace(/127\.0\.0\.1|localhost/gi, "host.k3s.internal");
+  }
+}
+
 /** Normalize Ollama base URL from env (scheme optional). */
 export function ollamaBaseUrl() {
   const raw = String(
@@ -20,20 +56,60 @@ export function ollamaBaseUrl() {
   return `http://${raw.replace(/\/+$/, "")}`;
 }
 
-export function speechSttUrl() {
-  const explicit = String(process.env.AGENTIC_SPEECH_STT_URL || "").trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const host = String(process.env.AGENTIC_SPEECH_STT_HOST || "127.0.0.1").trim();
-  const port = Number(process.env.AGENTIC_SPEECH_STT_PORT || 8090);
-  return `http://${host}:${port}`;
+/**
+ * Speech STT base URL candidates (first reachable wins).
+ * Prefer advertise (client-facing) then local bind, with in-cluster rewrite.
+ */
+export function speechSttCandidates() {
+  const advertise = stripSlash(process.env.AGENTIC_SPEECH_ADVERTISE_STT_URL || "");
+  const local = stripSlash(process.env.AGENTIC_SPEECH_STT_URL || "") ||
+    (() => {
+      const host = String(process.env.AGENTIC_SPEECH_STT_HOST || "127.0.0.1").trim();
+      const port = Number(process.env.AGENTIC_SPEECH_STT_PORT || 8090);
+      return `http://${host}:${port}`;
+    })();
+  const out = [];
+  const push = (u) => {
+    if (!u) return;
+    const rewritten = rewriteLoopbackForCluster(u);
+    for (const x of [u, rewritten]) {
+      if (x && !out.includes(x)) out.push(x);
+    }
+  };
+  push(advertise);
+  push(local);
+  return out;
 }
 
+export function speechTtsCandidates() {
+  const advertise = stripSlash(process.env.AGENTIC_SPEECH_ADVERTISE_TTS_URL || "");
+  const local = stripSlash(process.env.AGENTIC_SPEECH_TTS_URL || "") ||
+    (() => {
+      const host = String(process.env.AGENTIC_SPEECH_TTS_HOST || "127.0.0.1").trim();
+      const port = Number(process.env.AGENTIC_SPEECH_TTS_PORT || 8091);
+      return `http://${host}:${port}`;
+    })();
+  const out = [];
+  const push = (u) => {
+    if (!u) return;
+    const rewritten = rewriteLoopbackForCluster(u);
+    for (const x of [u, rewritten]) {
+      if (x && !out.includes(x)) out.push(x);
+    }
+  };
+  push(advertise);
+  push(local);
+  return out;
+}
+
+/** @deprecated single-URL helper — prefer speechSttCandidates */
+export function speechSttUrl() {
+  return speechSttCandidates()[0] || "http://127.0.0.1:8090";
+}
+
+/** @deprecated single-URL helper — prefer speechTtsCandidates */
 export function speechTtsUrl() {
-  const explicit = String(process.env.AGENTIC_SPEECH_TTS_URL || "").trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const host = String(process.env.AGENTIC_SPEECH_TTS_HOST || "127.0.0.1").trim();
-  const port = Number(process.env.AGENTIC_SPEECH_TTS_PORT || 8091);
-  return `http://${host}:${port}`;
+  return speechTtsCandidates()[0] || "http://127.0.0.1:8091";
 }
 
 /**
@@ -66,14 +142,40 @@ export async function probeHttpOk(fetchJson, url, timeoutMs = 2000, tlsInsecure 
   }
 }
 
+async function probeFirstHttpOk(fetchJson, bases, path = "/health") {
+  const tried = [];
+  let last = null;
+  for (const base of bases) {
+    const result = await probeHttpOk(fetchJson, `${base}${path}`, 2000, false);
+    tried.push(base);
+    last = { ...result, base };
+    if (result.ok) return { ...last, tried };
+  }
+  return {
+    ok: false,
+    status: last?.status ?? null,
+    error: last?.error || null,
+    json: null,
+    latencyMs: last?.latencyMs ?? 0,
+    url: last?.url || null,
+    base: bases[0] || null,
+    tried,
+  };
+}
+
 /** GET {ollama}/api/tags — only when OLLAMA_* is configured. */
 export async function probeOllama(fetchJson) {
   const base = ollamaBaseUrl();
   if (!base) {
     return { configured: false, ok: false, skipped: true, reason: "OLLAMA_HOST not configured" };
   }
-  const result = await probeHttpOk(fetchJson, `${base}/api/tags`, 2000, false);
+  // Prefer configured URL; if loopback in-cluster, also try host.k3s.internal.
+  const bases = [base];
+  const rewritten = rewriteLoopbackForCluster(base);
+  if (rewritten && rewritten !== base) bases.push(rewritten);
+  const result = await probeFirstHttpOk(fetchJson, bases, "/api/tags");
   const models = Array.isArray(result.json?.models) ? result.json.models.length : null;
+  const used = result.ok ? result.base : base;
   return {
     configured: true,
     skipped: false,
@@ -81,13 +183,13 @@ export async function probeOllama(fetchJson) {
     status: result.status,
     error: result.error,
     latencyMs: result.latencyMs,
-    base,
+    base: used,
     modelCount: models,
     reason: result.ok
       ? models != null
-        ? `${models} model${models === 1 ? "" : "s"} via ${base}`
-        : `reachable ${base}`
-      : result.error || `HTTP ${result.status || "down"} at ${base}/api/tags`,
+        ? `${models} model${models === 1 ? "" : "s"} via ${used}`
+        : `reachable ${used}`
+      : result.error || `HTTP ${result.status || "down"} at ${bases.join(" | ")}/api/tags`,
   };
 }
 
@@ -97,8 +199,8 @@ export async function probeSpeechStt(fetchJson, { enabled } = {}) {
   if (!on) {
     return { configured: false, ok: false, skipped: true, reason: "speech disabled" };
   }
-  const base = speechSttUrl();
-  const result = await probeHttpOk(fetchJson, `${base}/health`, 2000, false);
+  const bases = speechSttCandidates();
+  const result = await probeFirstHttpOk(fetchJson, bases, "/health");
   return {
     configured: true,
     skipped: false,
@@ -106,10 +208,11 @@ export async function probeSpeechStt(fetchJson, { enabled } = {}) {
     status: result.status,
     error: result.error,
     latencyMs: result.latencyMs,
-    base,
+    base: result.ok ? result.base : bases[0],
     reason: result.ok
-      ? `reachable ${base}`
-      : result.error || `HTTP ${result.status || "down"} at ${base}/health`,
+      ? `reachable ${result.base}`
+      : result.error ||
+        `HTTP ${result.status || "down"} (tried ${bases.join(", ")})`,
   };
 }
 
@@ -119,8 +222,8 @@ export async function probeSpeechTts(fetchJson, { enabled } = {}) {
   if (!on) {
     return { configured: false, ok: false, skipped: true, reason: "speech disabled" };
   }
-  const base = speechTtsUrl();
-  const result = await probeHttpOk(fetchJson, `${base}/health`, 2000, false);
+  const bases = speechTtsCandidates();
+  const result = await probeFirstHttpOk(fetchJson, bases, "/health");
   return {
     configured: true,
     skipped: false,
@@ -128,10 +231,11 @@ export async function probeSpeechTts(fetchJson, { enabled } = {}) {
     status: result.status,
     error: result.error,
     latencyMs: result.latencyMs,
-    base,
+    base: result.ok ? result.base : bases[0],
     reason: result.ok
-      ? `reachable ${base}`
-      : result.error || `HTTP ${result.status || "down"} at ${base}/health`,
+      ? `reachable ${result.base}`
+      : result.error ||
+        `HTTP ${result.status || "down"} (tried ${bases.join(", ")})`,
   };
 }
 

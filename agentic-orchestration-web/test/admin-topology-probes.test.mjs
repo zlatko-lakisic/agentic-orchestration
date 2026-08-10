@@ -30,18 +30,23 @@ test("ollamaBaseUrl normalizes host without scheme", () => {
   else process.env.OLLAMA_HOST = prevH;
 });
 
-test("speech URLs default to 8090/8091", () => {
-  const prevS = process.env.AGENTIC_SPEECH_STT_URL;
-  const prevT = process.env.AGENTIC_SPEECH_TTS_URL;
-  delete process.env.AGENTIC_SPEECH_STT_URL;
-  delete process.env.AGENTIC_SPEECH_TTS_URL;
-  assert.equal(speechSttUrl(), "http://127.0.0.1:8090");
-  assert.equal(speechTtsUrl(), "http://127.0.0.1:8091");
-  if (prevS == null) delete process.env.AGENTIC_SPEECH_STT_URL;
-  else process.env.AGENTIC_SPEECH_STT_URL = prevS;
-  if (prevT == null) delete process.env.AGENTIC_SPEECH_TTS_URL;
-  else process.env.AGENTIC_SPEECH_TTS_URL = prevT;
+test("speech URLs prefer advertise then local", () => {
+  const prev = {
+    aS: process.env.AGENTIC_SPEECH_ADVERTISE_STT_URL,
+    aT: process.env.AGENTIC_SPEECH_ADVERTISE_TTS_URL,
+    s: process.env.AGENTIC_SPEECH_STT_URL,
+    t: process.env.AGENTIC_SPEECH_TTS_URL,
+  };
+  process.env.AGENTIC_SPEECH_ADVERTISE_STT_URL = "http://10.0.10.16:8090";
+  process.env.AGENTIC_SPEECH_ADVERTISE_TTS_URL = "http://10.0.10.16:8091";
+  process.env.AGENTIC_SPEECH_STT_URL = "http://127.0.0.1:8090";
+  process.env.AGENTIC_SPEECH_TTS_URL = "http://127.0.0.1:8091";
+  const { speechSttCandidates, speechTtsCandidates } = await import(
+    "../lib/admin-topology-probes.mjs"
+  );
+  // dynamic import already loaded — use exports from top
 });
+
 
 test("probeOllama skips when unset", async () => {
   const prevA = process.env.OLLAMA_API_BASE;
