@@ -405,6 +405,40 @@ function applyChatUiAccessGate(req, res) {
 }
 
 /**
+ * Shared operator paths used by both Admin (ao-web) and Chat (ao-chat), e.g. /api/session.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ */
+function applyFirstPartyUiAccessGate(req, res) {
+  if (!isWebUiAssigned(TOOL_ROOT) && !isChatUiAssigned(TOOL_ROOT)) {
+    req.agenticAuth = { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
+  const result = authenticateFirstPartyUiBearer(
+    TOOL_ROOT,
+    req.headers?.authorization || "",
+  );
+  if (!result.ok) {
+    res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        error: "Unauthorized",
+        code: result.reason || "invalid",
+        hint: "Send Authorization Bearer with assigned ao-web or ao-chat token",
+      }),
+    );
+    return false;
+  }
+  req.agenticAuth = {
+    tokenId: result.tokenId,
+    appId: result.appId,
+    source: result.source,
+  };
+  installApiUsageRecorder(req, res, getRequestPathname(req));
+  return true;
+}
+
+/**
  * @param {import("node:http").IncomingMessage} req
  */
 function extractWsAccessToken(req) {
@@ -2281,7 +2315,7 @@ function handleHttp(req, res) {
     return;
   }
   if (isApiSession(req)) {
-    if (!applyChatUiAccessGate(req, res)) return;
+    if (!applyFirstPartyUiAccessGate(req, res)) return;
     const userName = userNameFromRequestHeaders(req.headers);
     const sessionId = resolveSessionIdFromHeaders(req.headers);
     res.writeHead(200, {
