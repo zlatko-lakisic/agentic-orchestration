@@ -32,6 +32,8 @@ import {
   modelForOllamaUpstream,
   createConcurrencyGate,
   ollamaProxyMaxConcurrent,
+  ollamaProxyFallbackModel,
+  isOllamaModelNotFound,
 } from "./lib/chat-completions-backend.mjs";
 import {
   handleAdminApi,
@@ -1447,8 +1449,9 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
   if (typeof upstreamCfg.rewriteModel === "function" && typeof forwardPayload.model === "string") {
     forwardPayload = { ...forwardPayload, model: upstreamCfg.rewriteModel(forwardPayload.model) };
   }
-  const bodyBuf = Buffer.from(JSON.stringify(forwardPayload), "utf8");
   const url = `${upstreamCfg.base.replace(/\/+$/, "")}/${pathSuffix}`;
+  const requestedModel = typeof forwardPayload.model === "string" ? forwardPayload.model : "";
+  const fallbackModel = kind === "ollama" ? ollamaProxyFallbackModel() : "";
 
   if (orchestrationRequestLogEnabled()) {
     console.error(
@@ -1456,7 +1459,8 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
       JSON.stringify({
         kind,
         model: typeof payload.model === "string" ? payload.model.trim() : "",
-        upstreamModel: typeof forwardPayload.model === "string" ? forwardPayload.model : "",
+        upstreamModel: requestedModel,
+        fallbackModel: fallbackModel && fallbackModel !== requestedModel ? fallbackModel : "",
         remote: req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "",
         url,
         stream: Boolean(payload.stream),
@@ -1484,76 +1488,98 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
   }
 
   const runProxy = async () => {
-    let upstream;
-    try {
-      upstream = await fetch(url, {
-        method: "POST",
-        headers: upstreamHeaders,
-        body: bodyBuf,
-      });
-    } catch (err) {
-      res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: clientErrorMessage(err, "Upstream request failed"),
-            type: "api_error",
-            param: null,
-            code: "upstream_unreachable",
-          },
-        }),
-      );
-      return;
+    const modelsToTry = [requestedModel];
+    if (kind === "ollama" && fallbackModel && fallbackModel !== requestedModel) {
+      modelsToTry.push(fallbackModel);
     }
 
-    const wantsStream = Boolean(payload.stream);
-    if (wantsStream && upstream.ok && upstream.body) {
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const model = modelsToTry[i];
+      const body = { ...forwardPayload, model };
+      let upstream;
       try {
-        const nodeReadable = Readable.fromWeb(upstream.body);
-        const fwd = collectForwardResponseHeaders(upstream);
-        res.writeHead(upstream.status, fwd);
-        await new Promise((resolve, reject) => {
-          nodeReadable.on("error", (err) => {
-            try {
-              res.destroy();
-            } catch {
-              /* ignore */
-            }
-            reject(err);
-          });
-          res.on("close", () => {
-            try {
-              nodeReadable.destroy();
-            } catch {
-              /* ignore */
-            }
-            resolve();
-          });
-          nodeReadable.on("end", resolve);
-          nodeReadable.pipe(res);
+        upstream = await fetch(url, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: Buffer.from(JSON.stringify(body), "utf8"),
         });
-      } catch {
-        if (!res.headersSent) {
-          res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
-          res.end(
-            JSON.stringify({
-              error: {
-                message: "Streaming proxy failed in this Node runtime.",
-                type: "api_error",
-                param: null,
-                code: "streaming_unavailable",
-              },
-            }),
+      } catch (err) {
+        res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: clientErrorMessage(err, "Upstream request failed"),
+              type: "api_error",
+              param: null,
+              code: "upstream_unreachable",
+            },
+          }),
+        );
+        return;
+      }
+
+      const wantsStream = Boolean(payload.stream);
+      if (wantsStream && upstream.ok && upstream.body) {
+        try {
+          const nodeReadable = Readable.fromWeb(upstream.body);
+          const fwd = collectForwardResponseHeaders(upstream);
+          res.writeHead(upstream.status, fwd);
+          await new Promise((resolve, reject) => {
+            nodeReadable.on("error", (err) => {
+              try {
+                res.destroy();
+              } catch {
+                /* ignore */
+              }
+              reject(err);
+            });
+            res.on("close", () => {
+              try {
+                nodeReadable.destroy();
+              } catch {
+                /* ignore */
+              }
+              resolve();
+            });
+            nodeReadable.on("end", resolve);
+            nodeReadable.pipe(res);
+          });
+        } catch {
+          if (!res.headersSent) {
+            res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+            res.end(
+              JSON.stringify({
+                error: {
+                  message: "Streaming proxy failed in this Node runtime.",
+                  type: "api_error",
+                  param: null,
+                  code: "streaming_unavailable",
+                },
+              }),
+            );
+          }
+        }
+        return;
+      }
+
+      const outBuf = Buffer.from(await upstream.arrayBuffer());
+      const canRetry =
+        i < modelsToTry.length - 1 && isOllamaModelNotFound(upstream.status, outBuf);
+      if (canRetry) {
+        if (orchestrationRequestLogEnabled()) {
+          console.error(
+            `[agentic-orchestration-web] ${pathLabel} ollama model missing; retry fallback`,
+            JSON.stringify({ requestedModel, fallbackModel: modelsToTry[i + 1] }),
           );
         }
+        continue;
       }
+
+      const fwd = collectForwardResponseHeaders(upstream);
+      res.writeHead(upstream.status, fwd);
+      res.end(outBuf);
       return;
     }
-
-    const outBuf = Buffer.from(await upstream.arrayBuffer());
-    const fwd = collectForwardResponseHeaders(upstream);
-    res.writeHead(upstream.status, fwd);
-    res.end(outBuf);
   };
 
   if (kind === "ollama") {

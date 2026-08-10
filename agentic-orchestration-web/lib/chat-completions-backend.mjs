@@ -159,3 +159,31 @@ export function ollamaProxyMaxConcurrent(env = process.env) {
   if (!Number.isFinite(n) || n < 1) return 2;
   return Math.min(Math.floor(n), 16);
 }
+
+/**
+ * When the client asks for an Ollama tag that is not pulled, retry with this model.
+ * Defaults from AGENTIC_CHAT_COMPLETIONS_OLLAMA_FALLBACK_MODEL, else planner ollama tag.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+export function ollamaProxyFallbackModel(env = process.env) {
+  const explicit = String(env.AGENTIC_CHAT_COMPLETIONS_OLLAMA_FALLBACK_MODEL || "").trim();
+  if (explicit) return modelForOllamaUpstream(explicit);
+  const planner = String(env.AGENTIC_PLANNER_MODEL || "").trim();
+  if (/^ollama\//i.test(planner) || /^ollama:/i.test(planner) || looksLikeOllamaModel(planner)) {
+    return modelForOllamaUpstream(planner);
+  }
+  return "";
+}
+
+/**
+ * @param {number} status
+ * @param {Buffer|Uint8Array|string} body
+ * @returns {boolean}
+ */
+export function isOllamaModelNotFound(status, body) {
+  if (Number(status) !== 404) return false;
+  const text = Buffer.isBuffer(body) || body instanceof Uint8Array ? Buffer.from(body).toString("utf8") : String(body || "");
+  const lower = text.toLowerCase();
+  return lower.includes("not found") || (lower.includes("model") && lower.includes("404"));
+}

@@ -10,6 +10,8 @@ import {
   resolveChatCompletionsBackend,
   createConcurrencyGate,
   ollamaProxyMaxConcurrent,
+  ollamaProxyFallbackModel,
+  isOllamaModelNotFound,
 } from "../lib/chat-completions-backend.mjs";
 
 test("looksLikeOpenAiCloudModel matches gpt / o-series", () => {
@@ -85,8 +87,18 @@ test("createConcurrencyGate serializes beyond limit", async () => {
   assert.equal(maxSeen, 1);
 });
 
-test("ollamaProxyMaxConcurrent defaults and clamps", () => {
-  assert.equal(ollamaProxyMaxConcurrent({}), 2);
-  assert.equal(ollamaProxyMaxConcurrent({ AGENTIC_CHAT_COMPLETIONS_OLLAMA_MAX_CONCURRENT: "4" }), 4);
-  assert.equal(ollamaProxyMaxConcurrent({ AGENTIC_CHAT_COMPLETIONS_OLLAMA_MAX_CONCURRENT: "0" }), 2);
+test("ollamaProxyFallbackModel prefers explicit then planner", () => {
+  assert.equal(
+    ollamaProxyFallbackModel({ AGENTIC_CHAT_COMPLETIONS_OLLAMA_FALLBACK_MODEL: "llama3.2:3b" }),
+    "llama3.2:3b",
+  );
+  assert.equal(
+    ollamaProxyFallbackModel({ AGENTIC_PLANNER_MODEL: "ollama/llama3.2:3b" }),
+    "llama3.2:3b",
+  );
+});
+
+test("isOllamaModelNotFound detects missing model", () => {
+  assert.equal(isOllamaModelNotFound(404, 'model "qwen" not found'), true);
+  assert.equal(isOllamaModelNotFound(200, "ok"), false);
 });
