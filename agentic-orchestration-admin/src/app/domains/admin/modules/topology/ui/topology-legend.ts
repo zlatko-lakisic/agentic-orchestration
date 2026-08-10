@@ -19,7 +19,10 @@ import { KIND_THEMES, themeForBand } from '../data/topology.theme';
         (click)="$event.stopPropagation()"
       >
         <div class="font-medium">Status</div>
-        <div>● healthy · ▲ degraded · ✖ failed · ? unknown · ○ offline</div>
+        <div>
+          <span class="text-green-600">✓</span> healthy ·
+          <span class="text-red-600">✕</span> not healthy
+        </div>
         <div class="mt-2 font-medium">Edges</div>
         <div>Right-angle routes · hover animates dash toward the arrow</div>
         <div class="mt-2 font-medium">Bands</div>

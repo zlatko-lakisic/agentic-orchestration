@@ -271,10 +271,14 @@ function boundsOf(
             <text
               [attr.x]="38"
               y="38"
-              class="fill-neutral-500 text-[10px]"
+              class="text-[10px]"
             >
-              {{ statusGlyph(n.displayStatus) }}
-              {{ truncate(n.sublabel || n.displayStatus, labelMax(n)) }}
+              <tspan [attr.fill]="statusGlyphColor(n.displayStatus)">{{
+                statusGlyph(n.displayStatus)
+              }}</tspan>
+              <tspan fill="#737373">
+                {{ truncate(n.sublabel || n.displayStatus, labelMax(n)) }}</tspan
+              >
             </text>
             @if (n.kind === 'app' && n.appId) {
               <foreignObject
@@ -732,21 +736,10 @@ export class TopologyCanvas {
   }
 
   statusGlyph(status: string): string {
-    switch (String(status || '').toLowerCase()) {
-      case 'healthy':
-        return '●';
-      case 'degraded':
-        return '▲';
-      case 'failed':
-        return '✖';
-      case 'starting':
-        return '◐';
-      case 'draining':
-        return '◌';
-      case 'offline':
-        return '○';
-      default:
-        return '?';
-    }
+    return String(status || '').toLowerCase() === 'healthy' ? '✓' : '✕';
+  }
+
+  statusGlyphColor(status: string): string {
+    return String(status || '').toLowerCase() === 'healthy' ? '#16a34a' : '#dc2626';
   }
 }
