@@ -89,6 +89,13 @@ const MAX_LANES = 8;
 const CLEARANCE = 14;
 /** Perpendicular stub so wires leave/enter with room before the arrowhead. */
 const PORT_STUB = 28;
+/**
+ * Hard floor for every route vertex. Left-gutter detours used to run at
+ * `MARGIN/2 - 8` (or negative farLeft), which clipped through the canvas
+ * edge beside SessionBridge / Engine. Never draw left of the node column.
+ */
+export const MIN_ROUTE_X = MARGIN;
+export const MIN_ROUTE_Y = 12;
 /** Soften orthogonal elbows (px). Capped per-corner by adjacent segment length. */
 const CORNER_RADIUS = 10;
 /** Minimum gap between parallel (collinear-overlapping) edge wires. */
@@ -477,6 +484,13 @@ function pathLength(pts: Pt[]): number {
   return n;
 }
 
+function pathInCanvas(pts: Pt[]): boolean {
+  for (const p of pts) {
+    if (p.x < MIN_ROUTE_X - 0.5 || p.y < MIN_ROUTE_Y - 0.5) return false;
+  }
+  return true;
+}
+
 function pickClearPath(
   candidates: Pt[][],
   obstacles: Rect[],
@@ -487,6 +501,7 @@ function pickClearPath(
   let bestSoft: Pt[] | null = null;
   let bestSoftLen = Infinity;
   for (const mid of candidates) {
+    if (!pathInCanvas(mid)) continue;
     if (pathHitsObstacles(mid, obstacles)) continue;
     const len = pathLength(mid);
     if (!pathOverlapsReserved(mid, reserved)) {
@@ -599,28 +614,78 @@ function stubOut(
   }
 }
 
+function sameLayoutRow(a: PositionedNode, b: PositionedNode): boolean {
+  return Math.abs(a.y - b.y) < NODE_H * 0.45;
+}
+
+/** True when another card sits on the same row between from and to. */
+function hasNodeBetweenOnRow(
+  from: PositionedNode,
+  to: PositionedNode,
+  allNodes: PositionedNode[]
+): boolean {
+  const left = Math.min(from.x, to.x);
+  const right = Math.max(from.x + from.width, to.x + to.width);
+  const rowY = (from.y + to.y) / 2;
+  return allNodes.some(
+    (n) =>
+      n.id !== from.id &&
+      n.id !== to.id &&
+      Math.abs(n.y - rowY) < NODE_H * 0.45 &&
+      n.x + n.width > left + 4 &&
+      n.x < right - 4
+  );
+}
+
+function stubWouldLeaveCanvas(node: PositionedNode, side: Side): boolean {
+  if (side === 'left') {
+    return node.x - PORT_STUB < MIN_ROUTE_X;
+  }
+  return false;
+}
+
+function verticalPair(
+  from: PositionedNode,
+  to: PositionedNode
+): { fromSide: Side; toSide: Side } {
+  const fromCy = from.y + from.height / 2;
+  const toCy = to.y + to.height / 2;
+  if (toCy >= fromCy) return { fromSide: 'bottom', toSide: 'top' };
+  return { fromSide: 'top', toSide: 'bottom' };
+}
+
 function chooseSides(
   from: PositionedNode,
   to: PositionedNode,
-  kind: string
+  kind: string,
+  allNodes: PositionedNode[] = []
 ): { fromSide: Side; toSide: Side } {
   if (kind === 'bypass') {
     return { fromSide: 'right', toSide: 'right' };
   }
+
   const fromCx = from.x + from.width / 2;
-  const fromCy = from.y + from.height / 2;
   const toCx = to.x + to.width / 2;
-  const toCy = to.y + to.height / 2;
-  const dy = toCy - fromCy;
   const dx = toCx - fromCx;
 
-  // Prefer top/bottom when mostly vertical so stacked cards connect mid-edge.
-  if (Math.abs(dy) >= Math.abs(dx) * 0.75) {
-    if (dy >= 0) return { fromSide: 'bottom', toSide: 'top' };
-    return { fromSide: 'top', toSide: 'bottom' };
+  // Different rows: always top/bottom so we never wrap left of lane-0 cards
+  // (off-canvas) or enter a card from the far side (crossing the whole row).
+  if (!sameLayoutRow(from, to)) {
+    return verticalPair(from, to);
   }
-  if (dx >= 0) return { fromSide: 'right', toSide: 'left' };
-  return { fromSide: 'left', toSide: 'right' };
+
+  // Same row with cards in between: use the inter-row channel (top/top),
+  // not a bundle of right-side horizontals through OverlayPacker / Engine.
+  if (hasNodeBetweenOnRow(from, to, allNodes)) {
+    return { fromSide: 'top', toSide: 'top' };
+  }
+
+  let fromSide: Side = dx >= 0 ? 'right' : 'left';
+  let toSide: Side = dx >= 0 ? 'left' : 'right';
+  if (stubWouldLeaveCanvas(from, fromSide) || stubWouldLeaveCanvas(to, toSide)) {
+    return verticalPair(from, to);
+  }
+  return { fromSide, toSide };
 }
 
 export type RouteEdgeOpts = {
@@ -644,7 +709,7 @@ export function routeEdgeOrthogonalPoints(
   canvasWidth: number,
   opts?: RouteEdgeOpts
 ): Pt[] {
-  const { fromSide, toSide } = chooseSides(from, to, kind);
+  const { fromSide, toSide } = chooseSides(from, to, kind, allNodes);
   const fromAlong = opts?.fromPortOffset ?? 0;
   const toAlong = opts?.toPortOffset ?? 0;
   const portS = sideCenter(from, fromSide, fromAlong);
@@ -656,18 +721,19 @@ export function routeEdgeOrthogonalPoints(
   // Reverse-tunnel: slight lateral offset on the stubs only (ports stay on-side).
   if (kind === 'reverse-tunnel') {
     const ox = 16;
-    a = { x: a.x + ox, y: a.y };
-    b = { x: b.x + ox, y: b.y };
+    a = { x: Math.max(MIN_ROUTE_X, a.x + ox), y: a.y };
+    b = { x: Math.max(MIN_ROUTE_X, b.x + ox), y: b.y };
   }
 
+  // Include endpoints: the interior (stub-to-stub) must not travel *through*
+  // the source/target card to reach a port on the opposite side.
   const obstacles = allNodes
-    .filter((n) => n.id !== from.id && n.id !== to.id)
     .map((n) => inflate(n, CLEARANCE))
     // Ignore cards whose clearance swallows a port stub (cramped neighbors);
     // live layout keeps COL_GAP/ROW_GAP wide enough that this rarely applies.
     .filter((o) => !pointInRect(a, o) && !pointInRect(b, o));
 
-  const leftX = Math.min(MARGIN / 2, a.x, b.x) - 8;
+  const leftX = Math.max(MIN_ROUTE_X, Math.min(a.x, b.x) - 16);
   const rightX = Math.max(canvasWidth - MARGIN / 2, a.x, b.x) + 8;
   const midY = (a.y + b.y) / 2;
   const midX = (a.x + b.x) / 2;
@@ -792,12 +858,16 @@ export function routeEdgeOrthogonalPoints(
     ]);
   }
 
-  const farLeft =
-    Math.min(leftX, ...obstacles.map((o) => o.x), a.x, b.x) - 28;
+  const farLeft = Math.max(
+    MIN_ROUTE_X,
+    Math.min(leftX, ...obstacles.map((o) => o.x), a.x, b.x) - 28
+  );
   const farRight =
     Math.max(rightX, ...obstacles.map((o) => o.x + o.w), a.x, b.x) + 28;
-  const farTop =
-    Math.min(gutterAbove, ...obstacles.map((o) => o.y), a.y, b.y) - 28;
+  const farTop = Math.max(
+    MIN_ROUTE_Y,
+    Math.min(gutterAbove, ...obstacles.map((o) => o.y), a.y, b.y) - 28
+  );
   const farBottom =
     Math.max(gutterBelow, ...obstacles.map((o) => o.y + o.h), a.y, b.y) + 28;
 
@@ -849,12 +919,19 @@ export function routeEdgeOrthogonalPoints(
     ]);
   }
 
+  const clampPts = (pts: Pt[]): Pt[] =>
+    pts.map((p) => ({
+      x: Math.max(MIN_ROUTE_X, p.x),
+      y: Math.max(MIN_ROUTE_Y, p.y),
+    }));
+
   const best = pickClearPath(midCandidates, obstacles, reserved);
   if (best) {
-    return [portS, ...best, portT];
+    return clampPts([portS, ...best, portT]);
   }
 
   // Last resort: outer ring channels (prefer clear; else far-right).
+  // Never detour left of MIN_ROUTE_X — that is what clipped off-canvas.
   const fallbacks: Pt[][] = [];
   for (const dx of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
     fallbacks.push([
@@ -863,18 +940,20 @@ export function routeEdgeOrthogonalPoints(
       { x: farRight + 24 + dx, y: b.y },
       b,
     ]);
+    const lx = Math.max(MIN_ROUTE_X, farLeft + dx);
     fallbacks.push([
       a,
-      { x: farLeft - 24 + dx, y: a.y },
-      { x: farLeft - 24 + dx, y: b.y },
+      { x: lx, y: a.y },
+      { x: lx, y: b.y },
       b,
     ]);
   }
   for (const dy of [0, EDGE_SEP, -EDGE_SEP, 2 * EDGE_SEP, -2 * EDGE_SEP]) {
+    const ty = Math.max(MIN_ROUTE_Y, farTop + dy);
     fallbacks.push([
       a,
-      { x: a.x, y: farTop - 24 + dy },
-      { x: b.x, y: farTop - 24 + dy },
+      { x: a.x, y: ty },
+      { x: b.x, y: ty },
       b,
     ]);
     fallbacks.push([
@@ -888,12 +967,12 @@ export function routeEdgeOrthogonalPoints(
     a,
     { x: a.x, y: farBottom + 24 },
     { x: farRight + 24, y: farBottom + 24 },
-    { x: farRight + 24, y: farTop - 24 },
-    { x: b.x, y: farTop - 24 },
+    { x: farRight + 24, y: Math.max(MIN_ROUTE_Y, farTop) },
+    { x: b.x, y: Math.max(MIN_ROUTE_Y, farTop) },
     b,
   ]);
   const fb = pickClearPath(fallbacks, obstacles, reserved) || fallbacks[0];
-  return [portS, ...fb, portT];
+  return clampPts([portS, ...fb, portT]);
 }
 
 export function routeEdgeOrthogonal(
@@ -1240,7 +1319,8 @@ export function layoutTopology(
     const { fromSide, toSide } = chooseSides(
       from,
       to,
-      String(e.kind || 'request')
+      String(e.kind || 'request'),
+      positioned
     );
     const fk = `${from.id}:${fromSide}`;
     const tk = `${to.id}:${toSide}`;

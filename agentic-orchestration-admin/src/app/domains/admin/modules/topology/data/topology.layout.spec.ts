@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MIN_ROUTE_X,
+  MIN_ROUTE_Y,
   edgePathHitsOtherNodes,
   isSideCenter,
   layoutTopology,
@@ -611,6 +613,187 @@ describe('topology.layout', () => {
       const to = byId.get(e.to)!;
       expect(isSideCenter(from, ends!.start)).not.toBeNull();
       expect(isSideCenter(to, ends!.end)).not.toBeNull();
+    }
+  });
+
+  /** Live Ada-shaped graph: Reach row + Web API bypass + AO endpoints. */
+  function adaLikeGraph(): { nodes: TopologyNode[]; edges: TopologyEdge[] } {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'app/comstar',
+        kind: 'app',
+        band: 'application',
+        appId: 'comstar',
+        appGroup: 'reach',
+      }),
+      n({
+        id: 'app/ao-web',
+        kind: 'ao-web',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/ao-chat',
+        kind: 'ao-chat',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({
+        id: 'app/home-assistant',
+        kind: 'web-api-client',
+        band: 'application',
+        appGroup: 'web-api',
+      }),
+      n({ id: 'reach/session-bridge', kind: 'session-bridge', band: 'reach' }),
+      n({ id: 'reach/overlay-packer', kind: 'overlay-packer', band: 'reach' }),
+      n({ id: 'reach/local-mcp-host', kind: 'local-mcp-host', band: 'reach' }),
+      n({ id: 'reach/speech-client', kind: 'speech-client', band: 'reach' }),
+      n({
+        id: 'reach/mtls-enroller',
+        kind: 'mtls-enroller',
+        band: 'reach',
+        deployed: false,
+      }),
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'engine/session-overlay', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/mcp-tunnel', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/direct-agent', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'speech/stt', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/hello-speech', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/mtls-enrol', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'planner', kind: 'planner', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+    ];
+    const edges: TopologyEdge[] = [
+      {
+        id: 'sb->op',
+        from: 'reach/session-bridge',
+        to: 'reach/overlay-packer',
+        kind: 'request',
+      },
+      {
+        id: 'sb->mcp',
+        from: 'reach/session-bridge',
+        to: 'reach/local-mcp-host',
+        kind: 'request',
+      },
+      {
+        id: 'sb->speech',
+        from: 'reach/session-bridge',
+        to: 'reach/speech-client',
+        kind: 'request',
+      },
+      {
+        id: 'sb->engine',
+        from: 'reach/session-bridge',
+        to: 'engine',
+        kind: 'stream',
+      },
+      {
+        id: 'op->so',
+        from: 'reach/overlay-packer',
+        to: 'engine/session-overlay',
+        kind: 'request',
+      },
+      {
+        id: 'tun->mcp',
+        from: 'engine/mcp-tunnel',
+        to: 'reach/local-mcp-host',
+        kind: 'reverse-tunnel',
+      },
+      {
+        id: 'sp->stt',
+        from: 'reach/speech-client',
+        to: 'speech/stt',
+        kind: 'stream',
+      },
+      {
+        id: 'ha->web',
+        from: 'app/home-assistant',
+        to: 'web-ui',
+        kind: 'bypass',
+      },
+      {
+        id: 'web->pl',
+        from: 'web-ui',
+        to: 'planner',
+        kind: 'request',
+      },
+      {
+        id: 'eng->pl',
+        from: 'engine',
+        to: 'planner',
+        kind: 'request',
+      },
+      {
+        id: 'eng->so',
+        from: 'engine',
+        to: 'engine/session-overlay',
+        kind: 'request',
+      },
+      {
+        id: 'eng->tun',
+        from: 'engine',
+        to: 'engine/mcp-tunnel',
+        kind: 'request',
+      },
+      {
+        id: 'eng->da',
+        from: 'engine',
+        to: 'engine/direct-agent',
+        kind: 'request',
+      },
+    ];
+    return { nodes, edges };
+  }
+
+  it('never routes wires off the left of the canvas (Ada Reach/AO graph)', () => {
+    const { nodes, edges } = adaLikeGraph();
+    const layout = layoutTopology(nodes, edges, { showNotDeployed: true });
+    for (const e of layout.edges) {
+      for (const p of pathPoints(e.pathD)) {
+        expect(
+          p.x,
+          `${e.id} x=${p.x} y=${p.y} path=${e.pathD}`
+        ).toBeGreaterThanOrEqual(MIN_ROUTE_X);
+        expect(p.y, `${e.id} y=${p.y}`).toBeGreaterThanOrEqual(MIN_ROUTE_Y);
+      }
+    }
+  });
+
+  it('does not send SessionBridge wires through sibling Reach cards', () => {
+    const { nodes, edges } = adaLikeGraph();
+    const layout = layoutTopology(nodes, edges, { showNotDeployed: true });
+    const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+    const sb = byId.get('reach/session-bridge')!;
+    const long = layout.edges.filter(
+      (e) =>
+        e.from === 'reach/session-bridge' &&
+        (e.to === 'reach/local-mcp-host' || e.to === 'reach/speech-client')
+    );
+    expect(long.length).toBe(2);
+    for (const e of long) {
+      const start = pathEndpoints(e.pathD)!.start;
+      // Skip-level Reach edges leave the top (row gutter), not the right
+      // (which bundled horizontals through OverlayPacker).
+      expect(isSideCenter(sb, start), e.id).toBe('top');
+      expect(
+        edgePathHitsOtherNodes(e.pathD, e.from, e.to, layout.nodes),
+        e.id
+      ).toBe(false);
+    }
+    const toPacker = layout.edges.find(
+      (e) =>
+        e.from === 'reach/session-bridge' && e.to === 'reach/overlay-packer'
+    )!;
+    expect(isSideCenter(sb, pathEndpoints(toPacker.pathD)!.start)).toBe(
+      'right'
+    );
+    for (const e of layout.edges) {
+      expect(
+        edgePathHitsOtherNodes(e.pathD, e.from, e.to, layout.nodes),
+        e.id
+      ).toBe(false);
     }
   });
 });
