@@ -69,7 +69,7 @@ export interface EffectiveConfigResponse {
   keys?: Record<string, EffectiveConfigEntry>;
   fingerprint?: string;
   generatedAt?: string;
-  writeApi?: boolean | { tokens?: boolean };
+  writeApi?: boolean | { tokens?: boolean; mtlsClients?: boolean; control?: boolean };
   phase?: number;
   includeInjected?: boolean;
 }
@@ -318,4 +318,64 @@ export interface AgentProvider {
   role?: string;
   planner_hint?: string;
   min_vram_gb?: number | null;
+}
+
+export type ControlTargetKind =
+  | 'k8s-deployment'
+  | 'k8s-stack'
+  | 'host-service'
+  | 'host-reboot';
+
+export interface ControlTarget {
+  id: string;
+  label: string;
+  kind: ControlTargetKind | string;
+  group: 'apps' | 'stack' | 'host' | string;
+  description?: string;
+  confirmPhrase?: string | null;
+  disconnectLikely?: boolean;
+  available: boolean;
+  reason?: string | null;
+  members?: string[];
+}
+
+export interface ControlRestartAction {
+  id: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface ControlRestartResult {
+  ok?: boolean;
+  accepted?: boolean;
+  target?: string;
+  actions?: ControlRestartAction[];
+  disconnectLikely?: boolean;
+  hostname?: string;
+  requestedAt?: string;
+  at?: string;
+  error?: string;
+  code?: string;
+}
+
+export interface ControlStatus {
+  generatedAt?: string;
+  hostname?: string | null;
+  kubernetes?: {
+    available?: boolean;
+    namespace?: string | null;
+    error?: string | null;
+  };
+  hostControl?: {
+    available?: boolean;
+    dir?: string | null;
+    armed?: boolean;
+    mode?: string | null;
+    reboot?: boolean;
+    ollama?: boolean;
+    reason?: string | null;
+    installedAt?: string | null;
+  };
+  targets: ControlTarget[];
+  lastAction?: ControlRestartResult | null;
 }

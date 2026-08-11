@@ -6,6 +6,8 @@ import {
   AgentProvider,
   ApiAccessToken,
   ApiAccessTokenUsage,
+  ControlRestartResult,
+  ControlStatus,
   MtlsClient,
   MtlsEnrollToken,
   CatalogEntry,
@@ -221,6 +223,25 @@ export class AoApi {
     maxUses?: number;
   }) {
     return this.post<MtlsEnrollToken>('/api/v1/admin/mtls/enroll-tokens', body);
+  }
+
+  controlStatus() {
+    return this.get<ControlStatus>('/api/v1/admin/control').pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return {
+          ok: true as const,
+          data: {
+            ...r.data,
+            targets: r.data.targets ?? [],
+          },
+        };
+      })
+    );
+  }
+
+  controlRestart(body: { target: string; confirm?: string }) {
+    return this.post<ControlRestartResult>('/api/v1/admin/control/restart', body);
   }
 }
 

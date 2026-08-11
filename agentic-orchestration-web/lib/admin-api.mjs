@@ -1,13 +1,18 @@
 /**
  * Phase 0 Admin read API helpers.
  * Secrets are never returned — only { set: true/false }.
- * Narrow write exception: API access token mint/revoke.
+ * Narrow write exception: API access token mint/revoke, mTLS client revoke,
+ * and allowlisted AO control restarts.
  */
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
+import {
+  buildControlStatus,
+  executeControlRestart,
+} from "./admin-control.mjs";
 import {
   buildTopologyGraph,
   buildTopologyNodeDetail,
@@ -1118,7 +1123,7 @@ function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
     generatedAt: new Date().toISOString(),
     fingerprint,
     phase: 0,
-    writeApi: { tokens: true },
+    writeApi: { tokens: true, mtlsClients: true, control: true },
     includeInjected: Boolean(includeInjected),
     entries,
     layers: layers.map((l) => ({
@@ -1854,6 +1859,8 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/mtls/clients/revoke") return { name: "mtls_clients_revoke" };
   if (p === "/api/v1/admin/mtls/clients/unrevoke") return { name: "mtls_clients_unrevoke" };
   if (p === "/api/v1/admin/mtls/enroll-tokens") return { name: "mtls_enroll_tokens" };
+  if (p === "/api/v1/admin/control") return { name: "control" };
+  if (p === "/api/v1/admin/control/restart") return { name: "control_restart" };
   return null;
 }
 
@@ -1893,6 +1900,7 @@ function isTokenWriteRoute(route, method) {
   if (route.name === "mtls_clients_revoke" && method === "POST") return true;
   if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
   if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
+  if (route.name === "control_restart" && method === "POST") return true;
   return false;
 }
 
@@ -1922,9 +1930,10 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: { tokens: true, mtlsClients: true },
+        writeApi: { tokens: true, mtlsClients: true, control: true },
         title: "AO Administration",
-        readOnlyMessage: "Read-only except API tokens and mTLS client revoke",
+        readOnlyMessage:
+          "Read-only except API tokens, mTLS client revoke, and AO control restarts",
         webUiAppId: WEB_UI_APP_ID,
         chatUiAppId: CHAT_UI_APP_ID,
         webUiAssigned: isWebUiAssigned(ctx.toolRoot),
@@ -2253,6 +2262,30 @@ async function handleAdminApi(req, res, ctx) {
       send(200, data);
       return true;
     }
+    if (route.name === "control" && (method === "GET" || method === "HEAD")) {
+      send(200, await buildControlStatus());
+      return true;
+    }
+    if (route.name === "control_restart" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        const code = err?.code === "too_large" ? 413 : 400;
+        send(code, { error: err instanceof Error ? err.message : "Invalid body" });
+        return true;
+      }
+      const result = await executeControlRestart(body);
+      send(result.httpStatus, result.body);
+      if (typeof result.afterSend === "function") {
+        setTimeout(() => {
+          Promise.resolve(result.afterSend()).catch((err) => {
+            console.error("[admin-control] delayed restart failed", err);
+          });
+        }, 300);
+      }
+      return true;
+    }
   } catch (err) {
     send(500, { error: err instanceof Error ? err.message : "Admin API error" });
     return true;
@@ -2271,6 +2304,8 @@ export {
   buildStorageInventory,
   buildAccessPosture,
   buildSupportBundle,
+  buildControlStatus,
+  executeControlRestart,
   listRecentRuns,
   buildRunDetail,
   fetchJson,

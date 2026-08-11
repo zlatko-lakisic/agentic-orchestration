@@ -84,19 +84,29 @@ export function readServiceAccount() {
 /**
  * @param {NonNullable<ReturnType<typeof readServiceAccount>>} sa
  * @param {string} path
- * @param {{ timeoutMs?: number }} [opts]
+ * @param {{ timeoutMs?: number, method?: string, body?: string|object|null, contentType?: string }} [opts]
  */
 export function k8sRequest(sa, path, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 15000;
+  const method = String(opts.method || "GET").toUpperCase();
+  let payload = null;
+  if (opts.body != null) {
+    payload = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
+  }
+  const headers = { Authorization: `Bearer ${sa.token}` };
+  if (payload != null) {
+    headers["Content-Type"] = opts.contentType || "application/json";
+    headers["Content-Length"] = String(Buffer.byteLength(payload));
+  }
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
         host: sa.host,
         port: sa.port,
         path,
-        method: "GET",
+        method,
         ca: sa.ca,
-        headers: { Authorization: `Bearer ${sa.token}` },
+        headers,
         timeout: timeoutMs,
       },
       (res) => {
@@ -119,6 +129,7 @@ export function k8sRequest(sa, path, opts = {}) {
       req.destroy();
       reject(new Error("k8s request timeout"));
     });
+    if (payload != null) req.write(payload);
     req.end();
   });
 }

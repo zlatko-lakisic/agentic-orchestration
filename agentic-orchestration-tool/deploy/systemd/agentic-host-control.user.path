@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch AO host control request files (user)
+
+[Path]
+PathExists=/var/projects/agentic-orchestration/var/agentic-control/reboot.request
+PathExists=/var/projects/agentic-orchestration/var/agentic-control/ollama.restart.request
+Unit=agentic-host-control.service
+
+[Install]
+WantedBy=default.target

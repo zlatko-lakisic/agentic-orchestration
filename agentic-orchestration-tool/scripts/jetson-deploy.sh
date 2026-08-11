@@ -31,6 +31,7 @@ kubectl apply -n "${NS}" \
 bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 # Install the correct host GPU writer (Jetson / CUDA / AMD) before hotfix.
 bash "${TOOL_ROOT}/scripts/install-host-gpu-metrics.sh" "${PROJECT_ROOT}" || true
+bash "${TOOL_ROOT}/scripts/jetson-install-host-control.sh" "${PROJECT_ROOT}" || true
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
 # Additive Engine API daemon (KnowBuddy /api/v1/*). Opt out with AGENTIC_JETSON_ENABLE_ENGINE=0.

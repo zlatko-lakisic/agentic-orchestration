@@ -38,6 +38,12 @@ export const NAVIGATION: NavigationItem[] = [
     label: 'Operate',
     children: [
       {
+        id: 'control',
+        label: 'Control',
+        icon: 'power',
+        route: '/control',
+      },
+      {
         id: 'components',
         label: 'Components',
         icon: 'server',

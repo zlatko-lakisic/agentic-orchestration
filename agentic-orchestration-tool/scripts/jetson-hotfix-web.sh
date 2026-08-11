@@ -53,6 +53,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=admin-topology-graph.mjs="${WEB_ROOT}/lib/admin-topology-graph.mjs" \
   --from-file=admin-topology-probes.mjs="${WEB_ROOT}/lib/admin-topology-probes.mjs" \
   --from-file=admin-k8s.mjs="${WEB_ROOT}/lib/admin-k8s.mjs" \
+  --from-file=admin-control.mjs="${WEB_ROOT}/lib/admin-control.mjs" \
   --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
   --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs"
 
@@ -137,6 +138,7 @@ WARM_POOL_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
 JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
 API_TOKENS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/api-tokens-hostpath-patch.yaml"
+HOST_CONTROL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-host-control-hostpath-patch.yaml"
 SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-patch.yaml"
 RAG_SOURCES_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-rag-sources-hostpath-patch.yaml"
 PLANT_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-plant-knowledge-mcp-hostpath-patch.yaml"
@@ -158,6 +160,9 @@ if [[ -f "${JTOP_PATCH}" ]]; then
 fi
 if [[ -f "${API_TOKENS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${API_TOKENS_PATCH}"
+fi
+if [[ -f "${HOST_CONTROL_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${HOST_CONTROL_PATCH}"
 fi
 if [[ -f "${SKILLS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${SKILLS_PATCH}"

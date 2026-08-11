@@ -22,6 +22,13 @@ const routes: Routes = [
           ),
       },
       {
+        path: 'control',
+        loadComponent: () =>
+          import('./modules/control/features/control-page').then(
+            (m) => m.ControlPage
+          ),
+      },
+      {
         path: 'components',
         loadComponent: () =>
           import('./modules/components/features/components').then(

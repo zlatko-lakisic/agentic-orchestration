@@ -1,0 +1,17 @@
+# Writable host control dir (reboot / Ollama restart request files).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          env:
+            - name: AGENTIC_HOST_CONTROL_DIR
+              value: /host/agentic-control
+          volumeMounts:
+            - name: host-agentic-control
+              mountPath: /host/agentic-control
+      volumes:
+        - name: host-agentic-control
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/agentic-control
+            type: DirectoryOrCreate

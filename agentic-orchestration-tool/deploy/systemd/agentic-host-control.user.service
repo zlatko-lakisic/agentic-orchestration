@@ -1,0 +1,6 @@
+[Unit]
+Description=Agentic orchestration — host control (user)
+
+[Service]
+Type=oneshot
+ExecStart=/var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/agentic-host-control-run.sh /var/projects/agentic-orchestration
