@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **Admin Control** — Operate → Control restarts allowlisted AO apps (coordinator, engine, warm-pool, broker, MCP sidecars, Ollama), the Kubernetes stack (coordinator last), or the host. `POST /api/v1/admin/control/restart` with confirm `REBOOT` for the server. Coordinator RBAC gains `deployments` patch; host reboot/Ollama go through `var/agentic-control` + a systemd path unit (`jetson-install-host-control.sh`).
+- **Admin Control** — Operate → Control restarts allowlisted AO apps (coordinator, engine, warm-pool, broker, MCP sidecars, Ollama), the Kubernetes stack (coordinator last), or the host. `POST /api/v1/admin/control/restart` with confirm `REBOOT` for the server. Coordinator RBAC gains `deployments` patch. Host reboot uses a writable `/proc/sysrq-trigger` mount (no passwordless sudo); Ollama restart still needs the systemd watcher installed with root/sudo.
 - **Reach app client IPs on Topology** — engine WebSocket peer IP (X-Forwarded-For / socket) is stored on session overlays and shown on Reach Application nodes + Connecting IPs in the node modal.
 - **Kubernetes expand: nodes, pods, services, network paths** — expanding Kubernetes shows cluster nodes as groups with individual pods (podIP / hostIP), Services with clusterIP, and Service→Pod edges. Coordinator RBAC gains `services`/`endpoints` list plus optional ClusterRole for Nodes.
 - **Topology full screen** — maximize on the canvas (and Full screen in the toolbar) expands the diagram over the Admin chrome; Esc or minimize exits. Works even when the page would otherwise force table view.

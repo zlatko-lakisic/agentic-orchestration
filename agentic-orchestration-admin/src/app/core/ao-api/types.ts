@@ -337,6 +337,7 @@ export interface ControlTarget {
   available: boolean;
   reason?: string | null;
   members?: string[];
+  rebootVia?: string | null;
 }
 
 export interface ControlRestartAction {
@@ -373,6 +374,7 @@ export interface ControlStatus {
     mode?: string | null;
     reboot?: boolean;
     ollama?: boolean;
+    sysrq?: boolean;
     reason?: string | null;
     installedAt?: string | null;
   };

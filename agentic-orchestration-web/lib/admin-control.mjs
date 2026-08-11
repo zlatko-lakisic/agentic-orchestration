@@ -119,6 +119,32 @@ export function resolveHostControlDir(env = process.env) {
   return null;
 }
 
+export function resolveSysrqPath(env = process.env) {
+  const fromEnv = String(env.AGENTIC_HOST_SYSRQ_PATH || "").trim();
+  if (fromEnv) return fromEnv;
+  if (fs.existsSync("/host/sysrq-trigger")) return "/host/sysrq-trigger";
+  return null;
+}
+
+export function isWritablePath(p) {
+  if (!p) return false;
+  try {
+    fs.accessSync(p, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function writeSysrqReboot(sysrqPath) {
+  if (!sysrqPath) {
+    const err = new Error("sysrq trigger is not available");
+    err.code = "sysrq_unavailable";
+    throw err;
+  }
+  fs.writeFileSync(sysrqPath, "b");
+}
+
 export function readWatcherStatus(dir) {
   if (!dir) {
     return {
@@ -256,7 +282,20 @@ async function listDeploymentNames(sa, k8sRequestFn) {
   );
 }
 
-function hostTargetAvailable(spec, dir, watcher) {
+function hostTargetAvailable(spec, dir, watcher, extra = {}) {
+  if (spec.id === "host") {
+    if (dir && watcher.writable && watcher.armed && watcher.reboot) {
+      return { available: true, reason: null, rebootVia: "watcher" };
+    }
+    if (extra.sysrqWritable) {
+      return { available: true, reason: null, rebootVia: "sysrq" };
+    }
+    return {
+      available: false,
+      reason:
+        "Host reboot is not armed (sysrq trigger not mounted, and systemd watcher needs root or passwordless sudo)",
+    };
+  }
   if (!dir || !watcher.writable) {
     return {
       available: false,
@@ -272,13 +311,6 @@ function hostTargetAvailable(spec, dir, watcher) {
   if (spec.id === "ollama" && watcher.ollama === false) {
     return { available: false, reason: "Ollama restart is not armed on this host" };
   }
-  if (spec.id === "host" && watcher.reboot === false) {
-    return {
-      available: false,
-      reason:
-        "Host reboot is not armed (needs root systemd unit or passwordless sudo)",
-    };
-  }
   return { available: true, reason: null };
 }
 
@@ -287,6 +319,9 @@ export async function buildControlStatus(opts = {}) {
   const k8sRequestFn = opts.k8sRequest || k8sRequest;
   const dir =
     opts.hostControlDir !== undefined ? opts.hostControlDir : resolveHostControlDir();
+  const sysrqPath =
+    opts.sysrqPath !== undefined ? opts.sysrqPath : resolveSysrqPath();
+  const sysrqWritable = isWritablePath(sysrqPath);
   const watcher = readWatcherStatus(dir);
   const hostname = opts.hostname || readHostHostname(dir);
   let deployments = new Set();
@@ -335,11 +370,12 @@ export async function buildControlStatus(opts = {}) {
               : "No AO deployments found",
       };
     }
-    const host = hostTargetAvailable(spec, dir, watcher);
+    const host = hostTargetAvailable(spec, dir, watcher, { sysrqWritable });
     return {
       ...pickTargetPublic(spec),
       available: host.available,
       reason: host.reason,
+      rebootVia: host.rebootVia || null,
     };
   });
 
@@ -356,8 +392,9 @@ export async function buildControlStatus(opts = {}) {
       dir: dir || null,
       armed: watcher.armed,
       mode: watcher.mode || null,
-      reboot: Boolean(watcher.reboot),
+      reboot: Boolean(watcher.reboot) || sysrqWritable,
       ollama: Boolean(watcher.ollama),
+      sysrq: sysrqWritable,
       reason: watcher.reason,
       installedAt: watcher.installedAt || null,
     },
@@ -467,9 +504,42 @@ export async function executeControlRestart(body, opts = {}) {
         detail: "coordinator restart scheduled",
       });
     }
+  } else if (spec.id === "host") {
+    const sysrqPath =
+      opts.sysrqPath !== undefined ? opts.sysrqPath : resolveSysrqPath();
+    if (live.rebootVia === "watcher") {
+      const payload = {
+        action: "reboot",
+        target: spec.id,
+        requestedAt: at.toISOString(),
+        hostname: status.hostname,
+      };
+      const dest = writeHostRequest(dir, spec.hostFile, payload);
+      actions.push({
+        id: spec.id,
+        ok: true,
+        detail: `wrote ${path.basename(dest)}`,
+      });
+    } else if (isWritablePath(sysrqPath)) {
+      afterSend = () => writeSysrqReboot(sysrqPath);
+      actions.push({
+        id: spec.id,
+        ok: true,
+        detail: "host reboot via sysrq scheduled",
+      });
+    } else {
+      return {
+        httpStatus: 409,
+        body: {
+          error: "Host reboot is not available",
+          code: "target_unavailable",
+          target: spec.id,
+        },
+      };
+    }
   } else {
     const payload = {
-      action: spec.id === "host" ? "reboot" : "ollama-restart",
+      action: "ollama-restart",
       target: spec.id,
       requestedAt: at.toISOString(),
       hostname: status.hostname,

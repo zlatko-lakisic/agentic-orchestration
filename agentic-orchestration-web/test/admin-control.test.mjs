@@ -196,6 +196,30 @@ test("executeControlRestart stack rolls non-coordinator first then schedules coo
   ]);
 });
 
+test("host reboot uses writable sysrq when the systemd watcher is not armed", async () => {
+  const dir = tmpControlDir();
+  const trigger = path.join(dir, "sysrq-trigger");
+  fs.writeFileSync(trigger, "");
+  const status = await buildControlStatus({
+    sa: null,
+    hostControlDir: dir,
+    sysrqPath: trigger,
+  });
+  const host = status.targets.find((t) => t.id === "host");
+  assert.equal(host.available, true);
+  assert.equal(host.rebootVia, "sysrq");
+  assert.equal(status.hostControl.sysrq, true);
+
+  const result = await executeControlRestart(
+    { target: "host", confirm: "REBOOT" },
+    { sa: null, hostControlDir: dir, sysrqPath: trigger, at: new Date("2026-08-11T18:00:00.000Z") },
+  );
+  assert.equal(result.httpStatus, 202);
+  assert.equal(typeof result.afterSend, "function");
+  await result.afterSend();
+  assert.equal(fs.readFileSync(trigger, "utf8"), "b");
+});
+
 test("CONTROL_TARGETS stay on the allowlist (no extra host actions)", () => {
   const ids = CONTROL_TARGETS.map((t) => t.id).sort();
   assert.deepEqual(ids, [

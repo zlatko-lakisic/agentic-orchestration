@@ -88,7 +88,8 @@ elif [[ "${REBOOT}" != "true" ]]; then
   REASON="Watcher installed; host reboot needs passwordless sudo or root"
 fi
 
-python3 - "${CONTROL_DIR}/watcher.json" "${ARMED}" "${MODE}" "${REBOOT}" "${OLLAMA}" "${REASON}" <<'PY'
+WATCHER_JSON="$(mktemp)"
+python3 - "${WATCHER_JSON}" "${ARMED}" "${MODE}" "${REBOOT}" "${OLLAMA}" "${REASON}" <<'PY'
 import json, sys, datetime
 path, armed, mode, reboot, ollama, reason = sys.argv[1:7]
 data = {
@@ -101,12 +102,25 @@ data = {
 }
 open(path, "w", encoding="utf-8").write(json.dumps(data, indent=2) + "\n")
 PY
+cp "${WATCHER_JSON}" "${CONTROL_DIR}/watcher.json" 2>/dev/null || true
+hostname >"${CONTROL_DIR}/hostname" 2>/dev/null || true
 
 PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-host-control-hostpath-patch.yaml"
-if command -v kubectl >/dev/null 2>&1 && [[ -f "${PATCH}" ]]; then
-  echo "Patching coordinator host control hostPath → ${CONTROL_DIR}"
-  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH}" || true
+SYSRQ_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-host-sysrq-patch.yaml"
+if command -v kubectl >/dev/null 2>&1; then
+  if [[ -f "${PATCH}" ]]; then
+    echo "Patching coordinator host control hostPath → ${CONTROL_DIR}"
+    kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH}" || true
+  fi
+  if [[ -f "${SYSRQ_PATCH}" ]]; then
+    echo "Patching coordinator host sysrq trigger"
+    kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${SYSRQ_PATCH}" || true
+  fi
+  kubectl exec -n "${NS}" deploy/agentic-coordinator -- chmod 777 /host/agentic-control 2>/dev/null || true
+  kubectl exec -i -n "${NS}" deploy/agentic-coordinator -- tee /host/agentic-control/watcher.json >/dev/null <"${WATCHER_JSON}" || true
+  kubectl exec -n "${NS}" deploy/agentic-coordinator -- sh -c 'hostname > /host/agentic-control/hostname' || true
 fi
+rm -f "${WATCHER_JSON}"
 
 echo "host control: armed=${ARMED} mode=${MODE} reboot=${REBOOT} ollama=${OLLAMA} dir=${CONTROL_DIR}"
 if [[ -n "${REASON}" ]]; then

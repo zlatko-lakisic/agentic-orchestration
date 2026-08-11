@@ -1,0 +1,17 @@
+# Writable host sysrq trigger so Admin can reboot the node without passwordless sudo.
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          env:
+            - name: AGENTIC_HOST_SYSRQ_PATH
+              value: /host/sysrq-trigger
+          volumeMounts:
+            - name: host-sysrq-trigger
+              mountPath: /host/sysrq-trigger
+      volumes:
+        - name: host-sysrq-trigger
+          hostPath:
+            path: /proc/sysrq-trigger
+            type: File
