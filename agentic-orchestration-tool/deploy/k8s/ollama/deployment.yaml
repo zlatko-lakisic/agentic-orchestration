@@ -23,6 +23,8 @@ spec:
         app.kubernetes.io/name: agentic-ollama
         app.kubernetes.io/component: ollama
     spec:
+      # k3s NVIDIA toolkit RuntimeClass (GPU without nvidia.com/gpu device plugin).
+      runtimeClassName: nvidia
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -35,6 +37,10 @@ spec:
               value: "0.0.0.0:11434"
             - name: OLLAMA_KEEP_ALIVE
               value: "-1"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
           volumeMounts:
             - name: ollama-models
               mountPath: /root/.ollama
