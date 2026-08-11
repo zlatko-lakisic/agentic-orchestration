@@ -3,6 +3,7 @@ import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { layoutTopology, pathClosure } from './topology.layout';
+import { visibleNodeStatus } from './topology.status';
 import {
   LayoutResult,
   PositionedNode,
@@ -81,11 +82,11 @@ export class TopologyStore {
     return this.layout()
       .nodes.map((n) => {
         const h = health[n.id];
-        let status = h?.status || n.status;
-        let statusReason = h?.statusReason ?? n.statusReason;
-        if (n.instrumented === false && status === 'healthy') {
-          status = 'unknown';
-        }
+        const status = visibleNodeStatus(
+          h?.status || n.status,
+          n.deployed !== false
+        );
+        const statusReason = h?.statusReason ?? n.statusReason;
         return {
           ...n,
           status,

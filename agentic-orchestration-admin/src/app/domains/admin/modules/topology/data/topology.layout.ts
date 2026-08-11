@@ -1,3 +1,4 @@
+import { visibleNodeStatus } from './topology.status';
 import {
   LayoutResult,
   PositionedEdge,
@@ -297,12 +298,8 @@ function filterK8sAccordion(
   });
 }
 
-function displayStatus(n: TopologyNode): string {
-  if (n.instrumented === false && n.status === 'healthy') {
-    return 'unknown';
-  }
-  if (!n.instrumented && n.status === 'healthy') return 'unknown';
-  return n.status || 'unknown';
+export function displayStatus(n: TopologyNode): string {
+  return visibleNodeStatus(n.status, n.deployed !== false);
 }
 
 function inflate(n: PositionedNode, pad: number): Rect {

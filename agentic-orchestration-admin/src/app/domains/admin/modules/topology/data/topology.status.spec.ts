@@ -5,6 +5,7 @@ import {
   statusGlyphColor,
   statusIcon,
   statusMark,
+  visibleNodeStatus,
 } from './topology.status';
 
 describe('topology.status', () => {
@@ -13,7 +14,7 @@ describe('topology.status', () => {
     expect(statusIcon('failed')).toBe('x');
     expect(statusGlyphColor('failed')).toBe('#dc2626');
     expect(statusGlyph('degraded')).not.toBe('✕');
-    expect(statusGlyph('unknown')).not.toBe('✕');
+    expect(statusGlyph('offline')).not.toBe('✕');
     expect(statusGlyph('healthy')).not.toBe('✕');
   });
 
@@ -36,13 +37,17 @@ describe('topology.status', () => {
     expect(new Set(glyphs).size).toBe(STATUS_MARK_LIST.length);
     expect(statusIcon('starting')).toBe('loader-circle');
     expect(statusIcon('draining')).toBe('circle-arrow-down');
-    expect(statusIcon('unknown')).toBe('circle-question-mark');
     expect(statusIcon('offline')).toBe('circle-off');
+    expect(STATUS_MARK_LIST.some((m) => m.id === 'unknown')).toBe(false);
   });
 
-  it('falls back to unknown for blank or unrecognised status', () => {
-    expect(statusMark('').id).toBe('unknown');
-    expect(statusMark('down').id).toBe('unknown');
-    expect(statusMark(null).id).toBe('unknown');
+  it('never surfaces unknown — idle/unprobed is healthy, not-deployed is offline', () => {
+    expect(visibleNodeStatus('unknown', true)).toBe('healthy');
+    expect(visibleNodeStatus('unknown', false)).toBe('offline');
+    expect(visibleNodeStatus('', true)).toBe('healthy');
+    expect(visibleNodeStatus('down', true)).toBe('healthy');
+    expect(statusMark('unknown').id).toBe('healthy');
+    expect(statusMark('').id).toBe('healthy');
+    expect(statusMark(null).id).toBe('healthy');
   });
 });

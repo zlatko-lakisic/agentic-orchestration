@@ -9,7 +9,6 @@ export type TopologyNodeStatus =
   | 'failed'
   | 'starting'
   | 'draining'
-  | 'unknown'
   | 'offline';
 
 export type TopologyEdgeKind =

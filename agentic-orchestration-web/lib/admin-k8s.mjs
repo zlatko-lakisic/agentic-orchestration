@@ -228,7 +228,7 @@ export function summarizePod(pod) {
  * @param {ReturnType<typeof summarizePod>[]} pods
  */
 export function statusFromPods(pods) {
-  if (!pods.length) return { status: "unknown", reason: "no pods" };
+  if (!pods.length) return { status: "offline", reason: "no pods" };
   const failed = pods.some(
     (p) =>
       p.phase === "Failed" ||
@@ -247,7 +247,7 @@ export function statusFromPods(pods) {
     (p) => p.phase === "Running" || p.phase === "Succeeded",
   );
   if (allOk) return { status: "healthy", reason: "pods ready" };
-  return { status: "unknown", reason: `phases: ${pods.map((p) => p.phase).join(",")}` };
+  return { status: "degraded", reason: `phases: ${pods.map((p) => p.phase).join(",")}` };
 }
 
 /**
@@ -438,7 +438,7 @@ export async function probeK8sTopology() {
         deployed: pods.length > 0,
         count: pods.length,
         ready: readyCount,
-        status: pods.length ? status : "unknown",
+        status: pods.length ? status : "offline",
         statusReason: pods.length ? reason : "no pods for this workload",
         instrumented: true,
         pods,
@@ -498,7 +498,7 @@ export async function probeK8sTopology() {
         ready: meta ? meta.ready : pods.some((p) => p.ready),
         count: pods.length,
         readyPods: pods.filter((p) => p.ready).length,
-        status: pods.length ? status : meta?.ready ? "healthy" : "unknown",
+        status: pods.length ? status : meta?.ready ? "healthy" : "offline",
         statusReason: pods.length ? reason : meta ? "node listed (no AO pods)" : "no pods",
         pods,
       });

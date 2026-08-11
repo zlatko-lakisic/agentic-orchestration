@@ -41,7 +41,7 @@ export function recordNodeSample(nodeId, partial) {
   push(nodeHistory, nodeId, {
     t,
     ts: new Date(t).toISOString(),
-    status: partial.status || "unknown",
+    status: partial.status || "offline",
     statusReason: partial.statusReason || "",
     latencyMs: partial.latencyMs == null ? null : Number(partial.latencyMs),
     ok: partial.ok == null ? null : Boolean(partial.ok),
@@ -154,7 +154,7 @@ export function ingestTopologySample(graph, probe = {}) {
   for (const e of edges) {
     if (instrumentedEdgeIds.has(e.id)) {
       e.instrumented = true;
-      if (e.status === "unknown") {
+      if (e.status === "unknown" || e.status === "idle" || !e.status) {
         e.status = engineOk || e.from === "web-ui" ? "ok" : "failing";
       }
     }

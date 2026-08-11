@@ -19,6 +19,7 @@ import {
   probeSpeechStt,
   probeSpeechTts,
   probeStorageGpu,
+  sealTopologyGraphStatuses,
 } from "./admin-topology-probes.mjs";
 import {
   CHAT_UI_APP_ID,
@@ -43,7 +44,7 @@ function truthy(v) {
 
 function node(partial) {
   return {
-    status: "unknown",
+    status: "healthy",
     statusReason: "",
     instrumented: false,
     deployed: true,
@@ -57,7 +58,7 @@ function edge(partial) {
     kind: "request",
     protocol: "https",
     instrumented: false,
-    status: "unknown",
+    status: "idle",
     ...partial,
   };
 }
@@ -344,7 +345,7 @@ export async function buildTopologyGraph(ctx) {
       appId: WEB_UI_APP_ID,
       label: WEB_UI_APP_ID,
       sublabel: `Admin · bypass web${webApiIpHint(WEB_UI_APP_ID)}`,
-      status: webAssign ? "healthy" : "unknown",
+      status: webAssign ? "healthy" : "degraded",
       instrumented: Boolean(webAssign),
       deployed: true,
       clientIpCount: webApiById.get(WEB_UI_APP_ID)?.clientIpCount || 0,
@@ -362,7 +363,7 @@ export async function buildTopologyGraph(ctx) {
       appId: CHAT_UI_APP_ID,
       label: CHAT_UI_APP_ID,
       sublabel: `Chat · bypass web${webApiIpHint(CHAT_UI_APP_ID)}`,
-      status: chatAssign ? "healthy" : "unknown",
+      status: chatAssign ? "healthy" : "degraded",
       instrumented: Boolean(chatAssign),
       deployed: true,
       clientIpCount: webApiById.get(CHAT_UI_APP_ID)?.clientIpCount || 0,
@@ -392,7 +393,7 @@ export async function buildTopologyGraph(ctx) {
         ]
           .filter(Boolean)
           .join(" · "),
-        status: app.recent ? "healthy" : app.lastUsedAt ? "degraded" : "unknown",
+        status: app.recent ? "healthy" : app.lastUsedAt ? "degraded" : "healthy",
         instrumented: Boolean(app.lastUsedAt),
         deployed: true,
         count: nTok,
@@ -472,7 +473,7 @@ export async function buildTopologyGraph(ctx) {
             appGroup: "reach",
             label: "Domain overlays",
             sublabel: `${g.agentCount} client.*`,
-            status: g.agentCount > 0 ? "healthy" : "unknown",
+            status: g.agentCount > 0 ? "healthy" : "offline",
             instrumented: true,
             deployed: g.agentCount > 0,
             parent: parentId,
@@ -488,7 +489,7 @@ export async function buildTopologyGraph(ctx) {
             appGroup: "reach",
             label: "Local tools",
             sublabel: `${g.tunnelMcpCount || g.mcpCount} MCP`,
-            status: g.mcpCount > 0 ? "healthy" : "unknown",
+            status: g.mcpCount > 0 ? "healthy" : "offline",
             instrumented: true,
             deployed: g.mcpCount > 0,
             parent: parentId,
@@ -536,7 +537,7 @@ export async function buildTopologyGraph(ctx) {
           appId: "openclaw",
           label: "OpenClaw",
           sublabel: "bypass web",
-          status: openclawHint ? "healthy" : "unknown",
+          status: openclawHint ? "healthy" : "offline",
           instrumented: false,
           deployed: openclawHint,
           statusReason: openclawHint
@@ -554,12 +555,12 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "SessionBridge",
         sublabel: hasReachClients ? "ao_reach" : "idle",
-        status: hasReachClients ? "healthy" : "unknown",
+        status: "healthy",
         instrumented: true,
         deployed: true,
         statusReason: hasReachClients
           ? `${sessionList.length} active Reach session${sessionList.length === 1 ? "" : "s"}`
-          : "No active Reach session overlays (mTLS enroll alone does not populate this)",
+          : "Engine up · no Reach sessions (idle)",
       }),
     );
     nodes.push(
@@ -569,7 +570,7 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "OverlayPacker",
         sublabel: overlaysOn ? "enabled" : "off",
-        status: overlaysOn && engineOk ? "healthy" : overlaysOn ? "failed" : "unknown",
+        status: overlaysOn && engineOk ? "healthy" : overlaysOn ? "failed" : "offline",
         instrumented: overlaysOn,
         deployed: overlaysOn,
         statusReason: overlaysOn
@@ -594,7 +595,7 @@ export async function buildTopologyGraph(ctx) {
               : "degraded"
             : tunnelOn
               ? "failed"
-              : "unknown",
+              : "offline",
         instrumented: tunnelOn,
         deployed: tunnelOn,
         statusReason: tunnelOn
@@ -630,7 +631,7 @@ export async function buildTopologyGraph(ctx) {
             : speechClientOk
               ? "healthy"
               : "degraded"
-          : "unknown",
+          : "offline",
         instrumented: speechNegotiated && (sttProbe.configured || ttsProbe.configured),
         deployed: speechNegotiated,
         statusReason: speechNegotiated
@@ -647,7 +648,7 @@ export async function buildTopologyGraph(ctx) {
         band: "reach",
         label: "MtlsEnroller",
         sublabel: mtlsOn ? "mTLS" : "optional",
-        status: mtlsOn && engineOk ? "healthy" : mtlsOn ? "failed" : "unknown",
+        status: mtlsOn && engineOk ? "healthy" : mtlsOn ? "failed" : "offline",
         instrumented: mtlsOn,
         deployed: mtlsOn,
         statusReason: mtlsOn
@@ -691,7 +692,7 @@ export async function buildTopologyGraph(ctx) {
   const engineStatus = engineOk
     ? "healthy"
     : engineDisabled
-      ? "unknown"
+      ? "offline"
       : "failed";
   nodes.push(
     node({
@@ -704,7 +705,7 @@ export async function buildTopologyGraph(ctx) {
         : engineDisabled
           ? "not deployed"
           : "down",
-      status: engineDisabled && !engineOk ? "unknown" : engineStatus,
+      status: engineDisabled && !engineOk ? "offline" : engineStatus,
       instrumented: true,
       deployed: !engineDisabled,
       statusReason: engineOk
@@ -889,7 +890,7 @@ export async function buildTopologyGraph(ctx) {
         ? ollamaProbe.ok
           ? "healthy"
           : "failed"
-        : "unknown",
+        : "offline",
       instrumented: ollamaProbe.configured,
       deployed: ollamaProbe.configured,
       statusReason: ollamaProbe.reason,
@@ -903,7 +904,7 @@ export async function buildTopologyGraph(ctx) {
       band: "ao",
       label: "Remote LLMs",
       sublabel: remoteConfigured ? "keys set" : "unset",
-      status: "unknown",
+      status: remoteConfigured ? "healthy" : "offline",
       instrumented: false,
       deployed: remoteConfigured,
       statusReason: remoteConfigured
@@ -933,7 +934,7 @@ export async function buildTopologyGraph(ctx) {
       workerWorkloads.find((w) => w.status === "failed")?.status ||
       workerWorkloads.find((w) => w.status === "degraded")?.status ||
       workerWorkloads.find((w) => w.status === "starting")?.status ||
-      (workerPods ? "healthy" : "unknown");
+      (workerPods ? "healthy" : "offline");
     nodes.push(
       node({
         id: "workers/cluster",
@@ -945,7 +946,7 @@ export async function buildTopologyGraph(ctx) {
           : warmPool
             ? "warm pool"
             : "k8s",
-        status: k8sProbe.reachable ? workerStatus : "unknown",
+        status: k8sProbe.reachable ? workerStatus : "offline",
         instrumented: k8sProbe.reachable,
         count: workerPods,
         breakdown: {
@@ -981,7 +982,7 @@ export async function buildTopologyGraph(ctx) {
             : sidecarWorkloads.some((w) => w.status === "degraded")
               ? "degraded"
               : "healthy"
-          : "unknown",
+          : "offline",
         instrumented: k8sProbe.reachable && sidecarDeployed,
         deployed: sidecarDeployed || !k8sProbe.reachable,
         count: sidecarPods,
@@ -1003,7 +1004,7 @@ export async function buildTopologyGraph(ctx) {
     platformWorkloads.find((w) => w.deployed && w.status === "failed")?.status ||
     platformWorkloads.find((w) => w.deployed && w.status === "degraded")?.status ||
     platformWorkloads.find((w) => w.deployed && w.status === "starting")?.status ||
-    (platformPodCount ? "healthy" : "unknown");
+    (platformPodCount ? "healthy" : "offline");
 
   nodes.push(
     node({
@@ -1014,7 +1015,7 @@ export async function buildTopologyGraph(ctx) {
       sublabel: k8sProbe.reachable
         ? `${platformReady}/${platformPodCount} pods · ${k8sProbe.totals?.nodes || 0} nodes · ${k8sProbe.namespace || "ns"}`
         : process.env.AGENTIC_EDGE_PLATFORM || "local",
-      status: k8sProbe.reachable ? platformStatus : "unknown",
+      status: k8sProbe.reachable ? platformStatus : "offline",
       instrumented: k8sProbe.reachable,
       expandable:
         k8sProbe.reachable &&
@@ -1054,7 +1055,7 @@ export async function buildTopologyGraph(ctx) {
           sublabel: addr
             ? `${cn.readyPods || 0}/${cn.count || 0} pods · ${addr}`
             : `${cn.readyPods || 0}/${cn.count || 0} pods`,
-          status: cn.status || "unknown",
+          status: cn.status || "offline",
           statusReason: cn.statusReason,
           instrumented: true,
           deployed: true,
@@ -1082,7 +1083,7 @@ export async function buildTopologyGraph(ctx) {
           kind: "request",
           protocol: "k8s",
           instrumented: false,
-          status: "unknown",
+          status: "idle",
         }),
       );
 
@@ -1132,7 +1133,7 @@ export async function buildTopologyGraph(ctx) {
             kind: "request",
             protocol: "k8s",
             instrumented: false,
-            status: "unknown",
+            status: "idle",
           }),
         );
       }
@@ -1152,7 +1153,7 @@ export async function buildTopologyGraph(ctx) {
           sublabel: svc.clusterIP
             ? `${svc.clusterIP}${portHint}`
             : `${svc.type}${portHint}`,
-          status: (svc.endpointPods || []).length ? "healthy" : "unknown",
+          status: (svc.endpointPods || []).length ? "healthy" : "offline",
           statusReason: `${svc.type} · ${(svc.endpointPods || []).length} endpoint(s)`,
           instrumented: true,
           deployed: true,
@@ -1178,7 +1179,7 @@ export async function buildTopologyGraph(ctx) {
           kind: "request",
           protocol: "k8s",
           instrumented: false,
-          status: "unknown",
+          status: "idle",
         }),
       );
     }
@@ -1213,7 +1214,7 @@ export async function buildTopologyGraph(ctx) {
             sublabel: w.deployed
               ? `${w.ready}/${w.count} ready`
               : "not deployed",
-            status: w.deployed ? w.status : "unknown",
+            status: w.deployed ? w.status : "offline",
             statusReason: w.statusReason,
             instrumented: w.instrumented && w.deployed,
             deployed: w.deployed,
@@ -1237,7 +1238,7 @@ export async function buildTopologyGraph(ctx) {
             kind: "request",
             protocol: "k8s",
             instrumented: false,
-            status: "unknown",
+            status: "idle",
           }),
         );
       }
@@ -1300,7 +1301,7 @@ export async function buildTopologyGraph(ctx) {
       workerWorkloadsEarly.find((w) => w.status === "failed")?.status ||
       workerWorkloadsEarly.find((w) => w.status === "degraded")?.status ||
       workerWorkloadsEarly.find((w) => w.status === "starting")?.status ||
-      (workerPodsEarly ? "healthy" : "unknown");
+      (workerPodsEarly ? "healthy" : "offline");
     const execProbe = probeExecutionBackend({
       backend,
       engineOk,
@@ -1564,6 +1565,7 @@ export async function buildTopologyGraph(ctx) {
   setAppMembers(nodes, "planner", agentMembers);
   setAppMembers(nodes, "engine/direct-agent", agentMembers);
 
+  sealTopologyGraphStatuses(graph);
   ingestTopologySample(graph, {
     engineLatencyMs,
     engineOk,

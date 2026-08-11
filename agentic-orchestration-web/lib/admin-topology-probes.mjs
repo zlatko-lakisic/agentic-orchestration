@@ -4,9 +4,44 @@ import fs from "node:fs";
  * Live Topology node probes (Admin).
  *
  * Each helper returns a real check result — callers set instrumented:true only
- * when a probe actually ran. Remote LLM providers are intentionally omitted
- * (credential presence ≠ health; no outbound paid-API pings).
+ * when a probe actually ran. Remote LLM providers are not HTTP-probed
+ * (credential presence ≠ provider health; no outbound paid-API pings) — they
+ * still get a visible status (healthy when keys are set, offline when not).
  */
+
+/** Operational statuses the Topology canvas may show. Never `unknown`. */
+const VISIBLE_NODE_STATUSES = new Set([
+  "healthy",
+  "degraded",
+  "failed",
+  "starting",
+  "draining",
+  "offline",
+]);
+
+/**
+ * Map a probe/graph status onto a visible node status.
+ * Idle / present-but-unprobed → healthy; disabled / unset / not deployed → offline.
+ */
+export function visibleTopologyStatus(status, deployed = true) {
+  const s = String(status || "").trim().toLowerCase();
+  if (VISIBLE_NODE_STATUSES.has(s)) return s;
+  return deployed === false ? "offline" : "healthy";
+}
+
+/** Rewrite any leftover `unknown` (or blank) on a built graph. */
+export function sealTopologyGraphStatuses(graph) {
+  for (const n of graph?.nodes || []) {
+    n.status = visibleTopologyStatus(n.status, n.deployed !== false);
+  }
+  for (const e of graph?.edges || []) {
+    const s = String(e.status || "").trim().toLowerCase();
+    if (s === "unknown" || !s) {
+      e.status = e.instrumented ? "ok" : "idle";
+    }
+  }
+  return graph;
+}
 
 function truthy(v) {
   return ["1", "true", "yes", "on"].includes(String(v || "").trim().toLowerCase());
@@ -323,7 +358,7 @@ export function probeModelBackends({ ollama, remoteConfigured }) {
   if (!parts.length) {
     return {
       ok: false,
-      status: "unknown",
+      status: "offline",
       instrumented: false,
       reason: "no model backends configured",
     };
@@ -372,10 +407,13 @@ export function probeExecutionBackend({
         reason: "kubernetes backend but cluster API unreachable",
       };
     }
-    const st = workerStatus || (workerPods ? "healthy" : "unknown");
+    const st = workerStatus || (workerPods ? "healthy" : "offline");
     return {
       ok: st === "healthy" || st === "degraded" || st === "starting",
-      status: st === "unknown" && !workerPods ? "degraded" : st,
+      status:
+        (st === "unknown" || st === "offline") && !workerPods
+          ? "degraded"
+          : visibleTopologyStatus(st),
       instrumented: true,
       reason: workerPods
         ? `kubernetes · ${workerPods} worker pod(s)`
@@ -407,7 +445,7 @@ export function probeStorageGpu(engineHealth) {
   if (!engineHealth?.ok) {
     return {
       ok: false,
-      status: "unknown",
+      status: "offline",
       instrumented: false,
       reason: "engine unreachable — hardware not probed",
     };
@@ -449,7 +487,7 @@ export function probeEngineEndpoint({ engineOk, deployed, label, detail }) {
   if (!deployed) {
     return {
       ok: false,
-      status: "unknown",
+      status: "offline",
       instrumented: false,
       reason: `${label} disabled`,
       sublabel: "off",

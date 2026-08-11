@@ -61,7 +61,7 @@ type Pt = { x: number; y: number | null };
           <div class="flex flex-col gap-2 py-3">
             <div>
               Status:
-              <strong>{{ liveStatus() || data.edge.status || 'unknown' }}</strong>
+              <strong>{{ liveStatus() || data.edge.status || 'idle' }}</strong>
             </div>
             @if (!instrumented()) {
               <div class="text-neutral-500">

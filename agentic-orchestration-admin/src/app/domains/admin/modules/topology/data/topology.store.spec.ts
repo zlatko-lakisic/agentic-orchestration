@@ -23,7 +23,7 @@ describe('topology health vs layout contract', () => {
         kind: 'planner',
         band: 'ao',
         label: 'Planner',
-        status: 'unknown',
+        status: 'healthy',
         instrumented: false,
         deployed: true,
       },

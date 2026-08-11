@@ -13,10 +13,12 @@ import {
   probePlannerFromEngine,
   probeSpeechStt,
   probeStorageGpu,
+  sealTopologyGraphStatuses,
   speechSttCandidates,
   speechSttUrl,
   speechTtsCandidates,
   speechTtsUrl,
+  visibleTopologyStatus,
 } from "../lib/admin-topology-probes.mjs";
 
 test("ollamaBaseUrl normalizes host without scheme", () => {
@@ -179,4 +181,31 @@ test("probeEngineEndpoint derives from engine probe", () => {
   });
   assert.equal(off.instrumented, false);
   assert.equal(off.sublabel, "off");
+  assert.equal(off.status, "offline");
+});
+
+test("visibleTopologyStatus never returns unknown", () => {
+  assert.equal(visibleTopologyStatus("unknown", true), "healthy");
+  assert.equal(visibleTopologyStatus("unknown", false), "offline");
+  assert.equal(visibleTopologyStatus("", true), "healthy");
+  assert.equal(visibleTopologyStatus("healthy"), "healthy");
+  assert.equal(visibleTopologyStatus("failed"), "failed");
+  assert.equal(visibleTopologyStatus("degraded"), "degraded");
+  assert.equal(visibleTopologyStatus("offline"), "offline");
+});
+
+test("seal remaps idle SessionBridge unknown to healthy", () => {
+  const g = sealTopologyGraphStatuses({
+    nodes: [
+      { id: "reach/session-bridge", status: "unknown", deployed: true },
+      { id: "reach/overlay-packer", status: "unknown", deployed: false },
+    ],
+    edges: [{ id: "e1", status: "unknown", instrumented: false }],
+  });
+  assert.equal(g.nodes[0].status, "healthy");
+  assert.equal(g.nodes[1].status, "offline");
+  assert.equal(g.edges[0].status, "idle");
+  for (const n of g.nodes) {
+    assert.notEqual(n.status, "unknown");
+  }
 });

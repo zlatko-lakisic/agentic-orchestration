@@ -46,13 +46,6 @@ const MARKS = {
     glyph: '↓',
     color: '#64748b',
   },
-  unknown: {
-    id: 'unknown',
-    label: 'unknown',
-    icon: 'circle-question-mark',
-    glyph: '?',
-    color: '#737373',
-  },
   offline: {
     id: 'offline',
     label: 'offline',
@@ -62,6 +55,21 @@ const MARKS = {
   },
 } as const satisfies Record<string, StatusMark>;
 
+const VISIBLE = new Set<string>(Object.keys(MARKS));
+
+/**
+ * Topology never shows `unknown`. Idle / present-but-unprobed → healthy;
+ * disabled / unset / not deployed → offline.
+ */
+export function visibleNodeStatus(
+  status: string | null | undefined,
+  deployed: boolean | undefined = true
+): string {
+  const s = String(status || '').trim().toLowerCase();
+  if (VISIBLE.has(s)) return s;
+  return deployed === false ? 'offline' : 'healthy';
+}
+
 /** Legend order. */
 export const STATUS_MARK_LIST: StatusMark[] = [
   MARKS.healthy,
@@ -69,16 +77,12 @@ export const STATUS_MARK_LIST: StatusMark[] = [
   MARKS.failed,
   MARKS.starting,
   MARKS.draining,
-  MARKS.unknown,
   MARKS.offline,
 ];
 
 export function statusMark(status: string | null | undefined): StatusMark {
-  const key = String(status || '').toLowerCase();
-  if (Object.prototype.hasOwnProperty.call(MARKS, key)) {
-    return MARKS[key as keyof typeof MARKS];
-  }
-  return MARKS.unknown;
+  const key = visibleNodeStatus(status, true) as keyof typeof MARKS;
+  return MARKS[key];
 }
 
 export function statusGlyph(status: string | null | undefined): string {

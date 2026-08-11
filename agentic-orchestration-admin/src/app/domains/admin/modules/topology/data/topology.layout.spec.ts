@@ -4,6 +4,7 @@ import {
   MIN_ROUTE_Y,
   edgePathHitsOtherNodes,
   isSideCenter,
+  displayStatus,
   layoutTopology,
   nodesOverlap,
   pathClosure,
@@ -21,7 +22,7 @@ function n(
 ): TopologyNode {
   return {
     label: partial.id,
-    status: 'unknown',
+    status: 'healthy',
     instrumented: false,
     deployed: true,
     ...partial,
@@ -29,6 +30,41 @@ function n(
 }
 
 describe('topology.layout', () => {
+  it('never displays unknown status', () => {
+    expect(
+      displayStatus(
+        n({
+          id: 'reach/session-bridge',
+          kind: 'session-bridge',
+          band: 'reach',
+          status: 'unknown' as TopologyNode['status'],
+        })
+      )
+    ).toBe('healthy');
+    expect(
+      displayStatus(
+        n({
+          id: 'reach/overlay-packer',
+          kind: 'overlay-packer',
+          band: 'reach',
+          status: 'unknown' as TopologyNode['status'],
+          deployed: false,
+        })
+      )
+    ).toBe('offline');
+    expect(
+      displayStatus(
+        n({
+          id: 'engine',
+          kind: 'engine',
+          band: 'ao',
+          status: 'healthy',
+          instrumented: false,
+        })
+      )
+    ).toBe('healthy');
+  });
+
   it('keeps planner slot stable regardless of optional nodes', () => {
     const base: TopologyNode[] = [
       n({ id: 'engine', kind: 'engine', band: 'ao' }),

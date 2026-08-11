@@ -574,9 +574,6 @@ function boundsOf(
     .dark .ao-band-mark {
       background-color: #e6eaf0;
     }
-    .topo-node[data-status='unknown'] .node-fill {
-      stroke-dasharray: 4 3;
-    }
     .topo-node[data-status='offline'] .node-fill {
       fill: transparent;
       stroke-dasharray: 3 3;
