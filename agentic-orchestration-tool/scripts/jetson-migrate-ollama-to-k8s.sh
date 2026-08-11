@@ -2,7 +2,8 @@
 # Migrate host systemd Ollama → in-cluster agentic-ollama (managed_k8s).
 #
 # 1. Saves model inventory under var/ollama-model-inventory/
-# 2. Copies /usr/share/ollama/.ollama → var/ollama-models (via privileged nsenter)
+# 2. Ada: copies /usr/share/ollama/.ollama → var/ollama-models
+#    Jetson: mounts NFS models path (symlink target); no local blob copy
 # 3. Enables Deployment + points AO env at http://agentic-ollama:11434
 # 4. Verifies models, then stops/disables/removes host ollama
 #
@@ -17,28 +18,6 @@ INVENTORY_DIR="${PROJECT_ROOT}/var/ollama-model-inventory"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST_NAME="$(hostname -s 2>/dev/null || hostname)"
 POD="ao-host-ollama-migrate"
-
-mkdir -p "${INVENTORY_DIR}" "${MODELS_DIR}"
-chmod 775 "${MODELS_DIR}" 2>/dev/null || true
-
-echo "=== inventory (${HOST_NAME}) ==="
-{
-  echo "# Ollama inventory ${STAMP} host=${HOST_NAME}"
-  echo
-  if command -v ollama >/dev/null 2>&1; then
-    ollama list || true
-  fi
-  echo
-  curl -sS --max-time 10 http://127.0.0.1:11434/api/tags || true
-  echo
-} | tee "${INVENTORY_DIR}/${HOST_NAME}-${STAMP}.txt"
-
-# Capture model names before host uninstall (for optional pull fallback).
-mapfile -t MODEL_NAMES < <(
-  if command -v ollama >/dev/null 2>&1; then
-    ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$' || true
-  fi
-)
 
 run_on_host() {
   local script_file="$1"
@@ -93,12 +72,52 @@ PY
   kubectl -n "${NS}" delete pod "${POD}" --ignore-not-found --wait=true || true
 }
 
+# var/ is often root-owned on edge hosts — create dirs via nsenter when needed.
+if ! mkdir -p "${INVENTORY_DIR}" "${MODELS_DIR}" 2>/dev/null; then
+  MKDIRS="$(mktemp)"
+  cat >"${MKDIRS}" <<EOF
+set -eu
+mkdir -p "${INVENTORY_DIR}" "${MODELS_DIR}"
+chown -R $(id -u):$(id -g) "${INVENTORY_DIR}" "${MODELS_DIR}" 2>/dev/null || true
+chmod 775 "${MODELS_DIR}" "${INVENTORY_DIR}" 2>/dev/null || true
+echo "dirs-ok"
+EOF
+  run_on_host "${MKDIRS}"
+  rm -f "${MKDIRS}"
+fi
+chmod 775 "${MODELS_DIR}" 2>/dev/null || true
+
+echo "=== inventory (${HOST_NAME}) ==="
+{
+  echo "# Ollama inventory ${STAMP} host=${HOST_NAME}"
+  echo
+  if command -v ollama >/dev/null 2>&1; then
+    ollama list || true
+  fi
+  echo
+  curl -sS --max-time 10 http://127.0.0.1:11434/api/tags || true
+  echo
+} | tee "${INVENTORY_DIR}/${HOST_NAME}-${STAMP}.txt"
+
+# Capture model names before host uninstall (for optional pull fallback).
+mapfile -t MODEL_NAMES < <(
+  if command -v ollama >/dev/null 2>&1; then
+    ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$' || true
+  fi
+)
+
 # Jetson: models often live on NFS via symlink (no local disk). Mount that path
 # into the pod instead of copying multi-GB blobs onto the device rootfs.
+# /usr/share/ollama may be unreadable without root — prefer well-known NFS path.
 HOST_MODELS_LINK=""
-if [[ -L /usr/share/ollama/.ollama/models ]]; then
+if [[ -n "${AGENTIC_OLLAMA_MODELS_HOSTPATH:-}" && -d "${AGENTIC_OLLAMA_MODELS_HOSTPATH}" ]]; then
+  HOST_MODELS_LINK="${AGENTIC_OLLAMA_MODELS_HOSTPATH}"
+elif [[ -d /nfs/omega-jetson/ollama/models ]]; then
+  HOST_MODELS_LINK="/nfs/omega-jetson/ollama/models"
+elif [[ -L /usr/share/ollama/.ollama/models ]]; then
   HOST_MODELS_LINK="$(readlink -f /usr/share/ollama/.ollama/models 2>/dev/null || readlink /usr/share/ollama/.ollama/models)"
 fi
+
 if [[ -n "${HOST_MODELS_LINK}" && -d "${HOST_MODELS_LINK}" ]]; then
   echo "=== Jetson NFS models detected (${HOST_MODELS_LINK}); skip local blob copy ==="
   export AGENTIC_OLLAMA_MODELS_HOSTPATH="${HOST_MODELS_LINK}"
@@ -108,13 +127,11 @@ set -eu
 SRC=/usr/share/ollama/.ollama
 DST=${MODELS_DIR}
 mkdir -p "\${DST}"
-# Copy identity keys only; models come from NFS mount.
 for f in id_ed25519 id_ed25519.pub; do
   if [ -f "\${SRC}/\${f}" ]; then
     cp -a "\${SRC}/\${f}" "\${DST}/\${f}"
   fi
 done
-# Drop any stale models symlink inside the home hostPath (NFS is a separate mount).
 rm -f "\${DST}/models"
 ls -la "\${DST}" | head -20
 echo "keys-ok"
@@ -196,7 +213,7 @@ echo "${TAGS}" | head -c 2000
 echo
 MODEL_COUNT="$(printf '%s' "${TAGS}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("models") or []))')"
 if [[ "${MODEL_COUNT}" == "0" && ${#MODEL_NAMES[@]} -gt 0 ]]; then
-  echo "warning: copied store empty or unread; pulling ${#MODEL_NAMES[@]} model(s)" >&2
+  echo "warning: no models visible yet; pulling ${#MODEL_NAMES[@]} model(s)" >&2
   for name in "${MODEL_NAMES[@]}"; do
     echo "=== pull ${name} ==="
     kubectl -n "${NS}" exec deploy/agentic-ollama -- ollama pull "${name}" || true
