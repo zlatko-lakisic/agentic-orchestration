@@ -13,6 +13,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { TopologyStore } from '../data/topology.store';
@@ -29,6 +30,16 @@ import {
 } from '../ui/node-detail-dialog';
 import { EdgeDetailDialog } from '../ui/edge-detail-dialog';
 import { ClusterDialog } from '../ui/cluster-dialog';
+
+/** Full-screen focus mode always shows the canvas, even on a narrow/table layout. */
+export function topologyShowsTable(
+  tableMode: boolean,
+  forceTable: boolean,
+  focusMode: boolean
+): boolean {
+  if (focusMode) return false;
+  return tableMode || forceTable;
+}
 
 /** Format topology `generatedAt` with the runtime locale (medium date + short time). */
 export function formatTopologyGeneratedAt(raw: string | null | undefined): string {
@@ -52,6 +63,7 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
     MatIconModule,
     MatSlideToggleModule,
     MatMenuModule,
+    MatTooltipModule,
     ErrorState,
     TopologyCanvas,
     TopologyTable,
@@ -97,6 +109,18 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
           <button matButton="outlined" type="button" (click)="store.resync()">
             <mat-icon svgIcon="refresh-cw" />
             Refresh
+          </button>
+          <button
+            matButton="outlined"
+            type="button"
+            [attr.aria-pressed]="focusMode()"
+            [matTooltip]="
+              focusMode() ? 'Exit full screen (Esc)' : 'Expand diagram to full screen'
+            "
+            (click)="toggleFocusMode()"
+          >
+            <mat-icon [svgIcon]="focusMode() ? 'minimize-2' : 'maximize-2'" />
+            {{ focusMode() ? 'Exit full screen' : 'Full screen' }}
           </button>
           <ao-topology-legend />
         </div>
@@ -153,7 +177,7 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
 
       @if (store.loading()) {
         <div class="text-sm text-neutral-500">Loading topology…</div>
-      } @else if (store.tableMode() || forceTable()) {
+      } @else if (useTable()) {
         @if (forceTable() && !store.tableMode()) {
           <p class="text-sm text-neutral-500">
             Diagram needs a wider screen — showing table view.
@@ -176,11 +200,13 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
           [expandedK8sId]="store.expandedK8sId()"
           [blurred]="dialogOpen()"
           [summary]="a11ySummary()"
+          [focusMode]="focusMode()"
           (hover)="onHover($event)"
           (nodeClick)="openNode($event)"
           (edgeClick)="openEdge($event)"
           (expandApp)="store.toggleAppExpanded($event)"
           (expandK8s)="store.toggleK8sExpanded($event)"
+          (toggleFocus)="toggleFocusMode()"
         />
       }
     </div>
@@ -195,8 +221,13 @@ export class TopologyPage implements OnInit, OnDestroy {
     typeof window !== 'undefined' ? window.innerWidth <= 1023 : false
   );
   readonly dialogOpen = signal(false);
+  readonly focusMode = signal(false);
+  readonly useTable = computed(() =>
+    topologyShowsTable(this.store.tableMode(), this.forceTable(), this.focusMode())
+  );
 
   private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  private previousOverflow = '';
 
   readonly a11ySummary = computed(() => {
     const n = this.store.displayNodes().length;
@@ -217,11 +248,33 @@ export class TopologyPage implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.store.stop();
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    this.setFocusMode(false);
   }
 
   @HostListener('window:resize')
   onResize() {
     this.forceTable.set(window.innerWidth <= 1023);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape() {
+    if (this.dialogOpen() || !this.focusMode()) return;
+    this.setFocusMode(false);
+  }
+
+  toggleFocusMode() {
+    this.setFocusMode(!this.focusMode());
+  }
+
+  private setFocusMode(on: boolean) {
+    this.focusMode.set(on);
+    if (typeof document === 'undefined') return;
+    if (on) {
+      this.previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = this.previousOverflow;
+    }
   }
 
   onHover(id: string | null) {

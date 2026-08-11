@@ -1,5 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import {
   LayoutResult,
   PositionedEdge,
@@ -48,12 +50,33 @@ function boundsOf(
 
 @Component({
   selector: 'ao-topology-canvas',
-  imports: [MatIconModule],
+  imports: [MatIconModule, MatButtonModule, MatTooltipModule],
+  host: {
+    '[class.focus-mode]': 'focusMode()',
+  },
   template: `
     <div
       class="topology-canvas-wrap relative h-full w-full overflow-auto rounded-xl border border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950"
       [class.topology-blur]="blurred()"
+      [class.topology-wrap-focus]="focusMode()"
     >
+      <div class="focus-controls pointer-events-none absolute top-0 right-0 z-20 p-2">
+        <button
+          matIconButton
+          type="button"
+          class="focus-btn pointer-events-auto"
+          [attr.aria-pressed]="focusMode()"
+          [attr.aria-label]="
+            focusMode() ? 'Exit full screen' : 'Expand diagram to full screen'
+          "
+          [matTooltip]="
+            focusMode() ? 'Exit full screen (Esc)' : 'Full screen'
+          "
+          (click)="onToggleFocus($event)"
+        >
+          <mat-icon [svgIcon]="focusMode() ? 'minimize-2' : 'maximize-2'" />
+        </button>
+      </div>
       <svg
         class="topology-svg block min-w-full"
         role="img"
@@ -352,8 +375,27 @@ function boundsOf(
   `,
   styles: `
     :host {
-      display: block;
+      display: flex;
       min-height: 420px;
+      flex-direction: column;
+    }
+    :host.focus-mode {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      min-height: 100%;
+    }
+    :host.focus-mode .topology-canvas-wrap {
+      flex: 1 1 auto;
+      height: 100%;
+    }
+    .topology-wrap-focus {
+      border-radius: 0;
+      border-width: 0;
+    }
+    .focus-btn {
+      background: color-mix(in oklab, Canvas 88%, transparent);
+      box-shadow: 0 1px 4px color-mix(in oklab, CanvasText 18%, transparent);
     }
     .topology-blur {
       filter: blur(3px) saturate(0.85);
@@ -616,12 +658,20 @@ export class TopologyCanvas {
   readonly expandedK8sId = input<string | null>(null);
   readonly blurred = input(false);
   readonly summary = input('Deployment topology diagram');
+  readonly focusMode = input(false);
 
   readonly hover = output<string | null>();
   readonly nodeClick = output<PositionedNode>();
   readonly edgeClick = output<PositionedEdge>();
   readonly expandApp = output<string>();
   readonly expandK8s = output<string>();
+  readonly toggleFocus = output<void>();
+
+  onToggleFocus(ev: Event) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    this.toggleFocus.emit();
+  }
 
   /** Reach apps vs Web API frames inside the Application band. */
   readonly familyFrames = computed(
