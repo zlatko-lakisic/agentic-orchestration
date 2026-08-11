@@ -26,9 +26,9 @@ can_reboot() {
   can_sudo
 }
 can_ollama() {
+  can_reboot || return 1
   command -v systemctl >/dev/null 2>&1 || return 1
-  systemctl status ollama >/dev/null 2>&1 && return 0
-  sudo -n systemctl status ollama >/dev/null 2>&1
+  systemctl cat ollama >/dev/null 2>&1 || sudo -n systemctl cat ollama >/dev/null 2>&1
 }
 
 subst_root() {
