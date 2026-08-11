@@ -1,7 +1,8 @@
 # In-cluster Ollama for AGENTIC_OLLAMA_MODE=managed_k8s.
-# Models persist on hostPath under the AO project tree.
-# GPU: optional nvidia.com/gpu when a device plugin is present (commented by default
-# so CPU-only / Jetson host-Ollama external installs are not blocked).
+# Models persist on hostPath under the AO project tree (Ada / default).
+# Jetson (no local disk): jetson-enable-ollama.sh also mounts
+# AGENTIC_OLLAMA_MODELS_HOSTPATH (e.g. /nfs/omega-jetson/ollama/models) at
+# /root/.ollama/models so NFS-backed host installs keep working without a copy.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,8 +24,6 @@ spec:
         app.kubernetes.io/name: agentic-ollama
         app.kubernetes.io/component: ollama
     spec:
-      # k3s NVIDIA toolkit RuntimeClass (GPU without nvidia.com/gpu device plugin).
-      runtimeClassName: nvidia
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -42,7 +41,7 @@ spec:
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
           volumeMounts:
-            - name: ollama-models
+            - name: ollama-home
               mountPath: /root/.ollama
           readinessProbe:
             httpGet:
@@ -67,7 +66,7 @@ spec:
             limits:
               memory: 16Gi
       volumes:
-        - name: ollama-models
+        - name: ollama-home
           hostPath:
             path: /var/projects/agentic-orchestration/var/ollama-models
             type: DirectoryOrCreate

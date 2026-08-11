@@ -93,8 +93,37 @@ PY
   kubectl -n "${NS}" delete pod "${POD}" --ignore-not-found --wait=true || true
 }
 
-HOST_COPY="$(mktemp)"
-cat >"${HOST_COPY}" <<EOF
+# Jetson: models often live on NFS via symlink (no local disk). Mount that path
+# into the pod instead of copying multi-GB blobs onto the device rootfs.
+HOST_MODELS_LINK=""
+if [[ -L /usr/share/ollama/.ollama/models ]]; then
+  HOST_MODELS_LINK="$(readlink -f /usr/share/ollama/.ollama/models 2>/dev/null || readlink /usr/share/ollama/.ollama/models)"
+fi
+if [[ -n "${HOST_MODELS_LINK}" && -d "${HOST_MODELS_LINK}" ]]; then
+  echo "=== Jetson NFS models detected (${HOST_MODELS_LINK}); skip local blob copy ==="
+  export AGENTIC_OLLAMA_MODELS_HOSTPATH="${HOST_MODELS_LINK}"
+  HOST_KEYS="$(mktemp)"
+  cat >"${HOST_KEYS}" <<EOF
+set -eu
+SRC=/usr/share/ollama/.ollama
+DST=${MODELS_DIR}
+mkdir -p "\${DST}"
+# Copy identity keys only; models come from NFS mount.
+for f in id_ed25519 id_ed25519.pub; do
+  if [ -f "\${SRC}/\${f}" ]; then
+    cp -a "\${SRC}/\${f}" "\${DST}/\${f}"
+  fi
+done
+# Drop any stale models symlink inside the home hostPath (NFS is a separate mount).
+rm -f "\${DST}/models"
+ls -la "\${DST}" | head -20
+echo "keys-ok"
+EOF
+  run_on_host "${HOST_KEYS}"
+  rm -f "${HOST_KEYS}"
+else
+  HOST_COPY="$(mktemp)"
+  cat >"${HOST_COPY}" <<EOF
 set -eu
 SRC=/usr/share/ollama/.ollama
 DST=${MODELS_DIR}
@@ -113,10 +142,10 @@ du -sh "\${DST}" || true
 ls -la "\${DST}" | head -20
 echo "copy-ok"
 EOF
-
-echo "=== copy host models into ${MODELS_DIR} ==="
-run_on_host "${HOST_COPY}"
-rm -f "${HOST_COPY}"
+  echo "=== copy host models into ${MODELS_DIR} ==="
+  run_on_host "${HOST_COPY}"
+  rm -f "${HOST_COPY}"
+fi
 
 patch_env_file() {
   local f="$1"
