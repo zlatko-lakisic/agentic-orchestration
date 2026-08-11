@@ -55,6 +55,13 @@ def register_serve(
         port = _port_from_host(host)
     _serve_entries[key] = _ServeEntry(proc=proc, job=job, port=port)
     ensure_shutdown_hooks()
+    try:
+        from orchestration.ollama_ownership import write_managed_serve_pid
+
+        if getattr(proc, "pid", None):
+            write_managed_serve_pid(int(proc.pid))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _port_from_host(host: str) -> int | None:
@@ -88,6 +95,12 @@ def stop_all_serves() -> None:
         entry = _serve_entries.pop(key, None)
         if entry is not None:
             _stop_entry(entry)
+    try:
+        from orchestration.ollama_ownership import clear_managed_serve_pid
+
+        clear_managed_serve_pid()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def registered_hosts() -> list[str]:

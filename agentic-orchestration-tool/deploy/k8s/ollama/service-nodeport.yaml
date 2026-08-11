@@ -1,0 +1,18 @@
+# Optional NodePort so operators can hit in-cluster Ollama from the LAN.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-ollama-nodeport
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-ollama
+    app.kubernetes.io/component: ollama
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: agentic-ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      nodePort: 31134

@@ -40,6 +40,12 @@ if [[ "${AGENTIC_JETSON_ENABLE_ENGINE:-1}" != "0" ]]; then
   bash "${TOOL_ROOT}/scripts/jetson-enable-engine.sh" "${PROJECT_ROOT}"
 fi
 
+# In-cluster Ollama only when explicitly requested (managed_k8s). Default edge
+# installs keep host systemd Ollama as external via host.k3s.internal.
+if [[ "${AGENTIC_OLLAMA_MODE:-}" == "managed_k8s" || "${AGENTIC_JETSON_ENABLE_OLLAMA:-0}" == "1" ]]; then
+  bash "${TOOL_ROOT}/scripts/jetson-enable-ollama.sh" "${PROJECT_ROOT}"
+fi
+
 PING_URL="http://127.0.0.1:30487/api/ping"
 if ! curl -sf "${PING_URL}" >/dev/null 2>&1; then
   PING_URL="http://127.0.0.1/api/ping"

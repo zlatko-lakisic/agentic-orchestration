@@ -54,15 +54,21 @@ test("buildControlStatus marks k8s targets unavailable without a service account
     sa: null,
     hostControlDir: dir,
     hostname: "local",
+    ollamaHealthy: false,
+    env: { AGENTIC_OLLAMA_MODE: "auto" },
   });
   const engine = status.targets.find((t) => t.id === "engine");
   const stack = status.targets.find((t) => t.id === "stack");
   const host = status.targets.find((t) => t.id === "host");
+  const ollama = status.targets.find((t) => t.id === "ollama");
   assert.equal(engine.available, false);
   assert.match(engine.reason, /Kubernetes/i);
   assert.equal(stack.available, false);
   assert.equal(host.available, false);
   assert.match(host.reason, /watcher/i);
+  // auto + unhealthy + not k8s → managed_process (restartable)
+  assert.equal(ollama.available, true);
+  assert.equal(status.ollama.mode, "managed_process");
 });
 
 test("buildControlStatus exposes present deployments and armed host reboot", async () => {
@@ -80,7 +86,13 @@ test("buildControlStatus exposes present deployments and armed host reboot", asy
       ],
     });
   };
-  const status = await buildControlStatus({ sa, k8sRequest, hostControlDir: dir });
+  const status = await buildControlStatus({
+    sa,
+    k8sRequest,
+    hostControlDir: dir,
+    ollamaHealthy: true,
+    env: { AGENTIC_OLLAMA_MODE: "auto", OLLAMA_API_BASE: "http://127.0.0.1:11434" },
+  });
   assert.equal(status.hostname, "test-host");
   assert.equal(status.kubernetes.available, true);
   assert.equal(status.targets.find((t) => t.id === "engine").available, true);
@@ -90,8 +102,83 @@ test("buildControlStatus exposes present deployments and armed host reboot", asy
     "coordinator",
   ]);
   assert.equal(status.targets.find((t) => t.id === "host").available, true);
-  assert.equal(status.targets.find((t) => t.id === "ollama").available, true);
+  // Healthy configured base → external (not AO-owned)
+  assert.equal(status.targets.find((t) => t.id === "ollama").available, false);
+  assert.equal(status.ollama.mode, "external");
   assert.equal(calls.length, 1);
+});
+
+test("ollama Control is restartable for managed_process and managed_k8s", async () => {
+  const dir = tmpControlDir();
+  const sa = { namespace: "ns", host: "k", port: "443", token: "t", ca: Buffer.alloc(0) };
+  const k8sRequest = async () =>
+    JSON.stringify({
+      items: [
+        { metadata: { name: "agentic-coordinator" } },
+        { metadata: { name: "agentic-ollama" } },
+      ],
+    });
+  const processMode = await buildControlStatus({
+    sa: null,
+    hostControlDir: dir,
+    ollamaHealthy: false,
+    env: { AGENTIC_OLLAMA_MODE: "managed_process" },
+  });
+  assert.equal(processMode.targets.find((t) => t.id === "ollama").available, true);
+  assert.equal(processMode.ollama.mode, "managed_process");
+
+  const k8sMode = await buildControlStatus({
+    sa,
+    k8sRequest,
+    hostControlDir: dir,
+    ollamaHealthy: false,
+    env: { AGENTIC_OLLAMA_MODE: "managed_k8s" },
+  });
+  assert.equal(k8sMode.targets.find((t) => t.id === "ollama").available, true);
+  assert.equal(k8sMode.ollama.mode, "managed_k8s");
+  assert.deepEqual(k8sMode.targets.find((t) => t.id === "stack").members, [
+    "ollama",
+    "coordinator",
+  ]);
+
+  const patches = [];
+  const patchK8s = async (_sa, urlPath, opts = {}) => {
+    if ((opts.method || "GET") === "GET") {
+      return JSON.stringify({
+        items: [{ metadata: { name: "agentic-ollama" } }],
+      });
+    }
+    patches.push(urlPath);
+    return "{}";
+  };
+  const restarted = await executeControlRestart(
+    { target: "ollama" },
+    {
+      sa,
+      k8sRequest: patchK8s,
+      hostControlDir: dir,
+      ollamaHealthy: false,
+      env: { AGENTIC_OLLAMA_MODE: "managed_k8s" },
+    },
+  );
+  assert.equal(restarted.httpStatus, 200);
+  assert.match(patches[0], /agentic-ollama/);
+
+  const child = await executeControlRestart(
+    { target: "ollama" },
+    {
+      sa: null,
+      hostControlDir: dir,
+      ollamaHealthy: false,
+      env: { AGENTIC_OLLAMA_MODE: "managed_process" },
+      restartManagedProcessOllama: async () => ({
+        ok: true,
+        detail: "restarted managed_process ollama",
+      }),
+    },
+  );
+  assert.equal(child.httpStatus, 200);
+  assert.equal(child.body.actions[0].detail, "restarted managed_process ollama");
 });
 
 test("executeControlRestart rejects unknown targets and host without confirm", async () => {

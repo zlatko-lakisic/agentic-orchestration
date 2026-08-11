@@ -111,6 +111,7 @@ def test_ensure_works_under_kubernetes_selfcontained_false(
     """k8s gate must not block session-overlay HTTP pulls."""
     monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
     monkeypatch.setenv("AGENTIC_EXECUTION_BACKEND", "kubernetes")
+    monkeypatch.setenv("AGENTIC_OLLAMA_MODE", "external")
     monkeypatch.delenv("AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S", raising=False)
     monkeypatch.setenv("OLLAMA_API_BASE", "http://host.k3s.internal:11434")
 

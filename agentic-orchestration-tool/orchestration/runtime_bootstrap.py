@@ -35,19 +35,21 @@ def should_ensure_ollama(*, selfcontained: bool) -> bool:
     """
     Decide whether to install/serve/pull Ollama for an agent.
 
-    - Auto-ensure on by default for all Ollama agents.
-    - On kubernetes, default to legacy ``selfcontained`` gate (host Ollama expected)
-      unless ``AGENTIC_AUTO_ENSURE_RUNTIME`` is explicitly set to on AND
-      ``AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1``.
-    - If auto-ensure is disabled, only ``selfcontained: true`` agents ensure.
+    Respects ``AGENTIC_OLLAMA_MODE`` (see ``orchestration.ollama_ownership``):
+    - ``external`` / ``managed_k8s``: never spawn in this process.
+    - ``managed_process``: allow install + spawn (+ pull).
+    - ``auto``: healthy API → external (no spawn); else k8s → no spawn; else spawn.
     """
-    if not auto_ensure_runtime_enabled():
-        return bool(selfcontained)
+    from orchestration.ollama_ownership import (
+        MODE_MANAGED_PROCESS,
+        resolve_ollama_mode,
+    )
 
-    backend = os.getenv("AGENTIC_EXECUTION_BACKEND", "").strip().lower()
-    if backend == "kubernetes":
-        if _env_truthy("AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S", "0"):
-            return True
+    mode = resolve_ollama_mode()
+    if mode != MODE_MANAGED_PROCESS:
+        return False
+
+    if not auto_ensure_runtime_enabled():
         return bool(selfcontained)
 
     return True

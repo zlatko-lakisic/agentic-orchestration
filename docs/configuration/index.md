@@ -94,6 +94,8 @@ slice-by-slice status.
 | `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in. On Jetson/NVR, `config/env.host` / `env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
 | `AGENTIC_SERVE_PORT` | `8765` | Bind port. With TLS: `https://<host>:8765` (NodePort **30765**). Web UI remains on **30487**. See [AO Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). |
 | `AGENTIC_JETSON_ENABLE_ENGINE` | `1` | When unset/`1`, `jetson-deploy.sh` applies `scripts/jetson-enable-engine.sh`. Set `0` to leave only the Node web UI. |
+| `AGENTIC_OLLAMA_MODE` | `auto` | Ollama ownership: `auto` \| `external` \| `managed_process` \| `managed_k8s`. See [Ollama ownership](#ollama-ownership) below. |
+| `AGENTIC_JETSON_ENABLE_OLLAMA` | `0` | When `1` (or `AGENTIC_OLLAMA_MODE=managed_k8s`), `jetson-deploy.sh` applies `scripts/jetson-enable-ollama.sh` (in-cluster `agentic-ollama`). |
 | `AGENTIC_SERVE_LOG_LEVEL` | `info` | uvicorn log level. |
 | `AGENTIC_SERVE_MAX_CONCURRENT_RUNS` | `8` | Cap on question-tagged runs in flight per WebSocket connection (ceiling `64`). |
 | `AGENTIC_SERVE_SESSION_OVERLAY` | _(unset)_ | `1` enables ephemeral WebSocket `session_overlay_register` / `clear` (in-memory `client.*` agents/MCPs/skills; never written to disk). |
@@ -115,6 +117,21 @@ slice-by-slice status.
 | `AGENTIC_HOST_METRICS_PROC_ROOT` | `/proc` | Set to `/host/proc` when the node's `/proc` is mounted; also flips the reported `scope` to `host`. |
 | `AGENTIC_JETSON_JTOP_METRICS_PATH` | _(unset)_ | jtop snapshot JSON; supplies GPU / power / temperature and flips `scope` to `jetson`. |
 | `AGENTIC_DIRECT_AGENT_CONTEXT_CHARS` | `20000` | Cap on caller-supplied context in the direct-agent prompt. |
+
+### Ollama ownership
+
+AO treats Ollama as an HTTP service. Who **owns** the process is controlled by `AGENTIC_OLLAMA_MODE`:
+
+| Mode | Meaning | Admin Control restart |
+|------|---------|------------------------|
+| `auto` (default) | If `OLLAMA_API_BASE` / `OLLAMA_HOST` is healthy → treat as **external**; else on Kubernetes → **managed_k8s**; else spawn a child **managed_process** | Only when owned |
+| `external` | Bring-your-own: use the configured URL only (never spawn) | Disabled |
+| `managed_process` | AO owns a child `ollama serve` (standalone) | Restarts the child |
+| `managed_k8s` | AO owns Deployment `agentic-ollama` | Restarts that Deployment |
+
+**Bring your own Ollama:** point `OLLAMA_API_BASE` at any reachable server (Jetson host systemd today uses `http://host.k3s.internal:11434`) and leave `AGENTIC_OLLAMA_MODE=auto` or set `external`.
+
+**In-cluster Ollama:** `bash agentic-orchestration-tool/scripts/jetson-enable-ollama.sh` (or set `AGENTIC_OLLAMA_MODE=managed_k8s` / `AGENTIC_JETSON_ENABLE_OLLAMA=1` before deploy). Sets `OLLAMA_API_BASE=http://agentic-ollama:11434`.
 
 Smoke: `agentic-orchestration-tool/scripts/smoke_serve.sh` (offline by default and safe without the
 extras; `AGENTIC_SMOKE_SERVE_LIVE=1` binds a real port and probes `/health`).

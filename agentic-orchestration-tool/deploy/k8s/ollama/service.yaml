@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-ollama
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-ollama
+    app.kubernetes.io/component: ollama
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agentic-ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434

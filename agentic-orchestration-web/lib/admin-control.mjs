@@ -1,11 +1,20 @@
 /**
- * Admin AO control: restart allowlisted Kubernetes workloads or request a
- * host reboot / Ollama restart via a hostPath + systemd watcher.
+ * Admin AO control: restart allowlisted Kubernetes workloads, AO-owned Ollama,
+ * or request a host reboot via hostPath + systemd/sysrq.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { k8sRequest, readServiceAccount } from "./admin-k8s.mjs";
+import {
+  K8S_OLLAMA_DEPLOYMENT,
+  MODE_MANAGED_K8S,
+  MODE_MANAGED_PROCESS,
+  configuredApiBase,
+  ollamaOwnershipStatus,
+  probeOllamaHealthy,
+  restartManagedProcessOllama,
+} from "./admin-ollama-ownership.mjs";
 
 export const HOST_REBOOT_CONFIRM = "REBOOT";
 
@@ -13,6 +22,7 @@ export const HOST_REBOOT_CONFIRM = "REBOOT";
 export const K8S_STACK_ORDER = [
   "mcp-fetch",
   "mcp-filesystem",
+  "ollama",
   "broker",
   "warm-pool",
   "engine",
@@ -73,10 +83,11 @@ export const CONTROL_TARGETS = [
   {
     id: "ollama",
     label: "Ollama",
-    kind: "host-service",
-    hostFile: "ollama.restart.request",
+    kind: "ollama",
+    deployment: K8S_OLLAMA_DEPLOYMENT,
     group: "apps",
-    description: "Restarts the host Ollama systemd service.",
+    description:
+      "Restarts AO-owned Ollama (child process or agentic-ollama Deployment). External instances are not restarted.",
   },
   {
     id: "stack",
@@ -85,7 +96,7 @@ export const CONTROL_TARGETS = [
     group: "stack",
     disconnectLikely: true,
     description:
-      "Rolls every AO deployment (sidecars, broker, warm pool, engine, then coordinator).",
+      "Rolls every AO deployment (sidecars, Ollama, broker, warm pool, engine, then coordinator).",
   },
   {
     id: "host",
@@ -308,9 +319,6 @@ function hostTargetAvailable(spec, dir, watcher, extra = {}) {
       reason: watcher.reason || "Host control watcher is not armed",
     };
   }
-  if (spec.id === "ollama" && watcher.ollama === false) {
-    return { available: false, reason: "Ollama restart is not armed on this host" };
-  }
   return { available: true, reason: null };
 }
 
@@ -336,10 +344,12 @@ export async function buildControlStatus(opts = {}) {
     }
   }
 
-  const targets = CONTROL_TARGETS.map((spec) => {
+  const targets = [];
+  let ollamaStatus = null;
+  for (const spec of CONTROL_TARGETS) {
     if (spec.kind === "k8s-deployment") {
       const available = k8sAvailable && deployments.has(spec.deployment);
-      return {
+      targets.push({
         ...pickTargetPublic(spec),
         available,
         reason: !sa
@@ -349,15 +359,60 @@ export async function buildControlStatus(opts = {}) {
             : available
               ? null
               : `Deployment ${spec.deployment} is not present`,
-      };
+      });
+      continue;
+    }
+    if (spec.kind === "ollama") {
+      const apiBase = opts.ollamaApiBase || configuredApiBase(opts.env);
+      const healthy =
+        opts.ollamaHealthy !== undefined
+          ? Boolean(opts.ollamaHealthy)
+          : await probeOllamaHealthy(apiBase);
+      ollamaStatus = ollamaOwnershipStatus({
+        healthy,
+        inK8s: Boolean(sa),
+        deploymentPresent: deployments.has(K8S_OLLAMA_DEPLOYMENT),
+        sa,
+        env: opts.env,
+      });
+      let mode = ollamaStatus.mode;
+      if (
+        String((opts.env || process.env).AGENTIC_OLLAMA_MODE || "")
+          .trim()
+          .toLowerCase() === MODE_MANAGED_K8S &&
+        deployments.has(K8S_OLLAMA_DEPLOYMENT)
+      ) {
+        mode = MODE_MANAGED_K8S;
+        ollamaStatus = {
+          ...ollamaStatus,
+          mode,
+          owned: true,
+          restartable: true,
+          reason: null,
+          deployment: K8S_OLLAMA_DEPLOYMENT,
+        };
+      }
+      const available = Boolean(ollamaStatus.restartable);
+      targets.push({
+        ...pickTargetPublic(spec),
+        available,
+        reason: available ? null : ollamaStatus.reason,
+        ollamaMode: mode,
+        ollamaApiBase: ollamaStatus.apiBase,
+      });
+      continue;
     }
     if (spec.kind === "k8s-stack") {
       const members = K8S_STACK_ORDER.filter((id) => {
         const member = CONTROL_TARGETS.find((item) => item.id === id);
-        return member && deployments.has(member.deployment);
+        if (!member) return false;
+        if (member.kind === "ollama") {
+          return deployments.has(K8S_OLLAMA_DEPLOYMENT);
+        }
+        return member.deployment && deployments.has(member.deployment);
       });
       const available = k8sAvailable && members.length > 0;
-      return {
+      targets.push({
         ...pickTargetPublic(spec),
         available,
         members,
@@ -368,16 +423,17 @@ export async function buildControlStatus(opts = {}) {
             : available
               ? null
               : "No AO deployments found",
-      };
+      });
+      continue;
     }
     const host = hostTargetAvailable(spec, dir, watcher, { sysrqWritable });
-    return {
+    targets.push({
       ...pickTargetPublic(spec),
       available: host.available,
       reason: host.reason,
       rebootVia: host.rebootVia || null,
-    };
-  });
+    });
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -387,6 +443,7 @@ export async function buildControlStatus(opts = {}) {
       namespace: sa?.namespace || null,
       error: k8sError,
     },
+    ollama: ollamaStatus,
     hostControl: {
       available: Boolean(dir) && watcher.writable,
       dir: dir || null,
@@ -504,6 +561,47 @@ export async function executeControlRestart(body, opts = {}) {
         detail: "coordinator restart scheduled",
       });
     }
+  } else if (spec.kind === "ollama") {
+    const mode = live.ollamaMode || status.ollama?.mode;
+    if (mode === MODE_MANAGED_K8S) {
+      await patchDeploymentRestart(sa, K8S_OLLAMA_DEPLOYMENT, {
+        k8sRequest: k8sRequestFn,
+        at,
+      });
+      actions.push({
+        id: spec.id,
+        ok: true,
+        detail: `restarted deployment ${K8S_OLLAMA_DEPLOYMENT}`,
+      });
+    } else if (mode === MODE_MANAGED_PROCESS) {
+      const result = await (opts.restartManagedProcessOllama || restartManagedProcessOllama)(
+        { toolRoot: opts.toolRoot },
+      );
+      if (!result.ok) {
+        return {
+          httpStatus: 500,
+          body: {
+            error: result.detail || "Ollama restart failed",
+            code: "ollama_restart_failed",
+            target: spec.id,
+          },
+        };
+      }
+      actions.push({
+        id: spec.id,
+        ok: true,
+        detail: result.detail,
+      });
+    } else {
+      return {
+        httpStatus: 409,
+        body: {
+          error: live.reason || "Ollama is external and not AO-owned",
+          code: "target_unavailable",
+          target: spec.id,
+        },
+      };
+    }
   } else if (spec.id === "host") {
     const sysrqPath =
       opts.sysrqPath !== undefined ? opts.sysrqPath : resolveSysrqPath();
@@ -538,18 +636,10 @@ export async function executeControlRestart(body, opts = {}) {
       };
     }
   } else {
-    const payload = {
-      action: "ollama-restart",
-      target: spec.id,
-      requestedAt: at.toISOString(),
-      hostname: status.hostname,
+    return {
+      httpStatus: 400,
+      body: { error: "Unsupported control target", code: "unknown_target" },
     };
-    const dest = writeHostRequest(dir, spec.hostFile, payload);
-    actions.push({
-      id: spec.id,
-      ok: true,
-      detail: `wrote ${path.basename(dest)}`,
-    });
   }
 
   const result = {

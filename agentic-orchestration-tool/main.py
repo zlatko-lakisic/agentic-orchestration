@@ -1056,6 +1056,15 @@ def main() -> None:
 
         apply_edge_platform_env_defaults()
         apply_ollama_runtime_env_defaults()
+        try:
+            from orchestration.ollama_ownership import MODE_MANAGED_PROCESS, resolve_ollama_mode
+            from orchestration.ollama_serve_lifecycle import ensure_shutdown_hooks
+
+            # Install atexit/signal teardown early when AO owns a child ollama serve.
+            if resolve_ollama_mode() == MODE_MANAGED_PROCESS:
+                ensure_shutdown_hooks()
+        except Exception:  # noqa: BLE001
+            pass
         if os.getenv("AGENTIC_EDGE_PLATFORM_LOG", "1").strip().lower() not in (
             "0",
             "false",

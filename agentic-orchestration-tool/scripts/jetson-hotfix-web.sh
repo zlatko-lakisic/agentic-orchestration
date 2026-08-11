@@ -54,6 +54,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=admin-topology-probes.mjs="${WEB_ROOT}/lib/admin-topology-probes.mjs" \
   --from-file=admin-k8s.mjs="${WEB_ROOT}/lib/admin-k8s.mjs" \
   --from-file=admin-control.mjs="${WEB_ROOT}/lib/admin-control.mjs" \
+  --from-file=admin-ollama-ownership.mjs="${WEB_ROOT}/lib/admin-ollama-ownership.mjs" \
   --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
   --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs"
 

@@ -1,0 +1,67 @@
+# In-cluster Ollama for AGENTIC_OLLAMA_MODE=managed_k8s.
+# Models persist on hostPath under the AO project tree.
+# GPU: optional nvidia.com/gpu when a device plugin is present (commented by default
+# so CPU-only / Jetson host-Ollama external installs are not blocked).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-ollama
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-ollama
+    app.kubernetes.io/component: ollama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-ollama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-ollama
+        app.kubernetes.io/component: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 1Gi
+            limits:
+              memory: 16Gi
+      volumes:
+        - name: ollama-models
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/ollama-models
+            type: DirectoryOrCreate
