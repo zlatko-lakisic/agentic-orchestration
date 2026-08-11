@@ -3,6 +3,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
+import { STATUS_MARK_LIST } from '../data/topology.status';
 import { KIND_THEMES, themeForBand } from '../data/topology.theme';
 
 @Component({
@@ -19,9 +20,17 @@ import { KIND_THEMES, themeForBand } from '../data/topology.theme';
         (click)="$event.stopPropagation()"
       >
         <div class="font-medium">Status</div>
-        <div>
-          <span class="text-green-600">✓</span> healthy ·
-          <span class="text-red-600">✕</span> not healthy
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          @for (s of statuses; track s.id) {
+            <div class="flex items-center gap-1.5">
+              <mat-icon
+                class="!h-3.5 !w-3.5 !text-[14px]"
+                [svgIcon]="s.icon"
+                [style.color]="s.color"
+              />
+              {{ s.label }}
+            </div>
+          }
         </div>
         <div class="mt-2 font-medium">Edges</div>
         <div>Right-angle routes · hover animates dash toward the arrow</div>
@@ -71,6 +80,7 @@ import { KIND_THEMES, themeForBand } from '../data/topology.theme';
   `,
 })
 export class TopologyLegend {
+  readonly statuses = STATUS_MARK_LIST;
   readonly bandReach = themeForBand('reach');
   readonly bandAo = themeForBand('ao');
   readonly aspects = Object.values(KIND_THEMES).filter(

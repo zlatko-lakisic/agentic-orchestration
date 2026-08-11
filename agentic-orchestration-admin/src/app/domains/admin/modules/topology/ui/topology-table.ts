@@ -1,10 +1,12 @@
 import { Component, input, output } from '@angular/core';
+import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
+import { statusGlyphColor, statusIcon } from '../data/topology.status';
 import { PositionedEdge, PositionedNode } from '../data/topology.types';
 
 @Component({
   selector: 'ao-topology-table',
-  imports: [MatTableModule],
+  imports: [MatTableModule, MatIconModule],
   template: `
     <div class="flex flex-col gap-6">
       <div>
@@ -28,7 +30,16 @@ import { PositionedEdge, PositionedNode } from '../data/topology.types';
           </ng-container>
           <ng-container matColumnDef="status">
             <th mat-header-cell *matHeaderCellDef>Status</th>
-            <td mat-cell *matCellDef="let n">{{ n.displayStatus }}</td>
+            <td mat-cell *matCellDef="let n">
+              <span class="inline-flex items-center gap-1">
+                <mat-icon
+                  class="!h-3.5 !w-3.5 !text-[14px]"
+                  [svgIcon]="statusIcon(n.displayStatus)"
+                  [style.color]="statusGlyphColor(n.displayStatus)"
+                />
+                {{ n.displayStatus }}
+              </span>
+            </td>
           </ng-container>
           <ng-container matColumnDef="reason">
             <th mat-header-cell *matHeaderCellDef>Reason</th>
@@ -80,4 +91,6 @@ export class TopologyTable {
 
   readonly nodeCols = ['label', 'band', 'status', 'reason'];
   readonly edgeCols = ['id', 'kind', 'instrumented'];
+  readonly statusIcon = statusIcon;
+  readonly statusGlyphColor = statusGlyphColor;
 }

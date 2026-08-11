@@ -5,6 +5,7 @@ import {
   PositionedEdge,
   PositionedNode,
 } from '../data/topology.types';
+import { statusGlyphColor, statusIcon } from '../data/topology.status';
 import { themeForKind } from '../data/topology.theme';
 
 type AppGroupFrame = {
@@ -270,18 +271,23 @@ function boundsOf(
               <title>{{ n.label }}</title>
               {{ truncate(n.label, labelMax(n)) }}
             </text>
+            <foreignObject x="36" y="26" width="14" height="14">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="status-glyph">
+                <mat-icon
+                  [svgIcon]="statusIcon(n.displayStatus)"
+                  [style.color]="statusGlyphColor(n.displayStatus)"
+                ></mat-icon>
+              </div>
+            </foreignObject>
             <text
-              [attr.x]="38"
+              [attr.x]="52"
               y="38"
               class="text-[10px]"
             >
               <title>{{ n.sublabel || n.displayStatus }}</title>
-              <tspan [attr.fill]="statusGlyphColor(n.displayStatus)">{{
-                statusGlyph(n.displayStatus)
+              <tspan fill="#737373">{{
+                truncate(n.sublabel || n.displayStatus, sublabelMax(n))
               }}</tspan>
-              <tspan fill="#737373">
-                {{ truncate(n.sublabel || n.displayStatus, labelMax(n)) }}</tspan
-              >
             </text>
             @if (n.kind === 'app' && n.appId) {
               <foreignObject
@@ -537,6 +543,18 @@ function boundsOf(
       height: 18px;
       font-size: 18px;
     }
+    .status-glyph {
+      display: flex;
+      width: 14px;
+      height: 14px;
+      align-items: center;
+      justify-content: center;
+    }
+    .status-glyph mat-icon {
+      width: 12px;
+      height: 12px;
+      font-size: 12px;
+    }
     .topo-node[data-status='failed'] .node-fill {
       stroke-width: 2.25;
     }
@@ -565,6 +583,10 @@ function boundsOf(
       opacity: 0.55;
     }
     .topo-node[data-status='starting'] .node-fill {
+      opacity: 0.7;
+    }
+    .topo-node[data-status='draining'] .node-fill {
+      stroke-dasharray: 5 4;
       opacity: 0.7;
     }
     .path-highlight .dimmed {
@@ -738,6 +760,12 @@ export class TopologyCanvas {
     return 14;
   }
 
+  sublabelMax(n: PositionedNode): number {
+    if (this.isExpandPanel(n)) return 12;
+    if (n.kind === 'k8s-workload') return 14;
+    return 12;
+  }
+
   ariaLabel(n: PositionedNode): string {
     const owners =
       n.ownedByApps?.length ? ` owned by ${n.ownedByApps.join(', ')}` : '';
@@ -767,11 +795,6 @@ export class TopologyCanvas {
     return label || sub || n.id;
   }
 
-  statusGlyph(status: string): string {
-    return String(status || '').toLowerCase() === 'healthy' ? '✓' : '✕';
-  }
-
-  statusGlyphColor(status: string): string {
-    return String(status || '').toLowerCase() === 'healthy' ? '#16a34a' : '#dc2626';
-  }
+  readonly statusIcon = statusIcon;
+  readonly statusGlyphColor = statusGlyphColor;
 }
