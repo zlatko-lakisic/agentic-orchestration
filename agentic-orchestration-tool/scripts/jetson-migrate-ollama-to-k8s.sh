@@ -202,6 +202,21 @@ PY
 patch_env_file "${TOOL_ROOT}/config/env.host"
 patch_env_file "${TOOL_ROOT}/.env"
 
+# Jetson host-binary mode binds host :11434 — stop systemd Ollama before enable.
+ARCH="$(uname -m)"
+if [[ "${ARCH}" == "aarch64" || "${ARCH}" == "arm64" ]]; then
+  echo "=== stop host ollama (free :11434 for k8s host-binary) ==="
+  HOST_STOP="$(mktemp)"
+  cat >"${HOST_STOP}" <<'EOF'
+set -eu
+systemctl stop ollama.service 2>/dev/null || true
+systemctl disable ollama.service 2>/dev/null || true
+echo "host-ollama-stopped"
+EOF
+  run_on_host "${HOST_STOP}"
+  rm -f "${HOST_STOP}"
+fi
+
 echo "=== enable in-cluster Ollama ==="
 bash "${TOOL_ROOT}/scripts/jetson-enable-ollama.sh" "${PROJECT_ROOT}"
 
@@ -231,12 +246,17 @@ rm -f /etc/systemd/system/ollama.service
 rm -rf /etc/systemd/system/ollama.service.d
 systemctl daemon-reload 2>/dev/null || true
 if command -v ollama >/dev/null 2>&1; then
-  OBIN="$(command -v ollama)"
-  rm -f "${OBIN}"
-  echo "removed ${OBIN}"
+  # Jetson host-binary mode needs the binary; only remove it on non-aarch64.
+  if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+    echo "keeping host ollama binary for k8s host-binary mode: $(command -v ollama)"
+  else
+    OBIN="$(command -v ollama)"
+    rm -f "${OBIN}"
+    echo "removed ${OBIN}"
+  fi
 fi
 if [ -d /usr/share/ollama ]; then
-  echo "host model store left at /usr/share/ollama (safe to rm -rf after verifying k8s models)"
+  echo "host model store left at /usr/share/ollama (Jetson: NFS-backed; Ada: copied to var/ollama-models)"
 fi
 if systemctl is-active ollama.service >/dev/null 2>&1; then
   echo "error: ollama still active" >&2
