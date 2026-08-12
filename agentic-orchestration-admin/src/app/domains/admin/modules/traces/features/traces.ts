@@ -11,6 +11,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatIconModule } from '@angular/material/icon';
@@ -39,6 +40,7 @@ declare global {
   imports: [
     MatTableModule,
     MatButtonModule,
+    MatButtonToggleModule,
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
@@ -75,9 +77,9 @@ declare global {
         <div class="min-w-0">
           <div class="text-xl font-semibold tracking-tighter sm:text-2xl">Traces</div>
           <div class="text-neutral-500">
-            Request sequence by
-            <code class="text-primary-600 dark:text-primary-400">run_id</code>
-            — planner, agents, MCP, skills
+            Run boundaries and recorded spans by
+            <code class="text-primary-600 dark:text-primary-400">run_id</code>.
+            Model/tool/MCP/QA call spans are not instrumented yet.
           </div>
         </div>
         <mat-form-field appearance="outline" class="w-full sm:w-96" subscriptSizing="dynamic">
@@ -104,14 +106,20 @@ declare global {
           class="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none"
         >
           <header
-            class="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800"
+            class="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800"
           >
-            <div class="min-w-0">
+            <div class="min-w-0 space-y-1">
               <div class="truncate font-mono text-sm font-medium tracking-tight sm:text-md">
                 {{ d.runId }}
               </div>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
+              <div class="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
                 <span>{{ d.eventCount || 0 }} events</span>
+                @if (formatDuration(d.durationMs); as dur) {
+                  <span>· {{ dur }}</span>
+                }
+                @if (runMode(d); as mode) {
+                  <span>· {{ mode }}</span>
+                }
                 @if (outcomeChip(); as chip) {
                   <ao-status-chip [status]="chip.status" [label]="chip.label" />
                 }
@@ -146,22 +154,81 @@ declare global {
             </div>
           </header>
 
-          <div
-            class="border-b border-neutral-200 bg-neutral-50/80 px-5 py-5 dark:border-neutral-800 dark:bg-neutral-950/50"
-          >
-            <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
-              Sequence
-            </div>
+          @if (d.instrumentation; as inst) {
             <div
-              #mermaidHost
-              class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
+              class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
             >
-              <pre class="mermaid whitespace-pre">{{ d.mermaid || '' }}</pre>
+              <div class="font-medium">{{ inst.summary }}</div>
+              @if ((inst.missing || []).length) {
+                <div class="mt-1 text-xs opacity-90">
+                  Not in this run:
+                  {{ (inst.missing || []).join(', ') }}.
+                  Never instrumented:
+                  {{ (inst.notInstrumented || []).join(', ') || '—' }}.
+                </div>
+              }
             </div>
+          }
+
+          <div class="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+                Sequence
+              </div>
+              <mat-button-toggle-group
+                [value]="viewMode()"
+                (change)="onViewMode($event.value)"
+                class="!h-8"
+                hideSingleSelectionIndicator
+              >
+                <mat-button-toggle value="diagram">Diagram</mat-button-toggle>
+                <mat-button-toggle value="table">Table</mat-button-toggle>
+              </mat-button-toggle-group>
+            </div>
+
+            @if (viewMode() === 'diagram') {
+              <div
+                #mermaidHost
+                class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950"
+              >
+                <pre class="mermaid whitespace-pre">{{ d.mermaid || '' }}</pre>
+              </div>
+            } @else {
+              <div
+                class="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800"
+              >
+                <table mat-table [dataSource]="eventRows" class="w-full">
+                  <ng-container matColumnDef="ts">
+                    <th mat-header-cell *matHeaderCellDef>Time</th>
+                    <td mat-cell *matCellDef="let ev" class="font-mono text-2xs text-neutral-500">
+                      {{ formatTs(ev) }}
+                    </td>
+                  </ng-container>
+                  <ng-container matColumnDef="kind">
+                    <th mat-header-cell *matHeaderCellDef>Kind</th>
+                    <td mat-cell *matCellDef="let ev">
+                      <ao-status-chip [status]="kindStatus(ev.kind)" [label]="ev.kind || null" />
+                    </td>
+                  </ng-container>
+                  <ng-container matColumnDef="actor">
+                    <th mat-header-cell *matHeaderCellDef>Actor</th>
+                    <td mat-cell *matCellDef="let ev" class="text-sm">{{ ev.actor || '—' }}</td>
+                  </ng-container>
+                  <ng-container matColumnDef="message">
+                    <th mat-header-cell *matHeaderCellDef>Message</th>
+                    <td mat-cell *matCellDef="let ev" class="max-w-xl truncate text-sm text-neutral-500">
+                      {{ ev.message || '—' }}
+                    </td>
+                  </ng-container>
+                  <tr mat-header-row *matHeaderRowDef="eventColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: eventColumns"></tr>
+                </table>
+              </div>
+            }
           </div>
 
-          @if (d.events?.length) {
-            <div class="px-5 py-5">
+          @if (d.events?.length && viewMode() === 'diagram') {
+            <div class="px-5 py-4">
               <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
                 Event log
               </div>
@@ -190,7 +257,7 @@ declare global {
 
       @if (!dataSource.data.length && !error() && !detail()) {
         <ao-empty-state
-          message="No run traces yet. Complete a dynamic/chat run to populate __orchestrator_run_traces__."
+          message="No run traces yet. Complete a chat or engine run to populate __orchestrator_run_traces__."
         />
       } @else if (dataSource.data.length) {
         <section
@@ -217,6 +284,12 @@ declare global {
             <ng-container matColumnDef="events">
               <th mat-header-cell *matHeaderCellDef>Events</th>
               <td mat-cell *matCellDef="let r" class="tabular-nums">{{ r.eventCount ?? '—' }}</td>
+            </ng-container>
+            <ng-container matColumnDef="duration">
+              <th mat-header-cell *matHeaderCellDef>Duration</th>
+              <td mat-cell *matCellDef="let r" class="tabular-nums text-sm text-neutral-500">
+                {{ formatDuration(r.durationMs) || '—' }}
+              </td>
             </ng-container>
             <ng-container matColumnDef="last">
               <th mat-header-cell *matHeaderCellDef>Last</th>
@@ -259,9 +332,11 @@ export class TracesPage implements OnInit {
   readonly error = signal<string | null>(null);
   readonly detail = signal<RunTraceResponse | null>(null);
   readonly lookupId = signal('');
-  readonly columns = ['runId', 'events', 'last', 'updated'];
+  readonly viewMode = signal<'diagram' | 'table'>('diagram');
+  readonly columns = ['runId', 'events', 'duration', 'last', 'updated'];
+  readonly eventColumns = ['ts', 'kind', 'actor', 'message'];
   readonly dataSource = new MatTableDataSource<TraceListItem>([]);
-  private mermaidReady = false;
+  readonly eventRows = new MatTableDataSource<RunTraceEvent>([]);
 
   readonly outcomeChip = computed(() => {
     const events = this.detail()?.events || [];
@@ -306,12 +381,14 @@ export class TracesPage implements OnInit {
       }
       this.error.set(null);
       this.detail.set(r.data);
+      this.eventRows.data = r.data.events || [];
       queueMicrotask(() => this.renderMermaid());
     });
   }
 
   clearDetail() {
     this.detail.set(null);
+    this.eventRows.data = [];
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: null },
@@ -320,18 +397,39 @@ export class TracesPage implements OnInit {
     });
   }
 
+  onViewMode(mode: 'diagram' | 'table') {
+    this.viewMode.set(mode);
+    if (mode === 'diagram') {
+      queueMicrotask(() => this.renderMermaid());
+    }
+  }
+
   formatTs(ev: RunTraceEvent): string {
     const t = Number(ev.ts);
     if (!Number.isFinite(t)) return '—';
     return new Date(t * 1000).toISOString();
   }
 
+  formatDuration(ms: number | null | undefined): string | null {
+    if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(ms >= 10_000 ? 1 : 2)}s`;
+  }
+
+  runMode(d: RunTraceResponse): string | null {
+    for (const ev of d.events || []) {
+      const mode = ev.detail?.['mode'];
+      if (typeof mode === 'string' && mode.trim()) return mode.trim();
+    }
+    return null;
+  }
+
   kindStatus(kind: string | null | undefined): string {
     const k = String(kind || '').toLowerCase();
-    if (k === 'run_end' || k === 'step_end') return 'succeeded';
+    if (k === 'run_end' || k === 'step_end' || k === 'agent_end') return 'succeeded';
     if (k === 'run_error' || k === 'step_fail') return 'failed';
     if (k === 'plan' || k === 'request_start') return 'info';
-    if (k === 'step_start') return 'running';
+    if (k === 'step_start' || k === 'agent_start') return 'running';
     return 'unset';
   }
 
@@ -347,7 +445,7 @@ export class TracesPage implements OnInit {
       document.documentElement.classList.contains('dark');
     const primary = this.cssVar('--color-primary-500', dark ? '#3b82f6' : '#2563eb');
     const primarySoft = this.cssVar('--color-primary-900', dark ? '#1e3a8a' : '#1e40af');
-    const surface = dark ? '#0a0a0a' : '#ffffff';
+    const surface = dark ? '#0a0a0a' : '#fafafa';
     const panel = dark ? '#171717' : '#f5f5f5';
     const actor = dark ? '#262626' : '#ffffff';
     const text = dark ? '#f5f5f5' : '#171717';
@@ -392,11 +490,13 @@ export class TracesPage implements OnInit {
       },
       sequence: {
         actorMargin: 28,
-        mirrorActors: true,
-        bottomMarginAdj: 8,
-        messageMargin: 40,
-        noteMargin: 10,
+        mirrorActors: false,
+        bottomMarginAdj: 4,
+        messageMargin: 28,
+        noteMargin: 8,
         useMaxWidth: true,
+        diagramMarginX: 8,
+        diagramMarginY: 8,
       },
     };
   }
@@ -423,10 +523,10 @@ export class TracesPage implements OnInit {
   private initMermaid() {
     if (!window.mermaid) return;
     window.mermaid.initialize(this.fuseMermaidTheme());
-    this.mermaidReady = true;
   }
 
   private async renderMermaid() {
+    if (this.viewMode() !== 'diagram') return;
     const host = this.mermaidHost?.nativeElement;
     const d = this.detail();
     if (!host || !d?.mermaid) return;
@@ -437,7 +537,6 @@ export class TracesPage implements OnInit {
     this.initMermaid();
     const pre = host.querySelector('.mermaid');
     if (!pre) return;
-    // Mermaid mutates the node; rebuild a clean source node each render.
     const next = document.createElement('pre');
     next.className = 'mermaid whitespace-pre';
     next.textContent = d.mermaid;

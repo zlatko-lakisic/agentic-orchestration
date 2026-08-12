@@ -1783,58 +1783,148 @@ function safeTraceFileName(runId) {
     .slice(0, 128);
 }
 
+const TRACE_CAPABILITIES = {
+  runBoundary: true,
+  planner: true,
+  steps: true,
+  agentSelect: true,
+  directAgent: true,
+  modelCalls: false,
+  toolCalls: false,
+  mcpCalls: false,
+  qa: false,
+};
+
+function shortMermaidLabel(...parts) {
+  const clean = parts
+    .map((p) => String(p || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\n/g, " ")
+    .replace(/"/g, "'")
+    .trim();
+  const text = clean || "event";
+  return text.length <= 40 ? text : `${text.slice(0, 39).trimEnd()}…`;
+}
+
+function traceDurationMs(events) {
+  const times = (events || [])
+    .map((e) => Number(e?.ts))
+    .filter((t) => Number.isFinite(t));
+  if (times.length < 2) return null;
+  return Math.round((Math.max(...times) - Math.min(...times)) * 1000 * 10) / 10;
+}
+
+function traceInstrumentation(events) {
+  const kinds = new Set((events || []).map((e) => String(e?.kind || "")));
+  const present = {
+    runBoundary: kinds.has("request_start") || kinds.has("run_end") || kinds.has("run_error"),
+    planner: kinds.has("plan"),
+    steps: kinds.has("step_start") || kinds.has("step_end") || kinds.has("step_fail"),
+    agentSelect:
+      kinds.has("agent_start") ||
+      (events || []).some(
+        (e) =>
+          e?.kind === "plan" &&
+          Array.isArray(e?.detail?.agents) &&
+          e.detail.agents.length > 0,
+      ),
+    directAgent:
+      kinds.has("agent_start") ||
+      (events || []).some((e) => String(e?.detail?.mode || "") === "direct_agent"),
+    modelCalls: kinds.has("model_call"),
+    toolCalls: kinds.has("tool_call"),
+    mcpCalls: kinds.has("mcp_call"),
+    qa: kinds.has("qa"),
+  };
+  const missing = Object.entries(TRACE_CAPABILITIES)
+    .filter(([k, supported]) => supported && !present[k])
+    .map(([k]) => k);
+  const notInstrumented = Object.entries(TRACE_CAPABILITIES)
+    .filter(([, supported]) => !supported)
+    .map(([k]) => k);
+  let summary = "No structured spans recorded for this run_id.";
+  if (present.runBoundary && !present.planner && !present.steps && !present.directAgent) {
+    summary = "Run boundaries only — step-level spans were not recorded for this run.";
+  } else if (present.planner || present.steps || present.directAgent) {
+    summary = "Partial instrumentation — some planner/step/agent spans are present.";
+  }
+  return {
+    capabilities: { ...TRACE_CAPABILITIES },
+    present,
+    missing,
+    notInstrumented,
+    summary,
+  };
+}
+
 function eventsToMermaid(events) {
   const lines = ["sequenceDiagram"];
-  const actors = [];
+  const declared = new Set();
   const ensure = (actor) => {
     const a = String(actor || "orchestrator").trim() || "orchestrator";
     const pid = a.replace(/[^A-Za-z0-9]/g, "_").slice(0, 40) || "actor";
-    if (!actors.includes(pid)) {
-      actors.push(pid);
+    if (!declared.has(pid)) {
+      declared.add(pid);
       lines.push(`  participant ${pid} as ${a.replace(/"/g, "'").slice(0, 48)}`);
     }
     return pid;
   };
-  ensure("client");
-  ensure("orchestrator");
+  if ((events || []).length) ensure("client");
   let prev = "client";
   for (const ev of events || []) {
     const actor = ensure(ev.actor || "orchestrator");
     const kind = String(ev.kind || "event");
-    const msg = String(ev.message || kind).replace(/\n/g, " ").replace(/"/g, "'").slice(0, 80);
     const detail = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
+    const mode = String(detail.mode || "").trim();
+    const provider = String(detail.agent_provider_id || detail.provider_id || "").trim();
     if (kind === "request_start") {
-      lines.push(`  client->>${actor}: ${msg || "request"}`);
+      lines.push(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
       prev = actor;
     } else if (kind === "plan") {
       lines.push(`  ${prev}->>${actor}: plan`);
-      if (msg) lines.push(`  Note over ${actor}: ${msg}`);
+      const note = shortMermaidLabel(ev.message || "");
+      if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       for (const ag of (detail.agents || []).slice(0, 8)) {
         const aid = ensure(`agent:${ag}`);
         lines.push(`  ${actor}->>${aid}: select`);
       }
       if ((detail.mcps || []).length) {
         const mid = ensure("mcp");
-        lines.push(`  ${actor}->>${mid}: ${(detail.mcps || []).slice(0, 4).join(", ")}`);
+        lines.push(
+          `  ${actor}->>${mid}: ${shortMermaidLabel((detail.mcps || []).slice(0, 3).join(", "))}`,
+        );
       }
       if ((detail.skills || []).length) {
         const sid = ensure("skills");
-        lines.push(`  ${actor}->>${sid}: ${(detail.skills || []).slice(0, 4).join(", ")}`);
+        lines.push(
+          `  ${actor}->>${sid}: ${shortMermaidLabel((detail.skills || []).slice(0, 3).join(", "))}`,
+        );
       }
       prev = actor;
+    } else if (kind === "agent_start") {
+      lines.push(`  ${prev}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
+      prev = actor;
+    } else if (kind === "agent_end") {
+      lines.push(`  ${actor}-->>${prev}: ${shortMermaidLabel(ev.message || "done")}`);
     } else if (kind === "step_start" || kind === "step_end" || kind === "step_fail") {
       const arrow = kind === "step_end" ? "-->>" : "->>";
-      lines.push(`  ${prev}${arrow}${actor}: ${msg || kind}`);
+      lines.push(
+        `  ${prev}${arrow}${actor}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
+      );
       prev = actor;
     } else if (kind === "run_end" || kind === "run_error") {
-      lines.push(`  ${actor}-->>client: ${msg || kind}`);
+      lines.push(
+        `  ${actor}-->>client: ${shortMermaidLabel(ev.message || kind.replace(/_/g, " "))}`,
+      );
       prev = "client";
     } else {
-      lines.push(`  ${prev}->>${actor}: ${msg || kind}`);
+      lines.push(`  ${prev}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
       prev = actor;
     }
   }
   if (lines.length === 1) {
+    ensure("client");
     lines.push("  Note over client: No events recorded for this run_id");
   }
   return lines.join("\n");
@@ -1900,6 +1990,7 @@ function listRecentTraces({ toolRoot, limit = 50 }) {
       eventCount: events.length,
       lastKind: last.kind || null,
       lastMessage: last.message || null,
+      durationMs: traceDurationMs(events),
     });
   }
   return { generatedAt: new Date().toISOString(), runs };
@@ -1914,6 +2005,8 @@ function buildRunTrace({ toolRoot }, id) {
     eventCount: events.length,
     events,
     mermaid: eventsToMermaid(events),
+    durationMs: traceDurationMs(events),
+    instrumentation: traceInstrumentation(events),
   };
 }
 

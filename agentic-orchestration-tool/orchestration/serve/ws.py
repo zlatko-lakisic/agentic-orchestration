@@ -488,8 +488,12 @@ class WsConnection:
                 run_id,
                 "request_start",
                 actor="engine",
-                message=f"{kind}: {(text[:100] + '…') if len(text) > 100 else text}",
-                detail={"mode": kind, "question_id": question_id},
+                message=kind,
+                detail={
+                    "mode": kind,
+                    "question_id": question_id,
+                    "preview": (text[:120] + ("…" if len(text) > 120 else "")),
+                },
             )
         except Exception:  # noqa: BLE001
             pass
@@ -654,18 +658,66 @@ class WsConnection:
 
             response_format = message.get("responseFormat") or message.get("response_format")
             json_schema = message.get("jsonSchema") or message.get("json_schema")
-            return run_direct_agent(
-                tool_root=self.tool_root,
-                agent_provider_id=agent_provider_id,
-                goal=text,
-                context=str(message.get("context") or ""),
-                session_slug=session_slug or None,
-                user_id=user_id,
-                mcp_provider_ids=_mcp_provider_ids(message),
-                on_progress=progress,
-                response_format=response_format if isinstance(response_format, dict) else None,
-                json_schema=json_schema if isinstance(json_schema, dict) else None,
-            )
+            mcp_ids = _mcp_provider_ids(message)
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    self.tool_root,
+                    run_id,
+                    "agent_start",
+                    actor="engine",
+                    message=agent_provider_id,
+                    detail={
+                        "mode": "direct_agent",
+                        "agent_provider_id": agent_provider_id,
+                        "mcps": mcp_ids,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                answer = run_direct_agent(
+                    tool_root=self.tool_root,
+                    agent_provider_id=agent_provider_id,
+                    goal=text,
+                    context=str(message.get("context") or ""),
+                    session_slug=session_slug or None,
+                    user_id=user_id,
+                    mcp_provider_ids=mcp_ids,
+                    on_progress=progress,
+                    response_format=response_format if isinstance(response_format, dict) else None,
+                    json_schema=json_schema if isinstance(json_schema, dict) else None,
+                )
+            except Exception:
+                try:
+                    from orchestration.run_trace import append_run_event
+
+                    append_run_event(
+                        self.tool_root,
+                        run_id,
+                        "agent_end",
+                        actor="engine",
+                        message="failed",
+                        detail={"agent_provider_id": agent_provider_id, "ok": False},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                raise
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    self.tool_root,
+                    run_id,
+                    "agent_end",
+                    actor="engine",
+                    message="ok",
+                    detail={"agent_provider_id": agent_provider_id, "ok": True},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return answer
 
         from orchestration.dynamic_run import run_dynamic_goal
 

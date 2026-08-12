@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,24 @@ def run_config_via_kubernetes(
                 step_id=spec.step_id,
             )
             provider_id = str(spec.agent_provider.get("id", "agent"))
+            tool_root = Path(os.environ.get("AGENTIC_TOOL_ROOT") or Path(__file__).resolve().parents[2])
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    tool_root,
+                    run_id,
+                    "step_start",
+                    actor="orchestrator",
+                    message=spec.step_id,
+                    detail={
+                        "step_id": spec.step_id,
+                        "agent_provider_id": provider_id,
+                        "mcps": mcp_ids,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
             record, wait = runner.run_step_job(
                 run_id=run_id,
                 step_id=spec.step_id,
@@ -92,9 +111,43 @@ def run_config_via_kubernetes(
             if saved is not None:
                 if saved.result_text:
                     prior_outputs[spec.step_id] = saved.result_text
+                try:
+                    from orchestration.run_trace import append_run_event
+
+                    append_run_event(
+                        tool_root,
+                        run_id,
+                        "step_end" if int(saved.exit_code or 0) == 0 else "step_fail",
+                        actor="orchestrator",
+                        message=spec.step_id,
+                        detail={
+                            "step_id": spec.step_id,
+                            "agent_provider_id": provider_id,
+                            "exit_code": int(saved.exit_code or 0),
+                        },
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 return saved
 
             err = wait.message or "kubernetes job failed without result.json"
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    tool_root,
+                    run_id,
+                    "step_fail",
+                    actor="orchestrator",
+                    message=spec.step_id,
+                    detail={
+                        "step_id": spec.step_id,
+                        "agent_provider_id": provider_id,
+                        "error": str(err)[:300],
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return StepResult(
                 run_id=run_id,
                 step_id=spec.step_id,

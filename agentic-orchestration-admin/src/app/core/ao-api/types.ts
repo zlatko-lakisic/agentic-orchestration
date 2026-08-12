@@ -275,6 +275,7 @@ export interface TraceListItem {
   eventCount?: number | null;
   lastKind?: string | null;
   lastMessage?: string | null;
+  durationMs?: number | null;
 }
 
 export interface TracesListResponse {
@@ -291,11 +292,21 @@ export interface RunTraceEvent {
   detail?: Record<string, unknown>;
 }
 
+export interface TraceInstrumentation {
+  capabilities?: Record<string, boolean>;
+  present?: Record<string, boolean>;
+  missing?: string[];
+  notInstrumented?: string[];
+  summary?: string;
+}
+
 export interface RunTraceResponse {
   runId: string;
   eventCount?: number;
   events?: RunTraceEvent[];
   mermaid?: string;
+  durationMs?: number | null;
+  instrumentation?: TraceInstrumentation;
 }
 
 export interface SupportBundle {

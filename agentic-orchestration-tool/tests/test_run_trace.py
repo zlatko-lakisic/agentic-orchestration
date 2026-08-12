@@ -9,6 +9,8 @@ from orchestration.run_trace import (
     events_to_mermaid,
     list_recent_trace_runs,
     read_run_events,
+    trace_duration_ms,
+    trace_instrumentation,
 )
 
 
@@ -31,5 +33,29 @@ def test_append_and_read_run_events(tmp_path: Path) -> None:
     mermaid = events_to_mermaid(events)
     assert "sequenceDiagram" in mermaid
     assert "planner" in mermaid
+    assert "orchestrator" in mermaid  # touched via run_end
     listed = list_recent_trace_runs(tmp_path, limit=10)
     assert listed and listed[0]["runId"] == "runabc"
+    assert listed[0]["durationMs"] is not None
+
+
+@pytest.mark.unit
+def test_mermaid_omits_unused_orchestrator_and_truncates_labels(tmp_path: Path) -> None:
+    append_run_event(
+        tmp_path,
+        "r2",
+        "request_start",
+        actor="engine",
+        message="direct_agent",
+        detail={"mode": "direct_agent", "preview": "x" * 200},
+    )
+    append_run_event(tmp_path, "r2", "run_end", actor="engine", message="ok")
+    mermaid = events_to_mermaid(read_run_events(tmp_path, "r2"))
+    assert "participant orchestrator" not in mermaid
+    assert "direct_agent" in mermaid
+    assert "x" * 50 not in mermaid
+    info = trace_instrumentation(read_run_events(tmp_path, "r2"))
+    assert info["present"]["runBoundary"] is True
+    assert info["present"]["planner"] is False
+    assert "planner" in info["missing"]
+    assert trace_duration_ms(read_run_events(tmp_path, "r2")) is not None
