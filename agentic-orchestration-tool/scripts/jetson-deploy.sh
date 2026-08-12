@@ -19,6 +19,28 @@ echo "=== git pull ${GIT_REMOTE} ${GIT_BRANCH} ==="
 git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
+
+# Export deploy toggles from the merged .env (apply-env writes the file; this shell
+# must see AGENTIC_OLLAMA_MODE / ENABLE_* for the steps below).
+if [[ -f "${TOOL_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  # Only pull known toggles — avoid sourcing secrets into the script environment broadly.
+  while IFS='=' read -r key val; do
+    case "${key}" in
+      AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)
+        # strip optional surrounding quotes
+        val="${val%\"}"
+        val="${val#\"}"
+        val="${val%\'}"
+        val="${val#\'}"
+        export "${key}=${val}"
+        ;;
+    esac
+  done < <(grep -E '^(AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)=' "${TOOL_ROOT}/.env" || true)
+  set +a
+fi
+
 bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" apply
 # Ensure coordinator can stream pods/log for Admin live logs.
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
@@ -40,8 +62,8 @@ if [[ "${AGENTIC_JETSON_ENABLE_ENGINE:-1}" != "0" ]]; then
   bash "${TOOL_ROOT}/scripts/jetson-enable-engine.sh" "${PROJECT_ROOT}"
 fi
 
-# In-cluster Ollama only when explicitly requested (managed_k8s). Default edge
-# installs keep host systemd Ollama as external via host.k3s.internal.
+# In-cluster Ollama when managed_k8s (or AGENTIC_JETSON_ENABLE_OLLAMA=1).
+# Flags are loaded from .env after jetson-apply-env.sh above.
 if [[ "${AGENTIC_OLLAMA_MODE:-}" == "managed_k8s" || "${AGENTIC_JETSON_ENABLE_OLLAMA:-0}" == "1" ]]; then
   bash "${TOOL_ROOT}/scripts/jetson-enable-ollama.sh" "${PROJECT_ROOT}"
 fi
