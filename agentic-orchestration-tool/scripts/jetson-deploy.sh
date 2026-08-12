@@ -28,7 +28,7 @@ if [[ -f "${TOOL_ROOT}/.env" ]]; then
   # Only pull known toggles — avoid sourcing secrets into the script environment broadly.
   while IFS='=' read -r key val; do
     case "${key}" in
-      AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)
+      AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_IMAGE|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)
         # strip optional surrounding quotes
         val="${val%\"}"
         val="${val#\"}"
@@ -37,7 +37,7 @@ if [[ -f "${TOOL_ROOT}/.env" ]]; then
         export "${key}=${val}"
         ;;
     esac
-  done < <(grep -E '^(AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)=' "${TOOL_ROOT}/.env" || true)
+  done < <(grep -E '^(AGENTIC_JETSON_ENABLE_ENGINE|AGENTIC_OLLAMA_MODE|AGENTIC_JETSON_ENABLE_OLLAMA|AGENTIC_OLLAMA_IMAGE|AGENTIC_OLLAMA_MODELS_HOSTPATH|AGENTIC_OLLAMA_RUNTIME_CLASS)=' "${TOOL_ROOT}/.env" || true)
   set +a
 fi
 
