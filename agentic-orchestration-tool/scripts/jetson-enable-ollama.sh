@@ -157,7 +157,7 @@ open(out, "w", encoding="utf-8").write(doc)
 print(f"mode=host-binary bin={obin} home={ohome} models={models}")
 PY
 else
-  IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:0.9.6}"
+  IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:latest}"
   python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" <<'PY'
 import sys
 src, dst, image, home, models_data, runtime_class = sys.argv[1:7]
