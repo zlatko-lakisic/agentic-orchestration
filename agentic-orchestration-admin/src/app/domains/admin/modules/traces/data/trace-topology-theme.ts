@@ -1,5 +1,40 @@
 import { themeForKind, TopologyKindTheme } from '@/app/domains/admin/modules/topology/data/topology.theme';
 
+/** Fuse uses `scheme-dark` / `scheme-light` on <html>, not Tailwind's `.dark`. */
+export function isAoDarkScheme(): boolean {
+  if (typeof document === 'undefined') return true;
+  const root = document.documentElement;
+  return (
+    root.classList.contains('scheme-dark') ||
+    root.classList.contains('dark') ||
+    (!root.classList.contains('scheme-light') &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches)
+  );
+}
+
+function cssVar(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/** Same surface as Topology node cards (`--mat-sys-surface`). */
+export function topologyPanelSurface(): string {
+  const dark = isAoDarkScheme();
+  return cssVar('--mat-sys-surface', dark ? '#171717' : '#ffffff');
+}
+
+export function topologyPanelText(): string {
+  const dark = isAoDarkScheme();
+  return cssVar('--mat-sys-on-surface', dark ? '#f5f5f5' : '#171717');
+}
+
+export function topologyPanelMuted(): string {
+  const dark = isAoDarkScheme();
+  return cssVar('--mat-sys-on-surface-variant', dark ? '#a3a3a3' : '#737373');
+}
+
 /** Map sequence-diagram participant labels to Topology node kinds (shared accents). */
 export function topologyKindForTraceActor(actor: string): string {
   const a = String(actor || '')
@@ -37,45 +72,19 @@ export function shortTraceActorLabel(actor: string): string {
   return a.length > 28 ? `${a.slice(0, 27)}…` : a;
 }
 
-/** Mix accent into surface (topology-like subtle tint). */
-export function tintedSurface(accent: string, dark: boolean): string {
-  // Approximate color-mix without CSSOM: blend ~14% accent into surface.
-  const surface = dark ? [23, 23, 23] : [255, 255, 255];
-  const rgb = parseHex(accent);
-  if (!rgb) return dark ? '#171717' : '#ffffff';
-  const t = 0.14;
-  const mix = surface.map((c, i) => Math.round(c * (1 - t) + rgb[i]! * t));
-  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
-}
-
-function parseHex(hex: string): [number, number, number] | null {
-  const h = hex.replace('#', '').trim();
-  if (h.length === 3) {
-    return [
-      parseInt(h[0]! + h[0]!, 16),
-      parseInt(h[1]! + h[1]!, 16),
-      parseInt(h[2]! + h[2]!, 16),
-    ];
-  }
-  if (h.length !== 6) return null;
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-
 export type TraceIconLoader = (iconName: string) => Promise<SVGElement | null>;
 
 /**
  * Restyle Mermaid sequence actor boxes to match Topology nodes:
- * tinted surface, accent stroke, left accent bar, icon, accent lifeline.
+ * mat-sys surface fill, accent stroke, left accent bar, icon, accent lifeline.
  */
 export async function applyTopologyStylesToMermaidSvg(
   svg: SVGSVGElement,
   loadIcon?: TraceIconLoader
 ): Promise<void> {
-  const dark =
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-  const text = dark ? '#f5f5f5' : '#171717';
-  const muted = dark ? '#a3a3a3' : '#737373';
+  const surface = topologyPanelSurface();
+  const text = topologyPanelText();
+  const muted = topologyPanelMuted();
   const arrowAccent = themeForKind('session-bridge').accent;
 
   const actorRects = Array.from(
@@ -132,14 +141,13 @@ export async function applyTopologyStylesToMermaidSvg(
 
     const theme = themeForTraceActor(label || 'platform');
     const accent = theme.accent;
-    const fill = tintedSurface(accent, dark);
 
     rect.setAttribute('rx', '8');
     rect.setAttribute('ry', '8');
-    rect.setAttribute('fill', fill);
+    rect.setAttribute('fill', surface);
     rect.setAttribute('stroke', accent);
     rect.setAttribute('stroke-width', '1.5');
-    rect.style.setProperty('fill', fill, 'important');
+    rect.style.setProperty('fill', surface, 'important');
     rect.style.setProperty('stroke', accent, 'important');
     rect.style.setProperty('stroke-width', '1.5px', 'important');
 
@@ -158,7 +166,6 @@ export async function applyTopologyStylesToMermaidSvg(
       bar.style.fill = accent;
       parent.insertBefore(bar, rect.nextSibling);
 
-      // Icon (topology node signature)
       if (loadIcon) {
         try {
           const iconSvg = await loadIcon(theme.icon);
@@ -188,7 +195,6 @@ export async function applyTopologyStylesToMermaidSvg(
             fo.appendChild(wrap);
             parent.appendChild(fo);
 
-            // Nudge label right to clear icon
             if (labelText) {
               try {
                 const bx = labelText.getBBox();
@@ -205,7 +211,6 @@ export async function applyTopologyStylesToMermaidSvg(
         }
       }
 
-      // Secondary aspect caption under label (topology-style meta)
       const aspect = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       aspect.setAttribute('data-ao-topo', String(i));
       aspect.setAttribute('x', String(cx + (loadIcon ? 8 : 0)));
@@ -214,7 +219,6 @@ export async function applyTopologyStylesToMermaidSvg(
       aspect.setAttribute('fill', muted);
       aspect.style.cssText = `fill:${muted};font-size:9px;font-family:inherit;`;
       aspect.textContent = theme.aspect;
-      // Only add if box is tall enough; otherwise skip to avoid overlap
       if (h >= 48) parent.appendChild(aspect);
     }
 
@@ -235,7 +239,7 @@ export async function applyTopologyStylesToMermaidSvg(
       const vertical = Math.abs(x1 - x2) < 1.5 && Math.abs(y2 - y1) > 24;
       if (vertical && Math.abs(x1 - cx) < 12) {
         line.setAttribute('stroke', accent);
-        line.setAttribute('stroke-opacity', '0.4');
+        line.setAttribute('stroke-opacity', '0.45');
         (line as SVGElement).style.setProperty('stroke', accent, 'important');
       }
     });

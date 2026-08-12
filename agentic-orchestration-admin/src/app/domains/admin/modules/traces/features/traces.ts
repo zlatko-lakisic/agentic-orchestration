@@ -29,6 +29,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyTopologyStylesToMermaidSvg,
+  isAoDarkScheme,
   themeForTraceActor,
 } from '@/app/domains/admin/modules/traces/data/trace-topology-theme';
 
@@ -526,16 +527,13 @@ export class TracesPage implements OnInit {
   }
 
   private fuseMermaidTheme(): Record<string, unknown> {
-    const dark =
-      typeof document !== 'undefined' &&
-      document.documentElement.classList.contains('dark');
+    const dark = isAoDarkScheme();
     const primary = this.cssVar('--color-primary-500', dark ? '#3b82f6' : '#2563eb');
     const primarySoft = this.cssVar('--color-primary-900', dark ? '#1e3a8a' : '#1e40af');
-    const surface = dark ? '#0a0a0a' : '#fafafa';
-    const panel = dark ? '#171717' : '#f5f5f5';
-    const actor = dark ? '#262626' : '#ffffff';
-    const text = dark ? '#f5f5f5' : '#171717';
-    const muted = dark ? '#a3a3a3' : '#525252';
+    const surface = this.cssVar('--mat-sys-surface', dark ? '#171717' : '#ffffff');
+    const panel = dark ? '#0a0a0a' : '#fafafa';
+    const text = this.cssVar('--mat-sys-on-surface', dark ? '#f5f5f5' : '#171717');
+    const muted = this.cssVar('--mat-sys-on-surface-variant', dark ? '#a3a3a3' : '#525252');
     const line = dark ? '#737373' : '#a3a3a3';
     return {
       startOnLoad: false,
@@ -543,34 +541,34 @@ export class TracesPage implements OnInit {
       securityLevel: 'loose',
       themeVariables: {
         darkMode: dark,
-        background: surface,
-        primaryColor: actor,
+        background: panel,
+        primaryColor: surface,
         primaryTextColor: text,
         primaryBorderColor: primary,
-        secondaryColor: panel,
-        tertiaryColor: panel,
+        secondaryColor: surface,
+        tertiaryColor: surface,
         secondaryTextColor: text,
         tertiaryTextColor: muted,
         lineColor: primary,
         textColor: text,
-        mainBkg: actor,
+        mainBkg: surface,
         nodeBorder: primary,
-        clusterBkg: panel,
+        clusterBkg: surface,
         titleColor: text,
-        actorBkg: actor,
+        actorBkg: surface,
         actorBorder: primary,
         actorTextColor: text,
         actorLineColor: line,
         signalColor: primary,
         signalTextColor: text,
-        labelBoxBkgColor: panel,
+        labelBoxBkgColor: surface,
         labelBoxBorderColor: line,
         labelTextColor: muted,
         loopTextColor: muted,
         noteBkgColor: primarySoft,
         noteTextColor: text,
         noteBorderColor: primary,
-        activationBkgColor: panel,
+        activationBkgColor: surface,
         activationBorderColor: primary,
         sequenceNumberColor: text,
       },
