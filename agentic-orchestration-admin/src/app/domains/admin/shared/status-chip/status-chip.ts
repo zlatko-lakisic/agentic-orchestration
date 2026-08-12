@@ -35,6 +35,7 @@ export class StatusChip {
         s === 'healthy' ||
         s === 'available' ||
         s === 'succeeded' ||
+        s === 'completed' ||
         s === 'pass' ||
         s === 'passed',
       'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300':
@@ -53,6 +54,7 @@ export class StatusChip {
           'healthy',
           'available',
           'succeeded',
+          'completed',
           'pass',
           'passed',
           'degraded',

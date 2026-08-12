@@ -2228,24 +2228,52 @@ function addTokenBucket(map, key, row) {
   map.set(key, cur);
 }
 
+function emptyTokenTotals() {
+  return { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+}
+
+function addToTotals(dst, row) {
+  dst.calls += 1;
+  const p = Number(row.promptTokens);
+  const c = Number(row.completionTokens);
+  const t = Number(row.totalTokens);
+  if (Number.isFinite(p)) dst.promptTokens += p;
+  if (Number.isFinite(c)) dst.completionTokens += c;
+  if (Number.isFinite(t)) dst.totalTokens += t;
+}
+
+function rowTsMs(row) {
+  const n = Number(row?.ts);
+  if (Number.isFinite(n)) {
+    // Epoch seconds vs milliseconds
+    return n < 1e12 ? n * 1000 : n;
+  }
+  const iso = Date.parse(String(row?.ts || ""));
+  return Number.isFinite(iso) ? iso : null;
+}
+
+function dayKeyUtc(ms) {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function summarizeLlmUsage(rows) {
   const byUserId = new Map();
   const byClientIp = new Map();
   const byAppId = new Map();
   const byTokenId = new Map();
-  const grandTotal = { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  const byModel = new Map();
+  const grandTotal = emptyTokenTotals();
   for (const row of rows || []) {
-    addTokenBucket(byUserId, rollupKey(row.userId), row);
+    addTokenBucket(byUserId, rollupKey(row.userId || row.userName), row);
     addTokenBucket(byClientIp, rollupKey(row.clientIp), row);
     addTokenBucket(byAppId, rollupKey(row.appId), row);
     addTokenBucket(byTokenId, rollupKey(row.tokenId), row);
-    grandTotal.calls += 1;
-    const p = Number(row.promptTokens);
-    const c = Number(row.completionTokens);
-    const t = Number(row.totalTokens);
-    if (Number.isFinite(p)) grandTotal.promptTokens += p;
-    if (Number.isFinite(c)) grandTotal.completionTokens += c;
-    if (Number.isFinite(t)) grandTotal.totalTokens += t;
+    addTokenBucket(byModel, rollupKey(row.model), row);
+    addToTotals(grandTotal, row);
   }
   const sortFn = (a, b) => b.totalTokens - a.totalTokens || b.calls - a.calls || String(a.key).localeCompare(String(b.key));
   return {
@@ -2253,7 +2281,91 @@ function summarizeLlmUsage(rows) {
     byClientIp: [...byClientIp.values()].sort(sortFn),
     byAppId: [...byAppId.values()].sort(sortFn),
     byTokenId: [...byTokenId.values()].sort(sortFn),
+    byModel: [...byModel.values()].sort(sortFn),
     grandTotal,
+  };
+}
+
+/** Daily token spend series + previous/current 7-day statement windows. */
+function buildLlmSpendSeries(rows, { nowMs = Date.now(), windowDays = 7 } = {}) {
+  const dayMs = 86_400_000;
+  const win = Math.max(1, Number(windowDays) || 7);
+  const currentStart = nowMs - win * dayMs;
+  const previousStart = nowMs - win * 2 * dayMs;
+  const previous = emptyTokenTotals();
+  const current = emptyTokenTotals();
+  const byDay = new Map();
+
+  for (const row of rows || []) {
+    const ms = rowTsMs(row);
+    if (ms == null) continue;
+    if (ms >= currentStart && ms <= nowMs) addToTotals(current, row);
+    else if (ms >= previousStart && ms < currentStart) addToTotals(previous, row);
+
+    const key = dayKeyUtc(ms);
+    const cur = byDay.get(key) || {
+      day: key,
+      ts: Date.UTC(
+        Number(key.slice(0, 4)),
+        Number(key.slice(5, 7)) - 1,
+        Number(key.slice(8, 10)),
+      ),
+      ...emptyTokenTotals(),
+    };
+    addToTotals(cur, row);
+    byDay.set(key, cur);
+  }
+
+  // Fill contiguous days covering previous+current windows (and any older ledger days).
+  const keys = [...byDay.keys()].sort();
+  let fillStart = previousStart;
+  let fillEnd = nowMs;
+  if (keys.length) {
+    const first = Date.parse(`${keys[0]}T00:00:00Z`);
+    if (Number.isFinite(first) && first < fillStart) fillStart = first;
+  }
+  const timeline = [];
+  for (let t = Date.UTC(
+    new Date(fillStart).getUTCFullYear(),
+    new Date(fillStart).getUTCMonth(),
+    new Date(fillStart).getUTCDate(),
+  ); t <= fillEnd; t += dayMs) {
+    const key = dayKeyUtc(t);
+    timeline.push(
+      byDay.get(key) || {
+        day: key,
+        ts: t,
+        ...emptyTokenTotals(),
+      },
+    );
+  }
+
+  const pctChange = (cur, prev) => {
+    if (!prev) return cur ? 100 : 0;
+    return ((cur - prev) / prev) * 100;
+  };
+
+  return {
+    windowDays: win,
+    previous: {
+      ...previous,
+      label: "Previous window",
+      from: new Date(previousStart).toISOString(),
+      to: new Date(currentStart).toISOString(),
+    },
+    current: {
+      ...current,
+      label: "Current window",
+      from: new Date(currentStart).toISOString(),
+      to: new Date(nowMs).toISOString(),
+    },
+    growthPct: {
+      totalTokens: pctChange(current.totalTokens, previous.totalTokens),
+      calls: pctChange(current.calls, previous.calls),
+      promptTokens: pctChange(current.promptTokens, previous.promptTokens),
+      completionTokens: pctChange(current.completionTokens, previous.completionTokens),
+    },
+    timeline,
   };
 }
 
@@ -2294,11 +2406,15 @@ function summarizeApiUsage(toolRoot) {
 }
 
 function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
-  const recent = readLlmUsageRows(toolRoot, { limit: Math.max(1, Number(limit) || 200) });
+  const all = readLlmUsageRows(toolRoot, { limit: 20000 });
+  const recent = all.slice(-Math.max(1, Number(limit) || 200)).reverse();
+  const llm = summarizeLlmUsage(all);
+  const spend = buildLlmSpendSeries(all);
   return {
     generatedAt: new Date().toISOString(),
-    recent: recent.slice().reverse(),
-    llm: summarizeLlmUsage(readLlmUsageRows(toolRoot, { limit: 20000 })),
+    recent,
+    llm,
+    spend,
     api: summarizeApiUsage(toolRoot),
   };
 }

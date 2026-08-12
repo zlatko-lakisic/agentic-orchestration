@@ -355,14 +355,63 @@ export interface ApiUsageRollupRow {
   promptCharsSum?: number;
 }
 
+export interface LlmUsageEventRow {
+  ts?: number | string | null;
+  runId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  appId?: string | null;
+  clientIp?: string | null;
+  tokenId?: string | null;
+  source?: string | null;
+  model?: string | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  latencyMs?: number | null;
+  ok?: boolean | null;
+}
+
+export interface LlmSpendTotals {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  label?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface LlmSpendDay {
+  day: string;
+  ts: number;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface LlmUsageResponse {
   generatedAt?: string;
-  recent?: Array<Record<string, unknown>>;
+  recent?: LlmUsageEventRow[];
+  spend?: {
+    windowDays?: number;
+    previous?: LlmSpendTotals;
+    current?: LlmSpendTotals;
+    growthPct?: {
+      totalTokens?: number;
+      calls?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+    };
+    timeline?: LlmSpendDay[];
+  };
   llm?: {
     byUserId?: LlmUsageRollupRow[];
     byClientIp?: LlmUsageRollupRow[];
     byAppId?: LlmUsageRollupRow[];
     byTokenId?: LlmUsageRollupRow[];
+    byModel?: LlmUsageRollupRow[];
     grandTotal?: {
       calls: number;
       promptTokens: number;
