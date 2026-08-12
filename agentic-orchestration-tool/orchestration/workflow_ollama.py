@@ -13,17 +13,16 @@ def resolve_workflow_ollama_host(instance_key: str) -> str:
     - Otherwise (local CLI / managed_process): map the workflow ``instance_key`` to a
       dedicated loopback URL so each workflow can own its own Ollama port.
     """
-    from orchestration.ollama_ownership import (
-        MODE_EXTERNAL,
-        MODE_MANAGED_K8S,
-        resolve_ollama_mode,
-    )
-
-    mode = resolve_ollama_mode()
-    if mode in (MODE_MANAGED_K8S, MODE_EXTERNAL):
-        from agent_providers.ollama_provider import litellm_api_base_for_ollama
-
-        return litellm_api_base_for_ollama()
+    mode = os.getenv("AGENTIC_OLLAMA_MODE", "").strip().lower()
+    if mode in ("managed_k8s", "external"):
+        raw = (
+            os.getenv("OLLAMA_API_BASE", "").strip()
+            or os.getenv("OLLAMA_HOST", "").strip()
+            or "http://127.0.0.1:11434"
+        )
+        if "://" not in raw:
+            raw = f"http://{raw}"
+        return raw.rstrip("/")
 
     base = int(os.getenv("AGENTIC_WORKFLOW_OLLAMA_PORT_BASE", "21434"))
     span = int(os.getenv("AGENTIC_WORKFLOW_OLLAMA_PORT_SPAN", "6000"))
