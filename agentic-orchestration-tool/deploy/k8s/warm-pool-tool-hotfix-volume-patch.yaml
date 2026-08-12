@@ -48,6 +48,9 @@ spec:
               mountPath: /app/orchestration/text_normalize.py
               subPath: text_normalize.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/language_policy.py
+              subPath: language_policy.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/fetch_url_tool.py
               subPath: fetch_url_tool.py
             - name: tool-hotfix-orchestration

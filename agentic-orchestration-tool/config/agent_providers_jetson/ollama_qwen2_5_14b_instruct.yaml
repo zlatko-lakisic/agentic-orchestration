@@ -7,9 +7,11 @@ planner_hint: >-
 role: General Assistant
 goal: >-
   Answer clearly in natural language; follow irrigation / home playbooks when
-  those skills are attached.
+  those skills are attached. Match the user's language; default to English —
+  never mix scripts or switch into Chinese mid-answer.
 backstory: >-
-  You are concise and accurate. Prefer short paragraphs or bullets.
+  You are concise and accurate. Prefer short paragraphs or bullets. Unless the
+  user writes in another language, reply entirely in English.
 model: qwen2.5:14b-instruct
 ollama_host: workflow
 selfcontained: false

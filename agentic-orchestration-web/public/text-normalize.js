@@ -111,6 +111,56 @@ export function sanitizeUserFacingProse(text) {
   t = stripLeadingInstructionParagraphs(t);
   t = t.replace(/\n{3,}/g, "\n\n").trim();
   t = stripWrappingQuotes(t);
+  if (looksLikeMcpToolCallLeak(t)) return "";
   if (looksLikeFormatInstructionOnly(t)) return "";
-  return t;
+  return stripUnexpectedCjk(t);
+}
+
+/** East-Asian script class used for English-default reply locale leaks (Qwen mid-answer flip). */
+const CJK_RUN_RE =
+  /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]+/;
+const TRAILING_GLUE_RE =
+  /\s+(?:among|and|or|the|a|an|to|of|in|for|with|from|into|onto|as|is|are|was|were)\s*$/i;
+const LANGUAGE_LEAK_FALLBACK =
+  "I couldn't produce a clear English answer. Please ask again.";
+
+/**
+ * When AGENTIC_REPLY_LOCALE is Latin-default (browser has no env; always strip for web
+ * display of mixed English→CJK leaks), keep the Latin prefix or fall back.
+ * @param {string} text
+ */
+export function stripUnexpectedCjk(text) {
+  let t = String(text ?? "").trim();
+  if (!t || !CJK_RUN_RE.test(t)) return t;
+  const match = t.match(CJK_RUN_RE);
+  if (!match || match.index == null) return t;
+  let prefix = t.slice(0, match.index).trimEnd();
+  prefix = prefix.replace(TRAILING_GLUE_RE, "").replace(/[ ,;:-]+$/g, "").trim();
+  if (prefix.length >= 12 && /[A-Za-z]/.test(prefix)) return prefix;
+  return LANGUAGE_LEAK_FALLBACK;
+}
+
+/** Detect tool-call JSON / MCP stubs leaked as the final assistant answer. */
+export function looksLikeMcpToolCallLeak(text) {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  const lower = t.toLowerCase();
+  if (/^name:\s*\S+/im.test(t) && /parameters:\s*\{/i.test(t)) return true;
+  if (
+    /"name"\s*:\s*"(?:describe_image(?:_file)?|transcribe_audio(?:_file)?|analyze_video(?:_file)?|python_m_mcp[^"]*|media_understand[^"]*|plant_knowledge[^"]*)"/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (lower.includes('"name"') && lower.includes('"parameters"')) {
+    if (
+      /describe_image|transcribe_audio|analyze_video|media_understand|python_m_mcp|plant_knowledge|_web_uploads/i.test(
+        t,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

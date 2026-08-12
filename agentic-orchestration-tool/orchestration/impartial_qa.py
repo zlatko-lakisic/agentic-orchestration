@@ -121,30 +121,65 @@ def _rubric_from_env() -> str | None:
     return text or None
 
 
+def _resolve_assertions_path(path_raw: str) -> Path:
+    p = Path(path_raw).expanduser()
+    if p.is_file():
+        return p
+    tool_root = Path(__file__).resolve().parents[1]
+    candidate = tool_root / path_raw
+    if candidate.is_file():
+        return candidate
+    return p
+
+
 def _assertions_from_env() -> list[Any]:
+    from orchestration.language_policy import default_locale_assertions
+
     path_raw = _env("AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE")
-    if not path_raw:
-        return []
-    try:
-        raw = Path(path_raw).expanduser().read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
-        print(
-            f"(impartial-qa) assertions file unusable ({path_raw}): {exc}",
-            file=sys.stderr,
-            flush=True,
+    loaded: list[Any] = []
+    if path_raw:
+        path = _resolve_assertions_path(path_raw)
+        try:
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(
+                f"(impartial-qa) assertions file unusable ({path_raw}): {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            data = None
+        if isinstance(data, dict):
+            data = data.get("assertions")
+        if data is None:
+            loaded = []
+        elif not isinstance(data, list):
+            print(
+                f"(impartial-qa) assertions file must hold a JSON list ({path_raw})",
+                file=sys.stderr,
+                flush=True,
+            )
+            loaded = []
+        else:
+            loaded = list(data)
+
+    # Merge locale defaults (CJK forbid under AGENTIC_REPLY_LOCALE=en) when not already present.
+    defaults = default_locale_assertions()
+    if not defaults:
+        return loaded
+    existing_types = {
+        (str(a.get("type", "")).strip().lower(), str(a.get("pattern", "")))
+        for a in loaded
+        if isinstance(a, dict)
+    }
+    for assertion in defaults:
+        key = (
+            str(assertion.get("type", "")).strip().lower(),
+            str(assertion.get("pattern", "")),
         )
-        return []
-    if isinstance(data, dict):
-        data = data.get("assertions")
-    if not isinstance(data, list):
-        print(
-            f"(impartial-qa) assertions file must hold a JSON list ({path_raw})",
-            file=sys.stderr,
-            flush=True,
-        )
-        return []
-    return list(data)
+        if key not in existing_types:
+            loaded.append(assertion)
+    return loaded
 
 
 def _model_from_env() -> str | None:

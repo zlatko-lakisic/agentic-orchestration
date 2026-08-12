@@ -3,11 +3,15 @@ smoke:
   topic: Harness smoke
   description: >
     In 2-3 sentences, explain what a YAML-driven multi-agent workflow orchestrator does.
+    Reply in English only.
   expected_output: Short plain-language explanation of workflow orchestration.
 assertions:
   - type: min_chars
     value: 40
+  - type: forbids_regex
+    pattern: "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
 capability:
   rubric: >
-    Score whether the answer is coherent, on-topic, and non-empty for a general assistant.
+    Score whether the answer is coherent, on-topic, English-only, and non-empty for a
+    general assistant.
   min_score: 0.5

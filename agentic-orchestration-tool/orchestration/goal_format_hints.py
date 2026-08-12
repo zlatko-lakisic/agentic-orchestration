@@ -7,7 +7,9 @@ import re
 
 WEB_PROSE_GOAL_SUFFIX = (
     "\n\n[Delivery format: Write the user-facing answer in clear, natural language "
-    "(short paragraphs or bullet lists). Do not use JSON, raw object dumps, LaTeX, "
+    "(short paragraphs or bullet lists). Match the user's language; default to English. "
+    "Do not mix scripts or switch into Chinese, Japanese, or Korean unless the user wrote "
+    "in that language. Do not use JSON, raw object dumps, LaTeX, "
     r"$\boxed{}$ wrappers, or meta-commentary about these rules — just answer the question.]"
 )
 

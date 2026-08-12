@@ -352,6 +352,7 @@ def test_config_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE", str(assertions_file))
     monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_MIN_SCORE", "0.75")
     monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("AGENTIC_REPLY_LOCALE", "auto")
 
     cfg = load_impartial_qa_config_from_env()
 
@@ -370,8 +371,10 @@ def test_config_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
         "AGENTIC_IMPARTIAL_QA_MIN_SCORE",
         "AGENTIC_IMPARTIAL_QA_MODEL",
         "AGENTIC_IMPARTIAL_QA_FAITHFULNESS",
+        "AGENTIC_REPLY_LOCALE",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AGENTIC_REPLY_LOCALE", "auto")
 
     cfg = load_impartial_qa_config_from_env()
 
@@ -384,6 +387,19 @@ def test_config_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     }
 
 
+def test_config_merges_default_cjk_assertion(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestration.language_policy import FORBIDDEN_CJK_ASSERTION
+
+    for name in (
+        "AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE",
+        "AGENTIC_REPLY_LOCALE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    cfg = load_impartial_qa_config_from_env()
+    assert FORBIDDEN_CJK_ASSERTION in cfg["assertions"]
+
+
 def test_config_survives_a_bad_assertions_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -392,6 +408,7 @@ def test_config_survives_a_bad_assertions_file(
     bad.write_text("{not json", encoding="utf-8")
     monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_ASSERTIONS_FILE", str(bad))
     monkeypatch.setenv("AGENTIC_IMPARTIAL_QA_MIN_SCORE", "not-a-number")
+    monkeypatch.setenv("AGENTIC_REPLY_LOCALE", "auto")
 
     cfg = load_impartial_qa_config_from_env()
 

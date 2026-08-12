@@ -3,13 +3,15 @@ smoke:
   topic: Harness smoke
   description: >
     In two short spoken sentences, greet someone at a hallway terminal and say you can
-    help with home questions.
+    help with home questions. Reply in English only.
   expected_output: Short plain conversational greeting suitable for text-to-speech.
 assertions:
   - type: min_chars
     value: 20
+  - type: forbids_regex
+    pattern: "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
 capability:
   rubric: >
     Score whether the answer is brief, spoken-friendly (no markdown or bullet lists),
-    and coherent for a voice hallway assistant.
+    English-only, and coherent for a voice hallway assistant.
   min_score: 0.5

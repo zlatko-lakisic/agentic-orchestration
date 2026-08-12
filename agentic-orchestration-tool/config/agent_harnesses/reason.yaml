@@ -10,6 +10,8 @@ assertions:
     value: 100
   - type: regex
     pattern: '(?m)^\\s*1[.)\\]'
+  - type: forbids_regex
+    pattern: "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
 capability:
   rubric: >
     Score whether the answer lists distinct plausible causes, includes verification

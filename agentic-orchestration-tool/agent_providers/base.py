@@ -14,6 +14,8 @@ _MCP_TOOL_HINT_MARKER = "[agentic: MCP tool arguments]"
 _MCP_TOOL_CALLING_HINT = (
     f"{_MCP_TOOL_HINT_MARKER} MCP tools are wired into this agent — invoke them through "
     "the framework, read tool results, then write your final answer in plain natural language. "
+    "Match the user's language; default to English — do not mix scripts or switch into "
+    "Chinese, Japanese, or Korean unless the user wrote in that language. "
     "Never paste tool metadata or invocation stubs as the final answer (e.g. lines starting "
     "with `name:` / `parameters:`, `python_m_mcp_server_fetch`, or JSON tool envelopes). "
     "Use only each tool schema's parameter names as top-level fields (e.g. `url` for fetch, "

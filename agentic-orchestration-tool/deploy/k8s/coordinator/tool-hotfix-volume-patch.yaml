@@ -54,6 +54,9 @@ spec:
               mountPath: /app/tool/orchestration/text_normalize.py
               subPath: text_normalize.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/language_policy.py
+              subPath: language_policy.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/mcp_task_hints.py
               subPath: mcp_task_hints.py
             - name: tool-hotfix-orchestration

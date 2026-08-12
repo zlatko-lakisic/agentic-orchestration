@@ -10,6 +10,8 @@ assertions:
     value: 60
   - type: max_chars
     value: 800
+  - type: forbids_regex
+    pattern: "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
 capability:
   rubric: >
     Score clarity, scannability, and whether the paragraph reads like professional

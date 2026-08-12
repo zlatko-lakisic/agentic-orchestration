@@ -1,0 +1,9 @@
+{
+  "assertions": [
+    {
+      "type": "forbids_regex",
+      "pattern": "[\\u3040-\\u30ff\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\uac00-\\ud7af]",
+      "note": "Unexpected CJK / Hangul when AGENTIC_REPLY_LOCALE defaults to English"
+    }
+  ]
+}

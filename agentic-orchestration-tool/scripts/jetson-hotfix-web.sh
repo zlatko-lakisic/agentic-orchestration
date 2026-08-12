@@ -78,6 +78,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=simple_chat.py="${ORCH_ROOT}/simple_chat.py" \
   --from-file=planner_greeting.py="${ORCH_ROOT}/planner_greeting.py" \
   --from-file=text_normalize.py="${ORCH_ROOT}/text_normalize.py" \
+  --from-file=language_policy.py="${ORCH_ROOT}/language_policy.py" \
   --from-file=mcp_task_hints.py="${ORCH_ROOT}/mcp_task_hints.py" \
   --from-file=mcp_tool_leak_recovery.py="${ORCH_ROOT}/mcp_tool_leak_recovery.py" \
   --from-file=irrigation_minutes.py="${ORCH_ROOT}/irrigation_minutes.py" \

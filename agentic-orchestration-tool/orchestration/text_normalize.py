@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from orchestration.language_policy import strip_unexpected_cjk
+
 # LaTeX-style wrappers small models often emit (e.g. "The final answer is $\\boxed{...}$").
 _BOXED_RE = re.compile(
     r"(?:\$)?\\boxed\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(?:\$)?",
@@ -144,4 +146,5 @@ def sanitize_user_facing_prose(text: str) -> str:
         return ""
     from orchestration.media_grounding import strip_skill_echo_tokens
 
-    return strip_skill_echo_tokens(t)
+    t = strip_skill_echo_tokens(t)
+    return strip_unexpected_cjk(t)
