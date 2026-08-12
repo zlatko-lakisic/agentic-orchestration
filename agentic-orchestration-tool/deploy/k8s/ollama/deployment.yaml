@@ -4,9 +4,9 @@
 # AGENTIC_OLLAMA_MODELS_HOSTPATH (e.g. /nfs/omega-jetson/ollama/models) at
 # /root/.ollama/models so NFS-backed host installs keep working without a copy.
 #
-# Ada / x86 GPU: k3s here has RuntimeClass "nvidia" but containerd does not
-# register the handler ("RuntimeHandler nvidia not supported"). Use privileged
-# hostPath device + driver-lib mounts instead so Ollama sees the discrete GPU.
+# Ada / x86 GPU: k3s may advertise RuntimeClass "nvidia" without a working
+# containerd handler. Mount NVIDIA devices + host driver libs, then symlink
+# libcuda into standard paths before `ollama serve` so runners use the GPU.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,6 +32,30 @@ spec:
         - name: ollama
           image: ollama/ollama:latest
           imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              LIBDIR=/usr/lib/x86_64-linux-gnu
+              mkdir -p "$LIBDIR"
+              for f in /host-nvidia-libs/libcuda.so* \
+                       /host-nvidia-libs/libnvidia-ml.so* \
+                       /host-nvidia-libs/libnvidia-ptxjitcompiler.so* \
+                       /host-nvidia-libs/libnvidia-nvvm.so* \
+                       /host-nvidia-libs/libnvidia-gpucomp.so* \
+                       /host-nvidia-libs/libnvidia-cfg.so*; do
+                [ -e "$f" ] || continue
+                ln -sfn "$f" "$LIBDIR/$(basename "$f")"
+                if [ -d /usr/lib/ollama ]; then
+                  ln -sfn "$f" "/usr/lib/ollama/$(basename "$f")"
+                fi
+              done
+              if [ -x /host-nvidia-bin/nvidia-smi ]; then
+                ln -sfn /host-nvidia-bin/nvidia-smi /usr/bin/nvidia-smi
+              fi
+              ldconfig 2>/dev/null || true
+              echo "GPU probe:"; nvidia-smi -L 2>&1 || true
+              exec ollama serve
           ports:
             - name: http
               containerPort: 11434
@@ -47,7 +71,7 @@ spec:
             - name: CUDA_VISIBLE_DEVICES
               value: "0"
             - name: LD_LIBRARY_PATH
-              value: /host-nvidia-libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+              value: /usr/lib/x86_64-linux-gnu:/host-nvidia-libs:/usr/lib/ollama:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
           securityContext:
             privileged: true
           volumeMounts:
@@ -67,6 +91,9 @@ spec:
               mountPath: /dev/nvidia-caps
             - name: host-nvidia-libs
               mountPath: /host-nvidia-libs
+              readOnly: true
+            - name: host-nvidia-bin
+              mountPath: /host-nvidia-bin
               readOnly: true
           readinessProbe:
             httpGet:
@@ -117,4 +144,8 @@ spec:
         - name: host-nvidia-libs
           hostPath:
             path: /usr/lib/x86_64-linux-gnu
+            type: Directory
+        - name: host-nvidia-bin
+          hostPath:
+            path: /usr/bin
             type: Directory
