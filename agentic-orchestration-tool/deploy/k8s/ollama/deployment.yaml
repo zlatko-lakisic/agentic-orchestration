@@ -3,6 +3,10 @@
 # Jetson (no local disk): jetson-enable-ollama.sh also mounts
 # AGENTIC_OLLAMA_MODELS_HOSTPATH (e.g. /nfs/omega-jetson/ollama/models) at
 # /root/.ollama/models so NFS-backed host installs keep working without a copy.
+#
+# Ada / x86 GPU: k3s here has RuntimeClass "nvidia" but containerd does not
+# register the handler ("RuntimeHandler nvidia not supported"). Use privileged
+# hostPath device + driver-lib mounts instead so Ollama sees the discrete GPU.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,9 +28,6 @@ spec:
         app.kubernetes.io/name: agentic-ollama
         app.kubernetes.io/component: ollama
     spec:
-      # x86/NVR (Ada): use NVIDIA container runtime so Ollama sees the discrete GPU.
-      # Jetson aarch64 does not use this manifest — host-binary nsenter mode instead.
-      runtimeClassName: nvidia
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -45,9 +46,28 @@ spec:
               value: compute,utility
             - name: CUDA_VISIBLE_DEVICES
               value: "0"
+            - name: LD_LIBRARY_PATH
+              value: /host-nvidia-libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+          securityContext:
+            privileged: true
           volumeMounts:
             - name: ollama-home
               mountPath: /root/.ollama
+            - name: nvidia0
+              mountPath: /dev/nvidia0
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidiauvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidiauvmtools
+              mountPath: /dev/nvidia-uvm-tools
+            - name: nvidiamodeset
+              mountPath: /dev/nvidia-modeset
+            - name: nvidiacaps
+              mountPath: /dev/nvidia-caps
+            - name: host-nvidia-libs
+              mountPath: /host-nvidia-libs
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/tags
@@ -75,3 +95,26 @@ spec:
           hostPath:
             path: /var/projects/agentic-orchestration/var/ollama-models
             type: DirectoryOrCreate
+        - name: nvidia0
+          hostPath:
+            path: /dev/nvidia0
+        - name: nvidiactl
+          hostPath:
+            path: /dev/nvidiactl
+        - name: nvidiauvm
+          hostPath:
+            path: /dev/nvidia-uvm
+        - name: nvidiauvmtools
+          hostPath:
+            path: /dev/nvidia-uvm-tools
+        - name: nvidiamodeset
+          hostPath:
+            path: /dev/nvidia-modeset
+        - name: nvidiacaps
+          hostPath:
+            path: /dev/nvidia-caps
+            type: DirectoryOrCreate
+        - name: host-nvidia-libs
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+            type: Directory

@@ -55,14 +55,9 @@ if [[ -n "${MODELS_DATA}" && ! -d "${MODELS_DATA}" ]]; then
 fi
 
 RUNTIME_CLASS="${AGENTIC_OLLAMA_RUNTIME_CLASS:-}"
-if [[ -z "${RUNTIME_CLASS}" ]]; then
-  # Ada / x86 with NVIDIA container toolkit: default to RuntimeClass "nvidia".
-  if [[ "${ARCH}" == "x86_64" || "${ARCH}" == "amd64" ]]; then
-    if kubectl get runtimeclass nvidia >/dev/null 2>&1; then
-      RUNTIME_CLASS="nvidia"
-    fi
-  fi
-fi
+# Default OFF: Ada's k3s advertises RuntimeClass nvidia but containerd often
+# lacks the handler ("RuntimeHandler nvidia not supported"). Image mode uses
+# privileged hostPath GPU mounts in deployment.yaml instead.
 if [[ "${RUNTIME_CLASS}" == "0" || "${RUNTIME_CLASS}" == "none" || "${RUNTIME_CLASS}" == "false" ]]; then
   RUNTIME_CLASS=""
 fi
