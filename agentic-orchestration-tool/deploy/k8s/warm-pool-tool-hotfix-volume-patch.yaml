@@ -120,6 +120,9 @@ spec:
               mountPath: /app/orchestration/run_trace.py
               subPath: run_trace.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/workflow_ollama.py
+              subPath: workflow_ollama.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/metrics.py
               subPath: metrics.py
             - name: tool-hotfix-orchestration

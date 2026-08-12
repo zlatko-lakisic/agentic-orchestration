@@ -611,6 +611,8 @@ class OllamaProvider(AgentProvider):
         host = normalize_ollama_host(
             self.config.ollama_host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
         )
+        if str(self.config.ollama_host or "").strip().casefold() == "workflow":
+            host = litellm_api_base_for_ollama()
         if not is_ollama_healthy(host):
             raise RuntimeError(
                 f"Ollama is not reachable at {host}. "
