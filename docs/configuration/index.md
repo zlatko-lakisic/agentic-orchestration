@@ -129,9 +129,11 @@ AO treats Ollama as an HTTP service. Who **owns** the process is controlled by `
 | `managed_process` | AO owns a child `ollama serve` (standalone) | Restarts the child |
 | `managed_k8s` | AO owns Deployment `agentic-ollama` | Restarts that Deployment |
 
-**Bring your own Ollama:** point `OLLAMA_API_BASE` at any reachable server (Jetson host systemd today uses `http://host.k3s.internal:11434`) and leave `AGENTIC_OLLAMA_MODE=auto` or set `external`.
+**Full guide** (standalone child process, k3s Deployment, reuse existing): [Ollama]({{ '/ollama/' | relative_url }}) (wiki: `Ollama.md`).
 
-**In-cluster Ollama:** `bash agentic-orchestration-tool/scripts/jetson-enable-ollama.sh` (or set `AGENTIC_OLLAMA_MODE=managed_k8s` / `AGENTIC_JETSON_ENABLE_OLLAMA=1` before deploy). Sets `OLLAMA_API_BASE=http://agentic-ollama:11434`.
+- **Reuse existing:** `AGENTIC_OLLAMA_MODE=external` + your `OLLAMA_API_BASE` (e.g. `http://127.0.0.1:11434` or `http://host.k3s.internal:11434`).
+- **AO child process:** `AGENTIC_OLLAMA_MODE=managed_process` on standalone (CLI/web without in-cluster Ollama).
+- **In-cluster:** `AGENTIC_OLLAMA_MODE=managed_k8s` / `AGENTIC_JETSON_ENABLE_OLLAMA=1` → `scripts/jetson-enable-ollama.sh`; `OLLAMA_API_BASE=http://agentic-ollama:11434`.
 
 Smoke: `agentic-orchestration-tool/scripts/smoke_serve.sh` (offline by default and safe without the
 extras; `AGENTIC_SMOKE_SERVE_LIVE=1` binds a real port and probes `/health`).

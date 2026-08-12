@@ -486,7 +486,7 @@ Local Ollama runtime for on-box model inference. Topology presence follows a hea
 | `managed_k8s` | In-cluster `agentic-ollama` Deployment ([[#k8s-ollama]]). Service `http://agentic-ollama:11434`. |
 | `managed_process` | AO child `ollama serve` on standalone (not typical on edge k3s). |
 
-See [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+See [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership), [Ollama]({{ '/ollama/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
 
 ---
 
@@ -623,7 +623,7 @@ Orchestrator Jobs / short-lived worker pods spun for individual steps (not the w
 | **Ada / x86** | `ollama/ollama` image; models on hostPath `var/ollama-models` |
 | **Jetson** | Privileged host-binary pod (nsenter → `/usr/local/bin/ollama serve`) with NFS models — avoids the multi-GB dustynv image on a small rootfs |
 
-Topology also shows the logical **Ollama** model-runtime node ([[#models-ollama]]); this card is the Kubernetes workload behind it when ownership is in-cluster. Admin Control can restart this Deployment; external/host systemd Ollama is not restarted. See [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership), `scripts/jetson-enable-ollama.sh`, `scripts/jetson-migrate-ollama-to-k8s.sh`.
+Topology also shows the logical **Ollama** model-runtime node ([[#models-ollama]]); this card is the Kubernetes workload behind it when ownership is in-cluster. Admin Control can restart this Deployment; external instances are not restarted. See [Ollama]({{ '/ollama/' | relative_url }}#managed-k8s), `scripts/jetson-enable-ollama.sh`, `scripts/jetson-migrate-ollama-to-k8s.sh`.
 
 ---
 

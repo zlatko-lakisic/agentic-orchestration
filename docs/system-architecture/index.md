@@ -36,15 +36,17 @@ flowchart TB
   Traefik["🔐 Traefik / Warpgate - TLS upstream"]:::ingress
 
   subgraph Host["🖥️ Jetson host"]
-    Ollama["🧠 Host Ollama :11434"]:::host
     GitTree["📁 Git checkout + catalogs"]:::host
     OpenClawHost["🦞 OpenClaw host paths"]:::host
+    Models["💾 Ollama models hostPath / NFS"]:::host
   end
 
   subgraph Cluster["☸️ k3s - agentic-orchestration"]
     SVC["🔌 Service NodePort 30487 to :3847"]:::coord
     Web["💻 Coordinator web UI + WS"]:::coord
     Orch["🧭 Coordinator planner + harness"]:::coord
+    Engine["⚡ Engine :8765"]:::coord
+    Ollama["🧠 agentic-ollama :11434"]:::worker
     WP["⚙️ Warm-pool workers"]:::worker
     Broker["📨 Delegation broker optional"]:::opt
     Jobs["📦 Ephemeral worker Jobs"]:::opt
@@ -62,9 +64,11 @@ flowchart TB
   Broker -.-> Jobs
   Jobs -.-> PVC
   Orch -->|"LLM"| Ollama
+  Engine -->|"LLM"| Ollama
   WP -->|"LLM"| Ollama
   Ollama -.->|"responses"| Orch
   Ollama -.->|"responses"| WP
+  Ollama -.-> Models
   Orch -.->|"hostPath"| GitTree
   WP -.->|"hostPath"| GitTree
   Orch -.-> OpenClawHost
@@ -74,6 +78,8 @@ flowchart TB
   WP --> MCPFetch
   WP --> MCPFs
 ```
+
+Ollama ownership is configurable (`managed_k8s` shown above; `external` / `managed_process` also supported). See [Ollama]({{ '/ollama/' | relative_url }}).
 
 ## Request path (control + data)
 
@@ -86,7 +92,7 @@ sequenceDiagram
   participant Plan as 🧭 Planner harness
   participant Store as 💾 run-store PVC
   participant Worker as ⚙️ Warm-pool / Job
-  participant LLM as 🧠 Host Ollama
+  participant LLM as 🧠 Ollama API
   participant Tools as 🧰 MCP / RAG / skills
 
   User->>Edge: HTTPS chat / API
@@ -108,9 +114,10 @@ sequenceDiagram
 | Component | Role | Typical image / process |
 |-----------|------|-------------------------|
 | **agentic-coordinator** | Web UI + planner + step dispatch (`AGENTIC_EXECUTION_BACKEND=kubernetes`) | `ghcr.io/.../agentic-orchestrator-coordinator` |
+| **agentic-engine** | Reach / session overlay / MCP tunnel (`orchestration.serve` :8765) | same coordinator image entrypoint |
 | **agentic-warm-pool** | Pre-warmed workers executing steps from the PVC queue | `ghcr.io/.../agentic-orchestrator-worker` |
 | **agentic-delegation-broker** | Spawns child Jobs for `k8s_delegate_task` (often **off** on Jetson) | worker image entrypoint `--delegation-broker` |
-| **Host Ollama** | Local LLMs for planner + agents | Host binary, not an in-cluster pod |
+| **Ollama** | Local LLMs for planner + agents | **`managed_k8s`:** Deployment `agentic-ollama`; **`external`:** host/remote URL; **`managed_process`:** AO child serve — see [Ollama]({{ '/ollama/' | relative_url }}) |
 | **run-store PVC** | Shared step handoff `{run_id}/{step_id}/result.json` | hostPath or RWX volume at `/run/store` |
 | **MCP gateways** | Optional shared fetch / filesystem MCP over HTTP | in-cluster Deployments |
 | **RAG / skills / MCP YAML** | Catalogs — **not** separate pods | hostPath from git (and OpenClaw dirs) |
@@ -149,7 +156,7 @@ flowchart LR
   subgraph Physical["🏗️ Physical on Jetson k3s"]
     P1["💻 agentic-coordinator pod"]:::physical
     P2["⚙️ warm-pool pods / Jobs"]:::physical
-    P3["🧠 Host Ollama + hostPath catalogs"]:::physical
+    P3["🧠 agentic-ollama (+ models volume) / or external Ollama"]:::physical
     P4["🔗 Optional MCP Deployments"]:::physical
   end
 
@@ -161,6 +168,8 @@ flowchart LR
   L4 --> P3
   L4 --> P4
 ```
+
+Models layer may be in-cluster (`managed_k8s`), host/remote (`external`), or an AO child process on standalone (`managed_process`). See [Ollama]({{ '/ollama/' | relative_url }}).
 
 Use this when explaining to stakeholders: **one edge node**, **few Deployments**, **shared PVC**, **host LLM**, **catalogs as volumes** — not one pod per agent or per RAG corpus.
 

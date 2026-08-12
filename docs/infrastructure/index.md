@@ -12,7 +12,7 @@ sidebar:
 
 This page describes how **Agentic Orchestration** is deployed in production-style setups. For day-to-day local development, start with the root **`README.md`** and package READMEs (`agentic-orchestration-tool/`, `agentic-orchestration-web/`).
 
-**Deployed topology (Jetson / k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, host Ollama, catalogs).
+**Deployed topology (Jetson / k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, Ollama — in-cluster or external — catalogs). Ollama ownership guide: [Ollama]({{ '/ollama/' | relative_url }}).
 
 ![Deployment scalability and observability]({{ '/assets/6.png' | relative_url }})
 
@@ -44,7 +44,7 @@ When using containers, the repository defines a **`docker-compose.yml`** (or `co
 | Service (Compose name) | Role | Typical image / build context | Ports (host → container) |
 |------------------------|------|-------------------------------|----------------------------|
 | **`orchestration`** | Runs the **web UI** and the **Python orchestration tool** together: Node serves HTTP/WebSocket and spawns `python main.py` against the mounted tool tree (`AGENTIC_TOOL_ROOT`). | Build from repo root or a multi-stage Dockerfile that includes `agentic-orchestration-web/` and `agentic-orchestration-tool/`. | **`3847`** → web listen port (`AGENTIC_WEB_PORT`). |
-| **`ollama`** | Optional **local LLM** runtime used when workflows use Ollama-backed agent providers. | Official **`ollama/ollama`** image (or vendor-supported variant). | **`11434`** → Ollama API (only if you need host access; otherwise leave internal-only). |
+| **`ollama`** | Optional **local LLM** when using Compose. Prefer pointing AO at this service with `AGENTIC_OLLAMA_MODE=external` and `OLLAMA_API_BASE=http://ollama:11434`. For non-Compose ownership modes (AO child process or k8s Deployment), see [Ollama]({{ '/ollama/' | relative_url }}). | Official **`ollama/ollama`** image (or vendor-supported variant). | **`11434`** → Ollama API (only if you need host access; otherwise leave internal-only). |
 
 **Networking:** From inside Compose, the tool and web should use service DNS names, e.g. set **`OLLAMA_HOST=http://ollama:11434`** for the orchestration container so pulls and chat hit the **same** Ollama process (see tool `.env` / [Configuration]({{ '/configuration/' | relative_url }})).
 
@@ -111,7 +111,17 @@ Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER
 
 **Web UI:** NodePort **`30487`** (`http://<jetson>:30487`). Traefik / Warpgate should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
 
-Ollama on Jetson is typically **native systemd** on the host; pods reach it via `host.k3s.internal:11434` (CoreDNS NodeHosts). See `jetson-fix-ollama-k8s.sh` / deploy script logs.
+### Ollama on edge (k3s)
+
+Three supported ownership modes — full detail on [Ollama]({{ '/ollama/' | relative_url }}):
+
+| Mode | Edge usage |
+|------|------------|
+| **`managed_k8s`** (current lab default) | Deployment `agentic-ollama`; `OLLAMA_API_BASE=http://agentic-ollama:11434`. Enable via `AGENTIC_JETSON_ENABLE_OLLAMA=1` / `jetson-enable-ollama.sh` (also applied by `jetson-deploy.sh` when mode/flag set). |
+| **`external`** | Reuse host systemd or another server; pods often use `http://host.k3s.internal:11434`. AO does not restart it. |
+| **`managed_process`** | AO child `ollama serve` — standalone / non-k8s; uncommon on these edge boxes. |
+
+Migrate host systemd → in-cluster: `scripts/jetson-migrate-ollama-to-k8s.sh`. Jetson keeps models on NFS; Ada copies into `var/ollama-models`.
 
 ## Kubernetes execution model
 
@@ -121,6 +131,7 @@ Distributed step execution (coordinator + workers, warm pool, run-store PVC) is 
 
 - [Architecture]({{ '/architecture/' | relative_url }}) — packages, runtime directories
 - [Configuration]({{ '/configuration/' | relative_url }}) — environment variables
+- [Ollama]({{ '/ollama/' | relative_url }}) — external / managed_process / managed_k8s ownership
 - [Web UI]({{ '/web-ui/' | relative_url }}) — `AGENTIC_*` web server settings
 - [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) — K8s execution roadmap
 - [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) — pluggable execution backends

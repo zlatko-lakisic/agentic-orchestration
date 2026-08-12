@@ -63,6 +63,7 @@ PAGE_TITLES: dict[str, str] = {
     "Reach-and-mTLS": "Reach and engine mTLS",
     "Engine-daemon-plan": "Engine API daemon plan",
     "Topology-dashboard": "Topology dashboard",
+    "Ollama": "Ollama",
 }
 
 # Wiki root filename → docs/ relative path (None = skip sync)
@@ -90,6 +91,7 @@ WIKI_OUTPUT: dict[str, str | None] = {
     "RAG-sources.md": "rag-catalog/index.md",
     "Reach-and-mTLS.md": "reach-and-mtls/index.md",
     "Topology-dashboard.md": "topology-dashboard/index.md",
+    "Ollama.md": "ollama/index.md",
     "Agent-provider-catalog.md": None,
     "Releases.md": None,
     "Home.md": None,
@@ -137,6 +139,7 @@ PAGE_SLUGS: dict[str, str] = {
     "RAG-sources": "rag-catalog",
     "Reach-and-mTLS": "reach-and-mtls",
     "Topology-dashboard": "topology-dashboard",
+    "Ollama": "ollama",
     "Releases": "changelog",
     "Engine-daemon-plan": "engine-daemon-plan",
     "Execution-backends": "execution-backends",
