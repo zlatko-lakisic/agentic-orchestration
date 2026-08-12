@@ -56,6 +56,11 @@ import {
   recordUsage,
 } from "./lib/api-tokens.mjs";
 import {
+  effectiveRunMode,
+  getAppPrefs,
+  stickyRunModeFromPrefs,
+} from "./lib/app-prefs.mjs";
+import {
   adminLog,
   followWorkerLogsForRun,
   startAdminLogsPush,
@@ -323,6 +328,7 @@ function applyApiAccessGate(req, res, opts) {
     tokenId: result.tokenId,
     appId: result.appId,
     source: result.source,
+    prefs: getAppPrefs(TOOL_ROOT, result.appId),
   };
   installApiUsageRecorder(req, res, opts.pathLabel || getRequestPathname(req));
   return true;
@@ -1147,6 +1153,26 @@ function wantsAgenticOrchestration(agentic) {
   return mode === "dynamic" || mode === "dynamic-iterative";
 }
 
+/**
+ * Apply sticky per-app dynamic planning prefs onto an agentic extension
+ * when the request did not set an explicit runMode / backend / orchestrate flag.
+ * Mutates and returns the same object.
+ * @param {Record<string, unknown>} agentic
+ * @param {{ dynamicPlanning?: boolean, defaultRunMode?: string|null }|null|undefined} prefs
+ */
+function applyAppPrefsToAgentic(agentic, prefs) {
+  const a = agentic && typeof agentic === "object" ? agentic : {};
+  if (a.orchestrate === false) return a;
+  if (String(a.backend || a.upstream || "").trim()) return a;
+  if (String(a.runMode || "").trim()) return a;
+  if (a.orchestrate === true) return a;
+  const sticky = stickyRunModeFromPrefs(prefs);
+  if (sticky) {
+    a.runMode = sticky;
+  }
+  return a;
+}
+
 function messageContentToString(content) {
   if (content == null) return "";
   if (typeof content === "string") return content;
@@ -1717,7 +1743,10 @@ async function handleOpenAiChatCompletions(req, res) {
     return;
   }
 
-  const agentic = normalizeAgenticExtension(payload.agentic);
+  const agentic = applyAppPrefsToAgentic(
+    normalizeAgenticExtension(payload.agentic),
+    req.agenticAuth?.prefs,
+  );
   const backend = resolveChatCompletionsBackend(payload.model, agentic);
 
   // openai / ollama: real LLM proxy (HA LLM Vision, watering, OpenAI SDKs).
@@ -1992,7 +2021,10 @@ async function handleOpenAiResponses(req, res) {
     return;
   }
 
-  const agentic = normalizeAgenticExtension(payload.agentic);
+  const agentic = applyAppPrefsToAgentic(
+    normalizeAgenticExtension(payload.agentic),
+    req.agenticAuth?.prefs,
+  );
   const backend = resolveChatCompletionsBackend(payload.model, agentic);
 
   if (backend === "orchestrate") {
@@ -2220,7 +2252,7 @@ async function handleApiV1Orchestrate(req, res) {
 
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
   const resetSession = body.resetSession === true;
-  const runMode = body.runMode || "dynamic";
+  const runMode = effectiveRunMode(body.runMode, req.agenticAuth?.prefs, "dynamic");
   const verboseCrew = body.verboseCrew === true;
   // Same catalog restriction as OpenAI-proxy / WS paths (env or body).
   const selectedIds = effectiveOpenAiProxyAgentProviderIds(body.selectedAgentProviderIds);

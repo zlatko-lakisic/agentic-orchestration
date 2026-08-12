@@ -1,8 +1,8 @@
 /**
  * Phase 0 Admin read API helpers.
  * Secrets are never returned — only { set: true/false }.
- * Narrow write exception: API access token mint/revoke, mTLS client revoke,
- * and allowlisted AO control restarts.
+ * Narrow write exception: API access token mint/revoke, per-app planning prefs,
+ * mTLS client revoke, and allowlisted AO control restarts.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -29,6 +29,7 @@ import {
   mintToken,
   revokeToken,
 } from "./api-tokens.mjs";
+import { getAppPrefs, listAppPrefs, setAppPrefs } from "./app-prefs.mjs";
 
 // Path-like TLS keys are not secrets — operators need to see the path + existence.
 const SECRET_KEY_RE =
@@ -2437,6 +2438,9 @@ function matchAdminRoute(pathname) {
   if (m) return { name: "token_usage", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)$/);
   if (m) return { name: "token_item", id: decodeURIComponent(m[1]) };
+  if (p === "/api/v1/admin/app-prefs") return { name: "app_prefs" };
+  m = p.match(/^\/api\/v1\/admin\/app-prefs\/([^/]+)$/);
+  if (m) return { name: "app_prefs_item", id: decodeURIComponent(m[1]) };
   if (p === "/api/v1/admin/mtls/clients") return { name: "mtls_clients" };
   if (p === "/api/v1/admin/mtls/clients/revoke") return { name: "mtls_clients_revoke" };
   if (p === "/api/v1/admin/mtls/clients/unrevoke") return { name: "mtls_clients_unrevoke" };
@@ -2479,6 +2483,7 @@ function isTokenWriteRoute(route, method) {
   if (!route) return false;
   if (route.name === "tokens" && method === "POST") return true;
   if (route.name === "token_item" && method === "DELETE") return true;
+  if (route.name === "app_prefs_item" && (method === "PUT" || method === "PATCH")) return true;
   if (route.name === "mtls_clients_revoke" && method === "POST") return true;
   if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
   if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
@@ -2512,10 +2517,10 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: { tokens: true, mtlsClients: true, control: true },
+        writeApi: { tokens: true, appPrefs: true, mtlsClients: true, control: true },
         title: "AO Administration",
         readOnlyMessage:
-          "Read-only except API tokens, mTLS client revoke, and AO control restarts",
+          "Read-only except API tokens, per-app planning prefs, mTLS client revoke, and AO control restarts",
         webUiAppId: WEB_UI_APP_ID,
         chatUiAppId: CHAT_UI_APP_ID,
         webUiAssigned: isWebUiAssigned(ctx.toolRoot),
@@ -2732,6 +2737,40 @@ async function handleAdminApi(req, res, ctx) {
         usage: listUsage(ctx.toolRoot, route.id, limit),
       });
       return true;
+    }
+    if (route.name === "app_prefs" && (method === "GET" || method === "HEAD")) {
+      const known = new Set(listAppPrefs(ctx.toolRoot).map((p) => p.appId));
+      for (const t of listTokens(ctx.toolRoot)) {
+        const id = String(t.appId || "").trim().toLowerCase();
+        if (id) known.add(id);
+      }
+      const apps = [...known]
+        .sort((a, b) => a.localeCompare(b))
+        .map((appId) => ({ appId, ...getAppPrefs(ctx.toolRoot, appId) }));
+      send(200, { apps });
+      return true;
+    }
+    if (route.name === "app_prefs_item") {
+      if (method === "GET" || method === "HEAD") {
+        send(200, { appId: route.id, ...getAppPrefs(ctx.toolRoot, route.id) });
+        return true;
+      }
+      if (method === "PUT" || method === "PATCH") {
+        let body;
+        try {
+          body = await readAdminJsonBody(req);
+        } catch (err) {
+          const code = err?.code === "too_large" ? 413 : 400;
+          send(code, { error: err instanceof Error ? err.message : "Invalid body" });
+          return true;
+        }
+        try {
+          send(200, setAppPrefs(ctx.toolRoot, route.id, body));
+        } catch (err) {
+          send(400, { error: err instanceof Error ? err.message : "Update failed" });
+        }
+        return true;
+      }
     }
     if (route.name === "config_effective") {
       const url = new URL(req.url || "/", "http://localhost");

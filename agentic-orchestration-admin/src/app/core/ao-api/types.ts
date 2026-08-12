@@ -69,7 +69,7 @@ export interface EffectiveConfigResponse {
   keys?: Record<string, EffectiveConfigEntry>;
   fingerprint?: string;
   generatedAt?: string;
-  writeApi?: boolean | { tokens?: boolean; mtlsClients?: boolean; control?: boolean };
+  writeApi?: boolean | { tokens?: boolean; appPrefs?: boolean; mtlsClients?: boolean; control?: boolean };
   phase?: number;
   includeInjected?: boolean;
 }
@@ -204,6 +204,13 @@ export interface ApiAccessTokenUsage {
   status?: number | null;
   latencyMs?: number | null;
   promptChars?: number | null;
+}
+
+/** Sticky dynamic-planning prefs keyed by appId (Access → Dynamic planning by app). */
+export interface AppPlanningPrefs {
+  appId: string;
+  dynamicPlanning: boolean;
+  defaultRunMode?: 'dynamic' | 'dynamic-iterative' | null;
 }
 
 export interface MtlsClient {

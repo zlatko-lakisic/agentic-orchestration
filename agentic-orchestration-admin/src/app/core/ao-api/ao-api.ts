@@ -6,6 +6,7 @@ import {
   AgentProvider,
   ApiAccessToken,
   ApiAccessTokenUsage,
+  AppPlanningPrefs,
   ControlRestartResult,
   ControlStatus,
   MtlsClient,
@@ -63,6 +64,13 @@ export class AoApi {
 
   private post<T>(path: string, body: unknown): Observable<ApiResult<T>> {
     return this.http.post<T>(path, body, { observe: 'response' }).pipe(
+      map((res) => ({ ok: true as const, data: res.body as T })),
+      catchError((err: HttpErrorResponse) => of(this.toResult<T>(err)))
+    );
+  }
+
+  private put<T>(path: string, body: unknown): Observable<ApiResult<T>> {
+    return this.http.put<T>(path, body, { observe: 'response' }).pipe(
       map((res) => ({ ok: true as const, data: res.body as T })),
       catchError((err: HttpErrorResponse) => of(this.toResult<T>(err)))
     );
@@ -219,6 +227,28 @@ export class AoApi {
         if (!r.ok) return r;
         return { ok: true as const, data: r.data.usage ?? [] };
       })
+    );
+  }
+
+  listAppPrefs() {
+    return this.get<{ apps: AppPlanningPrefs[] }>('/api/v1/admin/app-prefs').pipe(
+      map((r) => {
+        if (!r.ok) return r;
+        return { ok: true as const, data: r.data.apps ?? [] };
+      })
+    );
+  }
+
+  setAppPrefs(
+    appId: string,
+    body: {
+      dynamicPlanning?: boolean;
+      defaultRunMode?: 'dynamic' | 'dynamic-iterative' | null;
+    }
+  ) {
+    return this.put<AppPlanningPrefs>(
+      `/api/v1/admin/app-prefs/${encodeURIComponent(appId)}`,
+      body
     );
   }
 

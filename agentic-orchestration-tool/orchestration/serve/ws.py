@@ -259,6 +259,24 @@ class WsConnection:
             return
         await self.send_error(f"Unknown message type: {kind or '(missing)'}")
 
+    def _resolve_app_id(self, message: dict[str, Any]) -> str:
+        """Prefer message appId; else the Reach overlay registered on this connection."""
+        app_id = message.get("appId")
+        if app_id is None:
+            app_id = message.get("app_id")
+        app_id_s = str(app_id or "").strip()
+        if app_id_s:
+            return app_id_s
+        try:
+            from orchestration.session_overlay import overlays_for_connection
+
+            for overlay in overlays_for_connection(self.connection_id):
+                if overlay.app_id:
+                    return str(overlay.app_id).strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
     async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:
         from orchestration.mcp_tunnel import register_connection_bridge
         from orchestration.session_overlay import (
@@ -480,10 +498,7 @@ class WsConnection:
             component="engine",
             extra=log_extra,
         )
-        app_id = message.get("appId")
-        if app_id is None:
-            app_id = message.get("app_id")
-        app_id_s = str(app_id or "").strip()
+        app_id_s = self._resolve_app_id(message)
         token_id_s = str(
             message.get("tokenId") or message.get("token_id") or ""
         ).strip()
@@ -653,9 +668,7 @@ class WsConnection:
         from orchestration.tool_trace import apply_tool_call_trace_wrap
 
         # asyncio.to_thread does not inherit the event-loop contextvars — re-bind here.
-        app_id = message.get("appId")
-        if app_id is None:
-            app_id = message.get("app_id")
+        app_id = self._resolve_app_id(message)
         token_id = message.get("tokenId") or message.get("token_id") or ""
         import os
 
@@ -809,6 +822,7 @@ class WsConnection:
                 pass
             return answer
 
+        from orchestration.app_prefs import effective_run_mode, get_app_prefs
         from orchestration.dynamic_run import run_dynamic_goal
 
         def progress(line: str) -> None:
@@ -816,7 +830,22 @@ class WsConnection:
                 {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n", **tag}
             )
 
+        app_id = self._resolve_app_id(message)
+        prefs = get_app_prefs(self.tool_root, app_id)
+        run_mode = effective_run_mode(
+            message.get("runMode") or message.get("run_mode"),
+            prefs,
+            fallback="dynamic",
+        )
+        if run_mode == "dynamic-iterative":
+            # In-process engine path is single-shot; HTTP / CLI still honor iterative.
+            progress("runMode=dynamic-iterative requested; engine chat uses single-shot dynamic")
+        else:
+            progress(f"runMode={run_mode}")
+
         selected = message.get("selectedAgentProviderIds")
+        if selected is None:
+            selected = message.get("selected_agent_provider_ids")
         return run_dynamic_goal(
             tool_root=self.tool_root,
             goal=text,

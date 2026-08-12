@@ -4,6 +4,7 @@ import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AccessPosture } from '@/app/core/ao-api/types';
 import { AccessApiTokens } from '@/app/domains/admin/modules/access/ui/access-api-tokens';
+import { AccessAppPrefs } from '@/app/domains/admin/modules/access/ui/access-app-prefs';
 import { AccessMtlsClients } from '@/app/domains/admin/modules/access/ui/access-mtls-clients';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { SettingsSection } from '@/app/domains/admin/shared/config-settings/config-settings-table';
@@ -13,6 +14,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
   selector: 'ao-access-page',
   imports: [
     AccessApiTokens,
+    AccessAppPrefs,
     AccessMtlsClients,
     ConfigSettingsPage,
     MatCard,
@@ -30,7 +32,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           Access
         </div>
         <div class="text-neutral-500">
-          Posture, API tokens, mTLS clients, identity, secrets, and deals
+          Posture, API tokens, per-app planning, mTLS clients, identity, secrets, and deals
         </div>
       </div>
 
@@ -62,6 +64,8 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
       }
 
       <ao-access-api-tokens />
+
+      <ao-access-app-prefs />
 
       <ao-access-mtls-clients />
 

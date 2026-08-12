@@ -95,6 +95,31 @@ Dynamic and iterative runs also support **same-goal answer cache** (`AGENTIC_ANS
 
 See [Sessions learning and knowledge base]({{ '/sessions-learning-kb/' | relative_url }}).
 
+## Per-app and per-call (Reach + HTTP API)
+
+Dynamic planning can be enabled **per `appId`** and overridden **per call**.
+
+### Sticky prefs (Admin)
+
+Admin → **Access → Dynamic planning by app** (or `GET`/`PUT /api/v1/admin/app-prefs/:appId`):
+
+| Field | Meaning |
+|-------|---------|
+| `dynamicPlanning` | When true, HTTP clients that omit `runMode` / `agentic.runMode` default to orchestrate with `defaultRunMode`. |
+| `defaultRunMode` | `dynamic` or `dynamic-iterative`. |
+
+Prefs live in `__orchestrator_api_tokens__/app-prefs.json` (same dir as API tokens).
+
+### Per-call override
+
+| Surface | How |
+|---------|-----|
+| `POST /api/v1/orchestrate` | Body `runMode`: `dynamic` \| `dynamic-iterative` (request wins over sticky prefs). |
+| `POST /v1/chat/completions` | `agentic.runMode` / `agentic.orchestrate` / `agentic.backend` (request wins; sticky prefs apply when omitted). |
+| Engine WS / Reach | `type: "chat"` with optional `runMode`, `selectedAgentProviderIds`, `appId`. Reach: `SessionBridge.chat(...)` / `runDynamic(...)`. |
+
+`direct_agent` still skips the planner (named agent only). Reach overlays continue to feed `client.*` agents into the planner catalog when session overlay is enabled.
+
 ## Catalogs
 
 - Agent templates: `--agent-providers-catalog` (default `config/agent_providers`).
