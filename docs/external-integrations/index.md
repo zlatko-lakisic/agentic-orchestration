@@ -89,9 +89,9 @@ Full options, troubleshooting, and managed-backend layout: plugin [README](https
 
 - Web route implemented in `agentic-orchestration-web/server.mjs`
 - Env: see [Configuration]({{ '/configuration/' | relative_url }}) (`AGENTIC_ORCHESTRATE_API_KEY`, runtime auto-ensure)
-- Jetson / k8s stacks already expose the web UI on NodePort **30487**; point the plugin at that base URL when not using managed local spawn
+- Edge / k8s stacks already expose the web UI on NodePort **30487**; point the plugin at that base URL when not using managed local spawn
 
-### OpenClaw MCP sync (Jetson / external <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="16" height="16" style="vertical-align:-3px" />)
+### OpenClaw MCP sync (edge / external <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="16" height="16" style="vertical-align:-3px" />)
 
 When `managedBackend: false` and Agentic Orchestration runs in Kubernetes, the plugin still writes OpenClaw `mcp.servers` as YAML under `~/.openclaw/agentic-orchestration/openclaw-mcp-providers`. The engine must mount that catalog and the OpenClaw workspace:
 
@@ -130,5 +130,5 @@ Install / config / notes …
 - [Configuration]({{ '/configuration/' | relative_url }}) — API keys and runtime auto-ensure
 - Security policies: [engine SECURITY.md](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/SECURITY.md) · [OpenClaw plugin SECURITY.md](https://github.com/zlatko-lakisic/agentic-orchestration-openclaw/blob/main/SECURITY.md)
 - [Dynamic planning]({{ '/dynamic-planning/' | relative_url }}) — what the engine does with each turn
-- [Infrastructure]({{ '/infrastructure/' | relative_url }}) — deploying the engine (Compose, Jetson, GHCR)
+- [Infrastructure]({{ '/infrastructure/' | relative_url }}) — deploying the engine (Compose, edge, GHCR)
 - [MCP providers]({{ '/mcp-catalog/' | relative_url }}) — tools the planner can attach (not host connectors)

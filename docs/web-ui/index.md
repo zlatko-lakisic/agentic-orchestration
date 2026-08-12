@@ -23,7 +23,7 @@ Defaults in the UI favor **iterative** + **auto** where configured.
 
 Recent behavior updates:
 
-- **Warpgate session ID** — proxy headers `X-Agentic-Session-Id` / `X-Warpgate-Session-Id` (no session field in the UI); tab-scoped transcript in `sessionStorage`.
+- **Security-gateway / legacy proxy session ID** — proxy headers `X-Agentic-Session-Id` / `X-Warpgate-Session-Id` (no session field in the UI); tab-scoped transcript in `sessionStorage`.
 - **Host resource monitor** — header sparkline pushed over the chat WebSocket (`host_metrics_subscribe`); `GET /api/host-metrics` remains for debugging.
 - **Planner greeting** — LLM welcome on first connect; persisted in the tab transcript and restored on refresh; composer locked while loading.
 - **Crew log timestamps** — stderr lines in the crew log panel are prefixed with local `[HH:MM:SS]`.
@@ -32,7 +32,7 @@ Recent behavior updates:
 - Server writes files to `<tool>/_web_uploads/<uuid>/` and passes `--dynamic-attachments` to `main.py`.
 - Images, audio, and video are first-class (separate byte caps); agents can use MCP `media_understand` tools when enabled.
 - Upload safety limits are enforced server-side (per-file by MIME class, total bytes, max file count).
-- **Warpgate / reverse-proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
+- **Security gateway / reverse proxy** — WebSocket singleton, edge keepalive pings, credentialed PWA manifest fetch.
 
 ## Setup
 
@@ -52,7 +52,7 @@ npm start
 Health endpoints and metadata:
 
 - `GET /api/ping` returns instance/pid metadata (useful to verify restarts and active process).
-- `GET /api/session` returns a JSON object with `userName` and `sessionId` from proxy headers (Warpgate) or a generated `web-*` id.
+- `GET /api/session` returns a JSON object with `userName` and `sessionId` from proxy headers (security gateway) or a generated `web-*` id.
 - `GET /api/host-metrics` returns host CPU, memory, load average, and uptime (Linux reads `/proc`; also pushed over WebSocket).
 - `GET /api/agent-providers` returns provider catalog metadata used by the UI selector.
 
@@ -112,7 +112,7 @@ Content-Type: application/json
 **Example (orchestrate)**
 
 ```bash
-curl -sS -X POST "https://ada.ao.example.com/api/v1/orchestrate" \
+curl -sS -X POST "https://ao.example.com/api/v1/orchestrate" \
   -H "Authorization: Bearer ao_…" \
   -H "Content-Type: application/json" \
   -d '{"text":"Summarize today’s irrigation plan"}'
@@ -120,7 +120,7 @@ curl -sS -X POST "https://ada.ao.example.com/api/v1/orchestrate" \
 
 **Example (OpenAI-compatible chat)**
 
-Point the SDK `baseURL` at the web origin (for example `https://ada.ao.example.com/v1`) and set `apiKey` to the minted `ao_…` token. The gate uses that Bearer; upstream cloud keys (if any) stay on the server.
+Point the SDK `baseURL` at the web origin (for example `https://ao.example.com/v1`) and set `apiKey` to the minted `ao_…` token. The gate uses that Bearer; upstream cloud keys (if any) stay on the server.
 
 **What external tokens do *not* unlock**
 

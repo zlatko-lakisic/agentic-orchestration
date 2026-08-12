@@ -1765,7 +1765,7 @@ function buildAccessPosture({ toolRoot, webRoot, req }) {
   } else if (!identityRequired) {
     severity = "warning";
     verdict =
-      "API tokens are required; consider requiring upstream identity (Warpgate / AGENTIC_REQUIRE_IDENTITY) as well.";
+      "API tokens are required; consider requiring upstream identity (security gateway / AGENTIC_REQUIRE_IDENTITY) as well.";
   } else if (!webTls) {
     severity = "warning";
     verdict = "Admin is served over plaintext HTTP (TLS not terminating here).";

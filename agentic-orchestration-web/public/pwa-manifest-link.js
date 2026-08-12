@@ -27,7 +27,7 @@ function linkFromUrl(href) {
 }
 
 /**
- * Warpgate auth-gates /manifest.webmanifest (307 login, empty body in DevTools).
+ * Security gateway auth-gates /manifest.webmanifest (307 login, empty body in DevTools).
  * Load after the session cookie exists via credentialed fetch, or inline blob fallback.
  */
 export async function ensureManifestLink() {

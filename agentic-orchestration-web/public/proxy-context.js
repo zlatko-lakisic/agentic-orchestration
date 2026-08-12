@@ -1,4 +1,4 @@
-/** True when the page is served behind Warpgate (injected assets or official edge host). */
+/** True when the page is served behind a security gateway (injected assets or official edge host). */
 export function isWarpgateFronted() {
   if (typeof document !== "undefined") {
     if (document.querySelector('script[src*="/@warpgate"]')) return true;

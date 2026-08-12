@@ -22,7 +22,7 @@ The model-agnostic catalog system exists so the loop is not locked to any one ve
 |-----------|------------|
 | **Production-style orchestration** (YAML workflows, dynamic planning, MCP, sessions, learning, KB) | [`agentic-orchestration-tool/`](agentic-orchestration-tool/) |
 | **Browser chat** over local WebSockets (dynamic & iterative modes, prose answers) | [`agentic-orchestration-web/`](agentic-orchestration-web/) |
-| **Kubernetes / edge deploy** (coordinator, warm pool, delegation, Jetson k3s) | [`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md) |
+| **Kubernetes / edge deploy** (coordinator, warm pool, delegation, edge k3s) | [`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md) |
 | **Industry / scenario overlays** (extra orchestrator context, agent YAML, MCP catalog fragments; spans tool + web) | [`examples/verticals/`](examples/verticals/) |
 
 **Deeper documentation (per package):**
@@ -163,7 +163,7 @@ Host/port are read from `AGENTIC_WEB_HOST` / `AGENTIC_WEB_PORT` in that folder�
 
 Chat answers are **prose by default** (not raw JSON): the web server sets `AGENTIC_WEB_PROSE_DELIVERABLE=1` for orchestrator runs, and the UI unwraps any JSON-shaped agent output before rendering.
 
-Behind **Warpgate** or another reverse proxy, configure session and user headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id`, `X-Agentic-User-Name`). The UI uses a single WebSocket with keepalive for edge stability; host CPU/RAM metrics stream on that socket instead of HTTP polling.
+Behind a **security gateway** or reverse proxy, configure session and user headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id`, `X-Agentic-User-Name`). The UI uses a single WebSocket with keepalive for edge stability; host CPU/RAM metrics stream on that socket instead of HTTP polling.
 
 ### 3) Kubernetes (local kind or edge device)
 
@@ -178,11 +178,11 @@ kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
 # Open http://127.0.0.1:3847
 ```
 
-**Jetson / single-node k3s** — pull from GitHub on the device, then:
+**Edge / single-node k3s** — pull from GitHub on the device, then:
 
 ```bash
 bash agentic-orchestration-tool/scripts/jetson-deploy.sh
-# Web UI via NodePort 30487 (Traefik/Warpgate upstream)
+# Web UI via NodePort 30487 (reverse proxy / security gateway upstream)
 ```
 
 Set `AGENTIC_EXECUTION_BACKEND=kubernetes` and `AGENTIC_RUN_STORE_PATH` on the coordinator (see **`agentic-orchestration-tool/.env.example`**). Manifests, logging, and ops notes: **[`agentic-orchestration-tool/deploy/k8s/README.md`](agentic-orchestration-tool/deploy/k8s/README.md)**.
@@ -228,7 +228,7 @@ Configuration is **environment-first**: copy **`agentic-orchestration-tool/.env.
 - **Knowledge base** — SQLite FTS of past outputs for planner retrieval.
 - **Answer cache** — Repeat exact question in-session → instant replay + “reply no to re-run”.
 - **Execution backends** — `inprocess` (default), `subprocess` (per-step workers on laptop), `kubernetes` (coordinator + warm pool / Jobs on a cluster).
-- **Kubernetes stack** — Coordinator Deployment, warm pool, delegation broker, run-store PVC, structured JSON logs, kind e2e in CI, Jetson deploy script.
+- **Kubernetes stack** — Coordinator Deployment, warm pool, delegation broker, run-store PVC, structured JSON logs, kind e2e in CI, edge deploy script.
 - **Web chat UX** — Markdown rendering, verbose crew mode, prose-first answers (no JSON blobs in the UI).
 - **Platform agent harness** — Tiered per-catalog verification (`--harness-agent`, `--harness-batch`); L0/L1 in CI; profiles in `config/agent_harnesses/`.
 - **User agent harnesses** — Domain scenario packs (`--harness-dir`, `--user-harness-run-all`); healthcare example under `examples/verticals/healthcare/harnesses/`.

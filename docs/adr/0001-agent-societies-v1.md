@@ -91,7 +91,7 @@ A charter declares one `interaction_mode`; `blackboard` is the default and the o
 
 ## Consequences
 
-- Laptop, Jetson, and cluster all run the same charter through the same Python loop, so behavior does
+- Laptop, ARM edge, and cluster all run the same charter through the same Python loop, so behavior does
   not depend on a CrewAI manager agent's judgment.
 - A society run costs at most `max_turns` agent calls plus at most `max_delegations` child calls plus
   one controller call per completed round — bounded before the run starts.

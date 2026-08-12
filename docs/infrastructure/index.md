@@ -12,7 +12,7 @@ sidebar:
 
 This page describes how **Agentic Orchestration** is deployed in production-style setups. For day-to-day local development, start with the root **`README.md`** and package READMEs (`agentic-orchestration-tool/`, `agentic-orchestration-web/`).
 
-**Deployed topology (Jetson / k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, Ollama — in-cluster or external — catalogs). Ollama ownership guide: [Ollama]({{ '/ollama/' | relative_url }}).
+**Deployed topology (edge k3s):** see [System architecture]({{ '/system-architecture/' | relative_url }}) for the component map (coordinator, warm pool, NodePort, Ollama — in-cluster or external — catalogs). Ollama ownership guide: [Ollama]({{ '/ollama/' | relative_url }}).
 
 ![Deployment scalability and observability]({{ '/assets/6.png' | relative_url }})
 
@@ -22,7 +22,7 @@ This page describes how **Agentic Orchestration** is deployed in production-styl
 |------|--------|
 | **Bare metal / VM** | Install Python 3.12+ and Node 18+; run the web UI with `npm start` and point `AGENTIC_TOOL_ROOT` at the folder that contains `main.py`. |
 | **Docker Compose** | Multi-container stack at the monorepo root (see below). **Keep this wiki section in sync** when you add, rename, or remove services in `docker-compose.yml`. |
-| **Kubernetes / Jetson k3s** | Coordinator + warm pool + delegation broker + **agentic-engine** on-device. Prefer **GHCR pulls** (`AGENTIC_USE_GHCR=1`) over building images on the edge device. |
+| **Kubernetes / edge k3s** | Coordinator + warm pool + delegation broker + **agentic-engine** on-device. Prefer **GHCR pulls** (`AGENTIC_USE_GHCR=1`) over building images on the edge device. |
 
 ## Edge engine + mTLS (v1.29+)
 
@@ -30,10 +30,10 @@ After `jetson-deploy.sh`, the engine listens on hostPort **8765** (NodePort **30
 
 | Host | Engine | Web UI |
 |------|--------|--------|
-| Jetson Ada `172.16.90.20` | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
+| ARM edge `172.16.90.20` | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
 | NVR `10.0.10.16` | `https://10.0.10.16:8765` | `http://10.0.10.16:30487` |
 
-Reach clients use the **engine** URL with client certificates — not Warpgate, not `:30487`. Operator guide: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). Per-host overrides: `config/env.host` (gitignored) over `config/env.jetson`.
+Reach clients use the **engine** URL with client certificates — not via the security gateway / Web UI proxy, not `:30487`. Operator guide: [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). Per-host overrides: `config/env.host` (gitignored) over `config/env.jetson` (edge profile env).
 
 ## Docker Compose stack
 
@@ -85,7 +85,7 @@ docker build -f agentic-orchestration-tool/docker/Dockerfile.worker \
 
 See `agentic-orchestration-tool/docker/README.coordinator.md` and `README.worker.md`.
 
-## Jetson / k3s deploy
+## Edge k3s deploy
 
 Repo on device: `/var/projects/agentic-orchestration`. **Git-only** deploys — pull `main`, then run scripts (never `scp` tracked files). Device remote is usually `origin` → GitHub; push from a laptop with `git push github main`.
 
@@ -109,7 +109,7 @@ sudo -E bash agentic-orchestration-tool/scripts/jetson-k3s-deploy.sh
 
 Private packages: set `GITHUB_TOKEN` (or `GHCR_TOKEN`) and optional `GITHUB_USER` before deploy.
 
-**Web UI:** NodePort **`30487`** (`http://<jetson>:30487`). Traefik / Warpgate should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
+**Web UI:** NodePort **`30487`** (`http://<edge-host>:30487`). Reverse proxy / security gateway should target that port. Coordinator uses **`Recreate`** (no `hostPort: 80`) to avoid single-node rollout deadlocks.
 
 ### Ollama on edge (k3s)
 
@@ -121,11 +121,11 @@ Three supported ownership modes — full detail on [Ollama]({{ '/ollama/' | rela
 | **`external`** | Reuse host systemd or another server; pods often use `http://host.k3s.internal:11434`. AO does not restart it. |
 | **`managed_process`** | AO child `ollama serve` — standalone / non-k8s; uncommon on these edge boxes. |
 
-Migrate host systemd → in-cluster: `scripts/jetson-migrate-ollama-to-k8s.sh`. Jetson keeps models on NFS; Ada copies into `var/ollama-models`.
+Migrate host systemd → in-cluster: `scripts/jetson-migrate-ollama-to-k8s.sh`. ARM edge keeps models on NFS; x86/x64 copies into `var/ollama-models`.
 
 ## Kubernetes execution model
 
-Distributed step execution (coordinator + workers, warm pool, run-store PVC) is documented in [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) and [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}). Jetson ships a working coordinator Deployment; Job-per-step remains on the K8s roadmap phases described there.
+Distributed step execution (coordinator + workers, warm pool, run-store PVC) is documented in [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) and [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}). Edge ships a working coordinator Deployment; Job-per-step remains on the K8s roadmap phases described there.
 
 ## Related
 

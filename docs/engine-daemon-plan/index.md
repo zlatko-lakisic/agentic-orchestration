@@ -45,7 +45,7 @@ Config reference: [Configuration → Engine API daemon]({{ '/configuration/#engi
 | `GET` | `/health` | `{ok, version, instance, bind, catalogs}` — catalogs are warmed at startup |
 | `GET` | `/api/ping` | Node-parity liveness (`pid`, `instance`) |
 | `GET` | `/api/session` | Resolved identity; `401` under `AGENTIC_REQUIRE_IDENTITY=1` without a header |
-| `GET` | `/api/host-metrics` | CPU / memory / load, plus the Jetson jtop overlay |
+| `GET` | `/api/host-metrics` | CPU / memory / load, plus the ARM edge jtop overlay |
 | `POST` | `/api/v1/direct-agent` | `{agentProviderId, text, context, questionId}` — planner bypassed |
 | `POST` | `/api/v1/kb/ingest` | Fast-ingest by default (`fast: false` for a plain insert) |
 | `POST` | `/api/v1/kb/upsert` | Upsert by `sourceId`; returns `inserted` / `updated` / `unchanged` |
@@ -95,7 +95,7 @@ to port into Python.
 ## Safe enablement principles (AO)
 
 1. **Additive only** — `python -m orchestration.serve` is opt-in; CLI `main.py` and Node `server.mjs` remain the default.
-2. **Optional deps** — FastAPI/uvicorn in `requirements-serve.txt`; not required for Jetson CLI-only installs.
+2. **Optional deps** — FastAPI/uvicorn in `requirements-serve.txt`; not required for edge CLI-only installs.
 3. **Implicit local user** when identity headers are absent; `AGENTIC_REQUIRE_IDENTITY=1` is opt-in for server mode.
 4. **Dual-read migrations** for sessions/KB — never orphan legacy `__orchestrator_sessions__/<slug>.json` or append-only KB rows.
 5. **One writer for SQLite** — avoid Node-spawn CLI and the daemon both writing KB in the same deployment; document "pick one writer."
@@ -119,7 +119,7 @@ Downstream requirements that break this model:
 - **Two deployment styles from one codebase**:
   - **Local all-in-one** — engine bundled as a sidecar of a desktop app, bound to
     `127.0.0.1`, zero identity setup.
-  - **Server** — engine behind an identity-terminating proxy (Warpgate), multiple
+  - **Server** — engine behind an identity-terminating proxy (security gateway), multiple
     clients, shared knowledge and deals.
 
 ---

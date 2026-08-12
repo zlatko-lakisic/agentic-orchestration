@@ -1,6 +1,6 @@
-# Jetson / edge local agent catalog
+# Edge local agent catalog
 
-Single small Ollama model for single-node deployments (e.g. Jetson AGX Orin) where the
+Single small Ollama model for single-node deployments (e.g. NVIDIA Jetson AGX Orin) where the
 orchestrator should not pick cloud OpenAI/Anthropic providers.
 
 Agents use the **host** Ollama service (`http://host.k3s.internal:11434` from k8s pods),
@@ -25,7 +25,7 @@ AGENTIC_AGENT_PROVIDERS_CATALOG=config/agent_providers_jetson
 AGENTIC_EXTRA_AGENT_SKILLS_PATH=config/agent_skills_jetson   # jetson_irrigation skill, etc.
 ```
 
-### Ollama on Jetson
+### Ollama on ARM edge
 
 NVIDIA documents two approaches ([forum thread](https://forums.developer.nvidia.com/t/introducing-ollama-support-for-jetson-devices/289333)):
 
@@ -51,7 +51,7 @@ Orchestrator logs `(agentic) platform=jetson; ollama_runtime=...` on startup and
 
 ### Host metrics (jtop / GPU)
 
-The web UI reads Jetson GPU util from a host JSON writer (`jtop` when the process can use `jtop.service`, otherwise **tegrastats** — no jtop group required).
+The web UI reads ARM edge GPU util from a host JSON writer (`jtop` when the process can use `jtop.service`, otherwise **tegrastats** — no jtop group required).
 
 ```bash
 # Non-root (systemd --user + tegrastats). Also runs from jetson-deploy.sh.

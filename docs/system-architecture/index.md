@@ -1,6 +1,6 @@
 ---
 layout: single
-title: "System architecture (Kubernetes / Jetson)"
+title: "System architecture (Kubernetes / edge)"
 permalink: /system-architecture/
 toc: true
 toc_label: "On this page"
@@ -9,11 +9,11 @@ sidebar:
   nav: "docs"
 mermaid: true
 ---
-# System architecture (Kubernetes / Jetson)
+# System architecture (Kubernetes / edge k3s)
 
 This page is the **deployed system** view — runtime components, networks, and storage — similar to an AWS/Azure landing-zone diagram. It complements the conceptual product flow on [Architecture]({{ '/architecture/' | relative_url }}).
 
-**Primary reference deployment:** NVIDIA Jetson AGX Orin running **k3s**, namespace `agentic-orchestration`, repo at `/var/projects/agentic-orchestration`.
+**Primary reference deployment:** e.g. NVIDIA Jetson AGX Orin running **k3s**, namespace `agentic-orchestration`, repo at `/var/projects/agentic-orchestration`.
 
 ## Component map (edge)
 
@@ -33,9 +33,9 @@ flowchart TB
   classDef opt fill:#E5E7EB,stroke:#6B7280,stroke-width:1px,color:#374151
 
   Browser["🌐 Browser / OpenClaw / API"]:::client
-  Traefik["🔐 Traefik / Warpgate - TLS upstream"]:::ingress
+  Proxy["🔐 Reverse proxy / security gateway - TLS upstream"]:::ingress
 
-  subgraph Host["🖥️ Jetson host"]
+  subgraph Host["🖥️ Edge host"]
     GitTree["📁 Git checkout + catalogs"]:::host
     OpenClawHost["🦞 OpenClaw host paths"]:::host
     Models["💾 Ollama models hostPath / NFS"]:::host
@@ -55,8 +55,8 @@ flowchart TB
     MCPFs["📂 mcp-filesystem :8081"]:::mcp
   end
 
-  Browser --> Traefik
-  Traefik -->|"NodePort 30487"| SVC
+  Browser --> Proxy
+  Proxy -->|"NodePort 30487"| SVC
   SVC --> Web
   Web --- Orch
   Orch -->|"enqueue StepSpec"| PVC
@@ -87,7 +87,7 @@ Ollama ownership is configurable (`managed_k8s` shown above; `external` / `manag
 sequenceDiagram
   autonumber
   actor User as 👤 User
-  participant Edge as 🔐 Traefik / Warpgate
+  participant Edge as 🔐 Reverse proxy / security gateway
   participant Coord as 💻 Coordinator
   participant Plan as 🧭 Planner harness
   participant Store as 💾 run-store PVC
@@ -116,7 +116,7 @@ sequenceDiagram
 | **agentic-coordinator** | Web UI + planner + step dispatch (`AGENTIC_EXECUTION_BACKEND=kubernetes`) | `ghcr.io/.../agentic-orchestrator-coordinator` |
 | **agentic-engine** | Reach / session overlay / MCP tunnel (`orchestration.serve` :8765) | same coordinator image entrypoint |
 | **agentic-warm-pool** | Pre-warmed workers executing steps from the PVC queue | `ghcr.io/.../agentic-orchestrator-worker` |
-| **agentic-delegation-broker** | Spawns child Jobs for `k8s_delegate_task` (often **off** on Jetson) | worker image entrypoint `--delegation-broker` |
+| **agentic-delegation-broker** | Spawns child Jobs for `k8s_delegate_task` (often **off** on edge) | worker image entrypoint `--delegation-broker` |
 | **Ollama** | Local LLMs for planner + agents | **`managed_k8s`:** Deployment `agentic-ollama`; **`external`:** host/remote URL; **`managed_process`:** AO child serve — see [Ollama]({{ '/ollama/' | relative_url }}) |
 | **run-store PVC** | Shared step handoff `{run_id}/{step_id}/result.json` | hostPath or RWX volume at `/run/store` |
 | **MCP gateways** | Optional shared fetch / filesystem MCP over HTTP | in-cluster Deployments |
@@ -124,14 +124,14 @@ sequenceDiagram
 
 **RAG** is harness code inside the coordinator and workers (inject / `rag_query` / citation gate). There is no RAG microservice pod.
 
-## Catalogs and host mounts (Jetson)
+## Catalogs and host mounts (edge)
 
 Git-synced files on the device are bind-mounted into pods so catalog updates do not require image rebuilds:
 
 | Catalog | Host path (under repo unless noted) | Coordinator mount | Warm-pool mount |
 |---------|--------------------------------------|-------------------|-----------------|
 | RAG sources | `.../config/rag_sources` | `/app/tool/config/rag_sources` | `/app/config/rag_sources` |
-| Agent skills (Jetson extras) | `.../config/agent_skills_jetson` | `/app/tool/config/agent_skills_jetson` | `/app/config/agent_skills_jetson` |
+| Agent skills (edge extras) | `.../config/agent_skills_jetson` | `/app/tool/config/agent_skills_jetson` | `/app/config/agent_skills_jetson` |
 | MCP providers | `.../config/mcp_providers` | `/app/tool/config/mcp_providers` | `/app/config/mcp_providers` |
 | MCP server packages | `.../mcp_servers` | `/app/tool/mcp_servers` | `/app/mcp_servers` |
 | OpenClaw MCP | `~/.openclaw/agentic-orchestration/openclaw-mcp-providers` | `/openclaw/mcp-providers` | same |
@@ -153,7 +153,7 @@ flowchart LR
     L4["🧠 Models + tools - Ollama + MCP servers"]:::logical
   end
 
-  subgraph Physical["🏗️ Physical on Jetson k3s"]
+  subgraph Physical["🏗️ Physical on edge k3s"]
     P1["💻 agentic-coordinator pod"]:::physical
     P2["⚙️ warm-pool pods / Jobs"]:::physical
     P3["🧠 agentic-ollama (+ models volume) / or external Ollama"]:::physical
@@ -176,8 +176,8 @@ Use this when explaining to stakeholders: **one edge node**, **few Deployments**
 ## Related
 
 - [Architecture]({{ '/architecture/' | relative_url }}) — conceptual product flow
-- [Infrastructure]({{ '/infrastructure/' | relative_url }}) — deploy modes, GHCR, Jetson scripts
+- [Infrastructure]({{ '/infrastructure/' | relative_url }}) — deploy modes, GHCR, edge deploy scripts
 - [Kubernetes execution upgrade]({{ '/kubernetes-execution-upgrade/' | relative_url }}) — warm pool / Jobs roadmap detail
 - [Dual execution framework]({{ '/dual-execution-framework/' | relative_url }}) — backend code seams
-- [Web UI]({{ '/web-ui/' | relative_url }}) — Warpgate session headers
+- [Web UI]({{ '/web-ui/' | relative_url }}) — security-gateway / legacy proxy session headers
 - Operator manifests: `agentic-orchestration-tool/deploy/k8s/`

@@ -428,7 +428,7 @@ export function initHostMetricsUi() {
       const scope = lastSample.scope || "runtime";
       scopeEl.textContent =
         scope === "jetson"
-          ? "Jetson host (jtop)"
+          ? "ARM edge host (jtop)"
           : scope === "host"
             ? "Node host (/proc)"
             : scope === "container"

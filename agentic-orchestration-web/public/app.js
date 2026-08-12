@@ -948,7 +948,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
       const sessionReady = await ensureEdgeSessionReady();
       if (!sessionReady) {
         setConnStatus("disconnected", "Login required");
-        appendMeta("Could not verify Warpgate session. Refresh after signing in.");
+        appendMeta("Could not verify security gateway session. Refresh after signing in.");
         return;
       }
       await loadSessionContext();

@@ -29,6 +29,7 @@ This page summarizes **upstream products and libraries** used or integrated by t
 | [Tavily](https://tavily.com/) | Optional hosted search MCP (`search_tavily`). |
 | [Exa](https://exa.ai/) | Optional search + code-context MCP (`search_exa`; `exa-mcp-server` / API key). |
 | [Anthropic MCP servers (reference)](https://github.com/modelcontextprotocol/servers) | Patterns for `fetch_url` (PyPI `mcp-server-fetch`), `memory_knowledge_graph`, `filesystem_local` (npm scope `@modelcontextprotocol`). |
+| [weather-mcp](https://github.com/weather-mcp/weather-mcp) | Optional weather MCP (`weather_mcp`; npm `@dangahagan/weather-mcp`; no API keys). |
 
 ## MCP server discovery (community catalog)
 
@@ -45,6 +46,7 @@ Shipped catalog entries and **example** related projects from that list:
 | `fetch_url` | [MCP servers monorepo](https://github.com/modelcontextprotocol/servers) (fetch) | [modelcontextprotocol/server-fetch](https://github.com/modelcontextprotocol/servers) |
 | `memory_knowledge_graph` | [MCP servers monorepo](https://github.com/modelcontextprotocol/servers) (memory) | [modelcontextprotocol/server-memory](https://github.com/modelcontextprotocol/servers) |
 | `filesystem_local` | [MCP servers monorepo](https://github.com/modelcontextprotocol/servers) (filesystem) | [modelcontextprotocol/server-filesystem](https://github.com/modelcontextprotocol/servers) |
+| `weather_mcp` | [weather-mcp](https://github.com/weather-mcp/weather-mcp) | [weather-mcp/weather-mcp](https://github.com/weather-mcp/weather-mcp) |
 
 Details and caveats (official HA endpoint vs community servers, env vars): **[MCP providers]({{ '/mcp-catalog/' | relative_url }})**.
 

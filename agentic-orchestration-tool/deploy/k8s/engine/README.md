@@ -6,14 +6,14 @@
 #
 # | Publish | URL | Notes |
 # |---------|-----|--------|
-# | hostPort 8765 | `http://<jetson>:8765` | Preferred Reach client Remote URL |
-# | NodePort 30765 | `http://<jetson>:30765` | Alternate if hostPort is blocked |
+# | hostPort 8765 | `http://<edge-host>:8765` | Preferred Reach client Remote URL |
+# | NodePort 30765 | `http://<edge-host>:30765` | Alternate if hostPort is blocked |
 # | ClusterIP 8765 | `http://agentic-engine.agentic-orchestration.svc:8765` | In-cluster |
 #
-# Web UI stays at `http://<jetson>:30487` — do not point Reach clients there
+# Web UI stays at `http://<edge-host>:30487` — do not point Reach clients there
 # (`/api/v1/direct-agent` and `/api/v1/kb/*` only exist on the engine).
 #
-# ## Apply (Jetson)
+# ## Apply (edge)
 #
 # ```bash
 # bash agentic-orchestration-tool/scripts/jetson-enable-engine.sh
@@ -24,9 +24,9 @@
 #
 # ## Identity
 #
-# Header-based only (`x-agentic-user-name`, `x-agentic-session-id` / Warpgate).
+# Header-based only (`x-agentic-user-name`, `x-agentic-session-id` / security gateway).
 # Local mode without headers = implicit `local` user. Do not set
-# `AGENTIC_REQUIRE_IDENTITY=1` on Jetson unless Warpgate (or equivalent) fronts :8765.
+# `AGENTIC_REQUIRE_IDENTITY=1` on edge unless a security gateway (or equivalent) fronts :8765.
 #
 # ## One writer
 #

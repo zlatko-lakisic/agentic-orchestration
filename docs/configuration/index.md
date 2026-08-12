@@ -83,7 +83,7 @@ Smoke: `agentic-orchestration-tool/scripts/smoke_run_store_backends.sh` (offline
 
 `python -m orchestration.serve` is **opt-in**. The CLI (`python main.py`) and the Node web server
 are unchanged and never import FastAPI, which lives in `requirements-serve.txt` alongside uvicorn
-and websockets. A CLI-only or Jetson install can skip that file; the daemon then fails with a
+and websockets. A CLI-only or edge install can skip that file; the daemon then fails with a
 message naming it rather than a bare `ImportError`.
 
 See [Engine API daemon plan]({{ '/engine-daemon-plan/' | relative_url }}) for the protocol and the
@@ -91,7 +91,7 @@ slice-by-slice status.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in. On Jetson/NVR, `config/env.host` / `env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
+| `AGENTIC_SERVE_HOST` | `127.0.0.1` | Bind address. Loopback by default — network binding is an explicit opt-in. On ARM edge / NVR, `config/env.host` / `env.jetson` sets `0.0.0.0` so the `agentic-engine` Deployment can publish hostPort **8765**. |
 | `AGENTIC_SERVE_PORT` | `8765` | Bind port. With TLS: `https://<host>:8765` (NodePort **30765**). Web UI remains on **30487**. See [AO Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}). |
 | `AGENTIC_JETSON_ENABLE_ENGINE` | `1` | When unset/`1`, `jetson-deploy.sh` applies `scripts/jetson-enable-engine.sh`. Set `0` to leave only the Node web UI. |
 | `AGENTIC_OLLAMA_MODE` | `auto` | Ollama ownership: `auto` \| `external` \| `managed_process` \| `managed_k8s`. See [Ollama ownership](#ollama-ownership) below. |
@@ -251,7 +251,7 @@ pass).
 - `AGENTIC_DYNAMIC_ITER_STREAM_STEPS=1`: emit each iterative round output to stdout instead of only the final synthesis.
 - `AGENTIC_OLLAMA_PULL_PROGRESS_STDERR=1` (default): keep normalized Ollama pull progress lines visible on stderr for web activity/progress UI.
 - `AGENTIC_AUTO_ENSURE_RUNTIME=1` (default): ensure Python `.venv` + `requirements.txt`, and for Ollama agents install/serve/pull models (not only `selfcontained: true`). Set `0` for legacy behaviour.
-- `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1`: allow Ollama auto-ensure inside kubernetes workers (off by default; host Ollama + `host.k3s.internal` is the Jetson path).
+- `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S=1`: allow Ollama auto-ensure inside kubernetes workers (off by default; host Ollama + `host.k3s.internal` is the edge path).
 - `AGENTIC_ANONYMIZE_CLOUD=1` (default): redact emails, phones, SSN-like patterns, API keys, and card-like digit runs before cloud planner/agent calls; also scrub attachment excerpts and session/KB writes. Set `0` to disable. Cloud types: `AGENTIC_CLOUD_PROVIDER_TYPES` (comma list). Goals that ask for offline/private/ollama-only drop those cloud types from the planner catalog and require a non-cloud `AGENTIC_PLANNER_MODEL`.
 - Custom regex scrubbers: `config/anonymize_patterns.yaml` (or `AGENTIC_ANONYMIZE_PATTERNS_PATH`) plus optional `AGENTIC_EXTRA_ANONYMIZE_PATTERNS_PATH`. Each entry has `id`, `pattern`, optional `replacement` / `flags` / `enabled`. Applied after built-ins. See `config/anonymize_patterns_examples.yaml`.
 - **Tier 3** (`orchestration/cloud_anonymize_tier3.py`, re-exported from `cloud_anonymize.py`): `AGENTIC_ANONYMIZE_REVERSIBLE=1` (default) mints unique per-value placeholders (`[EMAIL:1]`, `[PERSON:2]`) instead of static ones, tracked in a session `TokenMap` (ContextVar; optionally persisted to `__orchestrator_sessions__/anon_maps/<slug>.json` via `set_token_map_session(slug)`); `restore_tokens(text)` recovers originals for a final answer. `AGENTIC_ANONYMIZE_NER=0` (default off) runs an optional Presidio pass (PERSON/LOCATION/NRP, `AGENTIC_ANONYMIZE_NER_ENTITIES`) after the regex scrub — soft dependency, install `pip install -r requirements-anonymize.txt` and a spaCy model (`python -m spacy download en_core_web_lg`); skipped with a one-time stderr warning if missing. `AGENTIC_ANONYMIZE_TOOL_RESULTS=1` (default) scrubs tool-call output — fetched page text (`fetch_url_tool.py`) and prior-step handoff (`step_context.py`) — before it flows into later steps. `AGENTIC_ANONYMIZE_VISION_LOCAL=1` (default) prefers a local Ollama vision model (`AGENTIC_ANONYMIZE_VISION_MODEL`, default `ollama/llava`) over cloud for video-frame synopsis when anonymization is active; if the local model fails, the synopsis is skipped (stderr note) rather than falling back to cloud.

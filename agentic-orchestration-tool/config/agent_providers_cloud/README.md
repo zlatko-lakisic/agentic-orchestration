@@ -1,7 +1,7 @@
 # Cloud-only agent provider catalog
 
 This directory contains **only** OpenAI- and Anthropic-backed agent templates for deployments
-where the orchestrator on a gateway host (e.g. Jetson) should call **cloud APIs** and omit
+where the orchestrator on a gateway host (e.g. ARM edge) should call **cloud APIs** and omit
 local Ollama, Hugging Face, vLLM, JetStream, etc.
 
 ## Enable

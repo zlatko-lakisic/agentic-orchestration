@@ -58,7 +58,7 @@ PAGE_TITLES: dict[str, str] = {
     "User-agent-harnesses": "User agent harnesses",
     "External-integrations": "External integrations",
     "GitHub-Pages-publish": "GitHub Pages publish",
-    "System-architecture": "System architecture (Kubernetes / Jetson)",
+    "System-architecture": "System architecture (Kubernetes / edge)",
     "RAG-sources": "RAG sources",
     "Reach-and-mTLS": "Reach and engine mTLS",
     "Engine-daemon-plan": "Engine API daemon plan",

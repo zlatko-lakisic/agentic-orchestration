@@ -25,7 +25,7 @@ sidebar:
 
 ### Web UI session (browser)
 
-The web chat does **not** expose a session field. The Node server resolves an orchestrator session slug from proxy headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id`) or generates a `web-*` id. That slug is passed to `main.py` as `--orchestrator-session`.
+The web chat does **not** expose a session field. The Node server resolves an orchestrator session slug from proxy headers (`X-Agentic-Session-Id`, `X-Warpgate-Session-Id` — security-gateway / legacy proxy session headers) or generates a `web-*` id. That slug is passed to `main.py` as `--orchestrator-session`.
 
 **Tab transcript:** user/assistant/meta messages (including the planner welcome) are stored in `sessionStorage` per tab and restored on refresh. Closing the tab clears the browser-side transcript; server-side `__orchestrator_sessions__/` persists planner history for the slug across visits when the proxy supplies a stable session id.
 

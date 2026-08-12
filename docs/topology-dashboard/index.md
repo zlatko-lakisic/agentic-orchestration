@@ -93,7 +93,7 @@ The platform never sees the client’s internal screens — only what the sessio
 
 `ao_reach` SDK surface ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)): session bridge, overlay packing, local MCP host, speech client, mTLS enroller. These are **shared platform** Reach components — they are not labeled **Owned by app** (that badge is only on Application injection children: Client UI, Domain overlays, Local tools).
 
-Reach talks to the **engine** (`https`/`wss` :8765), not Warpgate / Web UI :30487. See [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
+Reach talks to the **engine** (`https`/`wss` :8765), not via the security gateway / Web UI proxy (:30487). See [Reach and mTLS]({{ '/reach-and-mtls/' | relative_url }}).
 
 ### <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Agentic Orchestration
 
@@ -222,7 +222,7 @@ OpenClaw host that talks to the Web UI and **bypasses** the Reach band and engin
 
 First-party Admin console at `/admin`. Always present in the Application band with a **bypass** edge to Web UI (not Reach). Status is healthy when the reserved **`ao-web`** API token is assigned on Access; otherwise unknown until mint.
 
-**Why it matters:** same class of exception as OpenClaw — browsers talk to Web UI :30487 (Warpgate / Traefik), never to engine :8765 as a Reach session. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
+**Why it matters:** same class of exception as OpenClaw — browsers talk to Web UI :30487 (security gateway / reverse proxy), never to engine :8765 as a Reach session. See [Web UI]({{ '/web-ui/' | relative_url }}#api-access-tokens).
 
 ---
 
@@ -396,7 +396,7 @@ Text-to-speech sidecar serving synthesis requests (commonly **:8091**). Same pre
 
 Coordinator Web UI and Admin console (NodePort **30487**; container often `AGENTIC_WEB_PORT` / 3847). Serves chat, Admin Topology, host metrics, and orchestrate APIs used by OpenClaw.
 
-Topology graph is built in this process (`/api/v1/admin/topology/graph` + admin WS `topology_*` messages). The Web UI node is therefore “always here” when you can see the page. Traefik / Warpgate upstreams should target `:30487`, not host port 80. See [Web UI]({{ '/web-ui/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+Topology graph is built in this process (`/api/v1/admin/topology/graph` + admin WS `topology_*` messages). The Web UI node is therefore “always here” when you can see the page. Reverse proxy / security gateway upstreams should target `:30487`, not host port 80. See [Web UI]({{ '/web-ui/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
 
 ---
 
@@ -476,7 +476,7 @@ A concrete model runtime such as Ollama or a remote provider. Children on the ca
 <a id="models-ollama"></a>
 ### Ollama
 
-Local Ollama runtime for on-box model inference. Topology presence follows a healthy `OLLAMA_API_BASE` / `OLLAMA_HOST` probe (`/api/tags`). Common on Jetson / NVR edge boxes.
+Local Ollama runtime for on-box model inference. Topology presence follows a healthy `OLLAMA_API_BASE` / `OLLAMA_HOST` probe (`/api/tags`). Common on ARM edge / NVR edge boxes.
 
 **Ownership** (`AGENTIC_OLLAMA_MODE`):
 
@@ -521,7 +521,7 @@ MCP gateway pods attached for tool execution (fetch / filesystem gateways, and s
 <a id="platform"></a>
 ### Platform
 
-**Kubernetes** node for the AO namespace (k3s on Jetson / NVR, or any cluster the coordinator SA can list). When the Admin web pod is in-cluster, this node is **instrumented** and **expandable** (same wider accordion header + group frame as Application panels — see [[#expandable-panels]]).
+**Kubernetes** node for the AO namespace (k3s on ARM edge / NVR, or any cluster the coordinator SA can list). When the Admin web pod is in-cluster, this node is **instrumented** and **expandable** (same wider accordion header + group frame as Application panels — see [[#expandable-panels]]).
 
 <a id="platform-expand"></a>
 #### Expand Kubernetes
@@ -536,7 +536,7 @@ Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a not
 
 See [[#k8s-node]], [[#k8s-pod]], [[#k8s-service]] for the nested inventory cards. Related: [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
 
-**Typical edge hosts (lab):** Jetson `172.16.90.20`, NVR `10.0.10.16`.
+**Typical edge hosts (lab):** ARM edge `172.16.90.20`, NVR `10.0.10.16`.
 
 ---
 
@@ -556,7 +556,7 @@ Appears only while [[#platform-expand]] is open and the in-cluster probe can lis
 
 An individual **pod** under a cluster node (or listed in a workload modal). Sublabel typically shows **podIP** · owning workload · phase. Click for Addresses: podIP, hostIP, nodeName, ready, restarts, and container status.
 
-**Example:** `agentic-engine-…` under the Jetson node with `podIP` in the pod CIDR and `hostIP` `172.16.90.20`.
+**Example:** `agentic-engine-…` under the ARM edge node with `podIP` in the pod CIDR and `hostIP` `172.16.90.20`.
 
 Drawn only while Kubernetes is expanded ([[#platform-expand]]). Health follows the pod phase / ready condition from the API — not guessed from Deployment names.
 
@@ -567,7 +567,7 @@ Drawn only while Kubernetes is expanded ([[#platform-expand]]). Health follows t
 
 A Kubernetes **Service** in the AO namespace (`agentic-*`). Sublabel shows **clusterIP**. Topology draws **Service → Pod** edges from Endpoints / EndpointSlices so you can see which pods currently back the Service.
 
-**Example:** `agentic-ollama` → ClusterIP `10.43.x.x` with an edge to the `agentic-ollama` pod (or the hostNetwork endpoint on Jetson host-binary mode).
+**Example:** `agentic-ollama` → ClusterIP `10.43.x.x` with an edge to the `agentic-ollama` pod (or the hostNetwork endpoint on ARM edge host-binary mode).
 
 Click for port / selector details when present. See also [[#k8s-ollama]], [[#k8s-engine]].
 
@@ -601,12 +601,12 @@ Legacy workload summary cards (still used when node inventory is empty). Prefer 
 <a id="k8s-mcp-fetch"></a>
 #### MCP fetch
 
-Fetch MCP gateway sidecar Deployment used by workers for HTTP tool calls. Optional — may be absent on lean Jetson installs.
+Fetch MCP gateway sidecar Deployment used by workers for HTTP tool calls. Optional — may be absent on lean edge installs.
 
 <a id="k8s-mcp-filesystem"></a>
 #### MCP filesystem
 
-Filesystem MCP gateway sidecar Deployment for path-scoped tool access. Optional — may be absent on lean Jetson installs.
+Filesystem MCP gateway sidecar Deployment for path-scoped tool access. Optional — may be absent on lean edge installs.
 
 <a id="k8s-worker-jobs"></a>
 #### Worker jobs
@@ -620,8 +620,8 @@ Orchestrator Jobs / short-lived worker pods spun for individual steps (not the w
 
 | Edge host | How it runs |
 |---|---|
-| **Ada / x86** | `ollama/ollama` image; models on hostPath `var/ollama-models` |
-| **Jetson** | Privileged host-binary pod (nsenter → `/usr/local/bin/ollama serve`) with NFS models — avoids the multi-GB dustynv image on a small rootfs |
+| **x86/x64** | `ollama/ollama` image; models on hostPath `var/ollama-models` |
+| **ARM64** | Privileged host-binary pod (nsenter → `/usr/local/bin/ollama serve`) with NFS models — avoids the multi-GB dustynv image on a small rootfs |
 
 Topology also shows the logical **Ollama** model-runtime node ([[#models-ollama]]); this card is the Kubernetes workload behind it when ownership is in-cluster. Admin Control can restart this Deployment; external instances are not restarted. See [Ollama]({{ '/ollama/' | relative_url }}#managed-k8s), `scripts/jetson-enable-ollama.sh`, `scripts/jetson-migrate-ollama-to-k8s.sh`.
 
@@ -697,7 +697,7 @@ Path that skips Reach and hits the Web UI directly (**ao-web**, **ao-chat**, Ope
 |---|---|
 | **8765** | Engine hostPort (`AGENTIC_SERVE_PORT`) — Reach clients |
 | **30765** | Engine NodePort (alternate in-cluster access) |
-| **30487** | Web UI / Admin NodePort — browsers (ao-web / ao-chat), OpenClaw, Traefik |
+| **30487** | Web UI / Admin NodePort — browsers (ao-web / ao-chat), OpenClaw, reverse proxy |
 | **8090 / 8091** | Speech STT / TTS (when enabled) |
 
 | Variable | Effect on the graph |
@@ -706,7 +706,7 @@ Path that skips Reach and hits the Web UI directly (**ao-web**, **ao-chat**, Ope
 | `AGENTIC_SERVE_MCP_TUNNEL` | Local MCP host / mcp_tunnel deployed |
 | `AGENTIC_SERVE_TLS_*` | https/wss + mTLS enrol surface |
 | `AGENTIC_SPEECH_ENABLED` (+ advertise URLs) | Speech client, hello.speech, STT/TTS |
-| `AGENTIC_JETSON_ENABLE_ENGINE` | Engine presence on Jetson deploys |
+| `AGENTIC_JETSON_ENABLE_ENGINE` | Engine presence on edge deploys |
 | `AGENTIC_EXECUTION_BACKEND` / warm-pool flags | Execution + workers / sidecars |
 | `OLLAMA_*` / provider API keys | Ollama / Remote LLMs nodes |
 | `AGENTIC_OLLAMA_MODE` / `AGENTIC_JETSON_ENABLE_OLLAMA` | In-cluster Ollama workload ([[#k8s-ollama]]) vs external |

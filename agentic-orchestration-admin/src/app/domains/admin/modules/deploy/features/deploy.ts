@@ -29,7 +29,7 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
     >
       <div>
         <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
-          Deploy
+          Edge deploy
         </div>
         <div class="text-neutral-500">
           Profile, tracked env, endpoints, and rollout path

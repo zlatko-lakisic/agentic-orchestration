@@ -26,7 +26,7 @@ Related: [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership
 |------|-------------------|---------------------------|------------------------|----------|
 | **`external`** | You (systemd, Compose, remote box, …) | Your URL, e.g. `http://127.0.0.1:11434` or `http://host.k3s.internal:11434` | **No** | Bring-your-own / shared lab Ollama |
 | **`managed_process`** | AO child `ollama serve` | Usually loopback after spawn | **Yes** (child) | Laptop / bare-metal standalone without k8s |
-| **`managed_k8s`** | Deployment `agentic-ollama` | `http://agentic-ollama:11434` | **Yes** (Deployment) | Edge Jetson / Ada k3s stacks |
+| **`managed_k8s`** | Deployment `agentic-ollama` | `http://agentic-ollama:11434` | **Yes** (Deployment) | Edge ARM / x86 k3s stacks |
 | **`auto`** (default) | Resolves: healthy configured URL → **external**; else if Kubernetes → **managed_k8s**; else **managed_process** | Depends on resolution | Only when owned | Sensible default until you pin a mode |
 
 Always set **`OLLAMA_API_BASE`** (preferred) for planner / LiteLLM / Topology probes. Keep **`OLLAMA_HOST`** in sync if both are used.
@@ -50,7 +50,7 @@ OLLAMA_API_BASE=http://127.0.0.1:11434
 - Topology **Ollama** node is healthy when `GET {OLLAMA_API_BASE}/api/tags` succeeds.
 - Admin Control shows Ollama as **not restartable** (“External Ollama at …”).
 
-**Legacy edge path:** older Jetson installs used host `ollama.service` + `host.k3s.internal`. That remains a valid **external** setup; current `config/env.jetson` defaults to **managed_k8s** instead.
+**Legacy edge path:** older edge installs used host `ollama.service` + `host.k3s.internal`. That remains a valid **external** setup; current `config/env.jetson` (edge profile env) defaults to **managed_k8s** instead.
 
 ---
 
@@ -98,8 +98,8 @@ bash agentic-orchestration-tool/scripts/jetson-enable-ollama.sh
 
 | Host | How the pod runs | Model storage |
 |------|------------------|---------------|
-| **Ada / x86** | `ollama/ollama` image | hostPath `var/ollama-models` |
-| **Jetson / aarch64** | Privileged **host-binary** pod (`nsenter` → `/usr/local/bin/ollama serve`) | NFS (e.g. `/nfs/omega-jetson/ollama/models`) — avoids pulling a multi‑GB dustynv image onto a small rootfs |
+| **x86/x64** | `ollama/ollama` image | hostPath `var/ollama-models` |
+| **ARM64 / aarch64** | Privileged **host-binary** pod (`nsenter` → `/usr/local/bin/ollama serve`) | NFS (e.g. `/nfs/omega-jetson/ollama/models`) — avoids pulling a multi‑GB dustynv image onto a small rootfs |
 
 Migrate from host systemd (inventory → copy or NFS mount → enable → remove unit):
 
@@ -133,7 +133,7 @@ Pin an explicit mode in env when behaviour must not drift (recommended on shared
 | `AGENTIC_JETSON_ENABLE_OLLAMA` | `1` → `jetson-deploy.sh` runs `jetson-enable-ollama.sh` |
 | `OLLAMA_API_BASE` | HTTP base for AO (planner, keepalive, Topology, pulls) |
 | `OLLAMA_HOST` | Alternate / legacy URL — keep aligned with `OLLAMA_API_BASE` |
-| `AGENTIC_OLLAMA_MODELS_HOSTPATH` | Extra hostPath for models (Jetson NFS), used by enable script |
+| `AGENTIC_OLLAMA_MODELS_HOSTPATH` | Extra hostPath for models (edge NFS), used by enable script |
 | `AGENTIC_OLLAMA_RUNTIME_CLASS` | Optional RuntimeClass; leave unset (k3s “nvidia” handler is often broken) |
 | `AGENTIC_AUTO_ENSURE_RUNTIME` | Install/serve/pull for Ollama agents on standalone |
 | `AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S` | Allow ensure inside k8s workers (usually off; use HTTP to shared Ollama) |
@@ -154,7 +154,7 @@ Authoritative list: [Configuration]({{ '/configuration/' | relative_url }}), `ag
 
 | Host | Ownership | Notes |
 |------|-----------|--------|
-| Jetson `172.16.90.20` | `managed_k8s` (host-binary + NFS models) | Host `ollama.service` removed after migrate |
-| Ada / NVR `10.0.10.16` | `managed_k8s` (`ollama/ollama` + `var/ollama-models`) | Host binary removed |
+| ARM edge `172.16.90.20` | `managed_k8s` (host-binary + NFS models) | Host `ollama.service` removed after migrate |
+| x86/x64 NVR `10.0.10.16` | `managed_k8s` (`ollama/ollama` + `var/ollama-models`) | Host binary removed |
 
 Both use `OLLAMA_API_BASE=http://agentic-ollama:11434`.

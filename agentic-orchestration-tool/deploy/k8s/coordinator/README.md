@@ -51,11 +51,11 @@ kubectl port-forward -n agentic-orchestration svc/agentic-coordinator 3847:3847
 
 Open `http://127.0.0.1:3847`.
 
-### Jetson (single-node k3s)
+### Edge (single-node k3s)
 
-- **NodePort** `30487` — Traefik / Warpgate upstream: `http://<jetson>:30487`
+- **NodePort** `30487` — reverse proxy / security gateway upstream: `http://<edge-host>:30487`
 - **Rollouts** — `strategy: Recreate`, no `hostPort` (avoids single-node port deadlock)
-- **Engine API daemon** (Reach clients) — separate Deployment; see [`../engine/README.md`](../engine/README.md). Preferred URL: `http://<jetson>:8765`
+- **Engine API daemon** (Reach clients) — separate Deployment; see [`../engine/README.md`](../engine/README.md). Preferred URL: `http://<edge-host>:8765`
 
 ## Customize image / worker
 

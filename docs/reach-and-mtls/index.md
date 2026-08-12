@@ -10,7 +10,7 @@ sidebar:
 ---
 # <img src="{{ "/assets/ao-mark.svg" | relative_url }}" alt="AO" width="18" height="18" style="vertical-align:-3px" /> Reach and engine mTLS
 
-Reach ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)) is the Dart client SDK for **session overlays** and **reverse MCP tunnels** against a shared Agentic Orchestration **engine** daemon (`python -m orchestration.serve`). It talks to the engine **directly** — not via Warpgate.
+Reach ([`agentic-orchestration-reach`](https://github.com/zlatko-lakisic/agentic-orchestration-reach)) is the Dart client SDK for **session overlays** and **reverse MCP tunnels** against a shared Agentic Orchestration **engine** daemon (`python -m orchestration.serve`). It talks to the engine **directly** — not via the security gateway / Web UI proxy.
 
 Canonical SDK docs: Reach `README.md`. Engine serve env: [Configuration]({{ '/configuration/' | relative_url }}). Daemon plan: [Engine daemon plan]({{ '/engine-daemon-plan/' | relative_url }}).
 
@@ -92,7 +92,7 @@ Requires `openssl` on PATH for enrollment. Pin SDK: Reach git ref `v0.4.0`.
 
 | Host | Role | Engine (mTLS) | Web UI |
 |------|------|---------------|--------|
-| Jetson (`172.16.90.20`, `omega-jetson-orin`) | Edge / Ada | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
+| ARM edge (`172.16.90.20`, `omega-jetson-orin`) | ARM edge | `https://172.16.90.20:8765` | `http://172.16.90.20:30487` |
 | NVR (`10.0.10.16`, `nvr.mostardesigns.com`) | AI server | `https://10.0.10.16:8765` | `http://10.0.10.16:30487` |
 
 Do **not** point Reach clients at `:30487` — that is the Node web UI.

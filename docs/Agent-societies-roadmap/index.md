@@ -127,7 +127,7 @@ CrewAI `allow_delegation` and `hierarchical` are useful **Phase 1 shortcuts**; t
 - [x] Interaction modes enum (table above) — `blackboard` and `delegate_rpc` drive the v1 runtime; `handoff`, `crew_delegation`, and `hierarchical` are declarative
 - [x] ADR: `docs/adr/0001-agent-societies-v1.md` — non-goals v1: no unbounded spend, no internet-facing societies without auth, no nested societies, no cross-tenant/external agents, no parallel turns
 
-**Exit criteria met:** `examples/verticals/society_research_panel/society_research_panel.yaml` charter (plus a Jetson-sized variant) and the one-page ADR are in the repo.
+**Exit criteria met:** `examples/verticals/society_research_panel/society_research_panel.yaml` charter (plus an edge-sized variant) and the one-page ADR are in the repo.
 
 **Deferred:** token/cost cap in currency terms (turn and delegation caps only in v1); `consensus` and `timeout` stop conditions (v1 ships phrase-based `stop_when` plus the controller).
 
@@ -181,7 +181,7 @@ only after the critic marks `ready_for_draft` — covered by
 
 ### Phase 3 — K8s-native societies — K6.3
 
-**Goal:** Same charter on Jetson / cluster.
+**Goal:** Same charter on edge / cluster.
 
 | Task | Work |
 |------|------|
