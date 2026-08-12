@@ -602,6 +602,24 @@ def test_ws_session_overlay_register_ack_and_clear(
             assert get_overlay("ada", "sess-1") is None
 
 
+def test_resolve_app_id_falls_back_to_connection_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from orchestration.serve.ws import WsConnection
+
+    session = object.__new__(WsConnection)
+    session.connection_id = "conn-1"
+
+    monkeypatch.setattr(
+        "orchestration.session_overlay.overlays_for_connection",
+        lambda _cid: [SimpleNamespace(app_id="comstar-ha")],
+    )
+    assert session._resolve_app_id({}) == "comstar-ha"
+    assert session._resolve_app_id({"appId": "explicit-app"}) == "explicit-app"
+
+
 def test_ws_session_overlay_denied_without_app_id(
     kb_root: Path,
     monkeypatch: pytest.MonkeyPatch,
