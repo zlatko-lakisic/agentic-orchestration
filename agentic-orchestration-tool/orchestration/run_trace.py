@@ -332,24 +332,31 @@ def trace_instrumentation(events: list[dict[str, Any]]) -> dict[str, Any]:
         "mcpCalls": "mcp_call" in kinds,
         "qa": "qa" in kinds,
     }
+    recorded = [key for key, ok in present.items() if ok]
     missing = [
         key
         for key, supported in TRACE_CAPABILITIES.items()
         if supported and not present.get(key)
     ]
     not_instrumented = [key for key, supported in TRACE_CAPABILITIES.items() if not supported]
+    if not recorded:
+        summary = "No structured spans recorded for this run_id."
+    elif recorded == ["runBoundary"] or set(recorded) <= {"runBoundary"}:
+        summary = (
+            "This run recorded request boundaries only. "
+            "Planner, crew, tool, and model spans appear when those paths execute."
+        )
+    else:
+        summary = "This run recorded: " + ", ".join(recorded) + "."
+        if missing:
+            summary += " Other span types were not hit on this path."
     return {
         "capabilities": dict(TRACE_CAPABILITIES),
         "present": present,
+        "recorded": recorded,
         "missing": missing,
         "notInstrumented": not_instrumented,
-        "summary": (
-            "Run boundaries only — step-level spans were not recorded for this run."
-            if present.get("runBoundary") and not present.get("planner") and not present.get("steps")
-            else "Partial instrumentation — some planner/step spans are present."
-            if present.get("planner") or present.get("steps")
-            else "No structured spans recorded for this run_id."
-        ),
+        "summary": summary,
     }
 
 

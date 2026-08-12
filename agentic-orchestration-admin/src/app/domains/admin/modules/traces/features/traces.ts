@@ -207,15 +207,23 @@ declare global {
 
           @if (d.instrumentation; as inst) {
             <div
-              class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+              class="border-b px-5 py-3 text-sm"
+              [class]="
+                (inst.notInstrumented || []).length
+                  ? 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200'
+                  : 'border-neutral-200 bg-neutral-50 text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950/40 dark:text-neutral-300'
+              "
             >
               <div class="font-medium">{{ inst.summary }}</div>
-              @if ((inst.missing || []).length) {
+              @if ((inst.notInstrumented || []).length) {
                 <div class="mt-1 text-xs opacity-90">
-                  Not in this run:
+                  Platform not yet emitting:
+                  {{ (inst.notInstrumented || []).join(', ') }}.
+                </div>
+              } @else if ((inst.missing || []).length) {
+                <div class="mt-1 text-xs opacity-80">
+                  Not hit on this path (instrumented when those steps run):
                   {{ (inst.missing || []).join(', ') }}.
-                  Never instrumented:
-                  {{ (inst.notInstrumented || []).join(', ') || '—' }}.
                 </div>
               }
             </div>

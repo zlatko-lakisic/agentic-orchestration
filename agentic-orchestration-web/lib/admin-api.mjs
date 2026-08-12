@@ -1942,15 +1942,24 @@ function traceInstrumentation(events) {
   const notInstrumented = Object.entries(TRACE_CAPABILITIES)
     .filter(([, supported]) => !supported)
     .map(([k]) => k);
+  const recorded = Object.entries(present)
+    .filter(([, ok]) => ok)
+    .map(([k]) => k);
   let summary = "No structured spans recorded for this run_id.";
-  if (present.runBoundary && !present.planner && !present.steps && !present.directAgent) {
-    summary = "Run boundaries only — step-level spans were not recorded for this run.";
-  } else if (present.planner || present.steps || present.directAgent) {
-    summary = "Partial instrumentation — some planner/step/agent spans are present.";
+  if (recorded.length === 1 && recorded[0] === "runBoundary") {
+    summary =
+      "This run recorded request boundaries only. " +
+      "Planner, crew, tool, and model spans appear when those paths execute.";
+  } else if (recorded.length) {
+    summary = `This run recorded: ${recorded.join(", ")}.`;
+    if (missing.length) {
+      summary += " Other span types were not hit on this path.";
+    }
   }
   return {
     capabilities: { ...TRACE_CAPABILITIES },
     present,
+    recorded,
     missing,
     notInstrumented,
     summary,

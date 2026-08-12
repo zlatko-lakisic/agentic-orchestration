@@ -309,6 +309,7 @@ export interface RunTraceEvent {
 export interface TraceInstrumentation {
   capabilities?: Record<string, boolean>;
   present?: Record<string, boolean>;
+  recorded?: string[];
   missing?: string[];
   notInstrumented?: string[];
   summary?: string;
