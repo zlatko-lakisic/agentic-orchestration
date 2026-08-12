@@ -38,38 +38,11 @@ export function shortTraceActorLabel(actor: string): string {
 }
 
 /**
- * Append Mermaid `style` directives so participant boxes use Topology accents.
- * Works when the loaded Mermaid build supports sequence style (11.x+); post-SVG
- * pass still applies left bars and lifelines.
+ * Sequence diagrams in Mermaid 11.16 do not accept flowchart `style` lines
+ * (syntax error). Keep source unchanged; colors are applied after SVG render.
  */
 export function enrichMermaidWithTopologyStyles(source: string): string {
-  const src = String(source || '').trim();
-  if (!src) return src;
-  const dark =
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-  const fill = dark ? '#171717' : '#ffffff';
-  const color = dark ? '#f5f5f5' : '#171717';
-
-  const lines = src.split(/\r?\n/);
-  const styleLines: string[] = [];
-  const seen = new Set<string>();
-
-  for (const line of lines) {
-    const m = line.match(/^\s*participant\s+(\w+)(?:\s+as\s+(.+))?$/i);
-    if (!m) continue;
-    const pid = m[1];
-    const label = (m[2] || pid).trim();
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const accent = themeForTraceActor(label).accent;
-    styleLines.push(
-      `  style ${pid} fill:${fill},stroke:${accent},stroke-width:1.5px,color:${color}`
-    );
-  }
-
-  if (!styleLines.length) return src;
-  return `${src}\n${styleLines.join('\n')}`;
+  return String(source || '').trim();
 }
 
 /**

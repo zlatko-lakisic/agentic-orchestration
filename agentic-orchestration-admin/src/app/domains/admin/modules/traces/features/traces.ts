@@ -262,11 +262,13 @@ declare global {
                     </span>
                     <ao-status-chip [status]="kindStatus(ev.kind)" [label]="ev.kind || null" />
                     <span
-                      class="rounded-md border px-1.5 py-0.5 text-2xs font-medium"
+                      class="inline-flex items-center gap-1.5 rounded-lg border bg-white py-0.5 pr-2 pl-1 text-2xs font-medium text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100"
                       [style.border-color]="actorAccent(ev.actor)"
-                      [style.color]="actorAccent(ev.actor)"
-                      [style.background]="actorAccentSoft(ev.actor)"
                     >
+                      <span
+                        class="inline-block h-3.5 w-1 shrink-0 rounded-sm"
+                        [style.background]="actorAccent(ev.actor)"
+                      ></span>
                       {{ ev.actor || '—' }}
                     </span>
                     @if (ev.message) {
@@ -460,11 +462,6 @@ export class TracesPage implements OnInit {
 
   actorAccent(actor: string | null | undefined): string {
     return themeForTraceActor(String(actor || '')).accent;
-  }
-
-  actorAccentSoft(actor: string | null | undefined): string {
-    const accent = this.actorAccent(actor);
-    return `${accent}22`;
   }
 
   actorLegend(d: RunTraceResponse): { label: string; accent: string }[] {
