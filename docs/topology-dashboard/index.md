@@ -76,7 +76,7 @@ The Application band has **two labeled families**:
 
 Client-reported Reach presence is **grouped by required `appId`** (normalized lowercase — e.g. `myapp`, `field-client`). Missing `appId` collapses to `unknown`.
 
-Reach apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions). Use the chevron to expand one panel: a group frame grows around that app; other Reach apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. When no Reach client has registered a session overlay, the **Reach apps** family (frame + nodes) is hidden.
+Reach apps appear as **wider minimized panels left-to-right** (accordion headers) with instance count (connected sessions) and **client IP count** when the engine reports peer addresses. Use the chevron to expand one panel: a group frame grows around that app; other Reach apps grey out; only that app’s Client UI / Domain overlays / Local tools are laid out under the header. Click the app header for **Connecting IPs** (Reach WebSocket peer). When no Reach client has registered a session overlay, the **Reach apps** family (frame + nodes) is hidden.
 
 **Example — two Reach clients side by side**
 
@@ -106,7 +106,7 @@ Engine edge APIs, planner, catalogs, model backends, execution, and platform —
 | 2 | Capability | Agents / MCP / Skills catalogs, model backends, Ollama / remote LLMs |
 | 3 | Execution | Execution backend, workers, MCP sidecars |
 | 4 | Platform | **Kubernetes** (expandable accordion — see [[#platform-expand]]), storage / GPU |
-| 5 | K8s workloads | Nested only while Kubernetes is expanded ([[#k8s-workload]]) |
+| 5 | K8s inventory | Nested only while Kubernetes is expanded: **nodes → pods**, Services, network paths ([[#platform-expand]]) |
 
 **Owned by app** appears only on Application injection children (Client UI, Domain overlays, Local tools) under a connected `appId`. Shared Reach / AO core (bridge, mTLS enroller, planner, catalogs, speech endpoints, …) stay unlabeled. Agents / MCP / Skills cluster modals still list live `client.*` ids each connected `appId` registered.
 
@@ -154,7 +154,7 @@ Components that are never deployed for this install are hidden unless you enable
 <a id="app"></a>
 ### App (`appId`)
 
-Header for one Reach product identity (wider accordion card — see [[#app-accordion]] / [[#expandable-panels]]). Sublabel is how many connected instances (sessions) advertise that `appId`.
+Header for one Reach product identity (wider accordion card — see [[#app-accordion]] / [[#expandable-panels]]). Sublabel is how many connected instances (sessions) advertise that `appId`, plus distinct client IP count when known.
 
 **Example:** `myapp · 2 instances` means two concurrent Reach sessions registered overlays with `appId: "myapp"`. Expand the panel to see that client’s UI / overlays / local-tools column; other apps stay greyed.
 
@@ -476,7 +476,17 @@ A concrete model runtime such as Ollama or a remote provider. Children on the ca
 <a id="models-ollama"></a>
 ### Ollama
 
-Local Ollama runtime for on-box model inference. Presence usually follows `OLLAMA_HOST` / `OLLAMA_API_BASE` (or equivalent) in the deployment env. Common on Jetson / NVR edge boxes. See [Configuration]({{ '/configuration/' | relative_url }}), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
+Local Ollama runtime for on-box model inference. Topology presence follows a healthy `OLLAMA_API_BASE` / `OLLAMA_HOST` probe (`/api/tags`). Common on Jetson / NVR edge boxes.
+
+**Ownership** (`AGENTIC_OLLAMA_MODE`):
+
+| Mode | Topology meaning |
+|---|---|
+| `external` / `auto` → healthy URL | Bring-your-own Ollama (host systemd or remote). Node is healthy when `/api/tags` works; Admin Control does **not** restart it. |
+| `managed_k8s` | In-cluster `agentic-ollama` Deployment ([[#k8s-ollama]]). Service `http://agentic-ollama:11434`. |
+| `managed_process` | AO child `ollama serve` on standalone (not typical on edge k3s). |
+
+See [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership), [Infrastructure]({{ '/infrastructure/' | relative_url }}).
 
 ---
 
@@ -517,58 +527,103 @@ MCP gateway pods attached for tool execution (fetch / filesystem gateways, and s
 #### Expand Kubernetes
 
 1. Chevron on the **Kubernetes** card (wider header) → expand.
-2. A steel-blue dashed **group frame** grows around the platform header plus child workloads.
-3. Child cards appear on the next rank (left → right): Coordinator, Engine, Warm pool, Delegation broker, MCP gateways, Worker jobs, plus any other `agentic-*` labeled workloads.
-4. Sublabel on the platform shows live `ready/total` pods for the namespace; each child shows its own `ready/total`.
-5. Click a workload → Health tab with a **pod table** (phase, ready, restarts, node). Collapse the chevron to hide children and shrink the frame back to the summary card.
+2. A steel-blue dashed **group frame** grows around the platform header plus nested inventory.
+3. **Cluster nodes** appear as groups (internal/host IP on the sublabel). **Pods** stack under each node with **podIP** · workload · phase. **Services** (`agentic-*`) show **clusterIP** and draw **Service → Pod** edges for endpoint paths.
+4. Sublabel on the platform shows live `ready/total` pods and node count; click a node/pod/service for Addresses and the pod table (phase, ready, podIP, hostIP, node, restarts).
+5. Collapse the chevron to hide children and shrink the frame back to the summary card.
 
-Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes. The chevron only appears when the in-cluster probe finds at least one deployed workload.
+Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes. The chevron only appears when the in-cluster probe finds pods or nodes.
 
-See [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
+See [[#k8s-node]], [[#k8s-pod]], [[#k8s-service]] for the nested inventory cards. Related: [Infrastructure]({{ '/infrastructure/' | relative_url }}), [System architecture]({{ '/system-architecture/' | relative_url }}).
 
 **Typical edge hosts (lab):** Jetson `172.16.90.20`, NVR `10.0.10.16`.
+
+---
+
+<a id="k8s-node"></a>
+### Cluster node
+
+A Kubernetes **node** group inside the expanded Kubernetes panel. Sublabel shows the node’s internal / host IP when the API reports it. Child **pods** scheduled on that node stack underneath. Click for Addresses (node name, IPs) and the filtered pod table for this node only.
+
+**Example:** `omega-jetson-orin.mostardesigns.com` with `agentic-coordinator` / `agentic-engine` pods listed beneath.
+
+Appears only while [[#platform-expand]] is open and the in-cluster probe can list Nodes (ClusterRole may be required).
+
+---
+
+<a id="k8s-pod"></a>
+### Pod
+
+An individual **pod** under a cluster node (or listed in a workload modal). Sublabel typically shows **podIP** · owning workload · phase. Click for Addresses: podIP, hostIP, nodeName, ready, restarts, and container status.
+
+**Example:** `agentic-engine-…` under the Jetson node with `podIP` in the pod CIDR and `hostIP` `172.16.90.20`.
+
+Drawn only while Kubernetes is expanded ([[#platform-expand]]). Health follows the pod phase / ready condition from the API — not guessed from Deployment names.
+
+---
+
+<a id="k8s-service"></a>
+### Service
+
+A Kubernetes **Service** in the AO namespace (`agentic-*`). Sublabel shows **clusterIP**. Topology draws **Service → Pod** edges from Endpoints / EndpointSlices so you can see which pods currently back the Service.
+
+**Example:** `agentic-ollama` → ClusterIP `10.43.x.x` with an edge to the `agentic-ollama` pod (or the hostNetwork endpoint on Jetson host-binary mode).
+
+Click for port / selector details when present. See also [[#k8s-ollama]], [[#k8s-engine]].
 
 ---
 
 <a id="k8s-workload"></a>
 ### K8s workload
 
-A Deployment, Job group, or other workload running inside the AO namespace. Shown only while the Kubernetes platform node is expanded ([[#platform-expand]]). Modal Health tab lists member pods. Known roles deep-link below.
+Legacy workload summary cards (still used when node inventory is empty). Prefer node/pod cards under [[#platform-expand]]. Modal Health tab lists member pods with addresses. Known roles deep-link below.
 
 <a id="k8s-coordinator"></a>
 #### Coordinator
 
-`agentic-coordinator` Deployment — Web UI + Admin + graph builder. Hosts the Topology API that probes the rest of the namespace.
+`agentic-coordinator` Deployment — Web UI + Admin + graph builder. Hosts the Topology API that probes the rest of the namespace. NodePort **30487** (no hostPort :80 on edge).
 
 <a id="k8s-engine"></a>
 #### Engine
 
-`agentic-engine` Deployment — `orchestration.serve` on :8765 (session overlay, MCP tunnel, direct agent, mTLS enrol, speech hello).
+`agentic-engine` Deployment — `orchestration.serve` on :8765 (session overlay, MCP tunnel, direct agent, mTLS enrol, speech hello). Reach clients talk here, not to Web UI :30487.
 
 <a id="k8s-warm-pool"></a>
 #### Warm pool
 
-`agentic-warm-pool` Deployment — pre-warmed worker replicas ready for k8s step execution.
+`agentic-warm-pool` Deployment — pre-warmed worker replicas ready for k8s step execution when `AGENTIC_EXECUTION_BACKEND=kubernetes` (or warm-pool flags) are on.
 
 <a id="k8s-broker"></a>
 #### Delegation broker
 
-`agentic-delegation-broker` — routes delegated tasks into the warm pool / worker jobs.
+`agentic-delegation-broker` — routes delegated tasks into the warm pool / worker jobs. Often present even when delegation is disabled for small edge models.
 
 <a id="k8s-mcp-fetch"></a>
 #### MCP fetch
 
-Fetch MCP gateway sidecar Deployment used by workers for HTTP tool calls.
+Fetch MCP gateway sidecar Deployment used by workers for HTTP tool calls. Optional — may be absent on lean Jetson installs.
 
 <a id="k8s-mcp-filesystem"></a>
 #### MCP filesystem
 
-Filesystem MCP gateway sidecar Deployment for path-scoped tool access.
+Filesystem MCP gateway sidecar Deployment for path-scoped tool access. Optional — may be absent on lean Jetson installs.
 
 <a id="k8s-worker-jobs"></a>
 #### Worker jobs
 
 Orchestrator Jobs / short-lived worker pods spun for individual steps (not the warm-pool Deployment).
+
+<a id="k8s-ollama"></a>
+#### Ollama (in-cluster)
+
+`agentic-ollama` Deployment — AO-owned Ollama when `AGENTIC_OLLAMA_MODE=managed_k8s` (or `AGENTIC_JETSON_ENABLE_OLLAMA=1`). Cluster Service `http://agentic-ollama:11434`; optional NodePort **31134**.
+
+| Edge host | How it runs |
+|---|---|
+| **Ada / x86** | `ollama/ollama` image; models on hostPath `var/ollama-models` |
+| **Jetson** | Privileged host-binary pod (nsenter → `/usr/local/bin/ollama serve`) with NFS models — avoids the multi-GB dustynv image on a small rootfs |
+
+Topology also shows the logical **Ollama** model-runtime node ([[#models-ollama]]); this card is the Kubernetes workload behind it when ownership is in-cluster. Admin Control can restart this Deployment; external/host systemd Ollama is not restarted. See [Configuration]({{ '/configuration/' | relative_url }}#ollama-ownership), `scripts/jetson-enable-ollama.sh`, `scripts/jetson-migrate-ollama-to-k8s.sh`.
 
 ---
 
@@ -654,6 +709,7 @@ Path that skips Reach and hits the Web UI directly (**ao-web**, **ao-chat**, Ope
 | `AGENTIC_JETSON_ENABLE_ENGINE` | Engine presence on Jetson deploys |
 | `AGENTIC_EXECUTION_BACKEND` / warm-pool flags | Execution + workers / sidecars |
 | `OLLAMA_*` / provider API keys | Ollama / Remote LLMs nodes |
+| `AGENTIC_OLLAMA_MODE` / `AGENTIC_JETSON_ENABLE_OLLAMA` | In-cluster Ollama workload ([[#k8s-ollama]]) vs external |
 | `AGENTIC_EDGE_PLATFORM` | Platform sublabel |
 | `AGENTIC_WEB_PORT` | Internal web listen port |
 

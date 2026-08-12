@@ -58,6 +58,13 @@ export const K8S_WORKLOAD_SPECS = [
     logSource: "warm-pool",
     group: "workers",
   },
+  {
+    name: "agentic-ollama",
+    label: "Ollama",
+    role: "ollama",
+    logSource: "web",
+    group: "platform",
+  },
 ];
 
 /** @type {{ at: number, value: object } | null} */

@@ -120,15 +120,15 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
     blurb: 'A Deployment, Job, or other workload running inside the AO namespace.',
   },
   'k8s-node': {
-    wikiKey: 'platform-expand',
+    wikiKey: 'k8s-node',
     blurb: 'Cluster node group — pods scheduled here with host/internal IPs.',
   },
   'k8s-pod': {
-    wikiKey: 'platform-expand',
+    wikiKey: 'k8s-pod',
     blurb: 'Individual pod with podIP / hostIP and workload label.',
   },
   'k8s-service': {
-    wikiKey: 'platform-expand',
+    wikiKey: 'k8s-service',
     blurb: 'Kubernetes Service (clusterIP) with edges to endpoint pods.',
   },
 };
@@ -180,7 +180,8 @@ const NODE_BY_ID: Record<string, TopologyHelp> = {
   },
   'models/ollama': {
     wikiKey: 'models-ollama',
-    blurb: 'Local Ollama runtime for on-box model inference.',
+    blurb:
+      'Local Ollama runtime — external URL or in-cluster agentic-ollama (AGENTIC_OLLAMA_MODE).',
   },
   'models/remote': {
     wikiKey: 'models-remote',
@@ -218,6 +219,11 @@ const NODE_BY_ID: Record<string, TopologyHelp> = {
   'k8s/workload/agentic-orchestrator-worker': {
     wikiKey: 'k8s-worker-jobs',
     blurb: 'Short-lived orchestrator Jobs for individual steps.',
+  },
+  'k8s/workload/agentic-ollama': {
+    wikiKey: 'k8s-ollama',
+    blurb:
+      'In-cluster Ollama (managed_k8s) — Service agentic-ollama:11434; models on hostPath or NFS.',
   },
 };
 

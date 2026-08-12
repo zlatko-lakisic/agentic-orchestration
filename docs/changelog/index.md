@@ -21,14 +21,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **Reach app client IPs on Topology** — engine WebSocket peer IP stored on session overlays; shown on Reach Application nodes + Connecting IPs modal.
-- **Kubernetes expand: nodes, pods, services, network paths** — cluster nodes as groups with pods (podIP/hostIP), Services with clusterIP, Service→Pod edges.
+- **Ollama ownership modes** — `AGENTIC_OLLAMA_MODE=auto|external|managed_process|managed_k8s`. Auto uses a healthy `OLLAMA_API_BASE` as external (bring-your-own); otherwise spawns a child `ollama serve` on standalone or expects Deployment `agentic-ollama` on Kubernetes (`scripts/jetson-enable-ollama.sh`). Admin Control restarts only AO-owned Ollama.
+- **Edge default: in-cluster Ollama** — `config/env.jetson` sets `AGENTIC_OLLAMA_MODE=managed_k8s` and `OLLAMA_API_BASE=http://agentic-ollama:11434`. Migrate with `scripts/jetson-migrate-ollama-to-k8s.sh`: Ada copies models into `var/ollama-models` and runs `ollama/ollama`; Jetson keeps NFS models and runs the host `ollama` binary via a privileged nsenter pod (avoids the ~6.7GiB dustynv image on a small rootfs).
+- **Admin Control** — Operate → Control restarts allowlisted AO apps (coordinator, engine, warm-pool, broker, MCP sidecars, AO-owned Ollama), the Kubernetes stack (coordinator last), or the host. `POST /api/v1/admin/control/restart` with confirm `REBOOT` for the server. Host reboot uses sysrq; Ollama restart follows `AGENTIC_OLLAMA_MODE` (external instances are not restarted).
+- **Reach app client IPs on Topology** — engine WebSocket peer IP (X-Forwarded-For / socket) is stored on session overlays and shown on Reach Application nodes + Connecting IPs in the node modal.
+- **Kubernetes expand: nodes, pods, services, network paths** — expanding Kubernetes shows cluster nodes as groups with individual pods (podIP / hostIP), Services with clusterIP, and Service→Pod edges. Coordinator RBAC gains `services`/`endpoints` list plus optional ClusterRole for Nodes.
+- **Topology full screen** — maximize on the canvas (and Full screen in the toolbar) expands the diagram over the Admin chrome; Esc or minimize exits. Works even when the page would otherwise force table view.
 
 ### Fixed
 
-
+- **Topology never shows `unknown`** — idle SessionBridge (engine up, no Reach sessions) is healthy; disabled/unset/not-deployed nodes are offline; first-party UIs without a minted token are degraded. Question-mark glyph removed from the legend.
+- **Topology edge routing** — wires never leave the canvas on the left (no more clipped arrows beside SessionBridge / Engine / Planner). Skip-level same-row edges (SessionBridge → LocalMcpHost / SpeechClient, Engine → non-adjacent endpoints) attach on the top and run in the inter-row gutter instead of a bundle of horizontals through OverlayPacker and neighbors.
 - **`/v1/chat/completions` HA / OpenAI SDK routing** — stopped hard-wiring every completion through `main.py` (which broke ADA vision on missing Ollama and overloaded Jetson under sequential watering). Default **auto** backend: `gpt-*` / `o1*` → OpenAI cloud (`OPENAI_API_KEY`); Ollama `name:tag` → `OLLAMA_API_BASE` OpenAI-compat API (concurrency-capped); otherwise orchestrate. Override with `AGENTIC_CHAT_COMPLETIONS_BACKEND` or `agentic.backend` / `agentic.runMode`. Hotfix mounts include `chat-completions-backend.mjs`.
 - **Topology Application family frames** — **Reach apps** / **Web API** group frames are hidden when that family has no apps (no more “No Reach clients” placeholder card).
+- **Topology health glyphs** — each node status has its own mark: green check (healthy), yellow caution triangle (degraded), red X (failed), spinner (starting), down-arrow (draining), slashed circle (offline). Legend and table use the same icons.
 - **Jetson web hotfix mounts `admin-k8s.mjs`** — expandable Kubernetes Topology imports this module; without the ConfigMap + volume mount the coordinator CrashLoopBackOff'd after hotfix.
 - **Topology Reach / Application bands** — when the engine is up, Reach components (SessionBridge, OverlayPacker, …) always appear; Application shows a waiting placeholder until a Reach client registers a session overlay (mTLS enroll alone is not enough).
 
@@ -36,7 +42,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **API authentication always required** — `POST /api/v1/orchestrate`, `/v1/chat/completions`, and `/v1/responses` never accept anonymous calls. Minted Bearer tokens (or env shared-secret fallback) are mandatory. First-party UIs use reserved auto-assigned tokens: **`ao-web`** for Admin (`/admin`) and **`ao-chat`** for the chat page (`/`). Until each is minted, only Access bootstrap (and open chat until `ao-chat` is assigned) stays available. Minting auto-assigns the secret to that UI. Shared `/api/session` accepts either first-party token.
 - **Topology “Owned by app”** — badge only on Application injection children (Client UI, Domain overlays, Local tools). Shared Reach / AO core (session bridge, mTLS enroller, planner, catalogs, speech endpoints, …) no longer claim app ownership; catalogs still list live `client.*` overlays by `appId`.
-- **Topology live probes** — Ollama, speech STT/TTS, catalogs, planner, execution, storage/GPU, and engine endpoints are instrumented (Remote LLMs intentionally stay `unknown` — no paid-API health pings). Declared in `capabilities.nodeProbes`. Speech probes prefer `AGENTIC_SPEECH_ADVERTISE_*` (and in-cluster `host.k3s.internal`) over pod-local `127.0.0.1`.
+- **Topology live probes** — Ollama, speech STT/TTS, catalogs, planner, execution, storage/GPU, and engine endpoints are instrumented. Remote LLMs are not HTTP-probed (no paid-API pings): keys set → healthy, unset → offline. Declared in `capabilities.nodeProbes`. Speech probes prefer `AGENTIC_SPEECH_ADVERTISE_*` (and in-cluster `host.k3s.internal`) over pod-local `127.0.0.1`.
 - **Expandable Topology panels** — Application and Kubernetes accordion headers use the wider panel width; Kubernetes expands with a group frame (same pattern as app folders). Wiki anchors: `#expandable-panels`, `#app-accordion`, `#platform-expand`, plus per-workload `#k8s-*`.
 - **Topology band labels** — band 2 uses the AO mark + “Reach” (no text “AO”); band 3 shows the AO mark left of “Agentic Orchestration”.
 - **Topology Live stamp** — locale-friendly medium date + short time instead of raw ISO.

@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Topology wiki stubs** — dedicated anchors for Kubernetes inventory (`#k8s-node`, `#k8s-pod`, `#k8s-service`) and in-cluster Ollama (`#k8s-ollama`); Ollama model-runtime stub covers ownership modes; Topology help deep-links updated. `agentic-ollama` added to known k8s workload specs.
 - **Ollama ownership modes** — `AGENTIC_OLLAMA_MODE=auto|external|managed_process|managed_k8s`. Auto uses a healthy `OLLAMA_API_BASE` as external (bring-your-own); otherwise spawns a child `ollama serve` on standalone or expects Deployment `agentic-ollama` on Kubernetes (`scripts/jetson-enable-ollama.sh`). Admin Control restarts only AO-owned Ollama.
 - **Edge default: in-cluster Ollama** — `config/env.jetson` sets `AGENTIC_OLLAMA_MODE=managed_k8s` and `OLLAMA_API_BASE=http://agentic-ollama:11434`. Migrate with `scripts/jetson-migrate-ollama-to-k8s.sh`: Ada copies models into `var/ollama-models` and runs `ollama/ollama`; Jetson keeps NFS models and runs the host `ollama` binary via a privileged nsenter pod (avoids the ~6.7GiB dustynv image on a small rootfs).
 - **Admin Control** — Operate → Control restarts allowlisted AO apps (coordinator, engine, warm-pool, broker, MCP sidecars, AO-owned Ollama), the Kubernetes stack (coordinator last), or the host. `POST /api/v1/admin/control/restart` with confirm `REBOOT` for the server. Host reboot uses sysrq; Ollama restart follows `AGENTIC_OLLAMA_MODE` (external instances are not restarted).
