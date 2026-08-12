@@ -1866,7 +1866,11 @@ function eventsToMermaid(events) {
     const pid = a.replace(/[^A-Za-z0-9]/g, "_").slice(0, 40) || "actor";
     if (!declared.has(pid)) {
       declared.add(pid);
-      lines.push(`  participant ${pid} as ${a.replace(/"/g, "'").slice(0, 48)}`);
+      const raw = a.replace(/"/g, "'");
+      const label = raw.toLowerCase().startsWith("agent:")
+        ? raw.slice(6).slice(0, 22)
+        : raw.slice(0, 28);
+      lines.push(`  participant ${pid} as ${label}`);
     }
     return pid;
   };

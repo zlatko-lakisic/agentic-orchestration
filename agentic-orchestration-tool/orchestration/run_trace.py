@@ -215,7 +215,11 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
         if pid not in declared:
             declared.add(pid)
             actors.append(pid)
-            label = a.replace('"', "'")[:48]
+            raw = a.replace('"', "'")
+            if raw.lower().startswith("agent:"):
+                label = raw[6:][:22]
+            else:
+                label = raw[:28]
             lines.append(f"  participant {pid} as {label}")
         return pid
 

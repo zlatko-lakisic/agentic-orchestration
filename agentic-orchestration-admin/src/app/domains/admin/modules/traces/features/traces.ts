@@ -25,6 +25,11 @@ import {
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
+import {
+  applyTopologyStylesToMermaidSvg,
+  enrichMermaidWithTopologyStyles,
+  themeForTraceActor,
+} from '@/app/domains/admin/modules/traces/data/trace-topology-theme';
 
 declare global {
   interface Window {
@@ -60,14 +65,16 @@ declare global {
       }
 
       :host ::ng-deep .ao-mermaid-host svg {
-        max-width: 100%;
+        /* Do not force max-width — Mermaid useMaxWidth:false needs natural width to avoid clipping. */
         height: auto;
+        display: block;
+        min-width: max-content;
       }
 
       :host ::ng-deep .ao-mermaid-host .actor > rect,
       :host ::ng-deep .ao-mermaid-host rect.actor {
-        rx: 10;
-        ry: 10;
+        rx: 8;
+        ry: 8;
       }
     `,
   ],
@@ -193,6 +200,19 @@ declare global {
               >
                 <pre class="mermaid whitespace-pre">{{ d.mermaid || '' }}</pre>
               </div>
+              <div
+                class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-2xs text-neutral-500"
+              >
+                @for (item of actorLegend(d); track item.label) {
+                  <span class="inline-flex items-center gap-1.5">
+                    <span
+                      class="inline-block h-2.5 w-2.5 rounded-sm"
+                      [style.background]="item.accent"
+                    ></span>
+                    {{ item.label }}
+                  </span>
+                }
+              </div>
             } @else {
               <div
                 class="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800"
@@ -241,7 +261,12 @@ declare global {
                       {{ formatTs(ev) }}
                     </span>
                     <ao-status-chip [status]="kindStatus(ev.kind)" [label]="ev.kind || null" />
-                    <span class="text-xs font-medium text-neutral-700 dark:text-neutral-200">
+                    <span
+                      class="rounded-md border px-1.5 py-0.5 text-2xs font-medium"
+                      [style.border-color]="actorAccent(ev.actor)"
+                      [style.color]="actorAccent(ev.actor)"
+                      [style.background]="actorAccentSoft(ev.actor)"
+                    >
                       {{ ev.actor || '—' }}
                     </span>
                     @if (ev.message) {
@@ -433,6 +458,30 @@ export class TracesPage implements OnInit {
     return 'unset';
   }
 
+  actorAccent(actor: string | null | undefined): string {
+    return themeForTraceActor(String(actor || '')).accent;
+  }
+
+  actorAccentSoft(actor: string | null | undefined): string {
+    const accent = this.actorAccent(actor);
+    return `${accent}22`;
+  }
+
+  actorLegend(d: RunTraceResponse): { label: string; accent: string }[] {
+    const seen = new Set<string>();
+    const out: { label: string; accent: string }[] = [];
+    const add = (raw: string) => {
+      const a = String(raw || '').trim();
+      if (!a || seen.has(a)) return;
+      seen.add(a);
+      const theme = themeForTraceActor(a);
+      out.push({ label: `${a} · ${theme.aspect}`, accent: theme.accent });
+    };
+    add('client');
+    for (const ev of d.events || []) add(String(ev.actor || ''));
+    return out;
+  }
+
   private cssVar(name: string, fallback: string): string {
     if (typeof document === 'undefined') return fallback;
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -494,9 +543,10 @@ export class TracesPage implements OnInit {
         bottomMarginAdj: 4,
         messageMargin: 28,
         noteMargin: 8,
-        useMaxWidth: true,
-        diagramMarginX: 8,
-        diagramMarginY: 8,
+        useMaxWidth: false,
+        diagramMarginX: 16,
+        diagramMarginY: 12,
+        width: 160,
       },
     };
   }
@@ -539,10 +589,24 @@ export class TracesPage implements OnInit {
     if (!pre) return;
     const next = document.createElement('pre');
     next.className = 'mermaid whitespace-pre';
-    next.textContent = d.mermaid;
+    next.textContent = enrichMermaidWithTopologyStyles(d.mermaid);
     pre.replaceWith(next);
     try {
       await window.mermaid.run({ nodes: [next] });
+      const svg = host.querySelector('svg');
+      if (svg instanceof SVGSVGElement) {
+        applyTopologyStylesToMermaidSvg(svg);
+        // Ensure viewBox / width allow horizontal scroll instead of clipping
+        const vb = svg.getAttribute('viewBox');
+        if (vb) {
+          const parts = vb.split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts.every(Number.isFinite)) {
+            svg.removeAttribute('width');
+            svg.style.width = `${parts[2]}px`;
+            svg.style.maxWidth = 'none';
+          }
+        }
+      }
     } catch {
       /* keep raw mermaid text */
     }
