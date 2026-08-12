@@ -1,12 +1,13 @@
 import {
   Component,
   ElementRef,
+  Injector,
   OnInit,
-  ViewChild,
   afterNextRender,
   computed,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
@@ -14,8 +15,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatIconModule } from '@angular/material/icon';
+import { MatIconModule, MatIconRegistry } from '@angular/material/icon';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import {
   RunTraceEvent,
@@ -27,7 +29,6 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyTopologyStylesToMermaidSvg,
-  enrichMermaidWithTopologyStyles,
   themeForTraceActor,
 } from '@/app/domains/admin/modules/traces/data/trace-topology-theme';
 
@@ -64,10 +65,19 @@ declare global {
         min-height: 0;
       }
 
+      :host ::ng-deep .ao-mermaid-host {
+        display: flex;
+        justify-content: safe center;
+        align-items: flex-start;
+      }
+
+      :host ::ng-deep .ao-mermaid-host .mermaid,
       :host ::ng-deep .ao-mermaid-host svg {
-        /* Do not force max-width — Mermaid useMaxWidth:false needs natural width to avoid clipping. */
+        /* Natural width; host centers when narrower than container. */
         height: auto;
         display: block;
+        margin-inline: auto;
+        max-width: none;
         min-width: max-content;
       }
 
@@ -196,19 +206,25 @@ declare global {
             @if (viewMode() === 'diagram') {
               <div
                 #mermaidHost
-                class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950"
-              >
-                <pre class="mermaid whitespace-pre">{{ d.mermaid || '' }}</pre>
-              </div>
+                class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950"
+              ></div>
               <div
-                class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-2xs text-neutral-500"
+                class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-2xs text-neutral-500"
               >
                 @for (item of actorLegend(d); track item.label) {
-                  <span class="inline-flex items-center gap-1.5">
+                  <span
+                    class="inline-flex items-center gap-1.5 rounded-lg border bg-white py-0.5 pr-2 pl-1 dark:bg-neutral-900"
+                    [style.border-color]="item.accent"
+                  >
                     <span
-                      class="inline-block h-2.5 w-2.5 rounded-sm"
+                      class="inline-block h-3.5 w-1 shrink-0 rounded-sm"
                       [style.background]="item.accent"
                     ></span>
+                    <mat-icon
+                      class="!h-3.5 !w-3.5 !text-[14px]"
+                      [svgIcon]="item.icon"
+                      [style.color]="item.accent"
+                    />
                     {{ item.label }}
                   </span>
                 }
@@ -269,6 +285,11 @@ declare global {
                         class="inline-block h-3.5 w-1 shrink-0 rounded-sm"
                         [style.background]="actorAccent(ev.actor)"
                       ></span>
+                      <mat-icon
+                        class="!h-3.5 !w-3.5 !text-[14px]"
+                        [svgIcon]="actorIcon(ev.actor)"
+                        [style.color]="actorAccent(ev.actor)"
+                      />
                       {{ ev.actor || '—' }}
                     </span>
                     @if (ev.message) {
@@ -354,7 +375,11 @@ export class TracesPage implements OnInit {
   private api = inject(AoApi);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  @ViewChild('mermaidHost') mermaidHost?: ElementRef<HTMLElement>;
+  private injector = inject(Injector);
+  private iconRegistry = inject(MatIconRegistry);
+  private readonly mermaidHost = viewChild<ElementRef<HTMLElement>>('mermaidHost');
+  private mermaidGen = 0;
+  private iconCache = new Map<string, Promise<SVGElement | null>>();
 
   readonly error = signal<string | null>(null);
   readonly detail = signal<RunTraceResponse | null>(null);
@@ -373,7 +398,7 @@ export class TracesPage implements OnInit {
   });
 
   constructor() {
-    afterNextRender(() => this.renderMermaid());
+    afterNextRender(() => this.scheduleMermaidRender());
   }
 
   ngOnInit() {
@@ -409,7 +434,7 @@ export class TracesPage implements OnInit {
       this.error.set(null);
       this.detail.set(r.data);
       this.eventRows.data = r.data.events || [];
-      queueMicrotask(() => this.renderMermaid());
+      this.scheduleMermaidRender();
     });
   }
 
@@ -427,8 +452,19 @@ export class TracesPage implements OnInit {
   onViewMode(mode: 'diagram' | 'table') {
     this.viewMode.set(mode);
     if (mode === 'diagram') {
-      queueMicrotask(() => this.renderMermaid());
+      // Host is destroyed/recreated by @if — wait for the next render before Mermaid.
+      this.scheduleMermaidRender();
     }
+  }
+
+  /** afterNextRender so #mermaidHost exists after Diagram↔Table toggles. */
+  private scheduleMermaidRender() {
+    afterNextRender(
+      () => {
+        void this.renderMermaid();
+      },
+      { injector: this.injector }
+    );
   }
 
   formatTs(ev: RunTraceEvent): string {
@@ -464,15 +500,19 @@ export class TracesPage implements OnInit {
     return themeForTraceActor(String(actor || '')).accent;
   }
 
-  actorLegend(d: RunTraceResponse): { label: string; accent: string }[] {
+  actorIcon(actor: string | null | undefined): string {
+    return themeForTraceActor(String(actor || '')).icon;
+  }
+
+  actorLegend(d: RunTraceResponse): { label: string; accent: string; icon: string }[] {
     const seen = new Set<string>();
-    const out: { label: string; accent: string }[] = [];
+    const out: { label: string; accent: string; icon: string }[] = [];
     const add = (raw: string) => {
       const a = String(raw || '').trim();
       if (!a || seen.has(a)) return;
       seen.add(a);
       const theme = themeForTraceActor(a);
-      out.push({ label: `${a} · ${theme.aspect}`, accent: theme.accent });
+      out.push({ label: `${a} · ${theme.aspect}`, accent: theme.accent, icon: theme.icon });
     };
     add('client');
     for (const ev of d.events || []) add(String(ev.actor || ''));
@@ -535,15 +575,17 @@ export class TracesPage implements OnInit {
         sequenceNumberColor: text,
       },
       sequence: {
-        actorMargin: 28,
+        actorMargin: 36,
         mirrorActors: false,
         bottomMarginAdj: 4,
         messageMargin: 28,
         noteMargin: 8,
         useMaxWidth: false,
-        diagramMarginX: 16,
-        diagramMarginY: 12,
-        width: 160,
+        diagramMarginX: 24,
+        diagramMarginY: 16,
+        width: 176,
+        height: 56,
+        boxMargin: 8,
       },
     };
   }
@@ -562,7 +604,7 @@ export class TracesPage implements OnInit {
     s.dataset['aoMermaid'] = '1';
     s.onload = () => {
       this.initMermaid();
-      this.renderMermaid();
+      this.scheduleMermaidRender();
     };
     document.head.appendChild(s);
   }
@@ -572,28 +614,43 @@ export class TracesPage implements OnInit {
     window.mermaid.initialize(this.fuseMermaidTheme());
   }
 
+  private loadTopologyIcon(name: string): Promise<SVGElement | null> {
+    const key = String(name || '').trim();
+    if (!key) return Promise.resolve(null);
+    let p = this.iconCache.get(key);
+    if (!p) {
+      p = firstValueFrom(this.iconRegistry.getNamedSvgIcon(key))
+        .then((el) => el)
+        .catch(() => null);
+      this.iconCache.set(key, p);
+    }
+    return p;
+  }
+
   private async renderMermaid() {
     if (this.viewMode() !== 'diagram') return;
-    const host = this.mermaidHost?.nativeElement;
+    const host = this.mermaidHost()?.nativeElement;
     const d = this.detail();
     if (!host || !d?.mermaid) return;
     if (!window.mermaid) {
       this.ensureMermaid();
       return;
     }
+    const gen = ++this.mermaidGen;
     this.initMermaid();
-    const pre = host.querySelector('.mermaid');
-    if (!pre) return;
+    // Always rebuild from source — Mermaid mutates the node and won't re-run stale DOM.
+    host.replaceChildren();
     const next = document.createElement('pre');
     next.className = 'mermaid whitespace-pre';
-    next.textContent = enrichMermaidWithTopologyStyles(d.mermaid);
-    pre.replaceWith(next);
+    next.textContent = String(d.mermaid || '').trim();
+    host.appendChild(next);
     try {
       await window.mermaid.run({ nodes: [next] });
+      if (gen !== this.mermaidGen) return;
       const svg = host.querySelector('svg');
       if (svg instanceof SVGSVGElement) {
-        applyTopologyStylesToMermaidSvg(svg);
-        // Ensure viewBox / width allow horizontal scroll instead of clipping
+        await applyTopologyStylesToMermaidSvg(svg, (icon) => this.loadTopologyIcon(icon));
+        if (gen !== this.mermaidGen) return;
         const vb = svg.getAttribute('viewBox');
         if (vb) {
           const parts = vb.split(/[\s,]+/).map(Number);
