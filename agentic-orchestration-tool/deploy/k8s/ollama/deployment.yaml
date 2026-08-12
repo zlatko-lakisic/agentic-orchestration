@@ -24,6 +24,9 @@ spec:
         app.kubernetes.io/name: agentic-ollama
         app.kubernetes.io/component: ollama
     spec:
+      # x86/NVR (Ada): use NVIDIA container runtime so Ollama sees the discrete GPU.
+      # Jetson aarch64 does not use this manifest — host-binary nsenter mode instead.
+      runtimeClassName: nvidia
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -40,6 +43,8 @@ spec:
               value: all
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
           volumeMounts:
             - name: ollama-home
               mountPath: /root/.ollama
