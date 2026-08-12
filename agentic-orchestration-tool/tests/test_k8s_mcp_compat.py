@@ -115,6 +115,19 @@ def test_filter_mcp_ids_allows_filesystem_via_worker_stdio(
 
 
 @pytest.mark.unit
+def test_filter_mcp_ids_allows_weather_via_worker_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENTIC_K8S_ALLOW_STDIO_MCPS", raising=False)
+    monkeypatch.delenv("AGENTIC_K8S_POD_SIDECAR_MCPS", raising=False)
+    monkeypatch.setenv("AGENTIC_K8S_WORKER_STDIO_MCPS", "weather_mcp")
+    assert "weather_mcp" in K8S_STDIO_MCP_IDS
+    allowed, excluded = filter_mcp_ids_for_kubernetes(["weather_mcp", "memory_knowledge_graph"])
+    assert allowed == ["weather_mcp"]
+    assert excluded == ["memory_knowledge_graph"]
+
+
+@pytest.mark.unit
 def test_apply_kubernetes_mcp_catalog_policy_keeps_sidecar_stdio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

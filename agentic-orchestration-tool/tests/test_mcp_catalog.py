@@ -59,6 +59,23 @@ def test_bargo_congress_mcp_catalog_entry_requires_api_key(
 
 
 @pytest.mark.unit
+def test_weather_mcp_catalog_entry_opt_in(
+    config_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENTIC_MCP_WEATHER_ENABLED", raising=False)
+    entries = load_mcp_providers_catalog(config_dir / "mcp_providers")
+    weather = next(e for e in entries if e.get("id") == "weather_mcp")
+
+    assert not mcp_entry_has_api_credentials(weather)
+    assert weather.get("stdio", {}).get("command") == "npx"
+    assert "@dangahagan/weather-mcp@latest" in weather.get("stdio", {}).get("args", [])
+
+    monkeypatch.setenv("AGENTIC_MCP_WEATHER_ENABLED", "1")
+    assert mcp_entry_has_api_credentials(weather)
+
+
+@pytest.mark.unit
 def test_suggest_fetch_url_when_goal_has_http_url(
     config_dir: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -29,6 +29,7 @@ K8S_STDIO_MCP_IDS: frozenset[str] = frozenset(
         "media_understand",
         "media_audio_transcribe",
         "media_video_analyze",
+        "weather_mcp",
     }
 )
 

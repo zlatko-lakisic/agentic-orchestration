@@ -55,6 +55,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_video_analyze` | Same server; keywords biased to video synopsis. | (alias of `media_understand`) |
 | `xquik` | Hosted **Xquik** Streamable HTTP MCP (`https://xquik.com/mcp`) for X/Twitter data search, monitoring, and posting. | [Xquik MCP docs](https://docs.xquik.com/mcp/overview) |
 | `bargo_congress` | Hosted **Bargo** Congress Trades Streamable HTTP MCP for House/Senate STOCK Act disclosures. | [Bargo Congress API](https://www.bargo.ai/free-apis/congress) |
+| `weather_mcp` | **Weather** via npm `@dangahagan/weather-mcp` (NOAA / Open-Meteo; no API keys). | [weather-mcp/weather-mcp](https://github.com/weather-mcp/weather-mcp) |
 
 ## Inventory (repository)
 
@@ -72,6 +73,7 @@ Related listings are **alternatives or complements** for the same *kind* of capa
 | `media_video_analyze` | `stdio` | Video-biased alias of `media_understand`. | `AGENTIC_MCP_MEDIA_ENABLED` |
 | `xquik` | `streamable_http` | X data search, extraction, monitoring, webhooks, posting via Xquik. | `XQUIK_API_KEY` |
 | `bargo_congress` | `streamable_http` | Read-only House/Senate STOCK Act trade disclosures via Bargo. | `BARGO_API_KEY` |
+| `weather_mcp` | `stdio` | Forecasts, current conditions, US alerts, and related weather tools (basic preset). | `AGENTIC_MCP_WEATHER_ENABLED` (+ `npx` / Node) |
 
 ## Kubernetes compatibility (K0.6)
 
@@ -89,6 +91,7 @@ When `AGENTIC_EXECUTION_BACKEND=kubernetes`, stdio MCPs need an explicit K8s pat
 | `filesystem_local` | ✅ (with worker stdio + PVC) | `AGENTIC_K8S_WORKER_STDIO_MCPS=filesystem_local` + `FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace`; seed `mcp-fs-workspace/` on PVC |
 | `memory_knowledge_graph` | ❌ | stdio — K4 sidecar |
 | `media_understand` / `media_audio_transcribe` / `media_video_analyze` | ✅ (with worker stdio) | Set `AGENTIC_MCP_MEDIA_ENABLED=1` and include ids in `AGENTIC_K8S_WORKER_STDIO_MCPS`; mount `mcp_servers/` into the image or hostPath |
+| `weather_mcp` | ✅ (with worker stdio) | Set `AGENTIC_MCP_WEATHER_ENABLED=1` and include `weather_mcp` in `AGENTIC_K8S_WORKER_STDIO_MCPS`; worker image includes Node/`npx` |
 
 Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs in dynamic plans when targeting the kubernetes backend.
 
@@ -147,6 +150,13 @@ Planner catalog filtering for K8s mode is **K4.3**; until then, avoid stdio MCPs
 - **Docs:** [Bargo Congress Trades](https://www.bargo.ai/free-apis/congress) · free key: [Bargo dash](https://www.bargo.ai/free-apis/dash)
 - **Auth:** `X-Api-Key: ${BARGO_API_KEY}` against `https://www.bargo.ai/free-apis/congress/mcp`
 - Keyword-gated (`match_keywords_only`) for congressional / STOCK Act goals; opt-in by setting `BARGO_API_KEY`.
+
+#### `weather_mcp`
+
+- **Docs / package:** [weather-mcp](https://github.com/weather-mcp/weather-mcp) · npm `@dangahagan/weather-mcp`
+- Runs `npx -y @dangahagan/weather-mcp@latest`. No API keys. Opt-in: `AGENTIC_MCP_WEATHER_ENABLED=1`.
+- Default catalog env: `ENABLED_TOOLS=basic`, `WEATHER_UNITS=imperial` (override in YAML or process env for `all` / metric).
+- **Kubernetes:** include `weather_mcp` in `AGENTIC_K8S_WORKER_STDIO_MCPS`. Smoke: `config/workflows/workflow_weather_mcp_smoke.yaml`.
 
 ## Adding a new MCP
 

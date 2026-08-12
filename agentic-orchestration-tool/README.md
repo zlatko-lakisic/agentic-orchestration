@@ -270,7 +270,7 @@ Each file documents **what the integration does**, **capabilities**, and **when 
 - **`streamable_http`** — remote URL + headers (e.g. Home Assistant, Tavily, your Brave MCP host), or  
 - **`stdio`** — local subprocess (`command` / `args` / optional `env`), e.g. Exa via `npx`, official memory/filesystem servers, or `python -m mcp_server_fetch` for URL fetch.
 
-Shipped ids include **`home_assistant`**, **`search_brave`**, **`search_tavily`**, **`search_exa`**, **`fetch_url`**, **`memory_knowledge_graph`**, **`filesystem_local`** — see comments in each YAML for required env vars and awesome-mcp-servers cross-links.
+Shipped ids include **`home_assistant`**, **`search_brave`**, **`search_tavily`**, **`search_exa`**, **`fetch_url`**, **`memory_knowledge_graph`**, **`filesystem_local`**, **`weather_mcp`** — see comments in each YAML for required env vars and awesome-mcp-servers cross-links.
 
 Documentation: **`MCP-providers.md`** in the **GitLab/GitHub wiki** repository for this project (often checked out beside the main repo). Broader discovery: **[awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)**.
 

@@ -2,13 +2,14 @@
 
 Stdio MCPs need a K8s-compatible transport. Phase 4 provides three patterns:
 
-## 0. Worker-native stdio (recommended for `fetch_url` and `filesystem_local`)
+## 0. Worker-native stdio (recommended for `fetch_url`, `filesystem_local`, `weather_mcp`, …)
 
-The worker image includes `mcp-server-fetch` and **Node.js/npm** for `npx @modelcontextprotocol/server-filesystem`.
+The worker image includes `mcp-server-fetch` and **Node.js/npm** for `npx` (filesystem MCP, weather MCP, etc.).
 
 ```env
-AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local
+AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local,weather_mcp
 AGENTIC_MCP_FETCH_ENABLED=1
+AGENTIC_MCP_WEATHER_ENABLED=1
 FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace
 ```
 
@@ -19,7 +20,7 @@ mkdir -p "${RUN_STORE}/mcp-fs-workspace"
 echo "K4 filesystem smoke" > "${RUN_STORE}/mcp-fs-workspace/hello.txt"
 ```
 
-Smoke tests: `workflow_fetch_sidecar_smoke.yaml`, `workflow_filesystem_smoke.yaml`.
+Smoke tests: `workflow_fetch_sidecar_smoke.yaml`, `workflow_filesystem_smoke.yaml`, `workflow_weather_mcp_smoke.yaml`.
 
 No supergateway sidecar required for these MCPs when using worker stdio.
 

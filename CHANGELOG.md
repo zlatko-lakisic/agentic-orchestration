@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Weather MCP** — shipped catalog `weather_mcp` (`npx @dangahagan/weather-mcp`); opt-in `AGENTIC_MCP_WEATHER_ENABLED`; Jetson worker stdio allowlist; smoke `workflow_weather_mcp_smoke.yaml`.
 - **Ollama wiki guide** — canonical [[Ollama]] page for ownership modes: reuse existing (`external`), AO child `ollama serve` (`managed_process`), or in-cluster `agentic-ollama` (`managed_k8s`). Infrastructure / System-architecture / Configuration / Topology updated; edge lab defaults documented.
 - **Topology wiki stubs** — dedicated anchors for Kubernetes inventory (`#k8s-node`, `#k8s-pod`, `#k8s-service`) and in-cluster Ollama (`#k8s-ollama`); Ollama model-runtime stub covers ownership modes; Topology help deep-links updated. `agentic-ollama` added to known k8s workload specs.
 - **Ollama ownership modes** — `AGENTIC_OLLAMA_MODE=auto|external|managed_process|managed_k8s`. Auto uses a healthy `OLLAMA_API_BASE` as external (bring-your-own); otherwise spawns a child `ollama serve` on standalone or expects Deployment `agentic-ollama` on Kubernetes (`scripts/jetson-enable-ollama.sh`). Admin Control restarts only AO-owned Ollama.

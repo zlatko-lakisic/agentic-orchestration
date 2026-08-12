@@ -1,0 +1,45 @@
+# Weather MCP (stdio via npm @dangahagan/weather-mcp).
+# Upstream: https://github.com/weather-mcp/weather-mcp — free public APIs (NOAA, Open-Meteo); no API keys.
+#
+# Opt-in: set AGENTIC_MCP_WEATHER_ENABLED=1. Requires Node.js / npx on PATH (worker image includes Node).
+id: weather_mcp
+description: >-
+  Live weather data for AI agents: one-call summaries, forecasts, current conditions, US alerts,
+  air quality, marine, radar, lightning, rivers, wildfires, and historical observations back to 1940.
+  Ask by city name, coordinates, or saved location aliases. Built on free public APIs — no signup or keys.
+capabilities: >-
+  Default basic preset: get_weather_summary, get_forecast, get_current_conditions, get_alerts,
+  search_location, check_service_status. Enable ENABLED_TOOLS=all (or standard/full) for historical,
+  air quality, marine, imagery, lightning, rivers, wildfire, and saved-location tools.
+good_for: >-
+  “What’s the weather in X?”, weekend forecasts, alert checks, travel planning, and pairing with HA or
+  outdoor automation when conditions matter. Prefer over generic web search when you need structured
+  forecast/alert data rather than scraped pages.
+planner_hint: >-
+  Attach when the user asks about weather, forecasts, temperature, precipitation, wind, alerts,
+  air quality, storms, wildfires, or marine conditions for a place. Set AGENTIC_MCP_WEATHER_ENABLED=1
+  and ensure npx is available (K8s: include weather_mcp in AGENTIC_K8S_WORKER_STDIO_MCPS).
+user_goal_keywords:
+  - weather
+  - forecast
+  - temperature
+  - precipitation
+  - humidity
+  - wind
+  - alerts
+  - air quality
+  - lightning
+  - wildfire
+  - marine
+  - radar
+  - storm
+
+required_env:
+  - AGENTIC_MCP_WEATHER_ENABLED
+
+stdio:
+  command: npx
+  args: ["-y", "@dangahagan/weather-mcp@latest"]
+  env:
+    ENABLED_TOOLS: "basic"
+    WEATHER_UNITS: "imperial"

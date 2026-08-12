@@ -1,0 +1,38 @@
+# Smoke: weather_mcp via worker-native stdio (npx @dangahagan/weather-mcp).
+# Requires AGENTIC_MCP_WEATHER_ENABLED=1 and (on K8s) weather_mcp in AGENTIC_K8S_WORKER_STDIO_MCPS.
+meta:
+  id: weather_mcp_smoke
+  summary: Short forecast via weather_mcp (stdio / npx)
+  description: Validates @dangahagan/weather-mcp inside local or K8s worker with Node/npx.
+  good_for:
+    - weather MCP smoke
+
+workflow:
+  name: "weather-mcp-smoke"
+  process: "sequential"
+  topic: "weather smoke"
+
+  agent_providers:
+    - id: "weather_checker"
+      type: "crewai"
+      role: "Weather Smoke Tester"
+      goal: "Fetch a brief weather summary for a fixed city using weather MCP tools"
+      backstory: "You verify weather MCP tooling works end-to-end."
+      model: "gpt-4o-mini"
+      verbose: true
+      allow_delegation: false
+
+  mcp_providers: []
+
+  tasks:
+    - id: "boston_summary"
+      agent_provider_id: "weather_checker"
+      mcp_providers:
+        - "weather_mcp"
+      description: >
+        Use the weather MCP tools to get current conditions or a short forecast for Boston, Massachusetts.
+        Reply in 2–3 sentences with temperature and sky conditions. Do not invent data — call the MCP tools.
+      expected_output: "Two or three sentences summarizing Boston weather from MCP tool results."
+
+  task_sequence:
+    - "boston_summary"
