@@ -1190,13 +1190,41 @@ def main() -> None:
     cli_run_id = resolve_run_id(getattr(args, "run_id", None))
     os.environ["AGENTIC_RUN_ID"] = cli_run_id
     emit_log("cli run start", run_id=cli_run_id, component="engine")
+    _app_id = os.getenv("AGENTIC_APP_ID", "").strip() or None
+    _user_id = os.getenv("AGENTIC_USER_ID", "").strip() or None
+    _user_name = os.getenv("AGENTIC_USER_NAME", "").strip() or None
+    _client_ip = os.getenv("AGENTIC_CLIENT_IP", "").strip() or None
+    _token_id = os.getenv("AGENTIC_API_TOKEN_ID", "").strip() or None
+    try:
+        from orchestration.llm_usage import bind_usage_context
+        from orchestration.tool_trace import apply_tool_call_trace_wrap
+
+        apply_tool_call_trace_wrap()
+        bind_usage_context(
+            tool_root=tool_root,
+            run_id=cli_run_id,
+            user_id=_user_id or "",
+            user_name=_user_name or "",
+            app_id=_app_id or "",
+            client_ip=_client_ip or "",
+            token_id=_token_id or "",
+        )
+    except Exception:  # noqa: BLE001
+        pass
     append_run_event(
         tool_root,
         cli_run_id,
         "request_start",
         actor="orchestrator",
         message="cli run start",
-        detail={"dynamic": bool(getattr(args, "dynamic", False) or getattr(args, "dynamic_iterative", False))},
+        detail={
+            "dynamic": bool(getattr(args, "dynamic", False) or getattr(args, "dynamic_iterative", False)),
+            "client_ip": _client_ip,
+            "app_id": _app_id,
+            "user_id": _user_id,
+            "user_name": _user_name,
+            "token_id": _token_id,
+        },
     )
 
     if getattr(args, "example", None):
@@ -1950,6 +1978,24 @@ def main() -> None:
             actor="planner",
             message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
             detail={"agents": agents, "steps": len(dyn_cfg.tasks)},
+        )
+        append_run_event(
+            tool_root,
+            cli_run_id,
+            "decision",
+            actor="orchestrator",
+            message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
+            detail={
+                "reason": str(summary or "").strip() or None,
+                "agents": agents,
+                "steps": [
+                    {
+                        "id": getattr(t, "id", None),
+                        "agent_provider_id": getattr(t, "agent_provider_id", None),
+                    }
+                    for t in (dyn_cfg.tasks or [])[:12]
+                ],
+            },
         )
         if not args.quiet:
             if isinstance(summary, str) and summary.strip():

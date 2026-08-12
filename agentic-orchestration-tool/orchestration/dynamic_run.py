@@ -189,14 +189,7 @@ def run_dynamic_goal(
     progress("planning")
     from orchestration.run_trace import append_run_event
 
-    append_run_event(
-        root,
-        rid,
-        "request_start",
-        actor="orchestrator",
-        message=(text[:120] + ("…" if len(text) > 120 else "")),
-        detail={"session": slug, "user_id": user_id},
-    )
+    # Engine WS already emits request_start; do not duplicate the boundary here.
     config, plan = build_dynamic_workflow_config(
         user_prompt=text,
         catalog_path=paths.agent_providers,
@@ -231,6 +224,26 @@ def run_dynamic_goal(
         actor="planner",
         message=str(summary or f"{len(config.tasks)} step(s)").strip()[:200],
         detail={"agents": agents, "mcps": mcps, "skills": skills, "steps": len(config.tasks)},
+    )
+    append_run_event(
+        root,
+        rid,
+        "decision",
+        actor="orchestrator",
+        message=str(summary or f"{len(config.tasks)} step(s)").strip()[:200],
+        detail={
+            "reason": str(summary or "").strip() or None,
+            "agents": agents,
+            "mcps": mcps,
+            "skills": skills,
+            "steps": [
+                {
+                    "id": getattr(t, "id", None),
+                    "agent_provider_id": getattr(t, "agent_provider_id", None),
+                }
+                for t in (config.tasks or [])[:12]
+            ],
+        },
     )
     progress(f"executing {len(config.tasks)} step(s)")
     emit_log(

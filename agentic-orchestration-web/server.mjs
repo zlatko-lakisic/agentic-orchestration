@@ -538,6 +538,7 @@ function installApiUsageRecorder(req, res, pathLabel) {
           latencyMs: Date.now() - started,
           promptChars:
             typeof req.agenticAuthPromptChars === "number" ? req.agenticAuthPromptChars : null,
+          runId: req.agenticRunId != null ? String(req.agenticRunId) : null,
         });
       } catch (err) {
         console.error("[agentic api-tokens] usage record failed:", err?.message || err);
@@ -675,9 +676,39 @@ function webOrchestratorSpawnEnv(extra = {}) {
   };
 }
 
+/** Identity env for Python main.py request_start / LLM usage context. */
+function spawnIdentityEnvFromReq(req) {
+  const auth = req?.agenticAuth || {};
+  const out = {};
+  if (auth.appId) out.AGENTIC_APP_ID = String(auth.appId);
+  if (auth.tokenId) out.AGENTIC_API_TOKEN_ID = String(auth.tokenId);
+  try {
+    const ip = clientIp(req);
+    if (ip) out.AGENTIC_CLIENT_IP = String(ip);
+  } catch {
+    /* ignore */
+  }
+  const uname = userNameFromRequestHeaders(req?.headers || {});
+  if (uname) {
+    out.AGENTIC_USER_NAME = String(uname);
+    out.AGENTIC_USER_ID = String(uname);
+  }
+  return out;
+}
+
 function webOrchestratorSpawnEnvForWs(ws, extra = {}) {
+  const auth = ws?._agenticAuth || {};
+  const ident = {};
+  if (auth.appId) ident.AGENTIC_APP_ID = String(auth.appId);
+  if (auth.tokenId) ident.AGENTIC_API_TOKEN_ID = String(auth.tokenId);
+  if (ws?._clientIp) ident.AGENTIC_CLIENT_IP = String(ws._clientIp);
+  if (ws?._userName) {
+    ident.AGENTIC_USER_NAME = String(ws._userName);
+    ident.AGENTIC_USER_ID = String(ws._userName);
+  }
   return webOrchestratorSpawnEnv({
     ...userDisplayNameSpawnEnv(ws?._userName),
+    ...ident,
     ...extra,
   });
 }
@@ -1795,7 +1826,9 @@ async function handleOpenAiChatCompletions(req, res) {
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
+        identityEnv: spawnIdentityEnvFromReq(req),
       });
+      if (runResult?.runId) req.agenticRunId = runResult.runId;
     } catch (err) {
       if (streamOut) {
         streamOut.fail(clientErrorMessage(err, "Orchestration failed"));
@@ -2074,7 +2107,9 @@ async function handleOpenAiResponses(req, res) {
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
+        identityEnv: spawnIdentityEnvFromReq(req),
       });
+      if (runResult?.runId) req.agenticRunId = runResult.runId;
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
@@ -2228,7 +2263,9 @@ async function handleApiV1Orchestrate(req, res) {
       selectedAgentProviderIds: selectedIds,
       performanceEnv,
       userName: userNameFromRequestHeaders(req.headers),
+      identityEnv: spawnIdentityEnvFromReq(req),
     });
+    if (runResult?.runId) req.agenticRunId = runResult.runId;
   } catch (e) {
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(JSON.stringify({ error: clientErrorMessage(e, "Orchestration failed") }));
@@ -2965,6 +3002,7 @@ async function runDynamicAwait({
   performanceEnv = {},
   disableAnswerCache = false,
   userName = null,
+  identityEnv = {},
 }) {
   const noop = () => {};
   if (!ensurePythonDepsForWebRuns(noop)) {
@@ -2991,6 +3029,7 @@ async function runDynamicAwait({
   const env = webOrchestratorSpawnEnv({
     ...(disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {}),
     ...userDisplayNameSpawnEnv(userName),
+    ...identityEnv,
     AGENTIC_RUN_ID: runId,
     ...performanceEnv,
   });
@@ -3257,6 +3296,11 @@ wss.on("connection", (ws, req) => {
   ws._userName = userNameFromRequestHeaders(req?.headers || {});
   ws._sessionId = resolveSessionIdFromHeaders(req?.headers || {});
   ws._agenticAuth = req.agenticAuth || null;
+  try {
+    ws._clientIp = clientIp(req);
+  } catch {
+    ws._clientIp = "";
+  }
   const plannerGreet = webPlannerGreetEnabled();
   sendJson(ws, {
     type: "hello",

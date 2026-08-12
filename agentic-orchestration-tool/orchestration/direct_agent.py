@@ -380,6 +380,20 @@ def _ollama_chat_json(
         content = str(message.get("content") or "")
     if not content.strip():
         raise DirectAgentFormatError("Ollama returned empty content", raw=content or None)
+    try:
+        from orchestration.llm_usage import normalize_ollama_chat_payload, record_llm_usage
+
+        norm = normalize_ollama_chat_payload(payload if isinstance(payload, dict) else None)
+        record_llm_usage(
+            source="direct_ollama",
+            model=model,
+            prompt_tokens=norm["prompt_tokens"],
+            completion_tokens=norm["completion_tokens"],
+            total_tokens=norm["total_tokens"],
+            ok=True,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return content
 
 
@@ -425,7 +439,8 @@ def _litellm_chat_json(
     if on_progress:
         on_progress("generating")
 
-    def _content_from(resp_raw: Any) -> str:
+    def _content_from(resp_raw: Any) -> tuple[str, Any]:
+        usage = None
         if hasattr(resp_raw, "model_dump"):
             resp = resp_raw.model_dump()
         elif hasattr(resp_raw, "dict"):
@@ -433,7 +448,8 @@ def _litellm_chat_json(
         else:
             resp = resp_raw
         if not isinstance(resp, dict):
-            return ""
+            return "", getattr(resp_raw, "usage", None)
+        usage = resp.get("usage")
         choices = resp.get("choices") or []
         first = choices[0] if isinstance(choices, list) and choices else {}
         if isinstance(first, dict):
@@ -441,24 +457,38 @@ def _litellm_chat_json(
             if isinstance(msg, dict):
                 c = msg.get("content")
                 if isinstance(c, str):
-                    return c
+                    return c, usage
             t = first.get("text")
             if isinstance(t, str):
-                return t
-        return ""
+                return t, usage
+        return "", usage
 
     try:
-        content = _content_from(litellm.completion(**kwargs))
+        content, usage = _content_from(litellm.completion(**kwargs))
     except Exception as exc:  # noqa: BLE001
         detail = str(exc)
         if "response_format" in detail.lower() or "unsupported" in detail.lower():
             kwargs.pop("response_format", None)
-            content = _content_from(litellm.completion(**kwargs))
+            content, usage = _content_from(litellm.completion(**kwargs))
         else:
             raise
 
     if not str(content or "").strip():
         raise DirectAgentFormatError("LLM returned empty content", raw=content or None)
+    try:
+        from orchestration.llm_usage import normalize_openai_usage, record_llm_usage
+
+        norm = normalize_openai_usage(usage)
+        record_llm_usage(
+            source="direct_litellm",
+            model=clean_model,
+            prompt_tokens=norm["prompt_tokens"],
+            completion_tokens=norm["completion_tokens"],
+            total_tokens=norm["total_tokens"],
+            ok=True,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return str(content)
 
 

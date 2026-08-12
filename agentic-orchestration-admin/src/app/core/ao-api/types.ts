@@ -272,10 +272,24 @@ export interface RunDetail extends AdminRun {
 export interface TraceListItem {
   runId: string;
   updatedAt?: string | null;
+  startedAt?: string | null;
   eventCount?: number | null;
   lastKind?: string | null;
   lastMessage?: string | null;
   durationMs?: number | null;
+  clientIp?: string | null;
+  appId?: string | null;
+  userName?: string | null;
+  userId?: string | null;
+  mode?: string | null;
+  hasPlan?: boolean;
+  hasDecision?: boolean;
+  hasSteps?: boolean;
+  hasTools?: boolean;
+  hasQa?: boolean;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
 }
 
 export interface TracesListResponse {
@@ -307,6 +321,52 @@ export interface RunTraceResponse {
   mermaid?: string;
   durationMs?: number | null;
   instrumentation?: TraceInstrumentation;
+  depth?: string;
+  clientIp?: string | null;
+  appId?: string | null;
+  userName?: string | null;
+  userId?: string | null;
+  mode?: string | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+}
+
+export interface LlmUsageRollupRow {
+  key: string;
+  calls: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export interface ApiUsageRollupRow {
+  key: string;
+  calls: number;
+  latencyMsSum?: number;
+  promptCharsSum?: number;
+}
+
+export interface LlmUsageResponse {
+  generatedAt?: string;
+  recent?: Array<Record<string, unknown>>;
+  llm?: {
+    byUserId?: LlmUsageRollupRow[];
+    byClientIp?: LlmUsageRollupRow[];
+    byAppId?: LlmUsageRollupRow[];
+    byTokenId?: LlmUsageRollupRow[];
+    grandTotal?: {
+      calls: number;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    };
+  };
+  api?: {
+    byAppId?: ApiUsageRollupRow[];
+    byClientIp?: ApiUsageRollupRow[];
+    byTokenId?: ApiUsageRollupRow[];
+  };
 }
 
 export interface SupportBundle {

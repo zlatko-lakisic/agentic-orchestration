@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import logging
 import threading
+import time
 import uuid
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -102,6 +103,30 @@ class _TunnelBridge:
             "headers": headers,
             "bodyBase64": base64.b64encode(body).decode("ascii") if body else "",
         }
+        _mcp_trace_start = time.monotonic()
+        try:
+            from orchestration.llm_usage import current_tool_root, current_usage_identity
+            from orchestration.run_trace import append_run_event
+
+            _root = current_tool_root()
+            _rid = current_usage_identity().get("runId") or ""
+            if _root is not None and _rid:
+                append_run_event(
+                    _root,
+                    _rid,
+                    "mcp_call",
+                    actor="mcp",
+                    message=f"{mcp_id} {method.upper()}",
+                    detail={
+                        "mcp_id": mcp_id,
+                        "method": method.upper(),
+                        "path": path,
+                        "phase": "start",
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            _root = None
+            _rid = ""
         try:
             self._send_request(payload)
         except Exception as exc:  # noqa: BLE001
@@ -110,7 +135,32 @@ class _TunnelBridge:
             raise McpTunnelError(f"failed to emit mcp_tunnel_request: {exc}") from exc
 
         try:
-            return fut.result(timeout=timeout_s)
+            result = fut.result(timeout=timeout_s)
+            try:
+                if _root is not None and _rid:
+                    from orchestration.run_trace import append_run_event
+
+                    status = None
+                    if isinstance(result, dict):
+                        status = result.get("status") or result.get("statusCode")
+                    append_run_event(
+                        _root,
+                        _rid,
+                        "mcp_call",
+                        actor="mcp",
+                        message=f"{mcp_id} done",
+                        detail={
+                            "mcp_id": mcp_id,
+                            "method": method.upper(),
+                            "path": path,
+                            "phase": "end",
+                            "status": status,
+                            "latency_ms": round((time.monotonic() - _mcp_trace_start) * 1000.0, 1),
+                        },
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+            return result
         except McpTunnelError:
             raise
         except Exception as exc:  # noqa: BLE001

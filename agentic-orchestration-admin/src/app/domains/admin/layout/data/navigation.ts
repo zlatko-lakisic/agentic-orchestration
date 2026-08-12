@@ -63,6 +63,12 @@ export const NAVIGATION: NavigationItem[] = [
         route: '/traces',
       },
       {
+        id: 'llm-usage',
+        label: 'Token usage',
+        icon: 'coins',
+        route: '/llm-usage',
+      },
+      {
         id: 'activity',
         label: 'Activity',
         icon: 'git-compare',

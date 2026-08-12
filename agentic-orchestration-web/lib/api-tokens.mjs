@@ -620,6 +620,7 @@ export function recordUsage(toolRoot, row) {
     status: typeof row.status === "number" ? row.status : null,
     latencyMs: typeof row.latencyMs === "number" ? Math.round(row.latencyMs) : null,
     promptChars: typeof row.promptChars === "number" ? row.promptChars : null,
+    runId: row.runId != null && String(row.runId).trim() ? String(row.runId).trim() : null,
   };
   fs.appendFileSync(usagePath(toolRoot), `${JSON.stringify(entry)}\n`, "utf8");
 

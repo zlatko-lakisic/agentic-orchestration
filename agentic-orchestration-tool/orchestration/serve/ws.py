@@ -480,6 +480,32 @@ class WsConnection:
             component="engine",
             extra=log_extra,
         )
+        app_id = message.get("appId")
+        if app_id is None:
+            app_id = message.get("app_id")
+        app_id_s = str(app_id or "").strip()
+        token_id_s = str(
+            message.get("tokenId") or message.get("token_id") or ""
+        ).strip()
+        user_id_s = self.identity.user_id if self.identity else ""
+        user_name_s = self.identity.user_name if self.identity else ""
+        usage_tokens: list[Any] = []
+        try:
+            from orchestration.llm_usage import bind_usage_context
+            from orchestration.tool_trace import apply_tool_call_trace_wrap
+
+            apply_tool_call_trace_wrap()
+            usage_tokens = bind_usage_context(
+                tool_root=self.tool_root,
+                run_id=run_id,
+                user_id=user_id_s,
+                user_name=user_name_s,
+                app_id=app_id_s,
+                client_ip=self.client_ip or "",
+                token_id=token_id_s,
+            )
+        except Exception:  # noqa: BLE001
+            usage_tokens = []
         try:
             from orchestration.run_trace import append_run_event
 
@@ -493,6 +519,11 @@ class WsConnection:
                     "mode": kind,
                     "question_id": question_id,
                     "preview": (text[:120] + ("…" if len(text) > 120 else "")),
+                    "client_ip": self.client_ip or None,
+                    "app_id": app_id_s or None,
+                    "user_id": user_id_s or None,
+                    "user_name": user_name_s or None,
+                    "token_id": token_id_s or None,
                 },
             )
         except Exception:  # noqa: BLE001
@@ -601,6 +632,12 @@ class WsConnection:
         finally:
             if question_id is None:
                 self._busy = False
+            try:
+                from orchestration.llm_usage import reset_usage_context
+
+                reset_usage_context(usage_tokens)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _execute(
         self,

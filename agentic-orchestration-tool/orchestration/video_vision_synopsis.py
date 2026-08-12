@@ -137,6 +137,20 @@ def summarize_video_frames_litellm(
                 if isinstance(c, str):
                     text_out = c.strip()
         out = text_out.strip()
+        try:
+            from orchestration.llm_usage import normalize_openai_usage, record_llm_usage
+
+            norm = normalize_openai_usage(resp.get("usage") if isinstance(resp, dict) else None)
+            record_llm_usage(
+                source="vision",
+                model=model,
+                prompt_tokens=norm["prompt_tokens"],
+                completion_tokens=norm["completion_tokens"],
+                total_tokens=norm["total_tokens"],
+                ok=bool(out),
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return out if out else None
     except Exception as exc:
         if local_fallback:

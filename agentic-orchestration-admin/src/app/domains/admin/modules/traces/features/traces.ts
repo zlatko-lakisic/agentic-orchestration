@@ -100,9 +100,9 @@ declare global {
         <div class="min-w-0">
           <div class="text-xl font-semibold tracking-tighter sm:text-2xl">Traces</div>
           <div class="text-neutral-500">
-            Run boundaries and recorded spans by
+            Run boundaries, crew decisions, tool/MCP/QA and model spans by
             <code class="text-primary-600 dark:text-primary-400">run_id</code>.
-            Model/tool/MCP/QA call spans are not instrumented yet.
+            Times use your browser timezone.
           </div>
         </div>
         <mat-form-field appearance="outline" class="w-full sm:w-96" subscriptSizing="dynamic">
@@ -118,6 +118,22 @@ declare global {
             <mat-icon svgIcon="search" />
           </button>
         </mat-form-field>
+      </div>
+
+      <div class="flex flex-wrap items-end gap-3">
+        <mat-form-field appearance="outline" class="w-40" subscriptSizing="dynamic">
+          <mat-label>Client</mat-label>
+          <input matInput [ngModel]="filterClient()" (ngModelChange)="filterClient.set($event)" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="w-40" subscriptSizing="dynamic">
+          <mat-label>Client IP</mat-label>
+          <input matInput [ngModel]="filterClientIp()" (ngModelChange)="filterClientIp.set($event)" />
+        </mat-form-field>
+        <label class="mb-2 flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
+          <input type="checkbox" [ngModel]="filterCrewOnly()" (ngModelChange)="filterCrewOnly.set($event)" />
+          Crew only
+        </label>
+        <button matButton="tonal" type="button" class="mb-2" (click)="reloadList()">Apply filters</button>
       </div>
 
       @if (error()) {
@@ -139,6 +155,18 @@ declare global {
                 <span>{{ d.eventCount || 0 }} events</span>
                 @if (formatDuration(d.durationMs); as dur) {
                   <span>· {{ dur }}</span>
+                }
+                @if (d.appId) {
+                  <span>· app {{ d.appId }}</span>
+                }
+                @if (d.userName || d.userId) {
+                  <span>· {{ d.userName || d.userId }}</span>
+                }
+                @if (d.clientIp) {
+                  <span>· {{ d.clientIp }}</span>
+                }
+                @if (d.totalTokens != null) {
+                  <span>· {{ d.totalTokens }} tok</span>
                 }
                 @if (runMode(d); as mode) {
                   <span>· {{ mode }}</span>
@@ -198,15 +226,29 @@ declare global {
               <div class="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
                 Sequence
               </div>
-              <mat-button-toggle-group
-                [value]="viewMode()"
-                (change)="onViewMode($event.value)"
-                class="!h-8"
-                hideSingleSelectionIndicator
-              >
-                <mat-button-toggle value="diagram">Diagram</mat-button-toggle>
-                <mat-button-toggle value="table">Table</mat-button-toggle>
-              </mat-button-toggle-group>
+              <div class="flex flex-wrap items-center gap-2">
+                <mat-button-toggle-group
+                  [value]="depthMode()"
+                  (change)="onDepthMode($event.value)"
+                  class="!h-8"
+                  hideSingleSelectionIndicator
+                >
+                  <mat-button-toggle value="all">All</mat-button-toggle>
+                  <mat-button-toggle value="boundary">Boundary</mat-button-toggle>
+                  <mat-button-toggle value="decisions">Decisions</mat-button-toggle>
+                  <mat-button-toggle value="crew">Crew</mat-button-toggle>
+                  <mat-button-toggle value="tools">Tools</mat-button-toggle>
+                </mat-button-toggle-group>
+                <mat-button-toggle-group
+                  [value]="viewMode()"
+                  (change)="onViewMode($event.value)"
+                  class="!h-8"
+                  hideSingleSelectionIndicator
+                >
+                  <mat-button-toggle value="diagram">Diagram</mat-button-toggle>
+                  <mat-button-toggle value="table">Table</mat-button-toggle>
+                </mat-button-toggle-group>
+              </div>
             </div>
 
             @if (viewMode() === 'diagram') {
@@ -335,6 +377,38 @@ declare global {
                 </button>
               </td>
             </ng-container>
+            <ng-container matColumnDef="client">
+              <th mat-header-cell *matHeaderCellDef>Client</th>
+              <td mat-cell *matCellDef="let r" class="text-sm">
+                <div>{{ r.appId || r.userName || r.userId || '—' }}</div>
+                @if (r.appId && (r.userName || r.userId)) {
+                  <div class="text-2xs text-neutral-500">{{ r.userName || r.userId }}</div>
+                }
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="clientIp">
+              <th mat-header-cell *matHeaderCellDef>IP</th>
+              <td mat-cell *matCellDef="let r" class="font-mono text-sm text-neutral-500">
+                {{ r.clientIp || '—' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="started">
+              <th mat-header-cell *matHeaderCellDef>Started</th>
+              <td
+                mat-cell
+                *matCellDef="let r"
+                class="text-sm text-neutral-500"
+                [attr.title]="r.startedAt || r.updatedAt || ''"
+              >
+                {{ formatLocalIso(r.startedAt || r.updatedAt) }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="tokens">
+              <th mat-header-cell *matHeaderCellDef>Tokens</th>
+              <td mat-cell *matCellDef="let r" class="tabular-nums text-sm">
+                {{ r.totalTokens ?? '—' }}
+              </td>
+            </ng-container>
             <ng-container matColumnDef="events">
               <th mat-header-cell *matHeaderCellDef>Events</th>
               <td mat-cell *matCellDef="let r" class="tabular-nums">{{ r.eventCount ?? '—' }}</td>
@@ -360,8 +434,13 @@ declare global {
             </ng-container>
             <ng-container matColumnDef="updated">
               <th mat-header-cell *matHeaderCellDef>Updated</th>
-              <td mat-cell *matCellDef="let r" class="font-mono text-sm text-neutral-500">
-                {{ r.updatedAt || '—' }}
+              <td
+                mat-cell
+                *matCellDef="let r"
+                class="text-sm text-neutral-500"
+                [attr.title]="r.updatedAt || ''"
+              >
+                {{ formatLocalIso(r.updatedAt) }}
               </td>
             </ng-container>
             <tr mat-header-row *matHeaderRowDef="columns"></tr>
@@ -390,8 +469,22 @@ export class TracesPage implements OnInit {
   readonly error = signal<string | null>(null);
   readonly detail = signal<RunTraceResponse | null>(null);
   readonly lookupId = signal('');
+  readonly filterClient = signal('');
+  readonly filterClientIp = signal('');
+  readonly filterCrewOnly = signal(false);
   readonly viewMode = signal<'diagram' | 'table'>('diagram');
-  readonly columns = ['runId', 'events', 'duration', 'last', 'updated'];
+  readonly depthMode = signal<'all' | 'boundary' | 'decisions' | 'crew' | 'tools'>('all');
+  readonly columns = [
+    'runId',
+    'client',
+    'clientIp',
+    'started',
+    'tokens',
+    'events',
+    'duration',
+    'last',
+    'updated',
+  ];
   readonly eventColumns = ['ts', 'kind', 'actor', 'message'];
   readonly dataSource = new MatTableDataSource<TraceListItem>([]);
   readonly eventRows = new MatTableDataSource<RunTraceEvent>([]);
@@ -409,17 +502,27 @@ export class TracesPage implements OnInit {
 
   ngOnInit() {
     this.ensureMermaid();
-    this.api.traces(80).subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.dataSource.data = r.data.runs || [];
-    });
+    this.reloadList();
     const q =
       String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
       String(this.route.snapshot.queryParamMap.get('id') || '').trim();
     if (q) this.openId(q);
+  }
+
+  reloadList() {
+    this.api
+      .traces(80, {
+        client: this.filterClient().trim() || undefined,
+        clientIp: this.filterClientIp().trim() || undefined,
+        crewOnly: this.filterCrewOnly() || undefined,
+      })
+      .subscribe((r) => {
+        if (!r.ok) {
+          this.error.set(r.message);
+          return;
+        }
+        this.dataSource.data = r.data.runs || [];
+      });
   }
 
   openId(id: string) {
@@ -432,7 +535,7 @@ export class TracesPage implements OnInit {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-    this.api.runTrace(rid).subscribe((r) => {
+    this.api.runTrace(rid, this.depthMode()).subscribe((r) => {
       if (!r.ok) {
         this.error.set(r.message);
         return;
@@ -458,9 +561,14 @@ export class TracesPage implements OnInit {
   onViewMode(mode: 'diagram' | 'table') {
     this.viewMode.set(mode);
     if (mode === 'diagram') {
-      // Host is destroyed/recreated by @if — wait for the next render before Mermaid.
       this.scheduleMermaidRender();
     }
+  }
+
+  onDepthMode(mode: 'all' | 'boundary' | 'decisions' | 'crew' | 'tools') {
+    this.depthMode.set(mode);
+    const rid = this.detail()?.runId || this.lookupId();
+    if (rid) this.openId(rid);
   }
 
   /** afterNextRender so #mermaidHost exists after Diagram↔Table toggles. */
@@ -473,10 +581,20 @@ export class TracesPage implements OnInit {
     );
   }
 
+  formatLocalIso(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+  }
+
   formatTs(ev: RunTraceEvent): string {
     const t = Number(ev.ts);
     if (!Number.isFinite(t)) return '—';
-    return new Date(t * 1000).toISOString();
+    return new Date(t * 1000).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+    });
   }
 
   formatDuration(ms: number | null | undefined): string | null {

@@ -53,6 +53,11 @@ const routes: Routes = [
           import('./modules/traces/features/traces').then((m) => m.TracesPage),
       },
       {
+        path: 'llm-usage',
+        loadComponent: () =>
+          import('./modules/usage/features/llm-usage').then((m) => m.LlmUsagePage),
+      },
+      {
         path: 'activity',
         loadComponent: () =>
           import('./modules/activity/features/activity').then(

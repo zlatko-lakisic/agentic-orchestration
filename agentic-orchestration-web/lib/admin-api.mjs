@@ -1789,11 +1789,35 @@ const TRACE_CAPABILITIES = {
   steps: true,
   agentSelect: true,
   directAgent: true,
-  modelCalls: false,
-  toolCalls: false,
-  mcpCalls: false,
-  qa: false,
+  modelCalls: true,
+  toolCalls: true,
+  mcpCalls: true,
+  qa: true,
+  decision: true,
 };
+
+const TRACE_DEPTH_KINDS = {
+  all: null,
+  boundary: new Set(["request_start", "run_end", "run_error", "agent_start", "agent_end"]),
+  decisions: new Set(["request_start", "run_end", "run_error", "plan", "decision"]),
+  crew: new Set(["request_start", "run_end", "run_error", "step_start", "step_end", "step_fail"]),
+  tools: new Set([
+    "request_start",
+    "run_end",
+    "run_error",
+    "tool_call",
+    "mcp_call",
+    "qa",
+    "model_call",
+  ]),
+};
+
+function filterEventsByDepth(events, depth) {
+  const d = String(depth || "all").trim().toLowerCase() || "all";
+  const allowed = TRACE_DEPTH_KINDS[d];
+  if (!allowed) return events || [];
+  return (events || []).filter((e) => allowed.has(String(e?.kind || "")));
+}
 
 function shortMermaidLabel(...parts) {
   const clean = parts
@@ -1815,11 +1839,86 @@ function traceDurationMs(events) {
   return Math.round((Math.max(...times) - Math.min(...times)) * 1000 * 10) / 10;
 }
 
+function sumModelTokens(events) {
+  let prompt = 0;
+  let completion = 0;
+  let total = 0;
+  let any = false;
+  for (const ev of events || []) {
+    if (String(ev?.kind || "") !== "model_call") continue;
+    const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+    for (const [key, add] of [
+      ["prompt_tokens", (n) => (prompt += n)],
+      ["completion_tokens", (n) => (completion += n)],
+      ["total_tokens", (n) => (total += n)],
+    ]) {
+      const v = d[key];
+      if (v == null) continue;
+      const n = Number(v);
+      if (!Number.isFinite(n)) continue;
+      any = true;
+      add(n);
+    }
+  }
+  if (!any) return { promptTokens: null, completionTokens: null, totalTokens: null };
+  return { promptTokens: prompt, completionTokens: completion, totalTokens: total };
+}
+
+function detailIdentity(events) {
+  let clientIp = null;
+  let appId = null;
+  let userName = null;
+  let userId = null;
+  let mode = null;
+  let startedTs = null;
+  for (const ev of events || []) {
+    const ts = Number(ev?.ts);
+    if (startedTs == null && Number.isFinite(ts)) startedTs = ts;
+    const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+    if (clientIp == null && d.client_ip) clientIp = String(d.client_ip);
+    if (appId == null && d.app_id) appId = String(d.app_id);
+    if (userName == null && d.user_name) userName = String(d.user_name);
+    if (userId == null && d.user_id) userId = String(d.user_id);
+    if (mode == null && d.mode) mode = String(d.mode);
+  }
+  return {
+    clientIp,
+    appId,
+    userName,
+    userId,
+    mode,
+    startedAt: startedTs != null ? new Date(startedTs * 1000).toISOString() : null,
+  };
+}
+
+function enrichTraceListItem(events, { runId, mtime }) {
+  const last = events[events.length - 1] || {};
+  const kinds = new Set((events || []).map((e) => String(e?.kind || "")));
+  const ident = detailIdentity(events);
+  const tokens = sumModelTokens(events);
+  return {
+    runId,
+    updatedAt: new Date(mtime).toISOString(),
+    eventCount: events.length,
+    lastKind: last.kind || null,
+    lastMessage: last.message || null,
+    durationMs: traceDurationMs(events),
+    ...ident,
+    hasPlan: kinds.has("plan"),
+    hasDecision: kinds.has("decision"),
+    hasSteps: kinds.has("step_start") || kinds.has("step_end") || kinds.has("step_fail"),
+    hasTools: kinds.has("tool_call") || kinds.has("mcp_call"),
+    hasQa: kinds.has("qa"),
+    ...tokens,
+  };
+}
+
 function traceInstrumentation(events) {
   const kinds = new Set((events || []).map((e) => String(e?.kind || "")));
   const present = {
     runBoundary: kinds.has("request_start") || kinds.has("run_end") || kinds.has("run_error"),
     planner: kinds.has("plan"),
+    decision: kinds.has("decision"),
     steps: kinds.has("step_start") || kinds.has("step_end") || kinds.has("step_fail"),
     agentSelect:
       kinds.has("agent_start") ||
@@ -1875,56 +1974,98 @@ function eventsToMermaid(events) {
     return pid;
   };
   if ((events || []).length) ensure("client");
-  let prev = "client";
+  /** Call stack so dashed returns (-->>) target the real caller. */
+  let stack = ["client"];
   for (const ev of events || []) {
     const actor = ensure(ev.actor || "orchestrator");
     const kind = String(ev.kind || "event");
     const detail = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
     const mode = String(detail.mode || "").trim();
     const provider = String(detail.agent_provider_id || detail.provider_id || "").trim();
+    const caller = stack.length ? stack[stack.length - 1] : "client";
     if (kind === "request_start") {
       lines.push(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
-      prev = actor;
+      stack = ["client", actor];
     } else if (kind === "plan") {
-      lines.push(`  ${prev}->>${actor}: plan`);
+      lines.push(`  ${caller}->>${actor}: plan`);
       const note = shortMermaidLabel(ev.message || "");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       for (const ag of (detail.agents || []).slice(0, 8)) {
         const aid = ensure(`agent:${ag}`);
         lines.push(`  ${actor}->>${aid}: select`);
+        lines.push(`  ${aid}-->>${actor}: ok`);
       }
       if ((detail.mcps || []).length) {
         const mid = ensure("mcp");
         lines.push(
           `  ${actor}->>${mid}: ${shortMermaidLabel((detail.mcps || []).slice(0, 3).join(", "))}`,
         );
+        lines.push(`  ${mid}-->>${actor}: ok`);
       }
       if ((detail.skills || []).length) {
         const sid = ensure("skills");
         lines.push(
           `  ${actor}->>${sid}: ${shortMermaidLabel((detail.skills || []).slice(0, 3).join(", "))}`,
         );
+        lines.push(`  ${sid}-->>${actor}: ok`);
       }
-      prev = actor;
+      if (caller !== actor) lines.push(`  ${actor}-->>${caller}: ok`);
+    } else if (kind === "decision") {
+      lines.push(`  ${caller}->>${actor}: decision`);
+      const note = shortMermaidLabel(ev.message || detail.reason || "decision");
+      if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
+      if (caller !== actor) lines.push(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "agent_start") {
-      lines.push(`  ${prev}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
-      prev = actor;
+      lines.push(`  ${caller}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
+      stack.push(actor);
     } else if (kind === "agent_end") {
-      lines.push(`  ${actor}-->>${prev}: ${shortMermaidLabel(ev.message || "done")}`);
-    } else if (kind === "step_start" || kind === "step_end" || kind === "step_fail") {
-      const arrow = kind === "step_end" ? "-->>" : "->>";
+      if (stack.length && stack[stack.length - 1] === actor) stack.pop();
+      const retTo = stack.length ? stack[stack.length - 1] : "client";
+      lines.push(`  ${actor}-->>${retTo}: ${shortMermaidLabel(ev.message || "done")}`);
+    } else if (kind === "step_start") {
       lines.push(
-        `  ${prev}${arrow}${actor}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
+        `  ${caller}->>${actor}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
       );
-      prev = actor;
+      stack.push(actor);
+    } else if (kind === "step_end" || kind === "step_fail") {
+      if (stack.length && stack[stack.length - 1] === actor) stack.pop();
+      const retTo = stack.length ? stack[stack.length - 1] : "client";
+      lines.push(
+        `  ${actor}-->>${retTo}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
+      );
+    } else if (kind === "tool_call") {
+      const phase = String(detail.phase || "");
+      const name = shortMermaidLabel(detail.name || ev.message || "tool");
+      const tid = ensure(`tool:${detail.name || "tool"}`);
+      if (phase === "end") lines.push(`  ${tid}-->>${caller}: ${name}`);
+      else lines.push(`  ${caller}->>${tid}: ${name}`);
+    } else if (kind === "mcp_call") {
+      const mid = ensure(`mcp:${detail.mcp_id || "mcp"}`);
+      const label = shortMermaidLabel(detail.method || detail.path || "mcp");
+      const phase = String(detail.phase || "");
+      if (phase === "end" || detail.status != null) lines.push(`  ${mid}-->>${caller}: ${label}`);
+      else lines.push(`  ${caller}->>${mid}: ${label}`);
+    } else if (kind === "model_call") {
+      const mid = ensure(`model:${detail.model || actor}`);
+      const toks = detail.total_tokens;
+      const label = shortMermaidLabel(
+        detail.model || "model",
+        toks != null ? `${toks} tok` : "",
+      );
+      lines.push(`  ${caller}->>${mid}: ${label}`);
+      lines.push(`  ${mid}-->>${caller}: ok`);
+    } else if (kind === "qa") {
+      lines.push(
+        `  Note over ${actor}: ${shortMermaidLabel("qa", ev.message || detail.verdict || "")}`,
+      );
     } else if (kind === "run_end" || kind === "run_error") {
       lines.push(
         `  ${actor}-->>client: ${shortMermaidLabel(ev.message || kind.replace(/_/g, " "))}`,
       );
-      prev = "client";
+      stack = ["client"];
     } else {
-      lines.push(`  ${prev}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
-      prev = actor;
+      lines.push(`  ${caller}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
+      if (actor !== caller) stack.push(actor);
     }
   }
   if (lines.length === 1) {
@@ -1961,7 +2102,13 @@ function readRunTraceEvents(toolRoot, runId) {
   return events;
 }
 
-function listRecentTraces({ toolRoot, limit = 50 }) {
+function listRecentTraces({
+  toolRoot,
+  limit = 50,
+  client = "",
+  clientIp = "",
+  crewOnly = false,
+}) {
   const dir = path.join(toolRoot, "__orchestrator_run_traces__");
   const runs = [];
   if (!fs.existsSync(dir)) {
@@ -1984,33 +2131,165 @@ function listRecentTraces({ toolRoot, limit = 50 }) {
     }
   }
   files.sort((a, b) => b.mtime - a.mtime);
-  for (const f of files.slice(0, Math.max(1, Number(limit) || 50))) {
+  const clientQ = String(client || "").trim().toLowerCase();
+  const ipQ = String(clientIp || "").trim().toLowerCase();
+  const needFilter = Boolean(clientQ || ipQ || crewOnly);
+  const scan = needFilter ? Math.max(500, Number(limit) || 50) : Math.max(1, Number(limit) || 50);
+  for (const f of files.slice(0, scan)) {
     const runId = path.basename(f.name, ".jsonl");
     const events = readRunTraceEvents(toolRoot, runId);
-    const last = events[events.length - 1] || {};
-    runs.push({
-      runId,
-      updatedAt: new Date(f.mtime).toISOString(),
-      eventCount: events.length,
-      lastKind: last.kind || null,
-      lastMessage: last.message || null,
-      durationMs: traceDurationMs(events),
-    });
+    const item = enrichTraceListItem(events, { runId, mtime: f.mtime });
+    if (clientQ) {
+      const blob = [item.appId, item.userName, item.userId].map((x) => String(x || "")).join(" ").toLowerCase();
+      if (!blob.includes(clientQ)) continue;
+    }
+    if (ipQ && !String(item.clientIp || "").toLowerCase().includes(ipQ)) continue;
+    if (crewOnly && !(item.hasPlan || item.hasDecision || item.hasSteps)) continue;
+    runs.push(item);
+    if (runs.length >= Math.max(1, Number(limit) || 50)) break;
   }
   return { generatedAt: new Date().toISOString(), runs };
 }
 
-function buildRunTrace({ toolRoot }, id) {
+function buildRunTrace({ toolRoot }, id, { depth } = {}) {
   const runId = String(id || "").trim();
   if (!runId) return null;
   const events = readRunTraceEvents(toolRoot, runId);
+  const filtered = filterEventsByDepth(events, depth);
+  const ident = detailIdentity(events);
+  const tokens = sumModelTokens(events);
   return {
     runId,
-    eventCount: events.length,
-    events,
-    mermaid: eventsToMermaid(events),
+    eventCount: filtered.length,
+    events: filtered,
+    mermaid: eventsToMermaid(filtered),
     durationMs: traceDurationMs(events),
     instrumentation: traceInstrumentation(events),
+    depth: String(depth || "all").trim().toLowerCase() || "all",
+    ...ident,
+    ...tokens,
+  };
+}
+
+function readLlmUsageRows(toolRoot, { limit = 5000 } = {}) {
+  const file = path.join(toolRoot, "__orchestrator_llm_usage__", "usage.jsonl");
+  if (!fs.existsSync(file)) return [];
+  let raw = "";
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  const rows = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const obj = JSON.parse(t);
+      if (obj && typeof obj === "object") rows.push(obj);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (limit > 0 && rows.length > limit) return rows.slice(-limit);
+  return rows;
+}
+
+function rollupKey(v) {
+  const s = String(v || "").trim();
+  return s || "(unknown)";
+}
+
+function addTokenBucket(map, key, row) {
+  const cur = map.get(key) || {
+    key,
+    calls: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+  };
+  cur.calls += 1;
+  const p = Number(row.promptTokens);
+  const c = Number(row.completionTokens);
+  const t = Number(row.totalTokens);
+  if (Number.isFinite(p)) cur.promptTokens += p;
+  if (Number.isFinite(c)) cur.completionTokens += c;
+  if (Number.isFinite(t)) cur.totalTokens += t;
+  map.set(key, cur);
+}
+
+function summarizeLlmUsage(rows) {
+  const byUserId = new Map();
+  const byClientIp = new Map();
+  const byAppId = new Map();
+  const byTokenId = new Map();
+  const grandTotal = { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  for (const row of rows || []) {
+    addTokenBucket(byUserId, rollupKey(row.userId), row);
+    addTokenBucket(byClientIp, rollupKey(row.clientIp), row);
+    addTokenBucket(byAppId, rollupKey(row.appId), row);
+    addTokenBucket(byTokenId, rollupKey(row.tokenId), row);
+    grandTotal.calls += 1;
+    const p = Number(row.promptTokens);
+    const c = Number(row.completionTokens);
+    const t = Number(row.totalTokens);
+    if (Number.isFinite(p)) grandTotal.promptTokens += p;
+    if (Number.isFinite(c)) grandTotal.completionTokens += c;
+    if (Number.isFinite(t)) grandTotal.totalTokens += t;
+  }
+  const sortFn = (a, b) => b.totalTokens - a.totalTokens || b.calls - a.calls || String(a.key).localeCompare(String(b.key));
+  return {
+    byUserId: [...byUserId.values()].sort(sortFn),
+    byClientIp: [...byClientIp.values()].sort(sortFn),
+    byAppId: [...byAppId.values()].sort(sortFn),
+    byTokenId: [...byTokenId.values()].sort(sortFn),
+    grandTotal,
+  };
+}
+
+function summarizeApiUsage(toolRoot) {
+  let rows = [];
+  try {
+    rows = listUsage(toolRoot, "", 1000);
+  } catch {
+    rows = [];
+  }
+  const byAppId = new Map();
+  const byClientIp = new Map();
+  const byTokenId = new Map();
+  for (const row of rows || []) {
+    const keyApp = rollupKey(row.appId);
+    const keyIp = rollupKey(row.ip);
+    const keyTok = rollupKey(row.tokenId);
+    for (const [map, key] of [
+      [byAppId, keyApp],
+      [byClientIp, keyIp],
+      [byTokenId, keyTok],
+    ]) {
+      const cur = map.get(key) || { key, calls: 0, latencyMsSum: 0, promptCharsSum: 0 };
+      cur.calls += 1;
+      const lat = Number(row.latencyMs);
+      const pc = Number(row.promptChars);
+      if (Number.isFinite(lat)) cur.latencyMsSum += lat;
+      if (Number.isFinite(pc)) cur.promptCharsSum += pc;
+      map.set(key, cur);
+    }
+  }
+  const sortFn = (a, b) => b.calls - a.calls || String(a.key).localeCompare(String(b.key));
+  return {
+    byAppId: [...byAppId.values()].sort(sortFn),
+    byClientIp: [...byClientIp.values()].sort(sortFn),
+    byTokenId: [...byTokenId.values()].sort(sortFn),
+  };
+}
+
+function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
+  const recent = readLlmUsageRows(toolRoot, { limit: Math.max(1, Number(limit) || 200) });
+  return {
+    generatedAt: new Date().toISOString(),
+    recent: recent.slice().reverse(),
+    llm: summarizeLlmUsage(readLlmUsageRows(toolRoot, { limit: 20000 })),
+    api: summarizeApiUsage(toolRoot),
   };
 }
 
@@ -2133,6 +2412,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
   if (p === "/api/v1/admin/traces") return { name: "traces_list" };
+  if (p === "/api/v1/admin/llm-usage") return { name: "llm_usage" };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)\/trace$/);
   if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/traces\/([^/]+)$/);
@@ -2528,11 +2808,24 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "traces_list") {
       const url = new URL(req.url || "/", "http://localhost");
       const limit = Number(url.searchParams.get("limit") || 50);
-      send(200, listRecentTraces({ ...ctx, limit }));
+      const client = url.searchParams.get("client") || "";
+      const clientIp = url.searchParams.get("clientIp") || "";
+      const crewOnly = ["1", "true", "yes"].includes(
+        String(url.searchParams.get("crewOnly") || "").trim().toLowerCase(),
+      );
+      send(200, listRecentTraces({ ...ctx, limit, client, clientIp, crewOnly }));
+      return true;
+    }
+    if (route.name === "llm_usage") {
+      const url = new URL(req.url || "/", "http://localhost");
+      const limit = Number(url.searchParams.get("limit") || 200);
+      send(200, buildLlmUsagePayload({ ...ctx, limit }));
       return true;
     }
     if (route.name === "runs_trace") {
-      const data = buildRunTrace(ctx, route.id);
+      const url = new URL(req.url || "/", "http://localhost");
+      const depth = url.searchParams.get("depth") || "all";
+      const data = buildRunTrace(ctx, route.id, { depth });
       if (!data) {
         send(404, { error: "Trace not found" });
         return true;
@@ -2618,6 +2911,7 @@ export {
   buildRunDetail,
   listRecentTraces,
   buildRunTrace,
+  buildLlmUsagePayload,
   fetchJson,
   isSecretKey,
   isInjectedK8sEnvKey,

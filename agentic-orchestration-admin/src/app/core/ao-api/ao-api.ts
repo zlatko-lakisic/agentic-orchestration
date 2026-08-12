@@ -25,6 +25,7 @@ import {
   SupportBundle,
   TopologyResponse,
   TracesListResponse,
+  LlmUsageResponse,
 } from './types';
 import type {
   TopologyGraph,
@@ -156,13 +157,28 @@ export class AoApi {
     );
   }
 
-  traces(limit = 50) {
-    return this.get<TracesListResponse>(`/api/v1/admin/traces?limit=${limit}`);
+  traces(
+    limit = 50,
+    opts?: { client?: string; clientIp?: string; crewOnly?: boolean }
+  ) {
+    const q = new URLSearchParams();
+    q.set('limit', String(limit));
+    if (opts?.client) q.set('client', opts.client);
+    if (opts?.clientIp) q.set('clientIp', opts.clientIp);
+    if (opts?.crewOnly) q.set('crewOnly', '1');
+    return this.get<TracesListResponse>(`/api/v1/admin/traces?${q.toString()}`);
   }
 
-  runTrace(id: string) {
+  runTrace(id: string, depth = 'all') {
+    const q = depth && depth !== 'all' ? `?depth=${encodeURIComponent(depth)}` : '';
     return this.get<RunTraceResponse>(
-      `/api/v1/admin/traces/${encodeURIComponent(id)}`
+      `/api/v1/admin/traces/${encodeURIComponent(id)}${q}`
+    );
+  }
+
+  llmUsage(limit = 200) {
+    return this.get<LlmUsageResponse>(
+      `/api/v1/admin/llm-usage?limit=${limit}`
     );
   }
 

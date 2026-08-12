@@ -419,6 +419,32 @@ def finalize_impartial_qa(
         write_impartial_qa_json(tool_root, report, session_slug=session_slug)
     except Exception:  # noqa: BLE001
         pass
+    try:
+        from orchestration.llm_usage import current_usage_identity
+        from orchestration.run_trace import append_run_event
+        import os
+
+        rid = (
+            current_usage_identity().get("runId")
+            or os.getenv("AGENTIC_RUN_ID", "").strip()
+        )
+        if rid:
+            append_run_event(
+                tool_root,
+                rid,
+                "qa",
+                actor="qa",
+                message=str(getattr(report, "verdict", None) or ("pass" if report.passed else "fail")),
+                detail={
+                    "passed": bool(report.passed),
+                    "skipped": bool(getattr(report, "skipped", False)),
+                    "score": getattr(report, "score", None),
+                    "verdict": getattr(report, "verdict", None),
+                    "reasons": list(getattr(report, "reasons", None) or [])[:12],
+                },
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return report
 
 

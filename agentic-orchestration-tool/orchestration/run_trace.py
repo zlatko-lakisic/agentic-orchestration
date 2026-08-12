@@ -23,10 +23,46 @@ TRACE_CAPABILITIES: dict[str, bool] = {
     "steps": True,
     "agentSelect": True,
     "directAgent": True,
-    "modelCalls": False,
-    "toolCalls": False,
-    "mcpCalls": False,
-    "qa": False,
+    "modelCalls": True,
+    "toolCalls": True,
+    "mcpCalls": True,
+    "qa": True,
+    "decision": True,
+}
+
+DEPTH_KINDS: dict[str, set[str]] = {
+    "all": set(),  # empty = no filter
+    "boundary": {
+        "request_start",
+        "run_end",
+        "run_error",
+        "agent_start",
+        "agent_end",
+    },
+    "decisions": {
+        "request_start",
+        "run_end",
+        "run_error",
+        "plan",
+        "decision",
+    },
+    "crew": {
+        "request_start",
+        "run_end",
+        "run_error",
+        "step_start",
+        "step_end",
+        "step_fail",
+    },
+    "tools": {
+        "request_start",
+        "run_end",
+        "run_error",
+        "tool_call",
+        "mcp_call",
+        "qa",
+        "model_call",
+    },
 }
 
 
@@ -100,7 +136,118 @@ def read_run_events(tool_root: Path, run_id: str, *, limit: int = 500) -> list[d
     return out
 
 
-def list_recent_trace_runs(tool_root: Path, *, limit: int = 50) -> list[dict[str, Any]]:
+def filter_events_by_depth(events: list[dict[str, Any]], depth: str | None) -> list[dict[str, Any]]:
+    d = str(depth or "all").strip().lower() or "all"
+    allowed = DEPTH_KINDS.get(d)
+    if not allowed:
+        return list(events)
+    return [e for e in events if str(e.get("kind") or "") in allowed]
+
+
+def _detail_identity(events: list[dict[str, Any]]) -> dict[str, Any]:
+    client_ip = app_id = user_name = user_id = mode = None
+    started_at: float | None = None
+    for ev in events:
+        ts = ev.get("ts")
+        if started_at is None and isinstance(ts, (int, float)):
+            started_at = float(ts)
+        detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
+        if client_ip is None and detail.get("client_ip"):
+            client_ip = str(detail.get("client_ip"))
+        if app_id is None and detail.get("app_id"):
+            app_id = str(detail.get("app_id"))
+        if user_name is None and detail.get("user_name"):
+            user_name = str(detail.get("user_name"))
+        if user_id is None and detail.get("user_id"):
+            user_id = str(detail.get("user_id"))
+        if mode is None and detail.get("mode"):
+            mode = str(detail.get("mode"))
+        if client_ip and app_id and user_name and user_id and mode and started_at is not None:
+            break
+    return {
+        "clientIp": client_ip,
+        "appId": app_id,
+        "userName": user_name,
+        "userId": user_id,
+        "mode": mode,
+        "startedAt": (
+            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at))
+            if started_at is not None
+            else None
+        ),
+        "startedTs": started_at,
+    }
+
+
+def sum_model_tokens(events: list[dict[str, Any]]) -> dict[str, int | None]:
+    prompt = completion = total = 0
+    any_tok = False
+    for ev in events:
+        if str(ev.get("kind") or "") != "model_call":
+            continue
+        detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
+        for key, bucket in (
+            ("prompt_tokens", "prompt"),
+            ("completion_tokens", "completion"),
+            ("total_tokens", "total"),
+        ):
+            v = detail.get(key)
+            if v is None:
+                continue
+            try:
+                n = int(v)
+            except (TypeError, ValueError):
+                continue
+            any_tok = True
+            if key == "prompt_tokens":
+                prompt += n
+            elif key == "completion_tokens":
+                completion += n
+            else:
+                total += n
+    if not any_tok:
+        return {"promptTokens": None, "completionTokens": None, "totalTokens": None}
+    return {"promptTokens": prompt, "completionTokens": completion, "totalTokens": total}
+
+
+def enrich_trace_list_item(events: list[dict[str, Any]], *, run_id: str, mtime: float) -> dict[str, Any]:
+    last = events[-1] if events else {}
+    kinds = {str(e.get("kind") or "") for e in events}
+    ident = _detail_identity(events)
+    tokens = sum_model_tokens(events)
+    return {
+        "runId": run_id,
+        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
+        "eventCount": len(events),
+        "lastKind": last.get("kind"),
+        "lastMessage": last.get("message"),
+        "durationMs": trace_duration_ms(events),
+        "clientIp": ident["clientIp"],
+        "appId": ident["appId"],
+        "userName": ident["userName"],
+        "userId": ident["userId"],
+        "mode": ident["mode"],
+        "startedAt": ident["startedAt"],
+        "hasPlan": "plan" in kinds,
+        "hasDecision": "decision" in kinds,
+        "hasSteps": bool(kinds & {"step_start", "step_end", "step_fail"}),
+        "hasTools": bool(kinds & {"tool_call", "mcp_call"}),
+        "hasQa": "qa" in kinds,
+        "promptTokens": tokens["promptTokens"],
+        "completionTokens": tokens["completionTokens"],
+        "totalTokens": tokens["totalTokens"],
+    }
+
+
+def list_recent_trace_runs(
+    tool_root: Path,
+    *,
+    limit: int = 50,
+    client: str | None = None,
+    client_ip: str | None = None,
+    crew_only: bool = False,
+    scan_limit: int = 500,
+) -> list[dict[str, Any]]:
     """List recent trace files (by mtime) for the Admin Traces index."""
     root = run_traces_dir(tool_root)
     if not root.is_dir():
@@ -115,21 +262,31 @@ def list_recent_trace_runs(tool_root: Path, *, limit: int = 50) -> list[dict[str
     except OSError:
         return []
     entries.sort(key=lambda x: x[0], reverse=True)
+
+    client_q = str(client or "").strip().lower()
+    ip_q = str(client_ip or "").strip().lower()
+    need_filter = bool(client_q or ip_q or crew_only)
     out: list[dict[str, Any]] = []
-    for mtime, p in entries[: max(1, limit)]:
+    for mtime, p in entries[: max(1, scan_limit if need_filter else limit)]:
         rid = p.stem
         events = read_run_events(tool_root, rid, limit=10_000)
-        last = events[-1] if events else {}
-        out.append(
-            {
-                "runId": rid,
-                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
-                "eventCount": len(events),
-                "lastKind": last.get("kind"),
-                "lastMessage": last.get("message"),
-                "durationMs": trace_duration_ms(events),
-            }
-        )
+        item = enrich_trace_list_item(events, run_id=rid, mtime=mtime)
+        if client_q:
+            blob = " ".join(
+                str(x or "")
+                for x in (item.get("appId"), item.get("userName"), item.get("userId"))
+            ).lower()
+            if client_q not in blob:
+                continue
+        if ip_q:
+            if ip_q not in str(item.get("clientIp") or "").lower():
+                continue
+        if crew_only:
+            if not (item.get("hasPlan") or item.get("hasDecision") or item.get("hasSteps")):
+                continue
+        out.append(item)
+        if len(out) >= max(1, limit):
+            break
     return out
 
 
@@ -154,6 +311,7 @@ def trace_instrumentation(events: list[dict[str, Any]]) -> dict[str, Any]:
     present = {
         "runBoundary": bool(kinds & {"request_start", "run_end", "run_error"}),
         "planner": "plan" in kinds,
+        "decision": "decision" in kinds,
         "steps": bool(kinds & {"step_start", "step_end", "step_fail"}),
         "agentSelect": any(
             isinstance(e.get("detail"), dict)
@@ -223,24 +381,25 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
             lines.append(f"  participant {pid} as {label}")
         return pid
 
-    # Always show the client edge when we have any events.
     if events:
         ensure("client")
 
-    prev = "client"
+    stack: list[str] = ["client"]
+
     for ev in events:
         actor = ensure(str(ev.get("actor") or "orchestrator"))
         kind = str(ev.get("kind") or "event")
         detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
         mode = str(detail.get("mode") or "").strip()
         provider = str(detail.get("agent_provider_id") or detail.get("provider_id") or "").strip()
+        caller = stack[-1] if stack else "client"
 
         if kind == "request_start":
             label = _short_label(mode or "request")
             lines.append(f"  client->>{actor}: {label}")
-            prev = actor
+            stack = ["client", actor]
         elif kind == "plan":
-            lines.append(f"  {prev}->>{actor}: plan")
+            lines.append(f"  {caller}->>{actor}: plan")
             note = _short_label(ev.get("message") or "")
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
@@ -248,37 +407,81 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
             for ag in agents[:8]:
                 aid = ensure(f"agent:{ag}")
                 lines.append(f"  {actor}->>{aid}: select")
+                lines.append(f"  {aid}-->>{actor}: ok")
             mcps = detail.get("mcps") if isinstance(detail.get("mcps"), list) else []
             if mcps:
                 mid = ensure("mcp")
                 lines.append(f"  {actor}->>{mid}: {_short_label(', '.join(str(x) for x in mcps[:3]))}")
+                lines.append(f"  {mid}-->>{actor}: ok")
             skills = detail.get("skills") if isinstance(detail.get("skills"), list) else []
             if skills:
                 sid = ensure("skills")
                 lines.append(
                     f"  {actor}->>{sid}: {_short_label(', '.join(str(x) for x in skills[:3]))}"
                 )
-            prev = actor
+                lines.append(f"  {sid}-->>{actor}: ok")
+            if caller != actor:
+                lines.append(f"  {actor}-->>{caller}: ok")
+        elif kind == "decision":
+            lines.append(f"  {caller}->>{actor}: decision")
+            note = _short_label(ev.get("message") or detail.get("reason") or "decision")
+            if note and note != "event":
+                lines.append(f"  Note over {actor}: {note}")
+            if caller != actor:
+                lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "agent_start":
             label = _short_label(provider or ev.get("message") or "agent")
-            lines.append(f"  {prev}->>{actor}: {label}")
-            prev = actor
+            lines.append(f"  {caller}->>{actor}: {label}")
+            stack.append(actor)
         elif kind == "agent_end":
             label = _short_label(ev.get("message") or "done")
-            lines.append(f"  {actor}-->>{prev}: {label}")
-        elif kind in ("step_start", "step_end", "step_fail"):
-            arrow = "-->>" if kind == "step_end" else "->>"
+            if stack and stack[-1] == actor:
+                stack.pop()
+            ret_to = stack[-1] if stack else "client"
+            lines.append(f"  {actor}-->>{ret_to}: {label}")
+        elif kind == "step_start":
             label = _short_label(kind.replace("_", " "), provider or ev.get("message") or "")
-            lines.append(f"  {prev}{arrow}{actor}: {label}")
-            prev = actor
+            lines.append(f"  {caller}->>{actor}: {label}")
+            stack.append(actor)
+        elif kind in ("step_end", "step_fail"):
+            label = _short_label(kind.replace("_", " "), provider or ev.get("message") or "")
+            if stack and stack[-1] == actor:
+                stack.pop()
+            ret_to = stack[-1] if stack else "client"
+            lines.append(f"  {actor}-->>{ret_to}: {label}")
+        elif kind == "tool_call":
+            phase = str(detail.get("phase") or "")
+            name = _short_label(detail.get("name") or ev.get("message") or "tool")
+            tid = ensure(f"tool:{detail.get('name') or 'tool'}")
+            if phase == "end":
+                lines.append(f"  {tid}-->>{caller}: {name}")
+            else:
+                lines.append(f"  {caller}->>{tid}: {name}")
+        elif kind == "mcp_call":
+            mid = ensure(f"mcp:{detail.get('mcp_id') or 'mcp'}")
+            label = _short_label(detail.get("method") or detail.get("path") or "mcp")
+            phase = str(detail.get("phase") or "")
+            if phase == "end" or detail.get("status") is not None:
+                lines.append(f"  {mid}-->>{caller}: {label}")
+            else:
+                lines.append(f"  {caller}->>{mid}: {label}")
+        elif kind == "model_call":
+            mid = ensure(f"model:{detail.get('model') or actor}")
+            toks = detail.get("total_tokens")
+            label = _short_label(detail.get("model") or "model", f"{toks} tok" if toks is not None else "")
+            lines.append(f"  {caller}->>{mid}: {label}")
+            lines.append(f"  {mid}-->>{caller}: ok")
+        elif kind == "qa":
+            lines.append(f"  Note over {actor}: {_short_label('qa', ev.get('message') or detail.get('verdict') or '')}")
         elif kind in ("run_end", "run_error"):
             label = _short_label(ev.get("message") or kind.replace("_", " "))
             lines.append(f"  {actor}-->>client: {label}")
-            prev = "client"
+            stack = ["client"]
         else:
             label = _short_label(kind, ev.get("message") or "")
-            lines.append(f"  {prev}->>{actor}: {label}")
-            prev = actor
+            lines.append(f"  {caller}->>{actor}: {label}")
+            if actor != caller:
+                stack.append(actor)
 
     if len(lines) == 1:
         ensure("client")
@@ -286,16 +489,33 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def build_run_trace_payload(tool_root: Path, run_id: str) -> dict[str, Any] | None:
+def build_run_trace_payload(
+    tool_root: Path,
+    run_id: str,
+    *,
+    depth: str | None = None,
+) -> dict[str, Any] | None:
     rid = str(run_id or "").strip()
     if not rid:
         return None
     events = read_run_events(tool_root, rid, limit=10_000)
+    filtered = filter_events_by_depth(events, depth)
+    ident = _detail_identity(events)
+    tokens = sum_model_tokens(events)
     return {
         "runId": rid,
-        "eventCount": len(events),
-        "events": events,
-        "mermaid": events_to_mermaid(events),
+        "eventCount": len(filtered),
+        "events": filtered,
+        "mermaid": events_to_mermaid(filtered),
         "durationMs": trace_duration_ms(events),
         "instrumentation": trace_instrumentation(events),
+        "depth": str(depth or "all").strip().lower() or "all",
+        "clientIp": ident["clientIp"],
+        "appId": ident["appId"],
+        "userName": ident["userName"],
+        "userId": ident["userId"],
+        "mode": ident["mode"],
+        "promptTokens": tokens["promptTokens"],
+        "completionTokens": tokens["completionTokens"],
+        "totalTokens": tokens["totalTokens"],
     }

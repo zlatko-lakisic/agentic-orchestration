@@ -93,11 +93,14 @@ class CrewAIExecutionBackend:
     ) -> WorkflowExecutionResult:
         run_id = str(options.run_id or "").strip() or new_run_id()
         emit_log("inprocess kickoff start", run_id=run_id, component="inprocess")
+        tool_root = Path(__file__).resolve().parents[2]
         try:
             from orchestration.run_trace import append_run_event
-            from pathlib import Path
+            from orchestration.llm_usage import install_litellm_usage_callback
+            from orchestration.tool_trace import apply_tool_call_trace_wrap
 
-            tool_root = Path(__file__).resolve().parents[2]
+            apply_tool_call_trace_wrap()
+            install_litellm_usage_callback()
             agents = list(built.agent_providers.keys()) if built.agent_providers else []
             append_run_event(
                 tool_root,
@@ -108,6 +111,7 @@ class CrewAIExecutionBackend:
                 detail={"agents": agents},
             )
         except Exception:  # noqa: BLE001
+            agents = []
             pass
         _on_workflow_start(built)
 
@@ -207,8 +211,34 @@ class CrewAIExecutionBackend:
                 run_id=run_id,
                 component="inprocess",
             )
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    tool_root,
+                    run_id,
+                    "step_fail",
+                    actor="inprocess",
+                    message=str(workflow_error or "fail")[:500],
+                    detail={"agents": agents},
+                )
+            except Exception:  # noqa: BLE001
+                pass
         else:
             emit_log("inprocess kickoff end", run_id=run_id, component="inprocess")
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    tool_root,
+                    run_id,
+                    "step_end",
+                    actor="inprocess",
+                    message=str(built.workflow_context.get("workflow_name") or "kickoff"),
+                    detail={"agents": agents},
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         return WorkflowExecutionResult(
             exit_code=exit_code,

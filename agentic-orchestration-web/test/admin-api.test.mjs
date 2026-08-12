@@ -31,6 +31,7 @@ test("matchAdminRoute recognizes phase-0 paths", () => {
   assert.equal(matchAdminRoute("/api/v1/admin/chat-auth")?.name, "chat_auth");
   assert.equal(matchAdminRoute("/api/v1/admin/tokens/abc/usage")?.name, "token_usage");
   assert.equal(matchAdminRoute("/api/v1/admin/tokens/abc")?.id, "abc");
+  assert.equal(matchAdminRoute("/api/v1/admin/llm-usage")?.name, "llm_usage");
   assert.equal(matchAdminRoute("/api/v1/admin/control")?.name, "control");
   assert.equal(matchAdminRoute("/api/v1/admin/control/restart")?.name, "control_restart");
   assert.equal(matchAdminRoute("/api/ping"), null);

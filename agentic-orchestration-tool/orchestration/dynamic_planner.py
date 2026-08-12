@@ -331,6 +331,22 @@ def _planner_chat_completion(
                     elapsed_s=time.perf_counter() - _planner_t0,
                     out_chars=len(content),
                 )
+                try:
+                    from orchestration.llm_usage import normalize_openai_usage, record_llm_usage
+
+                    usage = resp.get("usage") if isinstance(resp, dict) else None
+                    norm = normalize_openai_usage(usage)
+                    record_llm_usage(
+                        source="planner",
+                        model=clean_model,
+                        prompt_tokens=norm["prompt_tokens"],
+                        completion_tokens=norm["completion_tokens"],
+                        total_tokens=norm["total_tokens"],
+                        latency_ms=round((time.perf_counter() - _planner_t0) * 1000.0, 1),
+                        ok=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 return content
             except Exception as exc:  # noqa: BLE001
                 detail = str(exc)

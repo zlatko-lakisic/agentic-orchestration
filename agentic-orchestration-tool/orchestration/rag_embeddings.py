@@ -144,6 +144,24 @@ def litellm_embed_texts(texts: list[str], model: str) -> list[list[float]]:
             "No silent fallback to sqlite-fts.",
         ) from exc
 
+    try:
+        from orchestration.llm_usage import normalize_openai_usage, record_llm_usage
+
+        usage = getattr(resp, "usage", None)
+        if usage is None and isinstance(resp, dict):
+            usage = resp.get("usage")
+        norm = normalize_openai_usage(usage)
+        record_llm_usage(
+            source="embed",
+            model=model_id,
+            prompt_tokens=norm["prompt_tokens"],
+            completion_tokens=norm["completion_tokens"],
+            total_tokens=norm["total_tokens"],
+            ok=True,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     data = getattr(resp, "data", None)
     if data is None and isinstance(resp, dict):
         data = resp.get("data")
