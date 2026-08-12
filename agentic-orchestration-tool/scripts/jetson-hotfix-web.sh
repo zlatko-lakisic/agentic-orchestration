@@ -49,6 +49,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
   --from-file=admin-api.mjs="${WEB_ROOT}/lib/admin-api.mjs" \
   --from-file=api-tokens.mjs="${WEB_ROOT}/lib/api-tokens.mjs" \
+  --from-file=app-prefs.mjs="${WEB_ROOT}/lib/app-prefs.mjs" \
   --from-file=admin-logs.mjs="${WEB_ROOT}/lib/admin-logs.mjs" \
   --from-file=admin-topology-graph.mjs="${WEB_ROOT}/lib/admin-topology-graph.mjs" \
   --from-file=admin-topology-probes.mjs="${WEB_ROOT}/lib/admin-topology-probes.mjs" \
@@ -119,6 +120,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=run_trace.py="${ORCH_ROOT}/run_trace.py" \
   --from-file=llm_usage.py="${ORCH_ROOT}/llm_usage.py" \
   --from-file=tool_trace.py="${ORCH_ROOT}/tool_trace.py" \
+  --from-file=app_prefs.py="${ORCH_ROOT}/app_prefs.py" \
   --from-file=workflow_ollama.py="${ORCH_ROOT}/workflow_ollama.py" \
   --from-file=metrics.py="${ORCH_ROOT}/metrics.py" \
   --from-file=run_store_backends.py="${ORCH_ROOT}/run_store_backends.py" \

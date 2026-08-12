@@ -129,6 +129,9 @@ spec:
               mountPath: /app/orchestration/tool_trace.py
               subPath: tool_trace.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/app_prefs.py
+              subPath: app_prefs.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/workflow_ollama.py
               subPath: workflow_ollama.py
             - name: tool-hotfix-orchestration
