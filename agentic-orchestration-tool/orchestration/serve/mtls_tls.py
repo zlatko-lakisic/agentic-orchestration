@@ -21,6 +21,7 @@ _PEER_CERTS: dict[tuple[str, int], dict[str, Any] | None] = {}
 MTLS_PUBLIC_PATHS = frozenset(
     {
         "/health",
+        "/metrics",
         "/api/ping",
         "/api/v1/admin/reach-sessions",
         "/api/v1/admin/mtls/clients",

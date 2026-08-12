@@ -19,10 +19,12 @@ import {
   PingResponse,
   RunDetail,
   RunsListResponse,
+  RunTraceResponse,
   SessionResponse,
   StorageResponse,
   SupportBundle,
   TopologyResponse,
+  TracesListResponse,
 } from './types';
 import type {
   TopologyGraph,
@@ -151,6 +153,16 @@ export class AoApi {
   runDetail(id: string) {
     return this.get<RunDetail>(
       `/api/v1/admin/runs/${encodeURIComponent(id)}`
+    );
+  }
+
+  traces(limit = 50) {
+    return this.get<TracesListResponse>(`/api/v1/admin/traces?limit=${limit}`);
+  }
+
+  runTrace(id: string) {
+    return this.get<RunTraceResponse>(
+      `/api/v1/admin/traces/${encodeURIComponent(id)}`
     );
   }
 

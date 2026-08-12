@@ -33,6 +33,11 @@ class OrchestratorSessionFile:
     pending_reprocess_goal: str | None = None
     # Last workflow run backend id (``inprocess``, ``subprocess``, ``kubernetes``).
     last_execution_backend: str | None = None
+    # Last run outcome (Admin Runs / observability).
+    last_run_id: str | None = None
+    last_exit_code: int | None = None
+    last_error: str | None = None
+    last_k8s_jobs: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,6 +56,20 @@ class OrchestratorSessionFile:
             if role in ("user", "assistant") and content:
                 clean_hist.append({"role": role, "content": content})
 
+        jobs_raw = data.get("last_k8s_jobs") or []
+        jobs: list[dict[str, Any]] = []
+        if isinstance(jobs_raw, list):
+            for item in jobs_raw:
+                if isinstance(item, dict):
+                    jobs.append(dict(item))
+
+        exit_raw = data.get("last_exit_code")
+        last_exit: int | None
+        try:
+            last_exit = int(exit_raw) if exit_raw is not None else None
+        except (TypeError, ValueError):
+            last_exit = None
+
         return cls(
             version=int(data.get("version", 1)),
             updated_at=str(data.get("updated_at", "")),
@@ -61,6 +80,10 @@ class OrchestratorSessionFile:
             last_final_answer_excerpt=data.get("last_final_answer_excerpt"),
             pending_reprocess_goal=data.get("pending_reprocess_goal"),
             last_execution_backend=data.get("last_execution_backend"),
+            last_run_id=str(data["last_run_id"]).strip() if data.get("last_run_id") else None,
+            last_exit_code=last_exit,
+            last_error=str(data["last_error"]) if data.get("last_error") else None,
+            last_k8s_jobs=jobs,
         )
 
 
@@ -208,24 +231,62 @@ def excerpt_max_chars() -> int:
     return int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
 
 
+def _apply_run_outcome(
+    data: OrchestratorSessionFile,
+    *,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list[dict[str, Any]] | None = None,
+    execution_backend: str | None = None,
+) -> None:
+    if run_id is not None and str(run_id).strip():
+        data.last_run_id = str(run_id).strip()
+    if exit_code is not None:
+        try:
+            data.last_exit_code = int(exit_code)
+        except (TypeError, ValueError):
+            pass
+    if error is not None:
+        text = str(error).strip()
+        data.last_error = text or None
+    if k8s_jobs is not None:
+        data.last_k8s_jobs = [dict(j) for j in k8s_jobs if isinstance(j, dict)]
+    if execution_backend:
+        data.last_execution_backend = execution_backend.strip()
+
+
 def update_session_after_crew(
     path: Path,
     result_text: str | None,
     *,
     execution_backend: str | None = None,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list[dict[str, Any]] | None = None,
 ) -> None:
     """Store a truncated crew output so the next planner turn can use it as context."""
     from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
 
     text = (result_text or "").strip()
-    if not text and not execution_backend:
+    has_outcome = any(
+        x is not None for x in (execution_backend, run_id, exit_code, error, k8s_jobs)
+    )
+    if not text and not has_outcome:
         return
     data = load_session(path)
     if text:
         scrubbed = maybe_redact_for_cloud_provider(text)
         data.last_crew_output_excerpt = scrubbed[: excerpt_max_chars()]
-    if execution_backend:
-        data.last_execution_backend = execution_backend.strip()
+    _apply_run_outcome(
+        data,
+        run_id=run_id,
+        exit_code=exit_code,
+        error=error,
+        k8s_jobs=k8s_jobs,
+        execution_backend=execution_backend,
+    )
     save_session(path, data)
 
 
@@ -235,12 +296,19 @@ def update_session_after_final(
     user_goal: str,
     result_text: str | None,
     execution_backend: str | None = None,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list[dict[str, Any]] | None = None,
 ) -> None:
     """Store the finalized answer for answer caching."""
     from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
 
     text = (result_text or "").strip()
-    if not text and not execution_backend:
+    has_outcome = any(
+        x is not None for x in (execution_backend, run_id, exit_code, error, k8s_jobs)
+    )
+    if not text and not has_outcome:
         return
     data = load_session(path)
     if text:
@@ -249,6 +317,12 @@ def update_session_after_final(
         data.last_final_answer_excerpt = scrubbed[: excerpt_max_chars()]
         # Clear any pending "reprocess" marker once we have a new finalized answer.
         data.pending_reprocess_goal = None
-    if execution_backend:
-        data.last_execution_backend = execution_backend.strip()
+    _apply_run_outcome(
+        data,
+        run_id=run_id,
+        exit_code=exit_code,
+        error=error,
+        k8s_jobs=k8s_jobs,
+        execution_backend=execution_backend,
+    )
     save_session(path, data)

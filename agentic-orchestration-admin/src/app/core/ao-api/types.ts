@@ -233,6 +233,10 @@ export interface AdminRun {
   steps?: number | null;
   mode?: string | null;
   outcome?: string | null;
+  ok?: boolean | null;
+  exitCode?: number | null;
+  lastRunId?: string | null;
+  error?: string | null;
   lastGoal?: string | null;
   path?: string;
 }
@@ -247,11 +251,51 @@ export interface RunDetail extends AdminRun {
   stepsDetail?: Array<{
     id: string;
     exitCode?: number | null;
-    provider?: string | null;
-    durationMs?: number | null;
+    error?: string | null;
+    recoverable?: boolean | null;
+    recoveryHint?: string | null;
+    resultText?: string | null;
+    ok?: boolean | null;
   }>;
   plannerHistory?: unknown[];
   lastAnswerExcerpt?: string | null;
+  k8sJobs?: Array<{
+    job_name?: string;
+    namespace?: string;
+    pod_name?: string | null;
+    succeeded?: boolean;
+    failed?: boolean;
+    message?: string | null;
+  }>;
+}
+
+export interface TraceListItem {
+  runId: string;
+  updatedAt?: string | null;
+  eventCount?: number | null;
+  lastKind?: string | null;
+  lastMessage?: string | null;
+}
+
+export interface TracesListResponse {
+  generatedAt?: string;
+  runs?: TraceListItem[];
+}
+
+export interface RunTraceEvent {
+  ts?: number;
+  run_id?: string;
+  kind?: string;
+  actor?: string;
+  message?: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface RunTraceResponse {
+  runId: string;
+  eventCount?: number;
+  events?: RunTraceEvent[];
+  mermaid?: string;
 }
 
 export interface SupportBundle {

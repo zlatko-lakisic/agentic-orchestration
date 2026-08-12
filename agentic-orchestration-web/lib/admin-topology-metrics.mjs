@@ -5,6 +5,8 @@
  * web process liveness) — never fabricated zeros for uninstrumented links.
  */
 
+import { recordTopologyRtt } from "./ao-metrics.mjs";
+
 const MAX_POINTS = 90; // ~3 minutes at 2s ticks
 const HISTORY_MS = 15 * 60 * 1000;
 
@@ -87,6 +89,7 @@ export function ingestTopologySample(graph, probe = {}) {
     if (isEngine && engineLatency != null) {
       latencyMs = engineLatency;
       ok = engineOk;
+      recordTopologyRtt("engine", latencyMs);
     } else if (isWeb) {
       latencyMs = 0;
       ok = true;

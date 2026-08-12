@@ -30,7 +30,10 @@ import {
 } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { RouterLink } from '@angular/router';
+import { RouterLink, ActivatedRoute } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import {
   ApexAxisChartSeries,
   ApexChart,
@@ -75,6 +78,9 @@ const DEPENDENCY_ORDER = [
   selector: 'ao-overview-page',
   imports: [
     RouterLink,
+    FormsModule,
+    MatFormFieldModule,
+    MatInputModule,
     ErrorState,
     MatButtonModule,
     MatIconModule,
@@ -588,17 +594,34 @@ const DEPENDENCY_ORDER = [
       </mat-card>
 
       <!-- Live logs (collapsed by default for triage) -->
-      <mat-expansion-panel class="!rounded-xl !border !shadow-none">
+      <mat-expansion-panel
+        class="!rounded-xl !border !shadow-none"
+        [expanded]="logsExpanded()"
+        (opened)="logsExpanded.set(true)"
+        (closed)="logsExpanded.set(false)"
+      >
         <mat-expansion-panel-header>
           <mat-panel-title>Live logs</mat-panel-title>
           <mat-panel-description>
             Streaming from web + cluster tails
+            @if (runIdFilter()) {
+              · filter {{ runIdFilter() }}
+            }
           </mat-panel-description>
         </mat-expansion-panel-header>
         <div class="flex flex-col gap-3 pb-2 sm:flex-row sm:items-center">
           <div class="min-w-0 flex-auto text-sm text-neutral-500">
             Filter sources · errors red, warnings amber
           </div>
+          <mat-form-field class="w-full sm:w-72" appearance="outline" subscriptSizing="dynamic">
+            <mat-label>run_id filter</mat-label>
+            <input
+              matInput
+              [ngModel]="runIdFilter()"
+              (ngModelChange)="onRunIdFilterChange($event)"
+              placeholder="paste run_id"
+            />
+          </mat-form-field>
           <button
             matButton="outlined"
             type="button"
@@ -654,6 +677,7 @@ const DEPENDENCY_ORDER = [
 export class OverviewPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
   private theming = inject(Theming);
+  private route = inject(ActivatedRoute);
   readonly live = inject(AoLiveWs);
 
   private logViewport =
@@ -666,6 +690,8 @@ export class OverviewPage implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly selectedSources = signal<string[]>([]);
   readonly followLogs = signal(true);
+  readonly runIdFilter = signal('');
+  readonly logsExpanded = signal(false);
 
   readonly components = computed(
     () => (this.topology()?.components || []) as TopologyComponent[]
@@ -691,9 +717,13 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   readonly filteredLogs = computed(() => {
     const allow = new Set(this.selectedSources());
-    const logs = this.live.logs();
-    if (!allow.size) return logs;
-    return logs.filter((e) => allow.has(e.source));
+    const needle = this.runIdFilter().trim().toLowerCase();
+    let logs = this.live.logs();
+    if (allow.size) logs = logs.filter((e) => allow.has(e.source));
+    if (needle) {
+      logs = logs.filter((e) => String(e.line || '').toLowerCase().includes(needle));
+    }
+    return logs;
   });
 
   readonly cpuMemSeries = computed((): ApexAxisChartSeries => {
@@ -1032,6 +1062,25 @@ export class OverviewPage implements OnInit, OnDestroy {
     this.live.acquire({ metrics: true, logs: true });
     this.reload();
     this.topologyTimer = setInterval(() => this.reload(), 30000);
+    const qRun =
+      String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
+      String(this.route.snapshot.queryParamMap.get('q') || '').trim();
+    if (qRun) {
+      this.applyRunIdFilter(qRun);
+    }
+  }
+
+  onRunIdFilterChange(value: string) {
+    this.applyRunIdFilter(String(value || ''));
+  }
+
+  private applyRunIdFilter(value: string) {
+    const rid = value.trim();
+    this.runIdFilter.set(rid);
+    if (rid) {
+      this.logsExpanded.set(true);
+      this.live.followRunLogs(rid);
+    }
   }
 
   ngOnDestroy() {

@@ -57,9 +57,15 @@ import {
 } from "./lib/api-tokens.mjs";
 import {
   adminLog,
+  followWorkerLogsForRun,
   startAdminLogsPush,
   stopAdminLogsPush,
 } from "./lib/admin-logs.mjs";
+import {
+  maybeInitWebSentry,
+  metricsText,
+  recordWebRunEnd,
+} from "./lib/ao-metrics.mjs";
 import {
   startTopologyPush,
   stopTopologyPush,
@@ -2268,6 +2274,15 @@ function handleHttp(req, res) {
   if (tryServeVendorAsset(req, res)) {
     return;
   }
+  const reqPath = getRequestPathname(req);
+  if (reqPath === "/metrics" || reqPath.endsWith("/metrics")) {
+    const body = metricsText();
+    res.writeHead(200, {
+      "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+    });
+    res.end(body);
+    return;
+  }
   if (isOpenAiChatCompletionsPath(req)) {
     handleOpenAiChatCompletions(req, res).catch((err) => {
       if (!res.headersSent) {
@@ -2871,6 +2886,10 @@ async function extractOpenAiMediaFilesFromMessages(messages) {
   return out;
 }
 
+function mintRunId() {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
 function buildDynamicSpawnArgs(text, opts) {
   const {
     runMode,
@@ -2884,6 +2903,7 @@ function buildDynamicSpawnArgs(text, opts) {
     verboseCrew,
     selectedAgentProviderIds,
     attachmentManifestPath,
+    runId,
   } = opts;
   const mode = String(runMode || "dynamic").trim();
   const args = ["main.py"];
@@ -2924,6 +2944,8 @@ function buildDynamicSpawnArgs(text, opts) {
   if (attachmentManifestPath) {
     args.push("--dynamic-attachments", attachmentManifestPath);
   }
+  const rid = runId && String(runId).trim();
+  if (rid) args.push("--run-id", rid);
   return args;
 }
 
@@ -2950,6 +2972,8 @@ async function runDynamicAwait({
       "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled.",
     );
   }
+  const runId = mintRunId();
+  const started = Date.now();
   const args = buildDynamicSpawnArgs(text, {
     runMode,
     iterativeRounds,
@@ -2962,10 +2986,12 @@ async function runDynamicAwait({
     verboseCrew,
     selectedAgentProviderIds,
     attachmentManifestPath,
+    runId,
   });
   const env = webOrchestratorSpawnEnv({
     ...(disableAnswerCache ? { AGENTIC_ANSWER_CACHE: "0" } : {}),
     ...userDisplayNameSpawnEnv(userName),
+    AGENTIC_RUN_ID: runId,
     ...performanceEnv,
   });
   return new Promise((resolve, reject) => {
@@ -2997,15 +3023,27 @@ async function runDynamicAwait({
     }
     proc.on("error", (err) => {
       maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      try {
+        recordWebRunEnd({ ok: false, elapsedMs: Date.now() - started });
+      } catch {
+        /* ignore */
+      }
       reject(err);
     });
     proc.on("close", (code, signal) => {
       maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      const exitCode = typeof code === "number" ? code : 0;
+      try {
+        recordWebRunEnd({ ok: exitCode === 0, elapsedMs: Date.now() - started });
+      } catch {
+        /* ignore */
+      }
       resolve({
-        code: typeof code === "number" ? code : 0,
+        code: exitCode,
         signal: signal || null,
         stdout,
         stderr,
+        runId,
       });
     });
   });
@@ -3029,19 +3067,28 @@ function runDynamic(
   },
   ws,
 ) {
-  sendJson(ws, { type: "preflight", status: "start", message: "Checking Python dependencies…" });
-  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || "") }))) {
+  const runId = mintRunId();
+  const started = Date.now();
+  const runTag = { run_id: runId, runId };
+  sendJson(ws, {
+    type: "preflight",
+    status: "start",
+    message: "Checking Python dependencies…",
+    ...runTag,
+  });
+  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || ""), ...runTag }))) {
     maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
-    sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed." });
+    sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed.", ...runTag });
     sendJson(ws, {
       type: "error",
       message:
         "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled. Activate/install the tool venv and restart web server.",
+      ...runTag,
     });
     ws._busy = false;
     return;
   }
-  sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready." });
+  sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready.", ...runTag });
 
   const args = buildDynamicSpawnArgs(text, {
     runMode,
@@ -3055,11 +3102,15 @@ function runDynamic(
     verboseCrew,
     selectedAgentProviderIds,
     attachmentManifestPath,
+    runId,
   });
 
-  sendJson(ws, { type: "run_start", args });
+  sendJson(ws, { type: "run_start", args, ...runTag });
 
-  const env = webOrchestratorSpawnEnvForWs(ws, performanceEnv);
+  const env = {
+    ...webOrchestratorSpawnEnvForWs(ws, performanceEnv),
+    AGENTIC_RUN_ID: runId,
+  };
 
   const proc = spawn(PYTHON, args, {
     cwd: TOOL_ROOT,
@@ -3069,26 +3120,42 @@ function runDynamic(
 
   if (proc.stdout) {
     proc.stdout.on("data", (chunk) => {
-      sendJson(ws, { type: "chunk", stream: "stdout", text: chunk.toString("utf8") });
+      sendJson(ws, { type: "chunk", stream: "stdout", text: chunk.toString("utf8"), ...runTag });
     });
   }
   if (proc.stderr) {
     proc.stderr.on("data", (chunk) => {
-      sendJson(ws, { type: "chunk", stream: "stderr", text: chunk.toString("utf8") });
+      sendJson(ws, { type: "chunk", stream: "stderr", text: chunk.toString("utf8"), ...runTag });
     });
   }
   proc.on("error", (err) => {
     maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
-    sendJson(ws, { type: "error", message: clientErrorMessage(err, "Failed to start orchestration process") });
+    sendJson(ws, {
+      type: "error",
+      message: clientErrorMessage(err, "Failed to start orchestration process"),
+      ...runTag,
+    });
+    try {
+      recordWebRunEnd({ ok: false, elapsedMs: Date.now() - started });
+    } catch {
+      /* ignore */
+    }
     ws._busy = false;
   });
   proc.on("close", (code, signal) => {
     maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+    const exitCode = typeof code === "number" ? code : 0;
     sendJson(ws, {
       type: "run_end",
-      code: typeof code === "number" ? code : 0,
+      code: exitCode,
       signal: signal || null,
+      ...runTag,
     });
+    try {
+      recordWebRunEnd({ ok: exitCode === 0, elapsedMs: Date.now() - started });
+    } catch {
+      /* ignore */
+    }
     ws._busy = false;
   });
 }
@@ -3225,6 +3292,11 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "admin_logs_subscribe") {
       startAdminLogsPush(ws, sendJson, { sources: msg.sources });
+      return;
+    }
+    if (msg.type === "admin_logs_follow_run") {
+      const runId = String(msg.runId || msg.run_id || "").trim();
+      if (runId) followWorkerLogsForRun(runId);
       return;
     }
     if (msg.type === "admin_logs_unsubscribe") {
@@ -3388,5 +3460,10 @@ server.listen(PORT, HOST, () => {
       "  (set AGENTIC_PYTHON if this is wrong; install deps: pip install -r requirements.txt in AGENTIC_TOOL_ROOT)",
     );
   }
+  maybeInitWebSentry().then((s) => {
+    if (s?.enabled) {
+      console.error("  Sentry (web) enabled via AGENTIC_WEB_SENTRY_DSN");
+    }
+  }).catch(() => {});
   startOllamaKeepAliveLoop();
 });

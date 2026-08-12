@@ -89,14 +89,16 @@ spec:
               mountPath: /host/agentic-metrics
               readOnly: true
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: engine
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 12
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: engine
             initialDelaySeconds: 30
             periodSeconds: 30

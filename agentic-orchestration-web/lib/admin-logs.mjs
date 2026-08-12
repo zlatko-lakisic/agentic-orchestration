@@ -11,7 +11,7 @@ import https from "node:https";
 import { EventEmitter } from "node:events";
 
 const MAX_BUFFER = 500;
-const SOURCES = ["web", "coordinator", "engine", "warm-pool", "broker"];
+const SOURCES = ["web", "coordinator", "engine", "warm-pool", "broker", "worker"];
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 const TAIL_SPECS = [
   {
@@ -113,6 +113,60 @@ export function startAdminLogsPush(ws, sendJson, opts = {}) {
   adminLog("web", "Admin log stream subscribed", "info");
 }
 
+/**
+ * On-demand: follow worker Job pods labeled ``agentic.run_id`` for a correlation id.
+ * @param {string} runId
+ */
+export function followWorkerLogsForRun(runId) {
+  const rid = String(runId || "").trim();
+  if (!rid) return;
+  void (async () => {
+    await ensureK8sLogTails();
+    const sa = readSa();
+    if (!sa) {
+      adminLog("web", `Cannot follow worker logs for run_id=${rid} (not in-cluster)`, "warn");
+      return;
+    }
+    const label = sanitizeK8sLabel(rid);
+    try {
+      const pods = await listPods(sa, `agentic.run_id=${label}`);
+      if (!pods.length) {
+        adminLog(
+          "worker",
+          `no worker pods with agentic.run_id=${label} (run_id=${rid})`,
+          "warn",
+        );
+        return;
+      }
+      adminLog("worker", `following ${pods.length} worker pod(s) for run_id=${rid}`, "info");
+      for (const item of pods) {
+        const name = item?.metadata?.name;
+        if (!name) continue;
+        const sourceKey = `worker:${name}`;
+        void followPodLogs(sa, name, {
+          source: "worker",
+          container: null,
+          tailLines: 120,
+          _key: sourceKey,
+          _linePrefix: `[${rid}/${name}] `,
+        }).catch((err) => {
+          adminLog("worker", `tail ${name}: ${err?.message || err}`, "warn");
+        });
+      }
+    } catch (err) {
+      adminLog("worker", `follow run ${rid}: ${err?.message || err}`, "warn");
+    }
+  })();
+}
+
+function sanitizeK8sLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9.-]/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63) || "x";
+}
+
 /** @param {import('ws').WebSocket} ws */
 export function stopAdminLogsPush(ws) {
   if (ws._adminLogListener) {
@@ -209,7 +263,7 @@ function listPods(sa, labelSelector) {
  */
 function followPodLogs(sa, podName, spec) {
   return new Promise((resolve, reject) => {
-    const key = spec.source;
+    const key = spec._key || spec.source;
     stopTail(key);
 
     const qs = new URLSearchParams({
@@ -219,6 +273,7 @@ function followPodLogs(sa, podName, spec) {
     });
     if (spec.container) qs.set("container", spec.container);
     const path = `/api/v1/namespaces/${encodeURIComponent(sa.namespace)}/pods/${encodeURIComponent(podName)}/log?${qs}`;
+    const prefix = spec._linePrefix || "";
 
     let buf = "";
     const req = k8sStream(sa, path, {
@@ -226,11 +281,11 @@ function followPodLogs(sa, podName, spec) {
         buf += String(chunk || "");
         const parts = buf.split("\n");
         buf = parts.pop() || "";
-        for (const line of parts) adminLog(spec.source, line, "info");
+        for (const line of parts) adminLog(spec.source, `${prefix}${line}`, "info");
       },
       onEnd: () => {
         activeTails.delete(key);
-        if (buf.trim()) adminLog(spec.source, buf, "info");
+        if (buf.trim()) adminLog(spec.source, `${prefix}${buf}`, "info");
         resolve();
       },
       onError: (err) => {

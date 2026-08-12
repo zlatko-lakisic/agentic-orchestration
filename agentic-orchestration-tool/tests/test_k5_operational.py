@@ -14,7 +14,9 @@ from orchestration.backends.kubernetes_warm_pool import (
     warm_pool_queue_dir,
     wait_for_warm_pool_result,
 )
-from orchestration.structured_logging import log_format_from_env, structured_log_record
+from orchestration.structured_logging import emit_log, log_format_from_env, structured_log_record
+from orchestration.run_store import resolve_run_id
+from orchestration.backends.base import RunOptions
 
 
 @pytest.mark.unit
@@ -31,6 +33,53 @@ def test_structured_log_record_fields() -> None:
     assert rec["step_id"] == "s1"
     assert rec["component"] == "coordinator"
     assert "ts" in rec
+
+
+@pytest.mark.unit
+def test_emit_log_json_includes_question_id_extra(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AGENTIC_LOG_FORMAT", "json")
+    emit_log(
+        "engine chat start",
+        run_id="run-xyz",
+        component="engine",
+        extra={"question_id": "q-42"},
+    )
+    err = capsys.readouterr().err.strip()
+    payload = json.loads(err)
+    assert payload["run_id"] == "run-xyz"
+    assert payload["question_id"] == "q-42"
+    assert payload["component"] == "engine"
+
+
+@pytest.mark.unit
+def test_resolve_run_id_prefers_explicit_then_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_RUN_ID", "from-env")
+    assert resolve_run_id("explicit") == "explicit"
+    assert resolve_run_id("") == "from-env"
+    assert resolve_run_id(None) == "from-env"
+    monkeypatch.delenv("AGENTIC_RUN_ID", raising=False)
+    minted = resolve_run_id(None)
+    assert isinstance(minted, str) and len(minted) >= 16
+
+
+@pytest.mark.unit
+def test_run_options_carries_run_id() -> None:
+    opts = RunOptions(run_id="abc123")
+    assert opts.run_id == "abc123"
+
+
+@pytest.mark.unit
+def test_metrics_payload_records_runs() -> None:
+    from orchestration.metrics import metrics_payload, record_run_end
+
+    record_run_end(ok=True, elapsed_ms=12.5)
+    record_run_end(ok=False, elapsed_ms=3)
+    body, content_type = metrics_payload()
+    text = body.decode("utf-8")
+    assert "ao_runs_total" in text
+    assert "text/plain" in content_type
 
 
 @pytest.mark.unit

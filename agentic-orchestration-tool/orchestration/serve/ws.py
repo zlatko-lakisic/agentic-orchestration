@@ -119,10 +119,18 @@ class WsConnection:
         with contextlib.suppress(RuntimeError):
             asyncio.run_coroutine_threadsafe(self.send(payload), self._loop)
 
-    async def send_error(self, message: str, *, question_id: str | None = None) -> None:
+    async def send_error(
+        self,
+        message: str,
+        *,
+        question_id: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
         payload: dict[str, Any] = {"type": "error", "message": message}
         if question_id:
             payload["question_id"] = question_id
+        if run_id:
+            payload["run_id"] = run_id
         await self.send(payload)
 
     # ---- lifecycle -------------------------------------------------------
@@ -453,35 +461,81 @@ class WsConnection:
         question_id: str | None,
     ) -> None:
         from orchestration.direct_agent import DirectAgentEmptyAnswerError, DirectAgentFormatError
+        from orchestration.metrics import record_run_end
+        from orchestration.run_store import new_run_id
+        from orchestration.structured_logging import emit_log
 
         started = time.monotonic()
-        tag: dict[str, Any] = {"question_id": question_id} if question_id else {}
+        run_id = new_run_id()
+        tag: dict[str, Any] = {"run_id": run_id}
+        if question_id:
+            tag["question_id"] = question_id
         response_format = message.get("responseFormat") or message.get("response_format")
         if isinstance(response_format, dict):
             tag["responseFormat"] = response_format
+        log_extra = {"question_id": question_id} if question_id else None
+        emit_log(
+            f"engine {kind} start",
+            run_id=run_id,
+            component="engine",
+            extra=log_extra,
+        )
+        try:
+            from orchestration.run_trace import append_run_event
+
+            append_run_event(
+                self.tool_root,
+                run_id,
+                "request_start",
+                actor="engine",
+                message=f"{kind}: {(text[:100] + '…') if len(text) > 100 else text}",
+                detail={"mode": kind, "question_id": question_id},
+            )
+        except Exception:  # noqa: BLE001
+            pass
         try:
             await self.send(
                 {"type": "preflight", "status": "done", "message": "Engine warm.", **tag}
             )
             await self.send({"type": "run_start", "mode": kind, "text": text, **tag})
-            answer = await asyncio.to_thread(self._execute, message, kind, text, tag)
+            answer = await asyncio.to_thread(self._execute, message, kind, text, tag, run_id)
             if answer:
                 await self.send({"type": "chunk", "stream": "stdout", "text": answer, **tag})
+            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
                     "type": "run_end",
                     "ok": True,
                     "exitCode": 0,
-                    "elapsedMs": round((time.monotonic() - started) * 1000, 1),
+                    "elapsedMs": elapsed_ms,
                     **tag,
                 }
             )
+            emit_log(
+                f"engine {kind} end",
+                run_id=run_id,
+                component="engine",
+                extra=log_extra,
+            )
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    self.tool_root, run_id, "run_end", actor="engine", message="ok"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                record_run_end(ok=True, elapsed_ms=elapsed_ms)
+            except Exception:  # noqa: BLE001
+                pass
         except asyncio.CancelledError:
             raise
         except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
             if getattr(exc, "raw", None):
                 await self.send({"type": "chunk", "stream": "stdout", "text": exc.raw, **tag})
-            await self.send_error(exc.message, question_id=question_id)
+            await self.send_error(exc.message, question_id=question_id, run_id=run_id)
+            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
                     "type": "run_end",
@@ -489,21 +543,57 @@ class WsConnection:
                     "exitCode": 0,
                     "error": exc.message,
                     "text": getattr(exc, "raw", None),
-                    "elapsedMs": round((time.monotonic() - started) * 1000, 1),
+                    "elapsedMs": elapsed_ms,
                     **tag,
                 }
             )
+            emit_log(
+                f"engine {kind} error: {exc.message}",
+                level="error",
+                run_id=run_id,
+                component="engine",
+                extra=log_extra,
+            )
+            try:
+                from orchestration.run_trace import append_run_event
+
+                append_run_event(
+                    self.tool_root,
+                    run_id,
+                    "run_error",
+                    actor="engine",
+                    message=str(exc.message)[:500],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                record_run_end(ok=False, elapsed_ms=elapsed_ms)
+            except Exception:  # noqa: BLE001
+                pass
         except Exception as exc:  # noqa: BLE001
-            await self.send_error(str(exc) or exc.__class__.__name__, question_id=question_id)
+            err_msg = str(exc) or exc.__class__.__name__
+            await self.send_error(err_msg, question_id=question_id, run_id=run_id)
+            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
                     "type": "run_end",
                     "ok": False,
                     "exitCode": 1,
-                    "elapsedMs": round((time.monotonic() - started) * 1000, 1),
+                    "elapsedMs": elapsed_ms,
                     **tag,
                 }
             )
+            emit_log(
+                f"engine {kind} error: {err_msg}",
+                level="error",
+                run_id=run_id,
+                component="engine",
+                extra=log_extra,
+            )
+            try:
+                record_run_end(ok=False, elapsed_ms=elapsed_ms)
+            except Exception:  # noqa: BLE001
+                pass
         finally:
             if question_id is None:
                 self._busy = False
@@ -514,6 +604,7 @@ class WsConnection:
         kind: str,
         text: str,
         tag: dict[str, Any],
+        run_id: str,
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
         from orchestration.session_overlay import overlay_run_context
@@ -527,7 +618,7 @@ class WsConnection:
             session_id=session_slug or (self.identity.session_id if self.identity else ""),
             connection_id=self.connection_id,
         ):
-            return self._execute_inner(message, kind, text, tag, user_id, session_slug)
+            return self._execute_inner(message, kind, text, tag, user_id, session_slug, run_id)
 
     def _execute_inner(
         self,
@@ -537,15 +628,24 @@ class WsConnection:
         tag: dict[str, Any],
         user_id: str | None,
         session_slug: str,
+        run_id: str,
     ) -> str:
         if kind == "direct_agent":
             from orchestration.direct_agent import run_direct_agent
+            from orchestration.structured_logging import emit_log
 
             agent_provider_id = str(
                 message.get("agent_provider_id") or message.get("agentProviderId") or ""
             ).strip()
             if not agent_provider_id:
                 raise ValueError("direct_agent requires agent_provider_id")
+
+            emit_log(
+                "direct_agent start",
+                run_id=run_id,
+                component="engine",
+                extra={"question_id": tag["question_id"]} if tag.get("question_id") else None,
+            )
 
             def progress(line: str) -> None:
                 self.send_threadsafe(
@@ -582,4 +682,5 @@ class WsConnection:
             user_id=user_id,
             agent_provider_ids=[str(x) for x in selected] if isinstance(selected, list) else None,
             on_progress=progress,
+            run_id=run_id,
         )

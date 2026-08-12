@@ -56,7 +56,8 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=admin-control.mjs="${WEB_ROOT}/lib/admin-control.mjs" \
   --from-file=admin-ollama-ownership.mjs="${WEB_ROOT}/lib/admin-ollama-ownership.mjs" \
   --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
-  --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs"
+  --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs" \
+  --from-file=ao-metrics.mjs="${WEB_ROOT}/lib/ao-metrics.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"
@@ -112,6 +113,8 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=runner.py="${ORCH_ROOT}/runner.py" \
   --from-file=config_loader.py="${ORCH_ROOT}/config_loader.py" \
   --from-file=run_store.py="${ORCH_ROOT}/run_store.py" \
+  --from-file=run_trace.py="${ORCH_ROOT}/run_trace.py" \
+  --from-file=metrics.py="${ORCH_ROOT}/metrics.py" \
   --from-file=run_store_backends.py="${ORCH_ROOT}/run_store_backends.py" \
   --from-file=rag_sources_catalog.py="${ORCH_ROOT}/rag_sources_catalog.py" \
   --from-file=rag_retrieve.py="${ORCH_ROOT}/rag_retrieve.py" \

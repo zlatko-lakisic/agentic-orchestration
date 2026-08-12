@@ -123,12 +123,18 @@ class KubernetesJobRunner:
             component="coordinator",
             extra={"namespace": settings.namespace},
         )
-        wait = self._wait_for_job(job_name=job_name)
+        wait = self._wait_for_job(job_name=job_name, run_id=run_id, step_id=step_id)
         pod_name = wait.pod_name or self._find_pod_name(job_name=job_name)
         record = K8sJobRecord(job_name=job_name, namespace=settings.namespace, pod_name=pod_name)
         return record, wait
 
-    def _wait_for_job(self, *, job_name: str) -> K8sJobWaitResult:
+    def _wait_for_job(
+        self,
+        *,
+        job_name: str,
+        run_id: str = "",
+        step_id: str = "",
+    ) -> K8sJobWaitResult:
         deadline = time.time() + self._settings.job_timeout_seconds
         while time.time() < deadline:
             job = self._batch.read_namespaced_job_status(
@@ -139,6 +145,8 @@ class KubernetesJobRunner:
             if status and status.succeeded:
                 emit_log(
                     f"Job {job_name} succeeded",
+                    run_id=run_id,
+                    step_id=step_id,
                     component="coordinator",
                 )
                 return K8sJobWaitResult(
@@ -148,6 +156,13 @@ class KubernetesJobRunner:
                     message=None,
                 )
             if status and status.failed:
+                emit_log(
+                    f"Job {job_name} failed",
+                    level="error",
+                    run_id=run_id,
+                    step_id=step_id,
+                    component="coordinator",
+                )
                 return K8sJobWaitResult(
                     succeeded=False,
                     failed=True,
@@ -155,6 +170,13 @@ class KubernetesJobRunner:
                     message=f"Job {job_name} failed",
                 )
             time.sleep(2)
+        emit_log(
+            f"Job {job_name} timed out after {self._settings.job_timeout_seconds}s",
+            level="error",
+            run_id=run_id,
+            step_id=step_id,
+            component="coordinator",
+        )
         return K8sJobWaitResult(
             succeeded=False,
             failed=True,

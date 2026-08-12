@@ -1570,6 +1570,22 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
   };
 }
 
+function sessionOutcome(raw) {
+  if (raw.last_exit_code != null) {
+    return Number(raw.last_exit_code) === 0 ? "completed" : "failed";
+  }
+  if (raw.last_error) return "failed";
+  if (raw.last_final_answer_excerpt) return "completed";
+  return null;
+}
+
+function sessionOk(raw) {
+  if (raw.last_exit_code != null) return Number(raw.last_exit_code) === 0;
+  if (raw.last_error) return false;
+  if (raw.last_final_answer_excerpt) return true;
+  return null;
+}
+
 function listRecentRuns({ toolRoot, limit = 50 }) {
   const runs = [];
   const runStore = String(process.env.AGENTIC_RUN_STORE_PATH || "/run/store").trim();
@@ -1659,7 +1675,11 @@ function listRecentRuns({ toolRoot, limit = 50 }) {
             updatedAt: raw.updated_at || st.mtime.toISOString(),
             steps: Array.isArray(raw.planner_history) ? raw.planner_history.length : null,
             mode: raw.last_execution_backend || null,
-            outcome: raw.last_final_answer_excerpt ? "completed" : null,
+            outcome: sessionOutcome(raw),
+            ok: sessionOk(raw),
+            exitCode: raw.last_exit_code ?? null,
+            lastRunId: raw.last_run_id || null,
+            error: raw.last_error || null,
             lastGoal: raw.last_user_goal
               ? String(raw.last_user_goal).slice(0, 160)
               : null,
@@ -1686,9 +1706,13 @@ function buildRunDetail({ toolRoot }, id) {
   const list = listRecentRuns({ toolRoot, limit: 500 });
   const entry = list.runs.find((r) => r.id === id);
   if (!entry) return null;
-  const detail = { ...entry, stepsDetail: [] };
+  const detail = { ...entry, stepsDetail: [], k8sJobs: [] };
   if (entry.scope === "run_store" && entry.path && fs.existsSync(entry.path)) {
     try {
+      let firstError = null;
+      let worstExit = null;
+      let allOk = true;
+      let sawResult = false;
       for (const ent of fs.readdirSync(entry.path, { withFileTypes: true })) {
         if (!ent.isDirectory()) continue;
         const resultPath = path.join(entry.path, ent.name, "result.json");
@@ -1700,12 +1724,33 @@ function buildRunDetail({ toolRoot }, id) {
             result = null;
           }
         }
+        const exitCode = result?.exit_code ?? result?.exitCode ?? null;
+        const error = result?.error != null ? String(result.error) : null;
+        const ok = exitCode == null ? null : Number(exitCode) === 0;
+        if (result) {
+          sawResult = true;
+          if (ok === false) allOk = false;
+          if (exitCode != null && (worstExit == null || Number(exitCode) !== 0)) {
+            if (worstExit == null || Number(exitCode) !== 0) worstExit = Number(exitCode);
+          }
+          if (error && !firstError) firstError = error.slice(0, 2000);
+        }
+        const resultText = result?.result_text ?? result?.resultText ?? null;
         detail.stepsDetail.push({
           id: ent.name,
-          exitCode: result?.exit_code ?? result?.exitCode ?? null,
-          provider: result?.provider ?? null,
-          durationMs: result?.duration_ms ?? result?.durationMs ?? null,
+          exitCode,
+          error,
+          recoverable: result?.recoverable ?? null,
+          recoveryHint: result?.recovery_hint ?? result?.recoveryHint ?? null,
+          resultText: resultText != null ? String(resultText).slice(0, 500) : null,
+          ok,
         });
+      }
+      if (sawResult) {
+        detail.ok = allOk;
+        detail.exitCode = worstExit;
+        detail.outcome = allOk ? "completed" : "failed";
+        detail.error = firstError;
       }
     } catch {
       /* ignore */
@@ -1719,11 +1764,157 @@ function buildRunDetail({ toolRoot }, id) {
         : [];
       detail.lastGoal = raw.last_user_goal || null;
       detail.lastAnswerExcerpt = raw.last_final_answer_excerpt || null;
+      detail.lastRunId = raw.last_run_id || detail.lastRunId || null;
+      detail.exitCode = raw.last_exit_code ?? detail.exitCode ?? null;
+      detail.error = raw.last_error || detail.error || null;
+      detail.ok = sessionOk(raw);
+      detail.outcome = sessionOutcome(raw);
+      detail.k8sJobs = Array.isArray(raw.last_k8s_jobs) ? raw.last_k8s_jobs : [];
     } catch {
       /* ignore */
     }
   }
   return detail;
+}
+
+function safeTraceFileName(runId) {
+  return String(runId || "")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .slice(0, 128);
+}
+
+function eventsToMermaid(events) {
+  const lines = ["sequenceDiagram"];
+  const actors = [];
+  const ensure = (actor) => {
+    const a = String(actor || "orchestrator").trim() || "orchestrator";
+    const pid = a.replace(/[^A-Za-z0-9]/g, "_").slice(0, 40) || "actor";
+    if (!actors.includes(pid)) {
+      actors.push(pid);
+      lines.push(`  participant ${pid} as ${a.replace(/"/g, "'").slice(0, 48)}`);
+    }
+    return pid;
+  };
+  ensure("client");
+  ensure("orchestrator");
+  let prev = "client";
+  for (const ev of events || []) {
+    const actor = ensure(ev.actor || "orchestrator");
+    const kind = String(ev.kind || "event");
+    const msg = String(ev.message || kind).replace(/\n/g, " ").replace(/"/g, "'").slice(0, 80);
+    const detail = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
+    if (kind === "request_start") {
+      lines.push(`  client->>${actor}: ${msg || "request"}`);
+      prev = actor;
+    } else if (kind === "plan") {
+      lines.push(`  ${prev}->>${actor}: plan`);
+      if (msg) lines.push(`  Note over ${actor}: ${msg}`);
+      for (const ag of (detail.agents || []).slice(0, 8)) {
+        const aid = ensure(`agent:${ag}`);
+        lines.push(`  ${actor}->>${aid}: select`);
+      }
+      if ((detail.mcps || []).length) {
+        const mid = ensure("mcp");
+        lines.push(`  ${actor}->>${mid}: ${(detail.mcps || []).slice(0, 4).join(", ")}`);
+      }
+      if ((detail.skills || []).length) {
+        const sid = ensure("skills");
+        lines.push(`  ${actor}->>${sid}: ${(detail.skills || []).slice(0, 4).join(", ")}`);
+      }
+      prev = actor;
+    } else if (kind === "step_start" || kind === "step_end" || kind === "step_fail") {
+      const arrow = kind === "step_end" ? "-->>" : "->>";
+      lines.push(`  ${prev}${arrow}${actor}: ${msg || kind}`);
+      prev = actor;
+    } else if (kind === "run_end" || kind === "run_error") {
+      lines.push(`  ${actor}-->>client: ${msg || kind}`);
+      prev = "client";
+    } else {
+      lines.push(`  ${prev}->>${actor}: ${msg || kind}`);
+      prev = actor;
+    }
+  }
+  if (lines.length === 1) {
+    lines.push("  Note over client: No events recorded for this run_id");
+  }
+  return lines.join("\n");
+}
+
+function readRunTraceEvents(toolRoot, runId) {
+  const file = path.join(
+    toolRoot,
+    "__orchestrator_run_traces__",
+    `${safeTraceFileName(runId)}.jsonl`,
+  );
+  if (!fs.existsSync(file)) return [];
+  let raw = "";
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  const events = [];
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const obj = JSON.parse(t);
+      if (obj && typeof obj === "object") events.push(obj);
+    } catch {
+      /* ignore */
+    }
+  }
+  return events;
+}
+
+function listRecentTraces({ toolRoot, limit = 50 }) {
+  const dir = path.join(toolRoot, "__orchestrator_run_traces__");
+  const runs = [];
+  if (!fs.existsSync(dir)) {
+    return { generatedAt: new Date().toISOString(), runs };
+  }
+  let ents = [];
+  try {
+    ents = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return { generatedAt: new Date().toISOString(), runs };
+  }
+  const files = [];
+  for (const ent of ents) {
+    if (!ent.isFile() || !ent.name.endsWith(".jsonl")) continue;
+    const p = path.join(dir, ent.name);
+    try {
+      files.push({ mtime: fs.statSync(p).mtimeMs, path: p, name: ent.name });
+    } catch {
+      /* ignore */
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  for (const f of files.slice(0, Math.max(1, Number(limit) || 50))) {
+    const runId = path.basename(f.name, ".jsonl");
+    const events = readRunTraceEvents(toolRoot, runId);
+    const last = events[events.length - 1] || {};
+    runs.push({
+      runId,
+      updatedAt: new Date(f.mtime).toISOString(),
+      eventCount: events.length,
+      lastKind: last.kind || null,
+      lastMessage: last.message || null,
+    });
+  }
+  return { generatedAt: new Date().toISOString(), runs };
+}
+
+function buildRunTrace({ toolRoot }, id) {
+  const runId = String(id || "").trim();
+  if (!runId) return null;
+  const events = readRunTraceEvents(toolRoot, runId);
+  return {
+    runId,
+    eventCount: events.length,
+    events,
+    mermaid: eventsToMermaid(events),
+  };
 }
 
 function buildAccessPosture({ toolRoot, webRoot, req }) {
@@ -1844,6 +2035,11 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/chat-auth") return { name: "chat_auth" };
   if (p === "/api/v1/admin/support-bundle") return { name: "support_bundle" };
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
+  if (p === "/api/v1/admin/traces") return { name: "traces_list" };
+  m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)\/trace$/);
+  if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
+  m = p.match(/^\/api\/v1\/admin\/traces\/([^/]+)$/);
+  if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
   if (m) return { name: "runs_detail", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)\/([^/]+)$/);
@@ -2232,6 +2428,21 @@ async function handleAdminApi(req, res, ctx) {
       send(200, listRecentRuns({ ...ctx, limit }));
       return true;
     }
+    if (route.name === "traces_list") {
+      const url = new URL(req.url || "/", "http://localhost");
+      const limit = Number(url.searchParams.get("limit") || 50);
+      send(200, listRecentTraces({ ...ctx, limit }));
+      return true;
+    }
+    if (route.name === "runs_trace") {
+      const data = buildRunTrace(ctx, route.id);
+      if (!data) {
+        send(404, { error: "Trace not found" });
+        return true;
+      }
+      send(200, data);
+      return true;
+    }
     if (route.name === "runs_detail") {
       const data = buildRunDetail(ctx, route.id);
       if (!data) {
@@ -2308,6 +2519,8 @@ export {
   executeControlRestart,
   listRecentRuns,
   buildRunDetail,
+  listRecentTraces,
+  buildRunTrace,
   fetchJson,
   isSecretKey,
   isInjectedK8sEnvKey,

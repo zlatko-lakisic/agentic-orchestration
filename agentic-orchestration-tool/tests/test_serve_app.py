@@ -397,9 +397,39 @@ def test_ws_question_id_allows_concurrent_runs(
         while len(ended) < 2:
             frame = ws.receive_json()
             assert frame.get("question_id") in ("q-1", "q-2")
+            assert frame.get("run_id")
+            assert frame["run_id"] != frame["question_id"]
             if frame["type"] == "run_end":
                 ended.add(frame["question_id"])
         assert ended == {"q-1", "q-2"}
+
+
+def test_ws_frames_include_run_id_distinct_from_question_id(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.dynamic_run as dynamic_run
+
+    captured: dict[str, str] = {}
+
+    def fake_run(**kw):
+        captured["run_id"] = str(kw.get("run_id") or "")
+        return "ok"
+
+    monkeypatch.setattr(dynamic_run, "run_dynamic_goal", fake_run)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat", "text": "hello", "question_id": "q-client"})
+        run_ids: set[str] = set()
+        while True:
+            frame = ws.receive_json()
+            assert frame.get("run_id")
+            assert frame["run_id"] != "q-client"
+            run_ids.add(frame["run_id"])
+            if frame["type"] == "run_end":
+                break
+        assert len(run_ids) == 1
+        assert captured.get("run_id") == next(iter(run_ids))
 
 
 def test_ws_direct_agent_message_streams_answer(

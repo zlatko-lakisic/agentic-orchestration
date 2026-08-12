@@ -398,7 +398,7 @@ subprocess_runner.py          kubernetes_runner.py
 - [x] **3.3** PVC mount on worker Jobs (`AGENTIC_K8S_RUN_STORE_PVC`); coordinator uses `AGENTIC_RUN_STORE_PATH` + the `AGENTIC_RUN_STORE_BACKEND` store (`filesystem` default, `s3`/`redis` optional).
 - [x] **3.4** Per-step HF execution fallback: failed Job → parse error → rebuild config → new Job (`step_recovery.py`, `StepCoordinator` retry). **Shipped** — the earlier "deferred post-MVP" note no longer applies.
 - [x] **3.5** Per-step provider recovery via `recovery_hint` in `StepCoordinator` (`provider_recovery` → `recover_from_workflow_error`). **Shipped** alongside 3.4.
-- [x] **3.6** Workflow result records `k8s_jobs` metadata per step Job (`WorkflowExecutionResult.k8s_jobs`); session wiring deferred.
+- [x] **3.6** Workflow result records `k8s_jobs` metadata per step Job (`WorkflowExecutionResult.k8s_jobs`); session stores `last_run_id` / `last_exit_code` / `last_error` / `last_k8s_jobs` for Admin Runs.
 - [x] **3.7** Coordinator Deployment + RBAC (`deploy/k8s/coordinator/`); sample worker Job (`worker-job.example.yaml`).
 - [x] **3.8** Integration test: mocked Jobs (`tests/test_backend_kubernetes.py`) + live kind e2e in CI (`tests/test_kind_kubernetes_e2e.py`, stub worker).
 

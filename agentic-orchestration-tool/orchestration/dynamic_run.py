@@ -98,6 +98,11 @@ def _record_dynamic_run_state(
     result_text: str,
     provider_id: str,
     user_id: str | None,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list[dict[str, Any]] | None = None,
+    execution_backend: str | None = None,
 ) -> None:
     """Session excerpt + answer cache + KB document (best-effort, mirrors the CLI)."""
     from orchestration.orchestrator_session import (
@@ -105,8 +110,20 @@ def _record_dynamic_run_state(
         update_session_after_final,
     )
 
-    update_session_after_crew(session_path, result_text)
-    update_session_after_final(session_path, user_goal=goal, result_text=result_text)
+    outcome = {
+        "run_id": run_id,
+        "exit_code": exit_code,
+        "error": error,
+        "k8s_jobs": k8s_jobs,
+        "execution_backend": execution_backend,
+    }
+    update_session_after_crew(session_path, result_text, **outcome)
+    update_session_after_final(
+        session_path,
+        user_goal=goal,
+        result_text=result_text,
+        **outcome,
+    )
     try:
         from orchestration.knowledge_base import add_document
 
@@ -132,6 +149,7 @@ def run_dynamic_goal(
     user_id: str | None = None,
     max_steps: int | None = None,
     on_progress: Callable[[str], None] | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Plan and execute one dynamic goal in this process; return the final text.
@@ -140,12 +158,15 @@ def run_dynamic_goal(
     into a protocol-level error frame.
     """
     from orchestration.backends.crewai import run_options_from_legacy
+    from orchestration.backends.factory import execution_backend_name_from_env
     from orchestration.dynamic_planner import build_dynamic_workflow_config
     from orchestration.execution_dispatch import execute_workflow_config_resolved
     from orchestration.orchestrator_session import (
         resolve_orchestrator_session_slug,
         session_file_path,
     )
+    from orchestration.run_store import resolve_run_id
+    from orchestration.structured_logging import emit_log
 
     text = str(goal or "").strip()
     if not text:
@@ -155,6 +176,8 @@ def run_dynamic_goal(
     paths = catalog_paths(root)
     slug = resolve_orchestrator_session_slug(str(session_slug or "").strip())
     session_path = session_file_path(root, slug, user_id=user_id)
+    rid = resolve_run_id(run_id)
+    backend_name = execution_backend_name_from_env()
 
     def progress(message: str) -> None:
         if on_progress is not None:
@@ -162,7 +185,18 @@ def run_dynamic_goal(
         elif not quiet:
             print(f"(daemon) {message}", file=sys.stderr)
 
+    emit_log("dynamic planning", run_id=rid, component="engine")
     progress("planning")
+    from orchestration.run_trace import append_run_event
+
+    append_run_event(
+        root,
+        rid,
+        "request_start",
+        actor="orchestrator",
+        message=(text[:120] + ("…" if len(text) > 120 else "")),
+        detail={"session": slug, "user_id": user_id},
+    )
     config, plan = build_dynamic_workflow_config(
         user_prompt=text,
         catalog_path=paths.agent_providers,
@@ -178,7 +212,32 @@ def run_dynamic_goal(
     summary = plan.get("plan_summary") if isinstance(plan, dict) else None
     if isinstance(summary, str) and summary.strip():
         progress(f"plan: {summary.strip()}")
+    agents = []
+    mcps: list[str] = []
+    skills: list[str] = []
+    if isinstance(plan, dict):
+        for step in plan.get("steps") or []:
+            if isinstance(step, dict) and step.get("agent_provider_id"):
+                agents.append(str(step["agent_provider_id"]))
+        mcps = [str(x) for x in (plan.get("mcp_provider_ids") or []) if x]
+        skills = [str(x) for x in (plan.get("skill_ids") or []) if x]
+    for t in config.tasks:
+        if t.agent_provider_id and t.agent_provider_id not in agents:
+            agents.append(t.agent_provider_id)
+    append_run_event(
+        root,
+        rid,
+        "plan",
+        actor="planner",
+        message=str(summary or f"{len(config.tasks)} step(s)").strip()[:200],
+        detail={"agents": agents, "mcps": mcps, "skills": skills, "steps": len(config.tasks)},
+    )
     progress(f"executing {len(config.tasks)} step(s)")
+    emit_log(
+        f"dynamic executing {len(config.tasks)} step(s)",
+        run_id=rid,
+        component="engine",
+    )
 
     options = run_options_from_legacy(
         quiet=quiet,
@@ -188,20 +247,65 @@ def run_dynamic_goal(
         agent_skills_catalog_path=paths.agent_skills,
         rag_sources_catalog_path=paths.rag_sources,
         emit_progress_lines=False,
+        run_id=rid,
     )
     result = execute_workflow_config_resolved(config, options=options)
+    last_task = config.tasks[-1] if config.tasks else None
+    provider_id = last_task.agent_provider_id if last_task else "unknown"
+    err_text = str(result.error) if result.error else None
     if result.exit_code != 0:
+        emit_log(
+            f"dynamic fail: {err_text or 'dynamic execution failed'}",
+            level="error",
+            run_id=rid,
+            component="engine",
+        )
+        append_run_event(
+            root,
+            rid,
+            "run_error",
+            actor="orchestrator",
+            message=(err_text or "failed")[:500],
+            detail={"exit_code": int(result.exit_code)},
+        )
+        _record_dynamic_run_state(
+            tool_root=root,
+            session_path=session_path,
+            session_slug=slug,
+            goal=text,
+            result_text=str(result.result_text or "").strip(),
+            provider_id=provider_id,
+            user_id=user_id,
+            run_id=rid,
+            exit_code=int(result.exit_code),
+            error=err_text or "dynamic execution failed",
+            k8s_jobs=list(result.k8s_jobs or []),
+            execution_backend=backend_name,
+        )
         raise RuntimeError(str(result.error or "dynamic execution failed"))
 
     result_text = str(result.result_text or "").strip()
-    last_task = config.tasks[-1] if config.tasks else None
+    emit_log("dynamic done", run_id=rid, component="engine")
+    append_run_event(
+        root,
+        rid,
+        "run_end",
+        actor="orchestrator",
+        message="ok",
+        detail={"exit_code": 0, "chars": len(result_text)},
+    )
     _record_dynamic_run_state(
         tool_root=root,
         session_path=session_path,
         session_slug=slug,
         goal=text,
         result_text=result_text,
-        provider_id=last_task.agent_provider_id if last_task else "unknown",
+        provider_id=provider_id,
         user_id=user_id,
+        run_id=rid,
+        exit_code=int(result.exit_code),
+        error=None,
+        k8s_jobs=list(result.k8s_jobs or []),
+        execution_backend=backend_name,
     )
     return result_text

@@ -201,6 +201,18 @@ export class AoLiveWs implements OnDestroy {
     }
   }
 
+  /** Ask the web process to tail worker Job pods for this run_id (in-cluster). */
+  followRunLogs(runId: string) {
+    const rid = String(runId || '').trim();
+    if (!rid) return;
+    this.wantLogs = true;
+    this.ensureConnected();
+    this.pushSubscriptions();
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'admin_logs_follow_run', runId: rid }));
+  }
+
   clearLogs() {
     this.logs.set([]);
   }

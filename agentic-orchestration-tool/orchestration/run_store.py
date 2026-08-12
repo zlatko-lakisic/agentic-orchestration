@@ -107,6 +107,15 @@ def new_run_id() -> str:
     return uuid.uuid4().hex
 
 
+def resolve_run_id(explicit: str | None = None) -> str:
+    """Prefer an explicit id, then ``AGENTIC_RUN_ID``, else mint a new hex uuid."""
+    for candidate in (explicit, os.getenv("AGENTIC_RUN_ID", "")):
+        text = str(candidate or "").strip()
+        if text:
+            return text
+    return new_run_id()
+
+
 def run_store_base_from_env() -> Path | None:
     """Return configured run store mount, or ``None`` to allocate a temp dir per run."""
     raw = os.getenv("AGENTIC_RUN_STORE_PATH", "").strip()

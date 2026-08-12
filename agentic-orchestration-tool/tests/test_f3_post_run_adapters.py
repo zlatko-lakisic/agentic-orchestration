@@ -78,11 +78,20 @@ def test_session_records_execution_backend(tmp_path: Path) -> None:
         user_goal="goal",
         result_text="final answer",
         execution_backend="inprocess",
+        run_id="run-abc",
+        exit_code=0,
+        k8s_jobs=[{"job_name": "agentic-run-abc-step1", "namespace": "ao"}],
     )
     data = load_session(path)
     assert data.last_user_goal == "goal"
     assert data.last_final_answer_excerpt == "final answer"
     assert data.last_execution_backend == "inprocess"
+    assert data.last_run_id == "run-abc"
+    assert data.last_exit_code == 0
+    assert data.last_k8s_jobs == [{"job_name": "agentic-run-abc-step1", "namespace": "ao"}]
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["last_execution_backend"] == "inprocess"
+    assert raw["last_run_id"] == "run-abc"
+    assert raw["last_exit_code"] == 0
+    assert raw["last_k8s_jobs"][0]["job_name"] == "agentic-run-abc-step1"

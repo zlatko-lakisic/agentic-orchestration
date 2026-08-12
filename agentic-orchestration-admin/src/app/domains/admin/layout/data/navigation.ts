@@ -57,6 +57,12 @@ export const NAVIGATION: NavigationItem[] = [
         route: '/runs',
       },
       {
+        id: 'traces',
+        label: 'Traces',
+        icon: 'git-branch',
+        route: '/traces',
+      },
+      {
         id: 'activity',
         label: 'Activity',
         icon: 'git-compare',

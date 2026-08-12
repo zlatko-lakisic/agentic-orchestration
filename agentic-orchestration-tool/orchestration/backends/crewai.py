@@ -10,6 +10,8 @@ from orchestration.backends.base import RunOptions, WorkflowExecutionResult
 from orchestration.config_loader import WorkflowConfig
 from orchestration.output_artifacts import workflow_result_display_text, workflow_result_to_extractable_text
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
+from orchestration.run_store import new_run_id
+from orchestration.structured_logging import emit_log
 
 
 def _workflow_context(built: BuiltWorkflow) -> dict[str, Any]:
@@ -89,6 +91,24 @@ class CrewAIExecutionBackend:
         *,
         options: RunOptions,
     ) -> WorkflowExecutionResult:
+        run_id = str(options.run_id or "").strip() or new_run_id()
+        emit_log("inprocess kickoff start", run_id=run_id, component="inprocess")
+        try:
+            from orchestration.run_trace import append_run_event
+            from pathlib import Path
+
+            tool_root = Path(__file__).resolve().parents[2]
+            agents = list(built.agent_providers.keys()) if built.agent_providers else []
+            append_run_event(
+                tool_root,
+                run_id,
+                "step_start",
+                actor="inprocess",
+                message=str(built.workflow_context.get("workflow_name") or "kickoff"),
+                detail={"agents": agents},
+            )
+        except Exception:  # noqa: BLE001
+            pass
         _on_workflow_start(built)
 
         exit_code = 0
@@ -180,6 +200,16 @@ class CrewAIExecutionBackend:
         if options.execution_error_sink is not None and workflow_error is not None:
             options.execution_error_sink.append(str(workflow_error))
 
+        if exit_code != 0:
+            emit_log(
+                f"inprocess kickoff fail: {workflow_error}",
+                level="error",
+                run_id=run_id,
+                component="inprocess",
+            )
+        else:
+            emit_log("inprocess kickoff end", run_id=run_id, component="inprocess")
+
         return WorkflowExecutionResult(
             exit_code=exit_code,
             result_text=result_text,
@@ -200,6 +230,7 @@ def run_options_from_legacy(
     agent_skills_catalog_path: Path | None = None,
     rag_sources_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
+    run_id: str = "",
 ) -> RunOptions:
     return RunOptions(
         quiet=quiet,
@@ -211,4 +242,5 @@ def run_options_from_legacy(
         agent_skills_catalog_path=agent_skills_catalog_path,
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
+        run_id=str(run_id or "").strip() or os.getenv("AGENTIC_RUN_ID", "").strip(),
     )

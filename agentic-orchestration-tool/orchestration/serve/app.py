@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -113,6 +113,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     from orchestration.crewai_noninteractive import configure_crewai_noninteractive
 
     configure_crewai_noninteractive()
+
+    from orchestration.metrics import maybe_init_sentry
+
+    maybe_init_sentry()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -214,6 +218,13 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             },
             headers={"X-Agentic-Engine": "1"},
         )
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        from orchestration.metrics import metrics_payload
+
+        body, content_type = metrics_payload()
+        return Response(content=body, media_type=content_type)
 
     @app.get("/api/v1/admin/reach-sessions")
     async def api_reach_sessions() -> dict[str, Any]:

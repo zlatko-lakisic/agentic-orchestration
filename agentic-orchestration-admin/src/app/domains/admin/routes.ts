@@ -48,6 +48,11 @@ const routes: Routes = [
           import('./modules/runs/features/runs').then((m) => m.RunsPage),
       },
       {
+        path: 'traces',
+        loadComponent: () =>
+          import('./modules/traces/features/traces').then((m) => m.TracesPage),
+      },
+      {
         path: 'activity',
         loadComponent: () =>
           import('./modules/activity/features/activity').then(

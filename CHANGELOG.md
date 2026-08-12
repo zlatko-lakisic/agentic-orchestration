@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Run-centric observability** — server-minted `run_id` on engine WS / web spawn (`AGENTIC_RUN_ID` / `--run-id`); structured `emit_log` on engine, in-process, subprocess, and K8s Job wait paths; Admin Runs surfaces step errors / outcome / `k8s_jobs`; sessions persist `last_run_id` / `last_exit_code` / `last_error` / `last_k8s_jobs`; Overview `?runId=` filters live logs and can follow worker pods; engine/coordinator K8s probes use HTTP `/health` and `/api/ping`; thin Prometheus `/metrics` on engine + web; opt-in Sentry via `AGENTIC_SENTRY_DSN` / `AGENTIC_WEB_SENTRY_DSN`.
+- **Request traces (sequence)** — per-`run_id` JSONL under `__orchestrator_run_traces__/`; Admin **Traces** page (`/admin/traces`) renders a Mermaid sequence (planner → agents / MCP / skills); `GET /api/v1/admin/traces` and `…/traces/:runId` (also `…/runs/:id/trace`).
 - **Weather MCP** — shipped catalog `weather_mcp` (`npx @dangahagan/weather-mcp`); opt-in `AGENTIC_MCP_WEATHER_ENABLED`; Jetson worker stdio allowlist; smoke `workflow_weather_mcp_smoke.yaml`.
 - **Ollama wiki guide** — canonical [[Ollama]] page for ownership modes: reuse existing (`external`), AO child `ollama serve` (`managed_process`), or in-cluster `agentic-ollama` (`managed_k8s`). Infrastructure / System-architecture / Configuration / Topology updated; edge lab defaults documented.
 - **Topology wiki stubs** — dedicated anchors for Kubernetes inventory (`#k8s-node`, `#k8s-pod`, `#k8s-service`) and in-cluster Ollama (`#k8s-ollama`); Ollama model-runtime stub covers ownership modes; Topology help deep-links updated. `agentic-ollama` added to known k8s workload specs.

@@ -138,6 +138,12 @@ spec:
               mountPath: /app/tool/orchestration/run_store.py
               subPath: run_store.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/run_trace.py
+              subPath: run_trace.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/metrics.py
+              subPath: metrics.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/run_store_backends.py
               subPath: run_store_backends.py
             - name: tool-hotfix-orchestration

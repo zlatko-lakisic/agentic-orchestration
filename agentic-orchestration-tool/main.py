@@ -276,11 +276,23 @@ def _session_execution_backend() -> str:
     return execution_backend_name_from_env()
 
 
-def _update_session_after_crew(path: Path, result_text: str | None) -> None:
+def _update_session_after_crew(
+    path: Path,
+    result_text: str | None,
+    *,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list | None = None,
+) -> None:
     update_session_after_crew(
         path,
         result_text,
         execution_backend=_session_execution_backend(),
+        run_id=run_id,
+        exit_code=exit_code,
+        error=error,
+        k8s_jobs=k8s_jobs,
     )
 
 
@@ -289,12 +301,20 @@ def _update_session_after_final(
     *,
     user_goal: str,
     result_text: str | None,
+    run_id: str | None = None,
+    exit_code: int | None = None,
+    error: str | None = None,
+    k8s_jobs: list | None = None,
 ) -> None:
     update_session_after_final(
         path,
         user_goal=user_goal,
         result_text=result_text,
         execution_backend=_session_execution_backend(),
+        run_id=run_id,
+        exit_code=exit_code,
+        error=error,
+        k8s_jobs=k8s_jobs,
     )
 
 
@@ -349,6 +369,25 @@ def _offer_save_from_execution(
     )
 
 
+def _session_outcome_kwargs(execution: WorkflowExecutionResult | None) -> dict:
+    if execution is None:
+        return {}
+    err = str(execution.error) if execution.error else None
+    run_id = ""
+    if execution.step_results:
+        run_id = str(execution.step_results[0].run_id or "").strip()
+    if not run_id:
+        run_id = os.getenv("AGENTIC_RUN_ID", "").strip()
+    out: dict[str, Any] = {
+        "exit_code": int(execution.exit_code),
+        "error": err,
+        "k8s_jobs": list(execution.k8s_jobs or []),
+    }
+    if run_id:
+        out["run_id"] = run_id
+    return out
+
+
 def _run_dynamic_workflow_with_hf_fallback(
     cfg: WorkflowConfig,
     *,
@@ -360,11 +399,12 @@ def _run_dynamic_workflow_with_hf_fallback(
     quiet: bool,
     emit_stdout_summary: bool = True,
     emit_progress_lines: bool = True,
-) -> tuple[int, str | None, WorkflowConfig]:
+    run_id: str = "",
+) -> tuple[int, str | None, WorkflowConfig, WorkflowExecutionResult]:
     """Run ``cfg`` once; on LiteLLM Hugging Face inference failure optionally rebuild and retry.
 
-    Returns ``(exit_code, result_text, executed_cfg)`` where ``executed_cfg`` is the workflow
-    actually run after any substitution (see ``AGENTIC_EXEC_FALLBACK_PROVIDER_ID``).
+    Returns ``(exit_code, result_text, executed_cfg, execution)`` where ``executed_cfg`` is the
+    workflow actually run after any substitution (see ``AGENTIC_EXEC_FALLBACK_PROVIDER_ID``).
     """
     from orchestration.execution_fallback import workflow_config_after_hf_litellm_fallback
 
@@ -381,12 +421,13 @@ def _run_dynamic_workflow_with_hf_fallback(
         emit_progress_lines=emit_progress_lines,
         execution_error_sink=sink,
         log_terminal_execution_failure=False,
+        run_id=run_id,
     )
     if result.exit_code == 0:
-        return 0, result.result_text, executed
+        return 0, result.result_text, executed, result
     err_text = sink[-1] if sink else str(result.error or "")
     if not err_text:
-        return result.exit_code, result.result_text, executed
+        return result.exit_code, result.result_text, executed, result
     fb = workflow_config_after_hf_litellm_fallback(
         executed,
         err_text,
@@ -394,7 +435,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         quiet=quiet,
     )
     if fb is None:
-        return result.exit_code, result.result_text, executed
+        return result.exit_code, result.result_text, executed, result
     if not quiet:
         print(
             "(dynamic) exec fallback: HF inference failed; retrying once with substituted "
@@ -411,8 +452,9 @@ def _run_dynamic_workflow_with_hf_fallback(
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
+        run_id=run_id,
     )
-    return result2.exit_code, result2.result_text, fb
+    return result2.exit_code, result2.result_text, fb, result2
 
 
 def execute_workflow_from_config(
@@ -427,6 +469,7 @@ def execute_workflow_from_config(
     emit_progress_lines: bool = True,
     execution_error_sink: list[str] | None = None,
     log_terminal_execution_failure: bool = True,
+    run_id: str = "",
 ) -> WorkflowExecutionResult:
     """Execute a ``WorkflowConfig`` through the configured backend (F3/F4 entry)."""
     options = run_options_from_legacy(
@@ -439,6 +482,7 @@ def execute_workflow_from_config(
         agent_skills_catalog_path=agent_skills_catalog_path,
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
+        run_id=run_id,
     )
     return execute_workflow_config_resolved(config, options=options)
 
@@ -944,6 +988,12 @@ def parse_args() -> argparse.Namespace:
         help="Worker mode: run one step from a StepSpec JSON file and exit (subprocess/K8s workers).",
     )
     parser.add_argument(
+        "--run-id",
+        default=None,
+        metavar="ID",
+        help="Correlation id for this CLI run (also set via AGENTIC_RUN_ID). Minted when omitted.",
+    )
+    parser.add_argument(
         "--warm-pool-worker",
         action="store_true",
         help="K8s warm pool mode: poll run-store queue and execute steps until terminated.",
@@ -1132,6 +1182,13 @@ def main() -> None:
             print(f"error: --execute-step file not found: {spec}", file=sys.stderr)
             sys.exit(2)
         sys.exit(execute_step_from_spec_file(spec.resolve()))
+
+    from orchestration.run_store import resolve_run_id
+    from orchestration.structured_logging import emit_log
+
+    cli_run_id = resolve_run_id(getattr(args, "run_id", None))
+    os.environ["AGENTIC_RUN_ID"] = cli_run_id
+    emit_log("cli run start", run_id=cli_run_id, component="engine")
 
     if getattr(args, "example", None):
         from orchestration.example_overlays import apply_example_overlay_env
@@ -1387,7 +1444,7 @@ def main() -> None:
                             flush=True,
                         )
 
-            exit_code, result_text, dyn_cfg = _run_dynamic_workflow_with_hf_fallback(
+            exit_code, result_text, dyn_cfg, dyn_execution = _run_dynamic_workflow_with_hf_fallback(
                 dyn_cfg,
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
@@ -1399,9 +1456,18 @@ def main() -> None:
                 emit_progress_lines=stream_iter_steps,
             )
             if exit_code:
+                _update_session_after_crew(
+                    orchestrator_session_path,
+                    result_text,
+                    **_session_outcome_kwargs(dyn_execution),
+                )
                 sys.exit(exit_code)
             last_iter_crew_text = result_text or last_iter_crew_text
-            _update_session_after_crew(orchestrator_session_path, result_text)
+            _update_session_after_crew(
+                orchestrator_session_path,
+                result_text,
+                **_session_outcome_kwargs(dyn_execution),
+            )
             # Learning: evaluate + update local stats (best-effort).
             try:
                 from orchestration.learning_store import (
@@ -1586,7 +1652,7 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-            exit_code, result_text, synth_cfg = _run_dynamic_workflow_with_hf_fallback(
+            exit_code, result_text, synth_cfg, synth_execution = _run_dynamic_workflow_with_hf_fallback(
                 synth_cfg,
                 agent_providers_catalog_path=agent_providers_catalog_path,
                 mcp_catalog_path=mcp_catalog_path,
@@ -1598,13 +1664,25 @@ def main() -> None:
                 emit_progress_lines=stream_iter_steps,
             )
             if exit_code:
+                _update_session_after_crew(
+                    orchestrator_session_path,
+                    result_text,
+                    **_session_outcome_kwargs(synth_execution),
+                )
                 sys.exit(exit_code)
             result_text = _finalize_dynamic_result_text(
                 result_text, media_grounding_bundle, user_goal=cache_goal
             )
-            _update_session_after_crew(orchestrator_session_path, result_text)
+            _update_session_after_crew(
+                orchestrator_session_path,
+                result_text,
+                **_session_outcome_kwargs(synth_execution),
+            )
             _update_session_after_final(
-                orchestrator_session_path, user_goal=cache_goal, result_text=result_text
+                orchestrator_session_path,
+                user_goal=cache_goal,
+                result_text=result_text,
+                **_session_outcome_kwargs(synth_execution),
             )
             try:
                 from orchestration.knowledge_base import add_document
@@ -1853,25 +1931,37 @@ def main() -> None:
                     f"agent_provider {tdef.agent_provider_id!r}{mcp_part}",
                     file=sys.stderr,
                 )
-        exit_code, result_text, dyn_cfg = _run_dynamic_workflow_with_hf_fallback(
+        exit_code, result_text, dyn_cfg, dyn_execution = _run_dynamic_workflow_with_hf_fallback(
             dyn_cfg,
             agent_providers_catalog_path=agent_providers_catalog_path,
             mcp_catalog_path=mcp_catalog_path,
-        agent_skills_catalog_path=agent_skills_catalog_path,
-        rag_sources_catalog_path=rag_sources_catalog_path,
+            agent_skills_catalog_path=agent_skills_catalog_path,
+            rag_sources_catalog_path=rag_sources_catalog_path,
             crew_verbose=not args.quiet,
             quiet=args.quiet,
             emit_stdout_summary=True,
             emit_progress_lines=True,
         )
         if exit_code:
+            _update_session_after_crew(
+                orchestrator_session_path,
+                result_text,
+                **_session_outcome_kwargs(dyn_execution),
+            )
             sys.exit(exit_code)
         result_text = _finalize_dynamic_result_text(
             result_text, media_grounding_bundle, user_goal=cache_goal
         )
-        _update_session_after_crew(orchestrator_session_path, result_text)
+        _update_session_after_crew(
+            orchestrator_session_path,
+            result_text,
+            **_session_outcome_kwargs(dyn_execution),
+        )
         _update_session_after_final(
-            orchestrator_session_path, user_goal=cache_goal, result_text=result_text
+            orchestrator_session_path,
+            user_goal=cache_goal,
+            result_text=result_text,
+            **_session_outcome_kwargs(dyn_execution),
         )
         qa_gate_failed = _emit_final_qa(
             tool_root=tool_root,

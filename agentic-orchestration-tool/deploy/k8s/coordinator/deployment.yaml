@@ -63,12 +63,14 @@ spec:
               mountPath: /app/tool/_web_uploads
               subPath: uploads
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/ping
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/ping
               port: http
             initialDelaySeconds: 15
             periodSeconds: 30
