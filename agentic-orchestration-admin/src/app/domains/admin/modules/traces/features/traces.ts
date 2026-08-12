@@ -1,4 +1,13 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnInit,
+  ViewChild,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -16,14 +25,14 @@ import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
-type SequenceLane = { id: string; label: string };
-type SequenceMessage = {
-  from: string;
-  to: string;
-  kind: string;
-  label: string;
-  note?: string;
-};
+declare global {
+  interface Window {
+    mermaid?: {
+      initialize: (cfg: Record<string, unknown>) => void;
+      run: (opts: { nodes: HTMLElement[] }) => Promise<void>;
+    };
+  }
+}
 
 @Component({
   selector: 'ao-traces-page',
@@ -38,6 +47,27 @@ type SequenceMessage = {
     EmptyState,
     ErrorState,
     StatusChip,
+  ],
+  styles: [
+    `
+      :host {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      :host ::ng-deep .ao-mermaid-host svg {
+        max-width: 100%;
+        height: auto;
+      }
+
+      :host ::ng-deep .ao-mermaid-host .actor > rect,
+      :host ::ng-deep .ao-mermaid-host rect.actor {
+        rx: 10;
+        ry: 10;
+      }
+    `,
   ],
   template: `
     <div class="mx-auto flex w-full max-w-7xl flex-auto flex-col gap-6 p-6 lg:px-8 lg:pt-8">
@@ -120,60 +150,14 @@ type SequenceMessage = {
             class="border-b border-neutral-200 bg-neutral-50/80 px-5 py-5 dark:border-neutral-800 dark:bg-neutral-950/50"
           >
             <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
-              Participants
-            </div>
-            <div class="mb-5 flex flex-wrap gap-2">
-              @for (lane of lanes(); track lane.id) {
-                <span
-                  class="inline-flex items-center rounded-xl border border-primary-200 bg-white px-3 py-1.5 text-xs font-semibold tracking-wide text-primary-700 uppercase shadow-sm dark:border-primary-900/50 dark:bg-neutral-900 dark:text-primary-300"
-                >
-                  {{ lane.label }}
-                </span>
-              }
-            </div>
-
-            <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
               Sequence
             </div>
-            @if (messages().length) {
-              <ol class="space-y-3">
-                @for (msg of messages(); track $index) {
-                  <li
-                    class="rounded-2xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
-                  >
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span
-                        class="rounded-lg bg-neutral-100 px-2 py-1 font-mono text-2xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-                      >
-                        {{ laneLabel(msg.from) }}
-                      </span>
-                      <mat-icon
-                        class="!size-4 !text-primary-500"
-                        svgIcon="arrow-right"
-                      />
-                      <span
-                        class="rounded-lg bg-neutral-100 px-2 py-1 font-mono text-2xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-                      >
-                        {{ laneLabel(msg.to) }}
-                      </span>
-                      <ao-status-chip [status]="kindStatus(msg.kind)" [label]="msg.kind" />
-                    </div>
-                    <div class="mt-2 text-sm text-neutral-700 dark:text-neutral-200">
-                      {{ msg.label }}
-                    </div>
-                    @if (msg.note) {
-                      <div
-                        class="mt-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400"
-                      >
-                        {{ msg.note }}
-                      </div>
-                    }
-                  </li>
-                }
-              </ol>
-            } @else {
-              <div class="text-sm text-neutral-500">No sequence events for this run.</div>
-            }
+            <div
+              #mermaidHost
+              class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
+            >
+              <pre class="mermaid whitespace-pre">{{ d.mermaid || '' }}</pre>
+            </div>
           </div>
 
           @if (d.events?.length) {
@@ -270,15 +254,15 @@ export class TracesPage implements OnInit {
   private api = inject(AoApi);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  @ViewChild('mermaidHost') mermaidHost?: ElementRef<HTMLElement>;
 
   readonly error = signal<string | null>(null);
   readonly detail = signal<RunTraceResponse | null>(null);
   readonly lookupId = signal('');
   readonly columns = ['runId', 'events', 'last', 'updated'];
   readonly dataSource = new MatTableDataSource<TraceListItem>([]);
+  private mermaidReady = false;
 
-  readonly lanes = computed(() => this.buildLanes(this.detail()?.events || []));
-  readonly messages = computed(() => this.buildMessages(this.detail()?.events || []));
   readonly outcomeChip = computed(() => {
     const events = this.detail()?.events || [];
     const last = events[events.length - 1];
@@ -286,7 +270,12 @@ export class TracesPage implements OnInit {
     return { status: this.kindStatus(last.kind), label: String(last.kind || 'event') };
   });
 
+  constructor() {
+    afterNextRender(() => this.renderMermaid());
+  }
+
   ngOnInit() {
+    this.ensureMermaid();
     this.api.traces(80).subscribe((r) => {
       if (!r.ok) {
         this.error.set(r.message);
@@ -317,6 +306,7 @@ export class TracesPage implements OnInit {
       }
       this.error.set(null);
       this.detail.set(r.data);
+      queueMicrotask(() => this.renderMermaid());
     });
   }
 
@@ -338,117 +328,124 @@ export class TracesPage implements OnInit {
 
   kindStatus(kind: string | null | undefined): string {
     const k = String(kind || '').toLowerCase();
-    if (k === 'run_end' || k === 'step_end' || k === 'select') return 'succeeded';
+    if (k === 'run_end' || k === 'step_end') return 'succeeded';
     if (k === 'run_error' || k === 'step_fail') return 'failed';
     if (k === 'plan' || k === 'request_start') return 'info';
     if (k === 'step_start') return 'running';
     return 'unset';
   }
 
-  laneLabel(id: string): string {
-    const lane = this.lanes().find((l) => l.id === id);
-    return lane?.label || id;
+  private cssVar(name: string, fallback: string): string {
+    if (typeof document === 'undefined') return fallback;
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
   }
 
-  private laneId(actor: string): string {
-    const a = String(actor || 'orchestrator').trim() || 'orchestrator';
-    return a.replace(/[^a-zA-Z0-9:_-]+/g, '_').slice(0, 48);
+  private fuseMermaidTheme(): Record<string, unknown> {
+    const dark =
+      typeof document !== 'undefined' &&
+      document.documentElement.classList.contains('dark');
+    const primary = this.cssVar('--color-primary-500', dark ? '#3b82f6' : '#2563eb');
+    const primarySoft = this.cssVar('--color-primary-900', dark ? '#1e3a8a' : '#1e40af');
+    const surface = dark ? '#0a0a0a' : '#ffffff';
+    const panel = dark ? '#171717' : '#f5f5f5';
+    const actor = dark ? '#262626' : '#ffffff';
+    const text = dark ? '#f5f5f5' : '#171717';
+    const muted = dark ? '#a3a3a3' : '#525252';
+    const line = dark ? '#737373' : '#a3a3a3';
+    return {
+      startOnLoad: false,
+      theme: dark ? 'dark' : 'base',
+      securityLevel: 'loose',
+      themeVariables: {
+        darkMode: dark,
+        background: surface,
+        primaryColor: actor,
+        primaryTextColor: text,
+        primaryBorderColor: primary,
+        secondaryColor: panel,
+        tertiaryColor: panel,
+        secondaryTextColor: text,
+        tertiaryTextColor: muted,
+        lineColor: primary,
+        textColor: text,
+        mainBkg: actor,
+        nodeBorder: primary,
+        clusterBkg: panel,
+        titleColor: text,
+        actorBkg: actor,
+        actorBorder: primary,
+        actorTextColor: text,
+        actorLineColor: line,
+        signalColor: primary,
+        signalTextColor: text,
+        labelBoxBkgColor: panel,
+        labelBoxBorderColor: line,
+        labelTextColor: muted,
+        loopTextColor: muted,
+        noteBkgColor: primarySoft,
+        noteTextColor: text,
+        noteBorderColor: primary,
+        activationBkgColor: panel,
+        activationBorderColor: primary,
+        sequenceNumberColor: text,
+      },
+      sequence: {
+        actorMargin: 28,
+        mirrorActors: true,
+        bottomMarginAdj: 8,
+        messageMargin: 40,
+        noteMargin: 10,
+        useMaxWidth: true,
+      },
+    };
   }
 
-  private buildLanes(events: RunTraceEvent[]): SequenceLane[] {
-    const order: string[] = ['client', 'orchestrator'];
-    const seen = new Set(order);
-    for (const ev of events) {
-      const actor = this.laneId(String(ev.actor || 'orchestrator'));
-      if (!seen.has(actor)) {
-        seen.add(actor);
-        order.push(actor);
-      }
-      const detail = ev.detail && typeof ev.detail === 'object' ? ev.detail : {};
-      const agents = Array.isArray((detail as { agents?: unknown }).agents)
-        ? ((detail as { agents: unknown[] }).agents as unknown[])
-        : [];
-      for (const ag of agents.slice(0, 6)) {
-        const id = this.laneId(`agent:${ag}`);
-        if (!seen.has(id)) {
-          seen.add(id);
-          order.push(id);
-        }
-      }
-      if (
-        Array.isArray((detail as { mcps?: unknown }).mcps) &&
-        (detail as { mcps: unknown[] }).mcps.length &&
-        !seen.has('mcp')
-      ) {
-        seen.add('mcp');
-        order.push('mcp');
-      }
-      if (
-        Array.isArray((detail as { skills?: unknown }).skills) &&
-        (detail as { skills: unknown[] }).skills.length &&
-        !seen.has('skills')
-      ) {
-        seen.add('skills');
-        order.push('skills');
-      }
+  private ensureMermaid() {
+    if (typeof document === 'undefined') return;
+    if (window.mermaid) {
+      this.initMermaid();
+      return;
     }
-    return order.map((id) => ({
-      id,
-      label: id.replace(/^agent:/, '').replace(/_/g, ' '),
-    }));
+    const existing = document.querySelector('script[data-ao-mermaid]');
+    if (existing) return;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+    s.async = true;
+    s.dataset['aoMermaid'] = '1';
+    s.onload = () => {
+      this.initMermaid();
+      this.renderMermaid();
+    };
+    document.head.appendChild(s);
   }
 
-  private buildMessages(events: RunTraceEvent[]): SequenceMessage[] {
-    const out: SequenceMessage[] = [];
-    let prev = 'client';
-    const known = new Set(this.buildLanes(events).map((l) => l.id));
-    for (const ev of events) {
-      const actor = this.laneId(String(ev.actor || 'orchestrator'));
-      const kind = String(ev.kind || 'event');
-      const msg = String(ev.message || kind).replace(/\s+/g, ' ').trim().slice(0, 120);
-      const detail = ev.detail && typeof ev.detail === 'object' ? ev.detail : {};
-      if (kind === 'request_start') {
-        out.push({
-          from: 'client',
-          to: known.has(actor) ? actor : 'orchestrator',
-          kind,
-          label: msg || 'request',
-        });
-        prev = known.has(actor) ? actor : 'orchestrator';
-      } else if (kind === 'plan') {
-        out.push({
-          from: prev,
-          to: actor,
-          kind,
-          label: 'plan',
-          note: msg || undefined,
-        });
-        const agents = Array.isArray((detail as { agents?: unknown }).agents)
-          ? ((detail as { agents: unknown[] }).agents as unknown[])
-          : [];
-        for (const ag of agents.slice(0, 6)) {
-          const aid = this.laneId(`agent:${ag}`);
-          out.push({ from: actor, to: aid, kind: 'select', label: `select ${ag}` });
-        }
-        prev = actor;
-      } else if (kind === 'run_end' || kind === 'run_error') {
-        out.push({
-          from: actor,
-          to: 'client',
-          kind,
-          label: msg || kind,
-        });
-        prev = 'client';
-      } else {
-        out.push({
-          from: prev,
-          to: known.has(actor) ? actor : prev,
-          kind,
-          label: msg || kind,
-        });
-        prev = known.has(actor) ? actor : prev;
-      }
+  private initMermaid() {
+    if (!window.mermaid) return;
+    window.mermaid.initialize(this.fuseMermaidTheme());
+    this.mermaidReady = true;
+  }
+
+  private async renderMermaid() {
+    const host = this.mermaidHost?.nativeElement;
+    const d = this.detail();
+    if (!host || !d?.mermaid) return;
+    if (!window.mermaid) {
+      this.ensureMermaid();
+      return;
     }
-    return out;
+    this.initMermaid();
+    const pre = host.querySelector('.mermaid');
+    if (!pre) return;
+    // Mermaid mutates the node; rebuild a clean source node each render.
+    const next = document.createElement('pre');
+    next.className = 'mermaid whitespace-pre';
+    next.textContent = d.mermaid;
+    pre.replaceWith(next);
+    try {
+      await window.mermaid.run({ nodes: [next] });
+    } catch {
+      /* keep raw mermaid text */
+    }
   }
 }
