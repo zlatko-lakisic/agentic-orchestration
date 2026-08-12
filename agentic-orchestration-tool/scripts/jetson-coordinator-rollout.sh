@@ -44,6 +44,11 @@ _apply_rollout_patch() {
     echo "=== run traces hostPath mount ==="
     kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${traces_patch}" 2>/dev/null || true
   fi
+  local llm_usage_patch="${TOOL_ROOT}/deploy/k8s/coordinator/llm-usage-hostpath-patch.yaml"
+  if [[ -f "${llm_usage_patch}" ]]; then
+    echo "=== LLM usage hostPath mount ==="
+    kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${llm_usage_patch}" 2>/dev/null || true
+  fi
   local providers_patch="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-providers-hostpath-patch.yaml"
   if [[ -f "${providers_patch}" ]]; then
     echo "=== agent_providers_jetson hostPath mount ==="

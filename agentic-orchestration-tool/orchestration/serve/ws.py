@@ -648,18 +648,71 @@ class WsConnection:
         run_id: str,
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
+        from orchestration.llm_usage import bind_usage_context, reset_usage_context
         from orchestration.session_overlay import overlay_run_context
+        from orchestration.tool_trace import apply_tool_call_trace_wrap
 
-        user_id = self.identity.user_id if self.identity else None
-        session_slug = str(
-            message.get("sessionId") or (self.identity.session_id if self.identity else "") or ""
+        # asyncio.to_thread does not inherit the event-loop contextvars — re-bind here.
+        app_id = message.get("appId")
+        if app_id is None:
+            app_id = message.get("app_id")
+        token_id = message.get("tokenId") or message.get("token_id") or ""
+        import os
+
+        prev_env = {
+            "AGENTIC_RUN_ID": os.environ.get("AGENTIC_RUN_ID"),
+            "AGENTIC_TOOL_ROOT": os.environ.get("AGENTIC_TOOL_ROOT"),
+            "AGENTIC_APP_ID": os.environ.get("AGENTIC_APP_ID"),
+            "AGENTIC_CLIENT_IP": os.environ.get("AGENTIC_CLIENT_IP"),
+            "AGENTIC_USER_ID": os.environ.get("AGENTIC_USER_ID"),
+            "AGENTIC_USER_NAME": os.environ.get("AGENTIC_USER_NAME"),
+            "AGENTIC_API_TOKEN_ID": os.environ.get("AGENTIC_API_TOKEN_ID"),
+        }
+        os.environ["AGENTIC_RUN_ID"] = str(run_id)
+        os.environ["AGENTIC_TOOL_ROOT"] = str(self.tool_root)
+        if app_id:
+            os.environ["AGENTIC_APP_ID"] = str(app_id)
+        if self.client_ip:
+            os.environ["AGENTIC_CLIENT_IP"] = str(self.client_ip)
+        if self.identity and self.identity.user_id:
+            os.environ["AGENTIC_USER_ID"] = str(self.identity.user_id)
+        if self.identity and self.identity.user_name:
+            os.environ["AGENTIC_USER_NAME"] = str(self.identity.user_name)
+        if token_id:
+            os.environ["AGENTIC_API_TOKEN_ID"] = str(token_id)
+        usage_tokens = bind_usage_context(
+            tool_root=self.tool_root,
+            run_id=run_id,
+            user_id=self.identity.user_id if self.identity else "",
+            user_name=self.identity.user_name if self.identity else "",
+            app_id=str(app_id or ""),
+            client_ip=self.client_ip or "",
+            token_id=str(token_id or ""),
         )
-        with overlay_run_context(
-            user_id=user_id or "",
-            session_id=session_slug or (self.identity.session_id if self.identity else ""),
-            connection_id=self.connection_id,
-        ):
-            return self._execute_inner(message, kind, text, tag, user_id, session_slug, run_id)
+        try:
+            apply_tool_call_trace_wrap()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            user_id = self.identity.user_id if self.identity else None
+            session_slug = str(
+                message.get("sessionId")
+                or (self.identity.session_id if self.identity else "")
+                or ""
+            )
+            with overlay_run_context(
+                user_id=user_id or "",
+                session_id=session_slug or (self.identity.session_id if self.identity else ""),
+                connection_id=self.connection_id,
+            ):
+                return self._execute_inner(message, kind, text, tag, user_id, session_slug, run_id)
+        finally:
+            reset_usage_context(usage_tokens)
+            for key, old in prev_env.items():
+                if old is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = old
 
     def _execute_inner(
         self,

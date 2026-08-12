@@ -1,0 +1,14 @@
+# Share LLM usage ledger with Admin (engine writes under tool root hostPath).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: llm-usage
+              mountPath: /app/tool/__orchestrator_llm_usage__
+      volumes:
+        - name: llm-usage
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_llm_usage__
+            type: DirectoryOrCreate

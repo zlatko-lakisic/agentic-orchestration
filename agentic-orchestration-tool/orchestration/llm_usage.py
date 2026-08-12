@@ -172,20 +172,36 @@ def record_llm_usage(
 ) -> None:
     """Append ledger row + ``model_call`` run-trace event (best-effort)."""
     try:
+        import os
+
         root = tool_root or _cv_tool_root.get()
-        rid = (run_id if run_id is not None else _cv_run_id.get()) or ""
         if root is None:
-            return
+            env_root = os.getenv("AGENTIC_TOOL_ROOT", "").strip()
+            if env_root:
+                root = Path(env_root)
+            else:
+                # orchestration/llm_usage.py → tool root is parents[1]
+                root = Path(__file__).resolve().parents[1]
+        rid = (run_id if run_id is not None else _cv_run_id.get()) or ""
+        if not rid:
+            rid = os.getenv("AGENTIC_RUN_ID", "").strip()
         root = Path(root)
-        if prompt_tokens is None and completion_tokens is None and total_tokens is None:
-            # still record the call
-            pass
         if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
             total_tokens = prompt_tokens + completion_tokens
 
         ident = current_usage_identity()
         if rid:
             ident["runId"] = rid
+        if not ident.get("appId"):
+            ident["appId"] = os.getenv("AGENTIC_APP_ID", "").strip()
+        if not ident.get("clientIp"):
+            ident["clientIp"] = os.getenv("AGENTIC_CLIENT_IP", "").strip()
+        if not ident.get("userId"):
+            ident["userId"] = os.getenv("AGENTIC_USER_ID", "").strip()
+        if not ident.get("userName"):
+            ident["userName"] = os.getenv("AGENTIC_USER_NAME", "").strip()
+        if not ident.get("tokenId"):
+            ident["tokenId"] = os.getenv("AGENTIC_API_TOKEN_ID", "").strip()
 
         row: dict[str, Any] = {
             "ts": time.time(),

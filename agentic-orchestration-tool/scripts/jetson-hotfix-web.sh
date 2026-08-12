@@ -117,6 +117,8 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=config_loader.py="${ORCH_ROOT}/config_loader.py" \
   --from-file=run_store.py="${ORCH_ROOT}/run_store.py" \
   --from-file=run_trace.py="${ORCH_ROOT}/run_trace.py" \
+  --from-file=llm_usage.py="${ORCH_ROOT}/llm_usage.py" \
+  --from-file=tool_trace.py="${ORCH_ROOT}/tool_trace.py" \
   --from-file=workflow_ollama.py="${ORCH_ROOT}/workflow_ollama.py" \
   --from-file=metrics.py="${ORCH_ROOT}/metrics.py" \
   --from-file=run_store_backends.py="${ORCH_ROOT}/run_store_backends.py" \
