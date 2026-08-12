@@ -151,6 +151,12 @@ export async function applyTopologyStylesToMermaidSvg(
 
     const theme = themeForTraceActor(label || 'platform');
     const accent = theme.accent;
+    const padL = 10;
+    const iconSize = 16;
+    const iconGap = 6;
+    const padR = 10;
+    const textStartX = x + padL + iconSize + iconGap; // after left bar + icon
+    const textMaxW = Math.max(24, w - (textStartX - x) - padR);
 
     rect.setAttribute('rx', '8');
     rect.setAttribute('ry', '8');
@@ -182,19 +188,18 @@ export async function applyTopologyStylesToMermaidSvg(
           if (iconSvg) {
             const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
             fo.setAttribute('data-ao-topo', String(i));
-            fo.setAttribute('x', String(x + 10));
-            fo.setAttribute('y', String(y + Math.max(6, (h - 18) / 2)));
-            fo.setAttribute('width', '18');
-            fo.setAttribute('height', '18');
+            fo.setAttribute('x', String(x + padL));
+            fo.setAttribute('y', String(y + Math.max(6, (h - iconSize) / 2 - (h >= 48 ? 4 : 0))));
+            fo.setAttribute('width', String(iconSize + 2));
+            fo.setAttribute('height', String(iconSize + 2));
             const wrap = document.createElement('div');
             wrap.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
             wrap.style.cssText =
-              'display:flex;width:18px;height:18px;align-items:center;justify-content:center;color:' +
-              accent;
+              `display:flex;width:${iconSize}px;height:${iconSize}px;align-items:center;justify-content:center;color:${accent}`;
             const cloned = iconSvg.cloneNode(true) as SVGElement;
-            cloned.setAttribute('width', '16');
-            cloned.setAttribute('height', '16');
-            cloned.style.cssText = `width:16px;height:16px;display:block;color:${accent};fill:currentColor;`;
+            cloned.setAttribute('width', String(iconSize));
+            cloned.setAttribute('height', String(iconSize));
+            cloned.style.cssText = `width:${iconSize}px;height:${iconSize}px;display:block;color:${accent};fill:currentColor;`;
             cloned.querySelectorAll('[fill]').forEach((el) => {
               if (el.getAttribute('fill') !== 'none') el.setAttribute('fill', 'currentColor');
             });
@@ -204,32 +209,42 @@ export async function applyTopologyStylesToMermaidSvg(
             wrap.appendChild(cloned);
             fo.appendChild(wrap);
             parent.appendChild(fo);
-
-            if (labelText) {
-              try {
-                const bx = labelText.getBBox();
-                const targetX = x + 32 + Math.max(0, (w - 40 - bx.width) / 2);
-                labelText.setAttribute('x', String(targetX));
-                labelText.style.setProperty('text-anchor', 'start', 'important');
-              } catch {
-                /* ignore */
-              }
-            }
           }
         } catch {
           /* icons optional */
         }
       }
 
-      const aspect = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      aspect.setAttribute('data-ao-topo', String(i));
-      aspect.setAttribute('x', String(cx + (loadIcon ? 8 : 0)));
-      aspect.setAttribute('y', String(y + h - 8));
-      aspect.setAttribute('text-anchor', 'middle');
-      aspect.setAttribute('fill', muted);
-      aspect.style.cssText = `fill:${muted};font-size:9px;font-family:inherit;`;
-      aspect.textContent = theme.aspect;
-      if (h >= 48) parent.appendChild(aspect);
+      // Primary label: left-aligned + truncated to panel width (topology-style).
+      if (labelText) {
+        const full = (labelText.textContent || label || '').trim();
+        const shown = truncateToWidth(labelText, full, textMaxW);
+        labelText.textContent = shown;
+        labelText.setAttribute('x', String(textStartX));
+        labelText.setAttribute('text-anchor', 'start');
+        labelText.style.setProperty('text-anchor', 'start', 'important');
+        // Vertical: top line when aspect caption fits
+        if (h >= 48) {
+          labelText.setAttribute('y', String(y + 22));
+          labelText.style.setProperty('dominant-baseline', 'auto', 'important');
+        }
+        labelText.querySelector('title')?.remove();
+        const tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        tip.textContent = full;
+        labelText.appendChild(tip);
+      }
+
+      if (h >= 48) {
+        const aspect = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        aspect.setAttribute('data-ao-topo', String(i));
+        aspect.setAttribute('x', String(textStartX));
+        aspect.setAttribute('y', String(y + h - 10));
+        aspect.setAttribute('text-anchor', 'start');
+        aspect.setAttribute('fill', muted);
+        aspect.style.cssText = `fill:${muted};font-size:9px;font-family:inherit;text-anchor:start;`;
+        aspect.textContent = truncateChars(theme.aspect, Math.floor(textMaxW / 5.5));
+        parent.appendChild(aspect);
+      }
     }
 
     const g = rect.closest('g');
@@ -263,4 +278,44 @@ export async function applyTopologyStylesToMermaidSvg(
       el.setAttribute('stroke', arrowAccent);
       (el as SVGElement).style.setProperty('stroke', arrowAccent, 'important');
     });
+}
+
+function truncateChars(s: string, max: number): string {
+  const t = String(s || '');
+  if (max < 2) return '…';
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/** Shrink label until getBBox width fits; fall back to char estimate. */
+function truncateToWidth(el: SVGTextElement, full: string, maxPx: number): string {
+  const raw = String(full || '').trim();
+  if (!raw) return '';
+  el.textContent = raw;
+  try {
+    if (el.getBBox().width <= maxPx) return raw;
+  } catch {
+    return truncateChars(raw, Math.floor(maxPx / 7));
+  }
+  let lo = 1;
+  let hi = raw.length;
+  let best = '…';
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = truncateChars(raw, mid);
+    el.textContent = candidate;
+    let width = maxPx + 1;
+    try {
+      width = el.getBBox().width;
+    } catch {
+      return truncateChars(raw, Math.floor(maxPx / 7));
+    }
+    if (width <= maxPx) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  el.textContent = best;
+  return best;
 }
