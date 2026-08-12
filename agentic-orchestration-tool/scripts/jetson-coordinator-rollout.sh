@@ -39,6 +39,16 @@ _apply_rollout_patch() {
     echo "=== AO Admin SPA hostPath mount ==="
     kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${admin_patch}" 2>/dev/null || true
   fi
+  local traces_patch="${TOOL_ROOT}/deploy/k8s/coordinator/run-traces-hostpath-patch.yaml"
+  if [[ -f "${traces_patch}" ]]; then
+    echo "=== run traces hostPath mount ==="
+    kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${traces_patch}" 2>/dev/null || true
+  fi
+  local providers_patch="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-providers-hostpath-patch.yaml"
+  if [[ -f "${providers_patch}" ]]; then
+    echo "=== agent_providers_jetson hostPath mount ==="
+    kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${providers_patch}" 2>/dev/null || true
+  fi
   if [[ -f "${NODEPORT_SVC}" ]]; then
     kubectl apply -f "${NODEPORT_SVC}"
   fi

@@ -1,0 +1,14 @@
+# Share engine/CLI run traces with Admin (same hostPath as engine tool tree).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: run-traces
+              mountPath: /app/tool/__orchestrator_run_traces__
+      volumes:
+        - name: run-traces
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_run_traces__
+            type: DirectoryOrCreate

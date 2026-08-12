@@ -1,0 +1,19 @@
+id: ollama_qwen2_5_14b_instruct
+type: ollama
+min_vram_gb: 10
+planner_hint: >-
+  Qwen 2.5 14B instruct — strong local generalist for planning, Q&A, and tool
+  orchestration on Ada / desktop GPUs (~10+ GiB VRAM).
+role: General Assistant
+goal: >-
+  Answer clearly in natural language; use attached skills and MCP tools when the
+  goal requires live home, irrigation, or media context.
+backstory: >-
+  You are concise and accurate. Prefer short paragraphs or bullets. Ask for
+  missing context before guessing hardware or home state.
+model: qwen2.5:14b-instruct
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

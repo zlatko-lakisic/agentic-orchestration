@@ -1,0 +1,15 @@
+# Mount git-synced edge agent provider catalog into the coordinator (no docker rebuild).
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: jetson-agent-providers
+              mountPath: /app/tool/config/agent_providers_jetson
+              readOnly: true
+      volumes:
+        - name: jetson-agent-providers
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/config/agent_providers_jetson
+            type: DirectoryOrCreate

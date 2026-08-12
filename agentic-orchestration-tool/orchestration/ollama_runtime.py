@@ -15,6 +15,7 @@ from orchestration.edge_platform import detect_edge_platform, detect_jetpack_maj
 
 _RUNTIME_NATIVE = "native"
 _RUNTIME_JETSON_CONTAINER = "jetson-container"
+_RUNTIME_MANAGED_K8S = "managed_k8s"
 _RUNTIME_NONE = "none"
 
 
@@ -120,15 +121,18 @@ def detect_ollama_runtime() -> dict[str, Any]:
     """
     Detect which Ollama backend is active or should be used.
 
-    Returns dict with ``backend`` in ``native``, ``jetson-container``, or ``none``,
-    plus diagnostic fields for logging.
+    Returns dict with ``backend`` in ``native``, ``jetson-container``,
+    ``managed_k8s``, or ``none``, plus diagnostic fields for logging.
     """
     pref = resolve_ollama_runtime_preference()
     native = _detect_native_ollama()
     container = _detect_jetson_container_ollama()
     platform = detect_edge_platform()
+    ollama_mode = os.getenv("AGENTIC_OLLAMA_MODE", "").strip().lower()
 
-    if pref == _RUNTIME_JETSON_CONTAINER:
+    if ollama_mode == _RUNTIME_MANAGED_K8S:
+        backend = _RUNTIME_MANAGED_K8S
+    elif pref == _RUNTIME_JETSON_CONTAINER:
         if container and container.get("running"):
             backend = _RUNTIME_JETSON_CONTAINER
         elif native:
@@ -175,6 +179,7 @@ def detect_ollama_runtime() -> dict[str, Any]:
         "api_base": api_base,
         "native": native,
         "container": container,
+        "mode": ollama_mode or None,
         "recommended_container_image": jetson_ollama_container_image(),
     }
 

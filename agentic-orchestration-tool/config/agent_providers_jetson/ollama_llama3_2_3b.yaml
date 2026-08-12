@@ -12,7 +12,8 @@ backstory: >-
   You are concise, accurate, and prefer short paragraphs or bullets. For watering
   questions you ask for missing zone/soil/weather context before recommending runtimes.
 model: llama3.2:3b
-ollama_host: http://host.k3s.internal:11434
+# workflow → OLLAMA_API_BASE (managed_k8s: http://agentic-ollama:11434)
+ollama_host: workflow
 selfcontained: false
 verbose: true
 allow_delegation: false

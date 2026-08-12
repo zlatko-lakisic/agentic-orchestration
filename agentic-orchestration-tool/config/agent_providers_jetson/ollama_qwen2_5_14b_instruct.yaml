@@ -1,0 +1,18 @@
+id: ollama_qwen2_5_14b_instruct
+type: ollama
+min_vram_gb: 10
+planner_hint: >-
+  Qwen 2.5 14B instruct on edge hosts with enough VRAM (e.g. Ada RTX 4000).
+  Prefer llama3.2:3b on Jetson-class devices.
+role: General Assistant
+goal: >-
+  Answer clearly in natural language; follow irrigation / home playbooks when
+  those skills are attached.
+backstory: >-
+  You are concise and accurate. Prefer short paragraphs or bullets.
+model: qwen2.5:14b-instruct
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

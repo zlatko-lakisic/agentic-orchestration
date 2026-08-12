@@ -66,6 +66,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
+  --from-file=ollama_runtime.py="${ORCH_ROOT}/ollama_runtime.py" \
   --from-file=ollama_serve_lifecycle.py="${ORCH_ROOT}/ollama_serve_lifecycle.py" \
   --from-file=session_overlay.py="${ORCH_ROOT}/session_overlay.py" \
   --from-file=session_overlay_runtime.py="${ORCH_ROOT}/session_overlay_runtime.py" \

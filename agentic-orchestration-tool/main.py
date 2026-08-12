@@ -1184,11 +1184,20 @@ def main() -> None:
         sys.exit(execute_step_from_spec_file(spec.resolve()))
 
     from orchestration.run_store import resolve_run_id
+    from orchestration.run_trace import append_run_event
     from orchestration.structured_logging import emit_log
 
     cli_run_id = resolve_run_id(getattr(args, "run_id", None))
     os.environ["AGENTIC_RUN_ID"] = cli_run_id
     emit_log("cli run start", run_id=cli_run_id, component="engine")
+    append_run_event(
+        tool_root,
+        cli_run_id,
+        "request_start",
+        actor="orchestrator",
+        message="cli run start",
+        detail={"dynamic": bool(getattr(args, "dynamic", False) or getattr(args, "dynamic_iterative", False))},
+    )
 
     if getattr(args, "example", None):
         from orchestration.example_overlays import apply_example_overlay_env
@@ -1910,6 +1919,14 @@ def main() -> None:
             )
         except Exception as exc:  # noqa: BLE001
             print(f"(dynamic) planning failed: {exc}", file=sys.stderr)
+            append_run_event(
+                tool_root,
+                cli_run_id,
+                "run_error",
+                actor="planner",
+                message=str(exc)[:500],
+                detail={"phase": "planning"},
+            )
             sys.exit(1)
         try:
             from orchestration.learning_store import emit_run_rating_meta
@@ -1918,6 +1935,22 @@ def main() -> None:
         except Exception:  # noqa: BLE001
             pass
         summary = plan.get("plan_summary")
+        agents = []
+        if isinstance(plan, dict):
+            for step in plan.get("steps") or []:
+                if isinstance(step, dict) and step.get("agent_provider_id"):
+                    agents.append(str(step["agent_provider_id"]))
+        for tdef in dyn_cfg.tasks:
+            if tdef.agent_provider_id and tdef.agent_provider_id not in agents:
+                agents.append(tdef.agent_provider_id)
+        append_run_event(
+            tool_root,
+            cli_run_id,
+            "plan",
+            actor="planner",
+            message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
+            detail={"agents": agents, "steps": len(dyn_cfg.tasks)},
+        )
         if not args.quiet:
             if isinstance(summary, str) and summary.strip():
                 print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
@@ -1943,6 +1976,14 @@ def main() -> None:
             emit_progress_lines=True,
         )
         if exit_code:
+            append_run_event(
+                tool_root,
+                cli_run_id,
+                "run_error",
+                actor="orchestrator",
+                message=(str(result_text or "failed")[:500]),
+                detail={"exit_code": int(exit_code)},
+            )
             _update_session_after_crew(
                 orchestrator_session_path,
                 result_text,
@@ -1951,6 +1992,14 @@ def main() -> None:
             sys.exit(exit_code)
         result_text = _finalize_dynamic_result_text(
             result_text, media_grounding_bundle, user_goal=cache_goal
+        )
+        append_run_event(
+            tool_root,
+            cli_run_id,
+            "run_end",
+            actor="orchestrator",
+            message="ok",
+            detail={"exit_code": 0, "chars": len(str(result_text or ""))},
         )
         _update_session_after_crew(
             orchestrator_session_path,
