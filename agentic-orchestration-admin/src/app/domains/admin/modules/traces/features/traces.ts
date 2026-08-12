@@ -30,7 +30,12 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyTopologyStylesToMermaidSvg,
   isAoDarkScheme,
+  svgSafeColor,
   themeForTraceActor,
+  topologyPanelCanvas,
+  topologyPanelMuted,
+  topologyPanelSurface,
+  topologyPanelText,
 } from '@/app/domains/admin/modules/traces/data/trace-topology-theme';
 
 declare global {
@@ -528,12 +533,19 @@ export class TracesPage implements OnInit {
 
   private fuseMermaidTheme(): Record<string, unknown> {
     const dark = isAoDarkScheme();
-    const primary = this.cssVar('--color-primary-500', dark ? '#3b82f6' : '#2563eb');
-    const primarySoft = this.cssVar('--color-primary-900', dark ? '#1e3a8a' : '#1e40af');
-    const surface = this.cssVar('--mat-sys-surface', dark ? '#171717' : '#ffffff');
-    const panel = dark ? '#0a0a0a' : '#fafafa';
-    const text = this.cssVar('--mat-sys-on-surface', dark ? '#f5f5f5' : '#171717');
-    const muted = this.cssVar('--mat-sys-on-surface-variant', dark ? '#a3a3a3' : '#525252');
+    // Never pass CSS `light-dark()` tokens into Mermaid — SVG fill becomes black.
+    const primary = svgSafeColor(
+      this.cssVar('--color-primary-500', ''),
+      dark ? '#3b82f6' : '#2563eb'
+    );
+    const primarySoft = svgSafeColor(
+      this.cssVar('--color-primary-900', ''),
+      dark ? '#1e3a8a' : '#1e40af'
+    );
+    const surface = topologyPanelSurface();
+    const panel = topologyPanelCanvas();
+    const text = topologyPanelText();
+    const muted = topologyPanelMuted();
     const line = dark ? '#737373' : '#a3a3a3';
     return {
       startOnLoad: false,
@@ -647,7 +659,11 @@ export class TracesPage implements OnInit {
       if (gen !== this.mermaidGen) return;
       const svg = host.querySelector('svg');
       if (svg instanceof SVGSVGElement) {
-        await applyTopologyStylesToMermaidSvg(svg, (icon) => this.loadTopologyIcon(icon));
+        try {
+          await applyTopologyStylesToMermaidSvg(svg, (icon) => this.loadTopologyIcon(icon));
+        } catch {
+          /* diagram still visible without topology polish */
+        }
         if (gen !== this.mermaidGen) return;
         const vb = svg.getAttribute('viewBox');
         if (vb) {
@@ -659,8 +675,13 @@ export class TracesPage implements OnInit {
           }
         }
       }
-    } catch {
-      /* keep raw mermaid text */
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Mermaid render failed';
+      host.replaceChildren();
+      const fail = document.createElement('div');
+      fail.className = 'p-4 text-sm text-red-400';
+      fail.textContent = msg;
+      host.appendChild(fail);
     }
   }
 }

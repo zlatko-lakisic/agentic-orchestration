@@ -13,26 +13,36 @@ export function isAoDarkScheme(): boolean {
   );
 }
 
-function cssVar(name: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback;
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
-}
-
-/** Same surface as Topology node cards (`--mat-sys-surface`). */
+/**
+ * SVG/Canvas paints cannot use CSS `light-dark()` (what `--mat-sys-*` stores).
+ * Always return a concrete hex that matches Topology node cards.
+ */
 export function topologyPanelSurface(): string {
-  const dark = isAoDarkScheme();
-  return cssVar('--mat-sys-surface', dark ? '#171717' : '#ffffff');
+  return isAoDarkScheme() ? '#171717' : '#ffffff';
 }
 
 export function topologyPanelText(): string {
-  const dark = isAoDarkScheme();
-  return cssVar('--mat-sys-on-surface', dark ? '#f5f5f5' : '#171717');
+  return isAoDarkScheme() ? '#f5f5f5' : '#171717';
 }
 
 export function topologyPanelMuted(): string {
-  const dark = isAoDarkScheme();
-  return cssVar('--mat-sys-on-surface-variant', dark ? '#a3a3a3' : '#737373');
+  return isAoDarkScheme() ? '#a3a3a3' : '#737373';
+}
+
+export function topologyPanelCanvas(): string {
+  return isAoDarkScheme() ? '#0a0a0a' : '#fafafa';
+}
+
+/** True if a string is safe to use as an SVG fill/stroke. */
+export function isSvgPaintColor(value: string): boolean {
+  const v = String(value || '').trim();
+  return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v) || /^rgba?\(/i.test(v);
+}
+
+/** Prefer hex tokens; never pass unresolved CSS functions into Mermaid/SVG. */
+export function svgSafeColor(value: string, fallback: string): string {
+  const v = String(value || '').trim();
+  return isSvgPaintColor(v) ? v : fallback;
 }
 
 /** Map sequence-diagram participant labels to Topology node kinds (shared accents). */
