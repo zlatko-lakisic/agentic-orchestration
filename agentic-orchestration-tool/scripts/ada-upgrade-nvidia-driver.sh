@@ -73,9 +73,17 @@ echo "=== apt update ==="
 apt-get update -y
 
 echo "=== install ${TARGET_PKG} (proprietary, not -open) ==="
+# Ubuntu noble: libnvidia-egl-xcb1 can conflict with libnvidia-gl-NNN file ownership.
+apt-get remove -y libnvidia-egl-xcb1 libnvidia-egl-xlib1 2>/dev/null || true
+systemctl stop nvidia-persistenced 2>/dev/null || true
 # Allow overwriting 535 metapackage; Ubuntu switches series cleanly when the new
 # metapackage is installed. Do NOT install nvidia-driver-*-open here.
-apt-get install -y "${TARGET_PKG}"
+if ! apt-get install -y "${TARGET_PKG}"; then
+  echo "retrying with dpkg --force-overwrite for EGL JSON conflict..."
+  dpkg --remove --force-depends libnvidia-egl-xcb1 libnvidia-egl-xlib1 2>/dev/null || true
+  apt-get -y -f install || true
+  apt-get install -y -o Dpkg::Options::="--force-overwrite" "${TARGET_PKG}"
+fi
 
 echo "=== installed nvidia driver packages ==="
 dpkg -l | grep -E '^ii\s+nvidia-driver-|^ii\s+nvidia-dkms-|^ii\s+nvidia-utils-' || true
