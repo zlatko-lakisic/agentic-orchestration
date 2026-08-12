@@ -157,16 +157,21 @@ open(out, "w", encoding="utf-8").write(doc)
 print(f"mode=host-binary bin={obin} home={ohome} models={models}")
 PY
 else
-  IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:latest}"
+  IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:0.9.6}"
   python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" <<'PY'
 import sys
 src, dst, image, home, models_data, runtime_class = sys.argv[1:7]
 text = open(src, encoding="utf-8").read()
-old = "image: ollama/ollama:latest"
-new = f"image: {image}"
-if old not in text:
-    raise SystemExit(f"expected {old!r} in {src}")
-text = text.replace(old, new, 1)
+import re
+text2, n = re.subn(
+    r"(?m)^(\s*image:\s*)ollama/ollama:\S+",
+    rf"\1{image}",
+    text,
+    count=1,
+)
+if n != 1:
+    raise SystemExit(f"expected one ollama image: line in {src}")
+text = text2
 text = text.replace(
     "path: /var/projects/agentic-orchestration/var/ollama-models",
     f"path: {home}",

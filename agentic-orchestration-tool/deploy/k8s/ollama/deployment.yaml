@@ -7,6 +7,8 @@
 # Ada / x86 GPU: k3s may advertise RuntimeClass "nvidia" without a working
 # containerd handler. Mount NVIDIA devices + host driver libs, then symlink
 # libcuda into standard paths before `ollama serve` so runners use the GPU.
+# Default image is overridden on Ada via AGENTIC_OLLAMA_IMAGE (0.9.6) because
+# ollama/ollama:latest (0.32+) requires NVIDIA driver 550+; Ada is on 535.x.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,7 +32,7 @@ spec:
     spec:
       containers:
         - name: ollama
-          image: ollama/ollama:latest
+          image: ollama/ollama:0.9.6
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
