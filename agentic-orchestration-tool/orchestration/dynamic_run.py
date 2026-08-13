@@ -40,6 +40,58 @@ class CatalogPaths:
     rag_sources: Path
 
 
+def _mcp_id_token(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text or None
+    if isinstance(raw, dict):
+        for key in ("id", "ref", "name"):
+            val = str(raw.get(key) or "").strip()
+            if val:
+                return val
+    return str(raw).strip() or None
+
+
+def _crew_step_trace_rows(config: Any) -> list[dict[str, Any]]:
+    """Per-task agents + MCP/skills/RAG/harness for Admin Traces crew log."""
+    from orchestration.config_loader import (
+        raw_mcp_spec_for_task,
+        raw_rag_spec_for_task,
+        raw_skill_spec_for_task,
+    )
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in getattr(config, "agent_providers", None) or []:
+        if not isinstance(entry, dict):
+            continue
+        pid = str(entry.get("id") or "").strip()
+        if pid:
+            by_id[pid] = entry
+    rows: list[dict[str, Any]] = []
+    for task in list(getattr(config, "tasks", None) or [])[:24]:
+        agent_id = str(getattr(task, "agent_provider_id", None) or "").strip()
+        entry = by_id.get(agent_id) or {}
+        harness = str(entry.get("harness_profile") or "").strip() or None
+        mcps = [
+            mid
+            for mid in (_mcp_id_token(x) for x in raw_mcp_spec_for_task(task, config))
+            if mid
+        ]
+        rows.append(
+            {
+                "id": getattr(task, "id", None),
+                "agent_provider_id": agent_id or None,
+                "mcps": mcps,
+                "skills": raw_skill_spec_for_task(task, config),
+                "rag": raw_rag_spec_for_task(task, config),
+                "harness": harness,
+            }
+        )
+    return rows
+
+
 def catalog_paths(tool_root: Path | None = None) -> CatalogPaths:
     """Catalog locations using the same env overrides as the CLI."""
     root = tool_root or tool_root_default()
@@ -229,13 +281,21 @@ def run_dynamic_goal(
     for t in config.tasks:
         if t.agent_provider_id and t.agent_provider_id not in agents:
             agents.append(t.agent_provider_id)
+    crew_steps = _crew_step_trace_rows(config)
     append_run_event(
         root,
         rid,
         "plan",
         actor="planner",
         message=str(summary or f"{len(config.tasks)} step(s)").strip()[:200],
-        detail={"agents": agents, "mcps": mcps, "skills": skills, "steps": len(config.tasks)},
+        detail={
+            "dynamicPlanning": True,
+            "agents": agents,
+            "mcps": mcps,
+            "skills": skills,
+            "steps": len(config.tasks),
+            "crewSteps": crew_steps,
+        },
     )
     append_run_event(
         root,
@@ -244,17 +304,12 @@ def run_dynamic_goal(
         actor="orchestrator",
         message=str(summary or f"{len(config.tasks)} step(s)").strip()[:200],
         detail={
+            "dynamicPlanning": True,
             "reason": str(summary or "").strip() or None,
             "agents": agents,
             "mcps": mcps,
             "skills": skills,
-            "steps": [
-                {
-                    "id": getattr(t, "id", None),
-                    "agent_provider_id": getattr(t, "agent_provider_id", None),
-                }
-                for t in (config.tasks or [])[:12]
-            ],
+            "steps": crew_steps,
         },
     )
     progress(f"executing {len(config.tasks)} step(s)")

@@ -1840,7 +1840,16 @@ const TRACE_DEPTH_KINDS = {
   all: null,
   boundary: new Set(["request_start", "run_end", "run_error", "agent_start", "agent_end"]),
   decisions: new Set(["request_start", "run_end", "run_error", "plan", "decision"]),
-  crew: new Set(["request_start", "run_end", "run_error", "step_start", "step_end", "step_fail"]),
+  crew: new Set([
+    "request_start",
+    "run_end",
+    "run_error",
+    "plan",
+    "decision",
+    "step_start",
+    "step_end",
+    "step_fail",
+  ]),
   tools: new Set([
     "request_start",
     "run_end",
@@ -1910,6 +1919,8 @@ function detailIdentity(events) {
   let userName = null;
   let userId = null;
   let mode = null;
+  let runMode = null;
+  let dynamicPlanning = null;
   let startedTs = null;
   for (const ev of events || []) {
     const ts = Number(ev?.ts);
@@ -1928,6 +1939,14 @@ function detailIdentity(events) {
       userId = String(d.user_id || d.userId);
     }
     if (mode == null && d.mode) mode = String(d.mode);
+    if (runMode == null && d.runMode) runMode = String(d.runMode);
+    if (dynamicPlanning == null && Object.prototype.hasOwnProperty.call(d, "dynamicPlanning")) {
+      dynamicPlanning = Boolean(d.dynamicPlanning);
+    }
+  }
+  if (dynamicPlanning == null) {
+    const kinds = new Set((events || []).map((e) => String(e?.kind || "")));
+    if (kinds.has("plan") || kinds.has("decision")) dynamicPlanning = true;
   }
   appId = effectiveAppId({ appId, userName, userId }) || null;
   return {
@@ -1936,8 +1955,57 @@ function detailIdentity(events) {
     userName,
     userId,
     mode,
+    runMode,
+    dynamicPlanning,
     startedAt: startedTs != null ? new Date(startedTs * 1000).toISOString() : null,
   };
+}
+
+function extractCrewLog(events) {
+  let steps = [];
+  for (const kind of ["decision", "plan"]) {
+    for (const ev of events || []) {
+      if (String(ev?.kind || "") !== kind) continue;
+      const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+      const rawSteps = Array.isArray(d.steps) ? d.steps : [];
+      if (
+        rawSteps.length &&
+        typeof rawSteps[0] === "object" &&
+        rawSteps.some(
+          (s) =>
+            s &&
+            typeof s === "object" &&
+            ("agent_provider_id" in s || "mcps" in s || "skills" in s),
+        )
+      ) {
+        steps = rawSteps.filter((s) => s && typeof s === "object");
+        break;
+      }
+      if (Array.isArray(d.crewSteps) && d.crewSteps.length) {
+        steps = d.crewSteps.filter((s) => s && typeof s === "object");
+        break;
+      }
+    }
+    if (steps.length) break;
+  }
+  return steps.slice(0, 24).map((step, i) => {
+    const agent = String(step.agent_provider_id || step.agent || "").trim();
+    const mcps = Array.isArray(step.mcps) ? step.mcps.map((x) => String(x)).filter(Boolean) : [];
+    const skills = Array.isArray(step.skills)
+      ? step.skills.map((x) => String(x)).filter(Boolean)
+      : [];
+    const rag = Array.isArray(step.rag) ? step.rag.map((x) => String(x)).filter(Boolean) : [];
+    const harness = step.harness != null ? String(step.harness).trim() : "";
+    return {
+      index: i + 1,
+      id: step.id || `step_${i + 1}`,
+      agentProviderId: agent || null,
+      mcps,
+      skills,
+      rag,
+      harness: harness || null,
+    };
+  });
 }
 
 function enrichTraceListItem(events, { runId, mtime }) {
@@ -2072,6 +2140,25 @@ function eventsToMermaid(events) {
       lines.push(`  ${caller}->>${actor}: decision`);
       const note = shortMermaidLabel(ev.message || detail.reason || "decision");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
+      for (const step of (detail.steps || []).slice(0, 8)) {
+        if (!step || typeof step !== "object") continue;
+        const ag = String(step.agent_provider_id || "").trim();
+        if (!ag) continue;
+        const aid = ensure(`agent:${ag}`);
+        lines.push(`  ${actor}->>${aid}: ${shortMermaidLabel(step.id || "step")}`);
+        const bits = [];
+        if ((step.mcps || []).length) {
+          bits.push(`mcp ${(step.mcps || []).slice(0, 2).join(", ")}`);
+        }
+        if ((step.skills || []).length) {
+          bits.push(`skill ${(step.skills || []).slice(0, 2).join(", ")}`);
+        }
+        if (step.harness) bits.push(`harness ${step.harness}`);
+        if (bits.length) {
+          lines.push(`  Note over ${aid}: ${shortMermaidLabel(bits.join(" · "))}`);
+        }
+        lines.push(`  ${aid}-->>${actor}: ok`);
+      }
       if (caller !== actor) lines.push(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "agent_start") {
       lines.push(`  ${caller}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
@@ -2230,6 +2317,7 @@ function buildRunTrace({ toolRoot }, id, { depth } = {}) {
     instrumentation: traceInstrumentation(events),
     depth: String(depth || "all").trim().toLowerCase() || "all",
     ...ident,
+    crewLog: extractCrewLog(events),
     ...tokens,
   };
 }
@@ -2300,10 +2388,128 @@ function effectiveAppId(row) {
 function normalizeLlmUsageRow(row) {
   if (!row || typeof row !== "object") return null;
   const appId = effectiveAppId(row) || null;
+  const detail = row.detail && typeof row.detail === "object" ? row.detail : null;
+  const agentProviderId =
+    String(
+      row.agentProviderId ||
+        row.agent_provider_id ||
+        detail?.agent_provider_id ||
+        detail?.provider_id ||
+        "",
+    ).trim() || null;
   return {
     ...row,
     appId,
+    agentProviderId,
   };
+}
+
+function uniqueAgentModelMap(toolRoot) {
+  /** @type {Map<string, string[]>} */
+  const byModel = new Map();
+  try {
+    const catalogOverride = String(process.env.AGENTIC_AGENT_PROVIDERS_CATALOG || "").trim();
+    const agentDir = catalogOverride
+      ? path.isAbsolute(catalogOverride)
+        ? catalogOverride
+        : path.join(toolRoot, catalogOverride)
+      : path.join(toolRoot, "config", "agent_providers");
+    for (const e of listYamlCatalog(agentDir, "agents") || []) {
+      const id = String(e?.id || "").trim();
+      const model = normalizeUsageModel(e?.model);
+      if (!id || !model) continue;
+      const list = byModel.get(model) || [];
+      if (!list.includes(id)) list.push(id);
+      byModel.set(model, list);
+    }
+  } catch {
+    /* ignore catalog read errors */
+  }
+  /** @type {Map<string, string>} */
+  const unique = new Map();
+  for (const [model, ids] of byModel.entries()) {
+    if (ids.length === 1) unique.set(model, ids[0]);
+  }
+  return unique;
+}
+
+/**
+ * Walk run-trace events and attribute each ``model_call`` to the active agent.
+ * Returns Map<dedupeKey, agentProviderId> for enriching ledger rows.
+ */
+function agentAttributionFromTraces(toolRoot, { limitRuns = 150 } = {}) {
+  /** @type {Map<string, string>} */
+  const byDedupe = new Map();
+  /** @type {Map<string, string>} */
+  const byRunLast = new Map();
+  const listed = listRecentTraces({ toolRoot, limit: limitRuns });
+  for (const item of listed.runs || []) {
+    const runId = String(item.runId || "").trim();
+    if (!runId) continue;
+    const events = readRunTraceEvents(toolRoot, runId);
+    let activeAgent = "";
+    for (const ev of events || []) {
+      const kind = String(ev?.kind || "");
+      const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+      const provider = String(
+        d.agent_provider_id || d.provider_id || (kind === "agent_start" ? ev.message : "") || "",
+      ).trim();
+      if (kind === "agent_start" || kind === "agent_select" || kind === "step_start") {
+        if (provider) activeAgent = provider;
+      } else if (kind === "agent_end" || kind === "step_end" || kind === "step_fail") {
+        // keep activeAgent until the next start (model_call may arrive near end)
+      } else if (kind === "model_call") {
+        const agent =
+          String(d.agent_provider_id || d.provider_id || "").trim() || activeAgent || "";
+        if (!agent) continue;
+        byRunLast.set(runId, agent);
+        const prompt = d.prompt_tokens != null ? Number(d.prompt_tokens) : null;
+        const completion =
+          d.completion_tokens != null ? Number(d.completion_tokens) : null;
+        let total = d.total_tokens != null ? Number(d.total_tokens) : null;
+        if (
+          total == null &&
+          Number.isFinite(prompt) &&
+          Number.isFinite(completion)
+        ) {
+          total = prompt + completion;
+        }
+        const fakeRow = {
+          ts: Number.isFinite(Number(ev.ts)) ? Number(ev.ts) : null,
+          model: d.model != null ? String(d.model) : String(ev.message || ""),
+          promptTokens: Number.isFinite(prompt) ? prompt : null,
+          completionTokens: Number.isFinite(completion) ? completion : null,
+          totalTokens: Number.isFinite(total) ? total : null,
+        };
+        byDedupe.set(llmUsageDedupeKey(fakeRow), agent);
+      }
+    }
+  }
+  return { byDedupe, byRunLast };
+}
+
+function effectiveAgentId(row, { modelToAgent, traceAgents } = {}) {
+  const direct = String(row?.agentProviderId || "").trim();
+  if (direct) return direct;
+  const detail = row?.detail && typeof row.detail === "object" ? row.detail : null;
+  const fromDetail = String(
+    detail?.agent_provider_id || detail?.provider_id || "",
+  ).trim();
+  if (fromDetail) return fromDetail;
+  if (traceAgents?.byDedupe) {
+    const fromDedupe = String(traceAgents.byDedupe.get(llmUsageDedupeKey(row)) || "").trim();
+    if (fromDedupe) return fromDedupe;
+  }
+  const runId = String(row?.runId || "").trim();
+  if (runId && traceAgents?.byRunLast) {
+    const fromRun = String(traceAgents.byRunLast.get(runId) || "").trim();
+    if (fromRun) return fromRun;
+  }
+  if (modelToAgent) {
+    const mapped = String(modelToAgent.get(normalizeUsageModel(row?.model)) || "").trim();
+    if (mapped) return mapped;
+  }
+  return "";
 }
 
 function addTokenBucket(map, key, row) {

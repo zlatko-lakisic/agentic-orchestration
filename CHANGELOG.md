@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Traces · dynamic planning + crew log** — `request_start` records `runMode` / `dynamicPlanning`; plan/decision events include per-step agents with MCPs, skills, RAG, and harness. Admin Traces shows a Dynamic planning chip and an ordered Crew log beside the sequence diagram.
+
 ### Fixed
 
 - **Topology / engine probes with mTLS** — mount host `__orchestrator_mtls__/ca` into the coordinator so Admin can trust the engine HTTPS cert (`AGENTIC_SERVE_TLS_CA_FILE`). Missing CA made engine unreachable → Planner failed and Reach apps (e.g. Comstar) disappeared from Topology.

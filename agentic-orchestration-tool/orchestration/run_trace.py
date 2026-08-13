@@ -50,6 +50,8 @@ DEPTH_KINDS: dict[str, set[str]] = {
         "request_start",
         "run_end",
         "run_error",
+        "plan",
+        "decision",
         "step_start",
         "step_end",
         "step_fail",
@@ -146,6 +148,8 @@ def filter_events_by_depth(events: list[dict[str, Any]], depth: str | None) -> l
 
 def _detail_identity(events: list[dict[str, Any]]) -> dict[str, Any]:
     client_ip = app_id = user_name = user_id = mode = None
+    run_mode = None
+    dynamic_planning: bool | None = None
     started_at: float | None = None
     for ev in events:
         ts = ev.get("ts")
@@ -162,14 +166,33 @@ def _detail_identity(events: list[dict[str, Any]]) -> dict[str, Any]:
             user_id = str(detail.get("user_id"))
         if mode is None and detail.get("mode"):
             mode = str(detail.get("mode"))
-        if client_ip and app_id and user_name and user_id and mode and started_at is not None:
+        if run_mode is None and detail.get("runMode"):
+            run_mode = str(detail.get("runMode"))
+        if dynamic_planning is None and "dynamicPlanning" in detail:
+            dynamic_planning = bool(detail.get("dynamicPlanning"))
+        if (
+            client_ip
+            and app_id
+            and user_name
+            and user_id
+            and mode
+            and run_mode
+            and dynamic_planning is not None
+            and started_at is not None
+        ):
             break
+    if dynamic_planning is None:
+        kinds = {str(e.get("kind") or "") for e in events}
+        if "plan" in kinds or "decision" in kinds:
+            dynamic_planning = True
     return {
         "clientIp": client_ip,
         "appId": app_id,
         "userName": user_name,
         "userId": user_id,
         "mode": mode,
+        "runMode": run_mode,
+        "dynamicPlanning": dynamic_planning,
         "startedAt": (
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at))
             if started_at is not None
@@ -177,6 +200,52 @@ def _detail_identity(events: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "startedTs": started_at,
     }
+
+
+def extract_crew_log(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ordered crew steps (agent + MCP/skills/RAG/harness) from plan/decision detail."""
+    steps: list[dict[str, Any]] = []
+    for kind in ("decision", "plan"):
+        for ev in events:
+            if str(ev.get("kind") or "") != kind:
+                continue
+            detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
+            raw_steps = detail.get("steps")
+            if isinstance(raw_steps, list) and raw_steps and isinstance(raw_steps[0], dict):
+                if any(
+                    "agent_provider_id" in s or "mcps" in s or "skills" in s
+                    for s in raw_steps
+                    if isinstance(s, dict)
+                ):
+                    steps = [s for s in raw_steps if isinstance(s, dict)]
+                    break
+            crew = detail.get("crewSteps")
+            if isinstance(crew, list) and crew:
+                steps = [s for s in crew if isinstance(s, dict)]
+                break
+        if steps:
+            break
+    out: list[dict[str, Any]] = []
+    for i, step in enumerate(steps[:24]):
+        agent = str(step.get("agent_provider_id") or step.get("agent") or "").strip()
+        if not agent and not step.get("id"):
+            continue
+        mcps = step.get("mcps") if isinstance(step.get("mcps"), list) else []
+        skills = step.get("skills") if isinstance(step.get("skills"), list) else []
+        rag = step.get("rag") if isinstance(step.get("rag"), list) else []
+        harness = step.get("harness")
+        out.append(
+            {
+                "index": i + 1,
+                "id": step.get("id") or f"step_{i + 1}",
+                "agentProviderId": agent or None,
+                "mcps": [str(x) for x in mcps if str(x).strip()],
+                "skills": [str(x) for x in skills if str(x).strip()],
+                "rag": [str(x) for x in rag if str(x).strip()],
+                "harness": str(harness).strip() if harness else None,
+            }
+        )
+    return out
 
 
 def sum_model_tokens(events: list[dict[str, Any]]) -> dict[str, int | None]:
@@ -227,6 +296,8 @@ def enrich_trace_list_item(events: list[dict[str, Any]], *, run_id: str, mtime: 
         "userName": ident["userName"],
         "userId": ident["userId"],
         "mode": ident["mode"],
+        "runMode": ident.get("runMode"),
+        "dynamicPlanning": ident.get("dynamicPlanning"),
         "startedAt": ident["startedAt"],
         "hasPlan": "plan" in kinds,
         "hasDecision": "decision" in kinds,
@@ -434,6 +505,28 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
             note = _short_label(ev.get("message") or detail.get("reason") or "decision")
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
+            steps = detail.get("steps") if isinstance(detail.get("steps"), list) else []
+            for step in steps[:8]:
+                if not isinstance(step, dict):
+                    continue
+                ag = str(step.get("agent_provider_id") or "").strip()
+                if not ag:
+                    continue
+                aid = ensure(f"agent:{ag}")
+                lines.append(f"  {actor}->>{aid}: {_short_label(step.get('id') or 'step')}")
+                bits: list[str] = []
+                mcps = step.get("mcps") if isinstance(step.get("mcps"), list) else []
+                skills = step.get("skills") if isinstance(step.get("skills"), list) else []
+                harness = str(step.get("harness") or "").strip()
+                if mcps:
+                    bits.append("mcp " + ", ".join(str(x) for x in mcps[:2]))
+                if skills:
+                    bits.append("skill " + ", ".join(str(x) for x in skills[:2]))
+                if harness:
+                    bits.append(f"harness {harness}")
+                if bits:
+                    lines.append(f"  Note over {aid}: {_short_label(' · '.join(bits))}")
+                lines.append(f"  {aid}-->>{actor}: ok")
             if caller != actor:
                 lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "agent_start":
@@ -522,6 +615,9 @@ def build_run_trace_payload(
         "userName": ident["userName"],
         "userId": ident["userId"],
         "mode": ident["mode"],
+        "runMode": ident.get("runMode"),
+        "dynamicPlanning": ident.get("dynamicPlanning"),
+        "crewLog": extract_crew_log(events),
         "promptTokens": tokens["promptTokens"],
         "completionTokens": tokens["completionTokens"],
         "totalTokens": tokens["totalTokens"],

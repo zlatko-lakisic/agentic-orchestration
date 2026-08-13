@@ -291,6 +291,8 @@ export interface TraceListItem {
   userName?: string | null;
   userId?: string | null;
   mode?: string | null;
+  runMode?: string | null;
+  dynamicPlanning?: boolean | null;
   hasPlan?: boolean;
   hasDecision?: boolean;
   hasSteps?: boolean;
@@ -324,6 +326,16 @@ export interface TraceInstrumentation {
   summary?: string;
 }
 
+export interface TraceCrewStep {
+  index?: number;
+  id?: string | null;
+  agentProviderId?: string | null;
+  mcps?: string[];
+  skills?: string[];
+  rag?: string[];
+  harness?: string | null;
+}
+
 export interface RunTraceResponse {
   runId: string;
   eventCount?: number;
@@ -337,6 +349,9 @@ export interface RunTraceResponse {
   userName?: string | null;
   userId?: string | null;
   mode?: string | null;
+  runMode?: string | null;
+  dynamicPlanning?: boolean | null;
+  crewLog?: TraceCrewStep[];
   promptTokens?: number | null;
   completionTokens?: number | null;
   totalTokens?: number | null;

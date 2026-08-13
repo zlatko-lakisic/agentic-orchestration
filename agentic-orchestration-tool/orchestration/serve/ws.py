@@ -552,7 +552,25 @@ class WsConnection:
         except Exception:  # noqa: BLE001
             usage_tokens = []
         try:
+            from orchestration.app_prefs import effective_run_mode, get_app_prefs
             from orchestration.run_trace import append_run_event
+
+            prefs = get_app_prefs(self.tool_root, app_id_s) if kind == "chat" else {}
+            sticky_dynamic = bool(prefs.get("dynamicPlanning")) if kind == "chat" else False
+            if kind == "chat":
+                run_mode = effective_run_mode(
+                    message.get("runMode") or message.get("run_mode"),
+                    prefs,
+                    fallback="dynamic",
+                )
+                # Engine chat always runs the dynamic planner path.
+                dynamic_planning = True
+            elif kind == "direct_agent":
+                run_mode = "direct"
+                dynamic_planning = False
+            else:
+                run_mode = None
+                dynamic_planning = None
 
             append_run_event(
                 self.tool_root,
@@ -562,6 +580,9 @@ class WsConnection:
                 message=kind,
                 detail={
                     "mode": kind,
+                    "runMode": run_mode,
+                    "dynamicPlanning": dynamic_planning,
+                    "dynamicPlanningSticky": sticky_dynamic if kind == "chat" else None,
                     "question_id": question_id,
                     "preview": (text[:120] + ("…" if len(text) > 120 else "")),
                     "client_ip": self.client_ip or None,
@@ -810,6 +831,12 @@ class WsConnection:
             except Exception:  # noqa: BLE001
                 pass
             try:
+                from orchestration.llm_usage import bind_usage_context, reset_usage_context
+
+                agent_usage_tokens = bind_usage_context(agent_provider_id=agent_provider_id)
+            except Exception:  # noqa: BLE001
+                agent_usage_tokens = []
+            try:
                 answer = run_direct_agent(
                     tool_root=self.tool_root,
                     agent_provider_id=agent_provider_id,
@@ -837,6 +864,12 @@ class WsConnection:
                 except Exception:  # noqa: BLE001
                     pass
                 raise
+            finally:
+                try:
+                    if agent_usage_tokens:
+                        reset_usage_context(agent_usage_tokens)
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 from orchestration.run_trace import append_run_event
 

@@ -26,6 +26,7 @@ import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import {
   RunTraceEvent,
   RunTraceResponse,
+  TraceCrewStep,
   TraceListItem,
   TracesListResponse,
 } from '@/app/core/ao-api/types';
@@ -403,7 +404,10 @@ declare global {
             @if (d.totalTokens != null) {
               <span>· {{ d.totalTokens }} tok</span>
             }
-            @if (runMode(d); as mode) {
+            @if (d.dynamicPlanning) {
+              <ao-status-chip status="info" label="Dynamic planning" />
+            }
+            @if (planningMode(d); as mode) {
               <span>· {{ mode }}</span>
             }
             @if (outcomeChip(); as chip) {
@@ -463,6 +467,45 @@ declare global {
               {{ (inst.missing || []).join(', ') }}.
             </div>
           }
+        </div>
+      }
+
+      @if (crewLog(d); as steps) {
+        <div class="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+          <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+            Crew log
+          </div>
+          <ol class="space-y-2">
+            @for (step of steps; track step.id || step.index) {
+              <li
+                class="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950"
+              >
+                <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span class="font-mono text-xs text-neutral-500">{{ step.index }}.</span>
+                  <span class="font-medium text-sm">{{ step.agentProviderId || 'agent' }}</span>
+                  @if (step.harness) {
+                    <span class="rounded bg-neutral-200 px-1.5 py-0.5 text-2xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                      >harness {{ step.harness }}</span
+                    >
+                  }
+                </div>
+                <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-neutral-500">
+                  <span>
+                    <span class="font-semibold text-neutral-600 dark:text-neutral-400">MCPs</span>
+                    {{ joinIds(step.mcps) }}
+                  </span>
+                  <span>
+                    <span class="font-semibold text-neutral-600 dark:text-neutral-400">Skills</span>
+                    {{ joinIds(step.skills) }}
+                  </span>
+                  <span>
+                    <span class="font-semibold text-neutral-600 dark:text-neutral-400">RAG</span>
+                    {{ joinIds(step.rag) }}
+                  </span>
+                </div>
+              </li>
+            }
+          </ol>
         </div>
       }
 
@@ -935,12 +978,59 @@ export class TracesPage implements OnInit, OnDestroy {
     return `${(ms / 1000).toFixed(ms >= 10_000 ? 1 : 2)}s`;
   }
 
-  runMode(d: RunTraceResponse): string | null {
+  planningMode(d: RunTraceResponse): string | null {
+    const runMode =
+      (typeof d.runMode === 'string' && d.runMode.trim()) ||
+      (() => {
+        for (const ev of d.events || []) {
+          const rm = ev.detail?.['runMode'];
+          if (typeof rm === 'string' && rm.trim()) return rm.trim();
+        }
+        return null;
+      })();
+    if (runMode) return runMode;
+    if (d.dynamicPlanning) return 'dynamic';
     for (const ev of d.events || []) {
-      const mode = ev.detail?.['mode'];
-      if (typeof mode === 'string' && mode.trim()) return mode.trim();
+      if (ev.kind === 'plan' || ev.kind === 'decision') return 'dynamic';
     }
     return null;
+  }
+
+  crewLog(d: RunTraceResponse): TraceCrewStep[] | null {
+    const fromApi = Array.isArray(d.crewLog) ? d.crewLog : [];
+    if (fromApi.length) return fromApi;
+    // Fallback for older traces: synthesize from decision/plan detail.
+    for (const kind of ['decision', 'plan'] as const) {
+      for (const ev of d.events || []) {
+        if (ev.kind !== kind) continue;
+        const detail = ev.detail || {};
+        const raw = (detail['steps'] || detail['crewSteps']) as unknown;
+        if (!Array.isArray(raw) || !raw.length) continue;
+        if (typeof raw[0] !== 'object' || raw[0] == null) continue;
+        const rows: TraceCrewStep[] = [];
+        raw.forEach((step, i) => {
+          if (!step || typeof step !== 'object') return;
+          const s = step as Record<string, unknown>;
+          const agent = String(s['agent_provider_id'] || s['agent'] || '').trim();
+          rows.push({
+            index: i + 1,
+            id: String(s['id'] || `step_${i + 1}`),
+            agentProviderId: agent || null,
+            mcps: Array.isArray(s['mcps']) ? s['mcps'].map(String) : [],
+            skills: Array.isArray(s['skills']) ? s['skills'].map(String) : [],
+            rag: Array.isArray(s['rag']) ? s['rag'].map(String) : [],
+            harness: s['harness'] != null ? String(s['harness']) : null,
+          });
+        });
+        if (rows.length) return rows;
+      }
+    }
+    return null;
+  }
+
+  joinIds(ids: string[] | null | undefined): string {
+    const list = (ids || []).map((x) => String(x || '').trim()).filter(Boolean);
+    return list.length ? list.join(', ') : '—';
   }
 
   kindStatus(kind: string | null | undefined): string {

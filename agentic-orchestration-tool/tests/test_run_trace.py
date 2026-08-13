@@ -195,3 +195,54 @@ def test_extract_crew_token_usage_ignores_empty_metrics() -> None:
         }
     )
     assert extract_crew_token_usage(filled)["total_tokens"] == 15
+
+
+@pytest.mark.unit
+def test_crew_log_and_dynamic_planning_flags(tmp_path: Path) -> None:
+    append_run_event(
+        tmp_path,
+        "dyn1",
+        "request_start",
+        actor="engine",
+        message="chat",
+        detail={
+            "mode": "chat",
+            "runMode": "dynamic",
+            "dynamicPlanning": True,
+            "app_id": "comstar",
+        },
+    )
+    append_run_event(
+        tmp_path,
+        "dyn1",
+        "decision",
+        actor="orchestrator",
+        message="one step",
+        detail={
+            "dynamicPlanning": True,
+            "steps": [
+                {
+                    "id": "step_1",
+                    "agent_provider_id": "gpt_research",
+                    "mcps": ["web_search"],
+                    "skills": ["cite"],
+                    "rag": [],
+                    "harness": "research",
+                }
+            ],
+        },
+    )
+    append_run_event(tmp_path, "dyn1", "run_end", actor="engine", message="ok")
+    payload = build_run_trace_payload(tmp_path, "dyn1")
+    assert payload is not None
+    assert payload["dynamicPlanning"] is True
+    assert payload["runMode"] == "dynamic"
+    assert payload["crewLog"][0]["agentProviderId"] == "gpt_research"
+    assert payload["crewLog"][0]["mcps"] == ["web_search"]
+    assert payload["crewLog"][0]["harness"] == "research"
+    mermaid = payload["mermaid"]
+    assert "gpt_research" in mermaid
+    assert "harness" in mermaid
+    listed = list_recent_trace_runs(tmp_path, limit=5)
+    assert listed[0]["dynamicPlanning"] is True
+    assert listed[0]["runMode"] == "dynamic"
