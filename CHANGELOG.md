@@ -19,6 +19,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Traces sequence labels client as app id** — Mermaid left lifeline shows `ao-chat` / Reach `appId` from `request_start` instead of the generic `client` label.
 - **Warm-pool steps omit Token usage** — `execute_step` (k8s warm-pool / Jobs) kicked off CrewAI without installing the LiteLLM usage callback or recording crew token totals, so Jetson Admin Token usage stayed nearly empty aside from planner rows. Install the same hooks as in-process crew runs.
 - **Warm-pool Admin Traces / usage hostPaths** — workers wrote `__orchestrator_run_traces__` and `__orchestrator_llm_usage__` into the ephemeral pod FS, so Jetson Admin Traces stayed empty. Mount the same host dirs as coordinator/engine by default (`warm-pool.yaml` + deploy patches).
 - **Warm-pool / tool hotfix missing `agent_allowlist`** — hotfixed `dynamic_planner` / `dynamic_run` imported `orchestration.agent_allowlist` which was not in the ConfigMap or volume mounts, so Ada chat planning failed with `No module named 'orchestration.agent_allowlist'`. Also mount `session_env` + `catalog_credentials`.

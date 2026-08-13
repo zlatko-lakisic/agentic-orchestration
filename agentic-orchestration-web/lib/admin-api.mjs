@@ -2144,7 +2144,18 @@ function eventsToMermaid(events) {
     }
     return pid;
   };
-  if ((events || []).length) ensure("client");
+  // Keep participant id `client` for arrow/stack stability, but label it with
+  // the requesting app (ao-chat, comstar-ai, …) when request_start stamped one.
+  const ident = detailIdentity(events);
+  const clientLabel =
+    String(ident.appId || ident.userName || "client")
+      .trim()
+      .replace(/"/g, "'")
+      .slice(0, 28) || "client";
+  if ((events || []).length) {
+    declared.add("client");
+    lines.push(`  participant client as ${clientLabel}`);
+  }
   /** Call stack so dashed returns (-->>) target the real caller. */
   let stack = ["client"];
   for (const ev of events || []) {
@@ -2273,7 +2284,8 @@ function eventsToMermaid(events) {
     }
   }
   if (lines.length === 1) {
-    ensure("client");
+    declared.add("client");
+    lines.push(`  participant client as ${clientLabel}`);
     lines.push("  Note over client: No events recorded for this run_id");
   }
   return { mermaid: lines.join("\n"), tokenHelps };

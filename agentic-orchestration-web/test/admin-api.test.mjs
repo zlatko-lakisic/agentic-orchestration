@@ -59,6 +59,19 @@ test("eventsToMermaid puts token helps on model_call arrows and restores ok retu
   assert.ok(tokenHelps[0].messageIndex < tokenHelps[1].messageIndex);
 });
 
+test("eventsToMermaid labels client participant with appId (ao-chat)", () => {
+  const { mermaid } = eventsToMermaid([
+    {
+      kind: "request_start",
+      actor: "orchestrator",
+      detail: { mode: "dynamic", app_id: "ao-chat", user_name: "None Administrator" },
+    },
+    { kind: "run_end", actor: "orchestrator", message: "ok" },
+  ]);
+  assert.match(mermaid, /participant client as ao-chat/);
+  assert.doesNotMatch(mermaid, /participant client as client\b/);
+});
+
 test("eventsToMermaid keeps plan intent as notes without fake agent select arrows", () => {
   const { mermaid } = eventsToMermaid([
     { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
