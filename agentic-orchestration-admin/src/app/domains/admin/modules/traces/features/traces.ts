@@ -38,6 +38,7 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyMermaidTextTooltips,
+  applyMermaidTokenHelpIcons,
   applyTopologyStylesToMermaidSvg,
   isAoDarkScheme,
   svgSafeColor,
@@ -570,7 +571,7 @@ declare global {
               </span>
             }
             <span class="w-full text-center text-neutral-400 sm:w-auto"
-              >LLM returns: prompt↑ completion↓ = total (hover for full)</span
+              >Hover ? for prompt (outbound) / completion (return) tokens</span
             >
           </div>
         } @else {
@@ -877,6 +878,11 @@ export class TracesPage implements OnInit, OnDestroy {
           applyMermaidTextTooltips(svg, d.mermaidTips);
         } catch {
           /* tooltips optional */
+        }
+        try {
+          applyMermaidTokenHelpIcons(svg, d.mermaidTokenHelps);
+        } catch {
+          /* token help chips optional */
         }
         if (gen !== this.mermaidGen) return;
         const vb = svg.getAttribute('viewBox');

@@ -33,8 +33,8 @@ test("modelCallChargeLabel formats prompt↑completion↓=total", () => {
   assert.equal(modelCallChargeLabel({}).short, "");
 });
 
-test("eventsToMermaid puts token charge on model_call return arrow", () => {
-  const mermaid = eventsToMermaid([
+test("eventsToMermaid puts token helps on model_call arrows and restores ok return", () => {
+  const { mermaid, tokenHelps } = eventsToMermaid([
     { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
     {
       kind: "model_call",
@@ -48,8 +48,15 @@ test("eventsToMermaid puts token charge on model_call return arrow", () => {
     },
   ]);
   assert.match(mermaid, /->>model_\w+: qwen2\.5:14b-instruct/);
-  assert.match(mermaid, /-->>\w+: 2050↑140↓=2190/);
+  assert.match(mermaid, /-->>\w+: ok/);
+  assert.doesNotMatch(mermaid, /2050↑140↓=2190/);
   assert.doesNotMatch(mermaid, /2190 tok/);
+  assert.equal(tokenHelps.length, 2);
+  assert.equal(tokenHelps[0].kind, "prompt");
+  assert.equal(tokenHelps[0].tooltip, "prompt=2050");
+  assert.equal(tokenHelps[1].kind, "completion");
+  assert.equal(tokenHelps[1].tooltip, "completion=140");
+  assert.ok(tokenHelps[0].messageIndex < tokenHelps[1].messageIndex);
 });
 
 test("isSecretKey detects credentials", () => {

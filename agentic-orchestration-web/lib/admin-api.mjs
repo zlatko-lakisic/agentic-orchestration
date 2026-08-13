@@ -2124,6 +2124,13 @@ function traceInstrumentation(events) {
 function eventsToMermaid(events) {
   const lines = ["sequenceDiagram"];
   const declared = new Set();
+  /** @type {Array<{ messageIndex: number, tooltip: string, kind: string }>} */
+  const tokenHelps = [];
+  let messageIndex = 0;
+  const pushMsg = (line) => {
+    lines.push(line);
+    return messageIndex++;
+  };
   const ensure = (actor) => {
     const a = String(actor || "orchestrator").trim() || "orchestrator";
     const pid = a.replace(/[^A-Za-z0-9]/g, "_").slice(0, 40) || "actor";
@@ -2148,34 +2155,34 @@ function eventsToMermaid(events) {
     const provider = String(detail.agent_provider_id || detail.provider_id || "").trim();
     const caller = stack.length ? stack[stack.length - 1] : "client";
     if (kind === "request_start") {
-      lines.push(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
+      pushMsg(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
       stack = ["client", actor];
     } else if (kind === "plan") {
-      lines.push(`  ${caller}->>${actor}: plan`);
+      pushMsg(`  ${caller}->>${actor}: plan`);
       const note = shortMermaidLabel(ev.message || "");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       for (const ag of (detail.agents || []).slice(0, 8)) {
         const aid = ensure(`agent:${ag}`);
-        lines.push(`  ${actor}->>${aid}: select`);
-        lines.push(`  ${aid}-->>${actor}: ok`);
+        pushMsg(`  ${actor}->>${aid}: select`);
+        pushMsg(`  ${aid}-->>${actor}: ok`);
       }
       if ((detail.mcps || []).length) {
         const mid = ensure("mcp");
-        lines.push(
+        pushMsg(
           `  ${actor}->>${mid}: ${shortMermaidLabel((detail.mcps || []).slice(0, 3).join(", "))}`,
         );
-        lines.push(`  ${mid}-->>${actor}: ok`);
+        pushMsg(`  ${mid}-->>${actor}: ok`);
       }
       if ((detail.skills || []).length) {
         const sid = ensure("skills");
-        lines.push(
+        pushMsg(
           `  ${actor}->>${sid}: ${shortMermaidLabel((detail.skills || []).slice(0, 3).join(", "))}`,
         );
-        lines.push(`  ${sid}-->>${actor}: ok`);
+        pushMsg(`  ${sid}-->>${actor}: ok`);
       }
-      if (caller !== actor) lines.push(`  ${actor}-->>${caller}: ok`);
+      if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "decision") {
-      lines.push(`  ${caller}->>${actor}: decision`);
+      pushMsg(`  ${caller}->>${actor}: decision`);
       const note = shortMermaidLabel(ev.message || detail.reason || "decision");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       for (const step of (detail.steps || []).slice(0, 8)) {
@@ -2183,7 +2190,7 @@ function eventsToMermaid(events) {
         const ag = String(step.agent_provider_id || "").trim();
         if (!ag) continue;
         const aid = ensure(`agent:${ag}`);
-        lines.push(`  ${actor}->>${aid}: ${shortMermaidLabel(step.id || "step")}`);
+        pushMsg(`  ${actor}->>${aid}: ${shortMermaidLabel(step.id || "step")}`);
         const bits = [];
         if ((step.mcps || []).length) {
           bits.push(`mcp ${(step.mcps || []).slice(0, 2).join(", ")}`);
@@ -2195,61 +2202,75 @@ function eventsToMermaid(events) {
         if (bits.length) {
           lines.push(`  Note over ${aid}: ${shortMermaidLabel(bits.join(" · "))}`);
         }
-        lines.push(`  ${aid}-->>${actor}: ok`);
+        pushMsg(`  ${aid}-->>${actor}: ok`);
       }
-      if (caller !== actor) lines.push(`  ${actor}-->>${caller}: ok`);
+      if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "agent_start") {
-      lines.push(`  ${caller}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
+      pushMsg(`  ${caller}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
       stack.push(actor);
     } else if (kind === "agent_end") {
       if (stack.length && stack[stack.length - 1] === actor) stack.pop();
       const retTo = stack.length ? stack[stack.length - 1] : "client";
-      lines.push(`  ${actor}-->>${retTo}: ${shortMermaidLabel(ev.message || "done")}`);
+      pushMsg(`  ${actor}-->>${retTo}: ${shortMermaidLabel(ev.message || "done")}`);
     } else if (kind === "step_start") {
-      lines.push(
+      pushMsg(
         `  ${caller}->>${actor}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
       );
       stack.push(actor);
     } else if (kind === "step_end" || kind === "step_fail") {
       if (stack.length && stack[stack.length - 1] === actor) stack.pop();
       const retTo = stack.length ? stack[stack.length - 1] : "client";
-      lines.push(
+      pushMsg(
         `  ${actor}-->>${retTo}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
       );
     } else if (kind === "tool_call") {
       const phase = String(detail.phase || "");
       const name = shortMermaidLabel(detail.name || ev.message || "tool");
       const tid = ensure(`tool:${detail.name || "tool"}`);
-      if (phase === "end") lines.push(`  ${tid}-->>${caller}: ${name}`);
-      else lines.push(`  ${caller}->>${tid}: ${name}`);
+      if (phase === "end") pushMsg(`  ${tid}-->>${caller}: ${name}`);
+      else pushMsg(`  ${caller}->>${tid}: ${name}`);
     } else if (kind === "mcp_call") {
       const mid = ensure(`mcp:${detail.mcp_id || "mcp"}`);
       const label = shortMermaidLabel(detail.method || detail.path || "mcp");
       const phase = String(detail.phase || "");
-      if (phase === "end" || detail.status != null) lines.push(`  ${mid}-->>${caller}: ${label}`);
-      else lines.push(`  ${caller}->>${mid}: ${label}`);
+      if (phase === "end" || detail.status != null) pushMsg(`  ${mid}-->>${caller}: ${label}`);
+      else pushMsg(`  ${caller}->>${mid}: ${label}`);
     } else if (kind === "model_call") {
       let modelName = String(detail.model || "model").trim() || "model";
       if (modelName.includes("/")) modelName = modelName.split("/", 2)[1] || modelName;
       const mid = ensure(`model:${modelName}`);
       const agent = String(detail.agent_provider_id || detail.provider_id || "").trim();
       const reqFull = agent ? `${modelName} · agent ${agent}` : modelName;
-      lines.push(`  ${caller}->>${mid}: ${shortMermaidLabel(reqFull)}`);
-      const { short: charge } = modelCallChargeLabel(detail);
-      lines.push(
-        `  ${mid}-->>${caller}: ${charge ? shortMermaidLabel(charge) : "ok"}`,
-      );
+      const reqLabel = shortMermaidLabel(reqFull);
+      const reqIdx = pushMsg(`  ${caller}->>${mid}: ${reqLabel}`);
+      const prompt = coerceTokenInt(detail.prompt_tokens);
+      if (prompt != null) {
+        tokenHelps.push({
+          messageIndex: reqIdx,
+          tooltip: `prompt=${prompt}`,
+          kind: "prompt",
+        });
+      }
+      const retIdx = pushMsg(`  ${mid}-->>${caller}: ok`);
+      const completion = coerceTokenInt(detail.completion_tokens);
+      if (completion != null) {
+        tokenHelps.push({
+          messageIndex: retIdx,
+          tooltip: `completion=${completion}`,
+          kind: "completion",
+        });
+      }
     } else if (kind === "qa") {
       lines.push(
         `  Note over ${actor}: ${shortMermaidLabel("qa", ev.message || detail.verdict || "")}`,
       );
     } else if (kind === "run_end" || kind === "run_error") {
-      lines.push(
+      pushMsg(
         `  ${actor}-->>client: ${shortMermaidLabel(ev.message || kind.replace(/_/g, " "))}`,
       );
       stack = ["client"];
     } else {
-      lines.push(`  ${caller}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
+      pushMsg(`  ${caller}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
       if (actor !== caller) stack.push(actor);
     }
   }
@@ -2257,7 +2278,7 @@ function eventsToMermaid(events) {
     ensure("client");
     lines.push("  Note over client: No events recorded for this run_id");
   }
-  return lines.join("\n");
+  return { mermaid: lines.join("\n"), tokenHelps };
 }
 
 function readRunTraceEvents(toolRoot, runId) {
@@ -2348,11 +2369,13 @@ function buildRunTrace({ toolRoot }, id, { depth } = {}) {
   const filtered = filterEventsByDepth(events, depth);
   const ident = detailIdentity(events);
   const tokens = sumModelTokens(events);
+  const diagram = eventsToMermaid(filtered);
   return {
     runId,
     eventCount: filtered.length,
     events: filtered,
-    mermaid: eventsToMermaid(filtered),
+    mermaid: diagram.mermaid,
+    mermaidTokenHelps: diagram.tokenHelps,
     durationMs: traceDurationMs(events),
     instrumentation: traceInstrumentation(events),
     depth: String(depth || "all").trim().toLowerCase() || "all",

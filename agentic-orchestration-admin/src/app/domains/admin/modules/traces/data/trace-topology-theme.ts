@@ -342,6 +342,151 @@ export function applyMermaidTextTooltips(
   });
 }
 
+export type MermaidTokenHelp = {
+  messageIndex?: number;
+  tooltip?: string;
+  kind?: string;
+};
+
+/**
+ * Place topology-style ``?`` help chips to the right of Mermaid message labels.
+ * Prompt tokens annotate the outbound model_call; completion tokens the ``ok`` return.
+ */
+export function applyMermaidTokenHelpIcons(
+  svg: SVGSVGElement,
+  helps: MermaidTokenHelp[] | null | undefined
+): void {
+  const list = (helps || []).filter(
+    (h) =>
+      Number.isFinite(Number(h?.messageIndex)) &&
+      String(h?.tooltip || '').trim().length > 0
+  );
+  if (!list.length) return;
+
+  svg.querySelectorAll('[data-ao-token-help]').forEach((n) => n.remove());
+
+  const messageTexts = collectMermaidMessageTexts(svg);
+  if (!messageTexts.length) return;
+
+  const muted = topologyPanelMuted();
+  const surface = topologyPanelSurface();
+  const byIndex = new Map<number, MermaidTokenHelp>();
+  for (const h of list) byIndex.set(Number(h.messageIndex), h);
+
+  let maxRight = 0;
+  try {
+    maxRight = svg.getBBox().width;
+  } catch {
+    maxRight = 0;
+  }
+
+  for (const [idx, el] of messageTexts.entries()) {
+    const help = byIndex.get(idx);
+    if (!help) continue;
+    const tip = String(help.tooltip || '').trim();
+    if (!tip) continue;
+
+    let bx = 0;
+    let by = 0;
+    let bw = 0;
+    let bh = 0;
+    try {
+      const box = el.getBBox();
+      bx = box.x;
+      by = box.y;
+      bw = box.width;
+      bh = box.height;
+    } catch {
+      continue;
+    }
+
+    const r = 7;
+    const gap = 6;
+    const cx = bx + bw + gap + r;
+    const cy = by + bh / 2;
+    maxRight = Math.max(maxRight, cx + r + 4);
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('data-ao-token-help', String(idx));
+    g.setAttribute('data-ao-token-kind', String(help.kind || ''));
+    g.style.cursor = 'help';
+
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = tip;
+    g.appendChild(title);
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', String(cx));
+    circle.setAttribute('cy', String(cy));
+    circle.setAttribute('r', String(r));
+    circle.setAttribute('fill', surface);
+    circle.setAttribute('stroke', muted);
+    circle.setAttribute('stroke-width', '1.25');
+    g.appendChild(circle);
+
+    const q = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    q.setAttribute('x', String(cx));
+    q.setAttribute('y', String(cy + 0.5));
+    q.setAttribute('text-anchor', 'middle');
+    q.setAttribute('dominant-baseline', 'middle');
+    q.setAttribute('fill', muted);
+    q.setAttribute('font-size', '10');
+    q.setAttribute('font-family', 'system-ui, sans-serif');
+    q.setAttribute('font-weight', '600');
+    q.textContent = '?';
+    g.appendChild(q);
+
+    const parent = el.parentNode || svg;
+    parent.appendChild(g);
+  }
+
+  // Give chips a little room on the right edge.
+  const vb = svg.getAttribute('viewBox');
+  if (vb && maxRight > 0) {
+    const parts = vb.split(/[\s,]+/).map(Number);
+    if (parts.length === 4 && parts.every(Number.isFinite)) {
+      const [vx, vy, vw, vh] = parts as [number, number, number, number];
+      if (maxRight > vw - 4) {
+        svg.setAttribute('viewBox', `${vx} ${vy} ${Math.ceil(maxRight + 8)} ${vh}`);
+      }
+    }
+  }
+}
+
+/** Mermaid sequence message labels in diagram order (excludes actor box titles). */
+function collectMermaidMessageTexts(svg: SVGSVGElement): SVGTextElement[] {
+  const preferred = Array.from(
+    svg.querySelectorAll<SVGTextElement>(
+      'text.messageText, .messageText text, g.messageText > text'
+    )
+  );
+  if (preferred.length) return preferred;
+
+  // Fallback: texts that sit on message rows (not inside actor boxes).
+  const actorYs = new Set<number>();
+  svg.querySelectorAll('g[class*="actor"] text, .actor text').forEach((t) => {
+    try {
+      actorYs.add(Math.round((t as SVGGraphicsElement).getBBox().y));
+    } catch {
+      /* ignore */
+    }
+  });
+
+  return Array.from(svg.querySelectorAll('text')).filter((el) => {
+    if (el.closest('[data-ao-token-help]')) return false;
+    if (el.closest('g[class*="actor"], .actor')) return false;
+    const raw = (el.textContent || '').trim();
+    if (!raw || raw === '?') return false;
+    try {
+      const y = Math.round(el.getBBox().y);
+      if (actorYs.has(y)) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }) as SVGTextElement[];
+}
+
 function truncateChars(s: string, max: number): string {
   const t = String(s || '');
   if (max < 2) return '…';

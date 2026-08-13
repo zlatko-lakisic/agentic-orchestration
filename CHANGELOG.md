@@ -18,7 +18,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
-- **Traces sequence token charges** — Admin Mermaid (Node `eventsToMermaid`) now puts `prompt↑completion↓=total` on each `model_call` **return** arrow (same as Python `run_trace`). Previously the diagram only showed `N tok` on the outbound call and `ok` on the return.
+- **Traces sequence token help** — model_call arrows keep normal messages (model name outbound, `ok` return). A topology-style `?` chip to the right of each shows `prompt=…` on the outbound call and `completion=…` on the return (hover).
 - **Engine warm-pool hang (Reach/Comstar)** — `agentic-engine` now mounts PVC `agentic-run-store` at `/run/store` and sets `AGENTIC_RUN_STORE_PATH=/run/store` (overriding the host-path value in the env Secret). Steps were enqueued into pod-local `/var/lib/agentic/run-store` while warm-pool workers polled the shared PVC, so runs stalled at `step_start` until the client timed out.
 - **Dynamic planner domain suppression** — catalog filtering scores only the current user turn (`Current request:` / `User message:`), not Comstar/OpenClaw memory preambles, so `gpt_research` / `claude_research` are no longer dropped on research asks wrapped in hallway history.
 - **Topology / engine probes with mTLS** — mount host `__orchestrator_mtls__/ca` into the coordinator so Admin can trust the engine HTTPS cert (`AGENTIC_SERVE_TLS_CA_FILE`). Missing CA made engine unreachable → Planner failed and Reach apps (e.g. Comstar) disappeared from Topology.

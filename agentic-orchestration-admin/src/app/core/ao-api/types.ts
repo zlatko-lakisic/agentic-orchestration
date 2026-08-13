@@ -343,6 +343,12 @@ export interface RunTraceResponse {
   mermaid?: string;
   /** Truncated diagram label → full text for hover tooltips. */
   mermaidTips?: Array<{ shown: string; full: string }>;
+  /** Per message-arrow token help chips (prompt on outbound, completion on return). */
+  mermaidTokenHelps?: Array<{
+    messageIndex: number;
+    tooltip: string;
+    kind?: string;
+  }>;
   durationMs?: number | null;
   instrumentation?: TraceInstrumentation;
   depth?: string;
