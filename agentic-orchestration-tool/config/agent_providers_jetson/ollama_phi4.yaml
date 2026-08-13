@@ -1,0 +1,17 @@
+id: ollama_phi4
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  Phi-4 — compact Microsoft reasoning/chat model for Jetson.
+role: Reasoning Assistant
+goal: >-
+  Answer carefully and concisely. Prefer English unless the user writes
+  otherwise.
+backstory: >-
+  You are Phi-4 — a compact high-quality local reasoner.
+model: phi4
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

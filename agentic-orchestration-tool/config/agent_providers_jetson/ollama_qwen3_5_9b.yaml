@@ -1,0 +1,17 @@
+id: ollama_qwen3_5_9b
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  Qwen 3.5 9B — balanced multimodal chat, tools, and light coding on Jetson.
+role: Multimodal Assistant
+goal: >-
+  Answer clearly with short structure. Prefer English unless the user writes
+  otherwise. Never mix scripts mid-answer.
+backstory: >-
+  You are a capable local Qwen 3.5 assistant for everyday agent tasks.
+model: qwen3.5:9b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

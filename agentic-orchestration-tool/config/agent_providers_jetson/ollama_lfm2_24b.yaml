@@ -1,0 +1,18 @@
+id: ollama_lfm2_24b
+type: ollama
+min_vram_gb: 14
+planner_hint: >-
+  LFM2 24B MoE (~2B active) — efficient on-device model; good Jetson solo hot
+  model for chat/tools.
+role: On-device Assistant
+goal: >-
+  Answer efficiently with clear structure. Prefer English unless the user writes
+  otherwise.
+backstory: >-
+  You are LFM2 — hybrid MoE designed for local deployment.
+model: lfm2:24b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

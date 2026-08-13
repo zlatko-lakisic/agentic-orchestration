@@ -1,0 +1,17 @@
+id: ollama_gemma4_e4b
+type: ollama
+min_vram_gb: 10
+planner_hint: >-
+  Gemma 4 effective-4B edge model — balanced multimodal chat/vision on Jetson.
+role: Edge Multimodal Assistant
+goal: >-
+  Answer clearly with short paragraphs or bullets. Use images when provided.
+  Default to English unless the user writes in another language.
+backstory: >-
+  You balance quality and speed for always-on edge assistants.
+model: gemma4:e4b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

@@ -75,11 +75,41 @@ AGENTIC_ASSUME_VRAM_GB=48
 AGENTIC_ASSUME_GPU=1
 ```
 
-Pre-pull on the Ollama host before first run:
+## Agents (NVMe-backed)
+
+| Id | Model | Notes |
+|----|--------|--------|
+| `ollama_llama3_2_3b` | `llama3.2:3b` | Default planner |
+| `ollama_qwen2_5_7b` | `qwen2.5:7b` | Fast Qwen |
+| `ollama_qwen2_5_14b_instruct` | `qwen2.5:14b-instruct` | Stronger Qwen |
+| `ollama_qwen3_5_4b` | `qwen3.5:4b` | Fast multimodal |
+| `ollama_qwen3_5_9b` | `qwen3.5:9b` | Balanced multimodal |
+| `ollama_qwen3_5_27b` | `qwen3.5:27b` | Solo hot model |
+| `ollama_llama3_1_8b` | `llama3.1:8b` | Meta generalist |
+| `ollama_gemma4_e2b` | `gemma4:e2b` | Edge Gemma 4 |
+| `ollama_gemma4_e4b` | `gemma4:e4b` | Edge Gemma 4+ |
+| `ollama_gemma4_12b` | `gemma4:12b` | Mid Gemma 4 |
+| `ollama_gemma4_26b` | `gemma4:26b` | Solo MoE Gemma 4 |
+| `ollama_muse_glimmer` | `muse-glimmer` | Meta agent 30B |
+| `ollama_nemotron_3_5_lightning` | `nemotron-3.5-lightning` | NVIDIA agent MoE |
+| `ollama_mistral_nemo` | `mistral-nemo` | Mistral long-ctx |
+| `ollama_deepseek_r1_14b` | `deepseek-r1:14b` | Reasoning distill |
+| `ollama_glm4` | `glm4` | Zhipu GLM-4 |
+| `ollama_moondream` | `moondream` | Tiny vision |
+| `ollama_lfm2_24b` | `lfm2:24b` | Efficient on-device MoE |
+| `ollama_granite4_1_8b` | `granite4.1:8b` | IBM Granite |
+| `ollama_phi4` | `phi4` | Microsoft Phi-4 |
+
+Keep **one large (≤~20 GB) + optional 3B planner** resident; store the rest cold on NVMe.
+
+Pre-pull (batch):
 
 ```bash
-ollama pull llama3.2:3b
+bash agentic-orchestration-tool/scripts/jetson-pull-ollama-models.sh
+# or: ollama pull llama3.2:3b
 ```
+
+Models dir: `/mnt/nvme/ollama/models` (`AGENTIC_OLLAMA_MODELS_HOSTPATH`).
 
 To reclaim disk after switching models:
 

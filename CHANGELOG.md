@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Jetson Ollama catalog expansion** — agent YAMLs for Gemma 4 (e2b/e4b/12b/26b), Qwen3.5 (4b/9b/27b), Llama 3.1 8B, muse-glimmer, Nemotron 3.5 Lightning, Qwen2.5 7B, Mistral NeMo, DeepSeek-R1 14B, GLM-4, Moondream, LFM2 24B, Granite 4.1 8B, and Phi-4; batch pull via `scripts/jetson-pull-ollama-models.sh` into `/mnt/nvme/ollama/models`.
 - **Traces · per-call token charges on sequence** — each `model_call` return arrow shows `prompt↑completion↓=total` (hover for full). New **Tokens** depth filter focuses the diagram on billed LLM calls; Crew depth also includes model spans.
 - **Reach run status stream** — engine WebSocket emits `type: "status"` frames with `processing`, `phase`, and user-friendly `message` during chat / direct_agent (planning, warming agents, generating, steps, done/error). Errors include `code` + `processing: false`; clients decide how to handle. Legacy stderr `chunk` frames remain for compatibility.
 - **Reach catalog API** — engine `GET /api/v1/catalog` returns stock agents, MCPs, skills, and harnesses with structured `requiredSecrets` (name, label, secret, required, anyOfGroup) for client enablement UIs. No secret values are returned.

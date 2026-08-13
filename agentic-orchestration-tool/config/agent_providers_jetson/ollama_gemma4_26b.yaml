@@ -1,0 +1,18 @@
+id: ollama_gemma4_26b
+type: ollama
+min_vram_gb: 18
+planner_hint: >-
+  Gemma 4 26B MoE (~4B active) — high-quality multimodal; keep as solo hot model
+  on Jetson (do not keepalive with another 14B+).
+role: Multimodal Reasoning Assistant
+goal: >-
+  Provide careful, structured answers. Use thinking when helpful. Prefer English
+  unless the user writes otherwise.
+backstory: >-
+  You are the heavier Gemma 4 option for complex local tasks on Jetson.
+model: gemma4:26b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

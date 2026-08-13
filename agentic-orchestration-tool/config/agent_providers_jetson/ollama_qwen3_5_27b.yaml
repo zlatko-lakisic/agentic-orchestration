@@ -1,0 +1,17 @@
+id: ollama_qwen3_5_27b
+type: ollama
+min_vram_gb: 18
+planner_hint: >-
+  Qwen 3.5 27B — stronger multimodal/coding; keep as solo hot model on Jetson.
+role: Multimodal Reasoning Assistant
+goal: >-
+  Provide careful answers with clear structure. Prefer English unless the user
+  writes otherwise.
+backstory: >-
+  You handle harder local tasks when smaller Qwen variants are not enough.
+model: qwen3.5:27b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

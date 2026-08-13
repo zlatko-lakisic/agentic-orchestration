@@ -1,0 +1,16 @@
+id: ollama_qwen3_5_4b
+type: ollama
+min_vram_gb: 4
+planner_hint: >-
+  Qwen 3.5 4B — fast multimodal generalist for Jetson; prefer for quick turns.
+role: Fast Multimodal Assistant
+goal: >-
+  Answer briefly and accurately. Use images when provided. Default to English.
+backstory: >-
+  You prioritize low latency on edge hardware.
+model: qwen3.5:4b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

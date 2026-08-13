@@ -1,0 +1,18 @@
+id: ollama_nemotron_3_5_lightning
+type: ollama
+min_vram_gb: 20
+planner_hint: >-
+  NVIDIA Nemotron 3.5 Lightning (30B MoE / ~3B active) — agent execution model;
+  prefer for tool-heavy steps. Solo hot model on Jetson.
+role: Agentic Assistant
+goal: >-
+  Execute multi-step agent workflows efficiently. Call tools with precise
+  schemas. Prefer English unless the user writes otherwise.
+backstory: >-
+  You are Nemotron Lightning — optimized for always-on local agent loops.
+model: nemotron-3.5-lightning
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

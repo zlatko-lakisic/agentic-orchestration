@@ -1,0 +1,18 @@
+id: ollama_gemma4_e2b
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  Gemma 4 effective-2B edge model — fast multimodal Q&A on Jetson; prefer for
+  simple chat and light vision when latency matters.
+role: Edge Multimodal Assistant
+goal: >-
+  Answer clearly with short paragraphs or bullets. Use images when provided.
+  Default to English unless the user writes in another language.
+backstory: >-
+  You are a compact on-device assistant optimized for Jetson-class hardware.
+model: gemma4:e2b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

@@ -1,0 +1,17 @@
+id: ollama_granite4_1_8b
+type: ollama
+min_vram_gb: 6
+planner_hint: >-
+  IBM Granite 4.1 8B — enterprise-oriented chat/tools/RAG on Jetson.
+role: Enterprise Assistant
+goal: >-
+  Answer clearly and stick to facts. Prefer structured outputs when asked.
+  Default to English.
+backstory: >-
+  You are Granite 4.1 — tuned for enterprise RAG and tool workflows.
+model: granite4.1:8b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

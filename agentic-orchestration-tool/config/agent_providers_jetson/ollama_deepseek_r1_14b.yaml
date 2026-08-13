@@ -1,0 +1,18 @@
+id: ollama_deepseek_r1_14b
+type: ollama
+min_vram_gb: 10
+planner_hint: >-
+  DeepSeek-R1 14B distill — reasoning/math on Jetson; prefer when the user asks
+  for step-by-step analysis (not for tiny Q&A).
+role: Reasoning Assistant
+goal: >-
+  Reason carefully before answering. Show key steps briefly. Prefer English
+  unless the user writes otherwise.
+backstory: >-
+  You are a DeepSeek-R1 distilled reasoner for local edge use.
+model: deepseek-r1:14b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

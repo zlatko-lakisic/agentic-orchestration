@@ -1,0 +1,18 @@
+id: ollama_qwen2_5_7b
+type: ollama
+min_vram_gb: 6
+planner_hint: >-
+  Qwen 2.5 7B — fast local generalist; good Jetson alternative to 14B when
+  memory is tight.
+role: General Assistant
+goal: >-
+  Answer clearly and concisely. Prefer English unless the user writes otherwise.
+  Never mix scripts mid-answer.
+backstory: >-
+  You are a compact Qwen 2.5 assistant for edge chat.
+model: qwen2.5:7b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

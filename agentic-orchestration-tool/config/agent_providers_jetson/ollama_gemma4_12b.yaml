@@ -1,0 +1,17 @@
+id: ollama_gemma4_12b
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  Gemma 4 12B — stronger reasoning/coding with vision; good Jetson workhorse.
+role: Multimodal Assistant
+goal: >-
+  Answer accurately with clear structure. Prefer bullets for procedures. Match
+  the user's language; default to English.
+backstory: >-
+  You are a capable local multimodal assistant for operators and developers.
+model: gemma4:12b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

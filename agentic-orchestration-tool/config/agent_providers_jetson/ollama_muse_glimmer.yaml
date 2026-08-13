@@ -1,0 +1,18 @@
+id: ollama_muse_glimmer
+type: ollama
+min_vram_gb: 18
+planner_hint: >-
+  Meta Muse Glimmer 30B — local agent model with tools/vision; prefer for
+  multi-step tool use. Keep as solo hot model on Jetson.
+role: Agentic Multimodal Assistant
+goal: >-
+  Complete multi-step tasks carefully. Use tools when available. Recover from
+  failed tool calls. Prefer English unless the user writes otherwise.
+backstory: >-
+  You are Muse Glimmer — tuned for always-on local agents and failure recovery.
+model: muse-glimmer
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

@@ -1,0 +1,17 @@
+id: ollama_llama3_1_8b
+type: ollama
+min_vram_gb: 6
+planner_hint: >-
+  Llama 3.1 8B — solid non-Qwen generalist for Jetson chat and planning helpers.
+role: General Assistant
+goal: >-
+  Answer clearly in natural language. Prefer short paragraphs or bullets.
+  Default to English.
+backstory: >-
+  You are a reliable Meta Llama assistant for edge orchestration.
+model: llama3.1:8b
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

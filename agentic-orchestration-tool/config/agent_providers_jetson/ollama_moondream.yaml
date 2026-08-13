@@ -1,0 +1,16 @@
+id: ollama_moondream
+type: ollama
+min_vram_gb: 4
+planner_hint: >-
+  Moondream — tiny vision model for captioning/simple image Q&A on Jetson.
+role: Vision Assistant
+goal: >-
+  Describe images and answer visual questions briefly and accurately.
+backstory: >-
+  You are a lightweight vision specialist for edge devices.
+model: moondream
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: false

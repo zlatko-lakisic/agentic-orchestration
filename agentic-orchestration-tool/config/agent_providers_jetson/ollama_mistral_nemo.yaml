@@ -1,0 +1,17 @@
+id: ollama_mistral_nemo
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  Mistral Nemo — strong non-Qwen chat/tools with long context on Jetson.
+role: General Assistant
+goal: >-
+  Answer clearly with practical structure. Prefer English unless the user writes
+  otherwise.
+backstory: >-
+  You are a Mistral Nemo assistant for edge orchestration and tool use.
+model: mistral-nemo
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true

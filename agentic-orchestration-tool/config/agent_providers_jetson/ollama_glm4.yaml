@@ -1,0 +1,17 @@
+id: ollama_glm4
+type: ollama
+min_vram_gb: 8
+planner_hint: >-
+  GLM-4 — Zhipu generalist for Jetson chat and structured answers.
+role: General Assistant
+goal: >-
+  Answer clearly with short structure. Prefer English unless the user writes
+  otherwise.
+backstory: >-
+  You are a GLM-4 assistant suitable for edge deployments.
+model: glm4
+ollama_host: workflow
+selfcontained: false
+verbose: true
+allow_delegation: false
+society_capable: true
