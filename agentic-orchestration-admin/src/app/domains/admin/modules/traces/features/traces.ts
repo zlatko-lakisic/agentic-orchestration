@@ -309,7 +309,9 @@ declare global {
               <td mat-cell *matCellDef="let r" [attr.colspan]="columns.length">
                 <div
                   class="ao-trace-expand"
-                  [class.ao-trace-expand--open]="detail()?.runId === r.runId"
+                  [class.ao-trace-expand--open]="
+                    detail()?.runId === r.runId && expandOpen()
+                  "
                   (click)="$event.stopPropagation()"
                 >
                   <div class="ao-trace-expand__inner">
@@ -649,6 +651,9 @@ export class TracesPage implements OnInit, OnDestroy {
 
   isExpandedRow = (_: number, row: TraceListItem) => this.detail()?.runId === row.runId;
 
+  /** Drives CSS expand after the detail row mounts. */
+  readonly expandOpen = signal(false);
+
   constructor() {
     afterNextRender(() => this.scheduleMermaidRender());
     effect(() => {
@@ -709,6 +714,7 @@ export class TracesPage implements OnInit, OnDestroy {
     const rid = String(id || '').trim();
     if (!rid) return;
     this.lookupId.set(rid);
+    this.expandOpen.set(false);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: rid },
@@ -724,6 +730,7 @@ export class TracesPage implements OnInit, OnDestroy {
       this.detail.set(r.data);
       this.eventRows.data = r.data.events || [];
       afterNextRender(() => {
+        requestAnimationFrame(() => this.expandOpen.set(true));
         document
           .getElementById(`trace-row-${rid}`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -733,8 +740,14 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   clearDetail() {
-    this.detail.set(null);
-    this.eventRows.data = [];
+    const closingId = this.detail()?.runId || null;
+    this.expandOpen.set(false);
+    // Allow collapse animation before removing the detail row.
+    window.setTimeout(() => {
+      if (this.detail()?.runId !== closingId) return;
+      this.detail.set(null);
+      this.eventRows.data = [];
+    }, 280);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: null },

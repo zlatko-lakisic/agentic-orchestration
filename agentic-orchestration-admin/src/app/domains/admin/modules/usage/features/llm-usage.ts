@@ -1,4 +1,4 @@
-import { DecimalPipe, DatePipe, NgClass } from '@angular/common';
+import { DecimalPipe, NgClass } from '@angular/common';
 import {
   Component,
   OnDestroy,
@@ -109,7 +109,6 @@ function pieFromRows(
     MatProgressBarModule,
     MatTableModule,
     DecimalPipe,
-    DatePipe,
     NgClass,
     ChartComponent,
     AoTimeAgoPipe,

@@ -201,8 +201,11 @@ import { MintTokenDialog } from './mint-token-dialog';
                 >
                   <div class="flex flex-wrap items-baseline justify-between gap-2">
                     <span class="font-mono text-xs">{{ u.ip || '—' }}</span>
-                    <span class="text-xs text-neutral-500">
-                      {{ u.ts ? (u.ts | date: 'short') : '—' }}
+                    <span
+                      class="text-xs text-neutral-500"
+                      [attr.title]="u.ts | aoAbsoluteTime"
+                    >
+                      {{ u.ts | aoTimeAgo: clock.nowMs() }}
                     </span>
                   </div>
                   <div class="mt-1 font-mono text-xs text-neutral-600 dark:text-neutral-400">
@@ -226,6 +229,7 @@ import { MintTokenDialog } from './mint-token-dialog';
 export class AccessApiTokens implements OnInit {
   private readonly api = inject(AoApi);
   readonly live = inject(AoLiveWs);
+  readonly clock = inject(AoClock);
   private readonly webAuth = inject(WebAuth);
   private readonly dialog = inject(MatDialog);
 
