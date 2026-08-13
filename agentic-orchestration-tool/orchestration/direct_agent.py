@@ -602,6 +602,13 @@ def run_direct_agent(
     from orchestration.runner import build_workflow, crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
 
+    try:
+        from orchestration.llm_usage import install_litellm_usage_callback
+
+        install_litellm_usage_callback()
+    except Exception:  # noqa: BLE001
+        pass
+
     def progress(message: str) -> None:
         if on_progress is not None:
             on_progress(message)
@@ -628,6 +635,23 @@ def run_direct_agent(
         with crew_kickoff_context(built):
             progress("generating")
             result = built.crew.kickoff(inputs={"topic": text})
+    try:
+        from orchestration.llm_usage import record_crew_result_usage
+
+        model_guess = ""
+        try:
+            providers = getattr(config, "agent_providers", None) or []
+            if providers and isinstance(providers[0], dict):
+                model_guess = str(providers[0].get("model") or "")
+        except Exception:  # noqa: BLE001
+            model_guess = ""
+        record_crew_result_usage(
+            result,
+            source="direct_crew",
+            model=model_guess or pid,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     raw_text = workflow_result_to_extractable_text(result)
     answer = sanitize_user_facing_prose(raw_text)
     progress(

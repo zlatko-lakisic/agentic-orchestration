@@ -515,5 +515,71 @@ def extract_crew_token_usage(result: Any) -> dict[str, int | None]:
             "prompt_tokens": getattr(usage, "prompt_tokens", None),
             "completion_tokens": getattr(usage, "completion_tokens", None),
             "total_tokens": getattr(usage, "total_tokens", None),
+            "successful_requests": getattr(usage, "successful_requests", None),
         }
-    return normalize_openai_usage(usage if isinstance(usage, dict) else None)
+    if not isinstance(usage, dict):
+        return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
+
+    norm = normalize_openai_usage(usage)
+    try:
+        reqs = int(usage.get("successful_requests") or 0)
+    except (TypeError, ValueError):
+        reqs = 0
+
+    def _pos(v: Any) -> int:
+        try:
+            return max(0, int(v))
+        except (TypeError, ValueError):
+            return 0
+
+    total = _pos(norm.get("total_tokens"))
+    prompt = _pos(norm.get("prompt_tokens"))
+    completion = _pos(norm.get("completion_tokens"))
+    # UsageMetrics defaults to zeros — ignore empty payloads.
+    if reqs <= 0 and total <= 0 and prompt <= 0 and completion <= 0:
+        return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
+    return {
+        "prompt_tokens": norm.get("prompt_tokens"),
+        "completion_tokens": norm.get("completion_tokens"),
+        "total_tokens": norm.get("total_tokens"),
+    }
+
+
+def record_crew_result_usage(
+    result: Any,
+    *,
+    source: str = "direct_crew",
+    model: str | None = None,
+    tool_root: Path | None = None,
+) -> bool:
+    """Record ledger + model_call from CrewAI kickoff ``token_usage`` when present.
+
+    Skips when this run already has ``model_call`` events (e.g. LiteLLM callback
+    already recorded per-completion usage) to avoid double-counting.
+    """
+    norm = extract_crew_token_usage(result)
+    if (
+        norm.get("prompt_tokens") is None
+        and norm.get("completion_tokens") is None
+        and norm.get("total_tokens") is None
+    ):
+        return False
+    rid = (_cv_run_id.get() or "").strip()
+    root = tool_root or _cv_tool_root.get()
+    if rid and root is not None:
+        try:
+            from orchestration.run_trace import read_run_events
+
+            if any(str(e.get("kind") or "") == "model_call" for e in read_run_events(Path(root), rid)):
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+    record_llm_usage(
+        source=source,
+        model=model,
+        prompt_tokens=norm["prompt_tokens"],
+        completion_tokens=norm["completion_tokens"],
+        total_tokens=norm["total_tokens"],
+        ok=True,
+    )
+    return True

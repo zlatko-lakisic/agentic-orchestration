@@ -197,6 +197,16 @@ class CrewAIExecutionBackend:
                         print(workflow_result)
                 if workflow_result is not None:
                     result_text = workflow_result_to_extractable_text(workflow_result)
+                    try:
+                        from orchestration.llm_usage import record_crew_result_usage
+
+                        record_crew_result_usage(
+                            workflow_result,
+                            source="crew_kickoff",
+                            model=None,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
         finally:
             _on_workflow_end(built, workflow_result, workflow_error)
             _cleanup_agent_providers(built)

@@ -167,3 +167,31 @@ def test_resolve_product_app_id_prefers_refined_identity() -> None:
     assert resolve_product_app_id("comstar-ha", "comstar-ha", "comstar-ha") == "comstar-ha"
     assert resolve_product_app_id("ao-chat", "None Administrator", "x") == "ao-chat"
     assert resolve_product_app_id("", "knowbuddy", "knowbuddy") == "knowbuddy"
+
+
+@pytest.mark.unit
+def test_extract_crew_token_usage_ignores_empty_metrics() -> None:
+    from types import SimpleNamespace
+
+    from orchestration.llm_usage import extract_crew_token_usage, record_crew_result_usage
+
+    empty = SimpleNamespace(
+        token_usage=SimpleNamespace(
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            successful_requests=0,
+        )
+    )
+    assert extract_crew_token_usage(empty)["total_tokens"] is None
+    assert record_crew_result_usage(empty) is False
+
+    filled = SimpleNamespace(
+        token_usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+            "successful_requests": 1,
+        }
+    )
+    assert extract_crew_token_usage(filled)["total_tokens"] == 15

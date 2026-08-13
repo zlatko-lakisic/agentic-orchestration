@@ -642,9 +642,13 @@ class OllamaProvider(AgentProvider):
         fetch_tool_needed = bool(fetch_stdio)
         effective_mcps = other_mcps or None
 
-        # Always use an LLM object so LiteLLM callbacks see completions
-        # (bare model strings skip api_base + usage hooks on some CrewAI builds).
-        llm = LLM(model=model, api_base=litellm_api_base_for_ollama())
+        # Force LiteLLM path so Admin usage callbacks fire. CrewAI's native
+        # Ollama provider (is_litellm=False) bypasses litellm.callbacks entirely.
+        llm = LLM(
+            model=model,
+            api_base=litellm_api_base_for_ollama(),
+            is_litellm=True,
+        )
 
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),
