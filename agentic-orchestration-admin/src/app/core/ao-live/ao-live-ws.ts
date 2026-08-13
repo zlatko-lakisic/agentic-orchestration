@@ -185,6 +185,12 @@ export class AoLiveWs implements OnDestroy {
     );
   }
 
+  /** Re-subscribe to active feeds so the server pushes a fresh snapshot now. */
+  refreshFeeds() {
+    this.ensureConnected();
+    this.pushSubscriptions();
+  }
+
   /** Typed helper for the latest snapshot of a feed topic. */
   feedData<T = unknown>(topic: string): T | null {
     const raw = this.feeds()[topic];
@@ -419,10 +425,20 @@ export class AoLiveWs implements OnDestroy {
       return;
     }
     if (type === 'admin_feed') {
-      if (this.tabHidden()) return;
+      // Keep applying feed snapshots even while the tab is hidden so dashboards
+      // are fresh when the user returns (unlike high-frequency host metrics).
       const topic = String(msg['topic'] || '').trim();
       if (!topic) return;
-      this.feeds.update((prev) => ({ ...prev, [topic]: msg['data'] }));
+      const payload = msg['data'];
+      const generatedAt = msg['generatedAt'];
+      const data =
+        payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? {
+              ...(payload as Record<string, unknown>),
+              ...(generatedAt != null ? { generatedAt } : {}),
+            }
+          : payload;
+      this.feeds.update((prev) => ({ ...prev, [topic]: data }));
       this.feedErrors.update((prev) => {
         if (!prev[topic]) return prev;
         const next = { ...prev };

@@ -4,7 +4,9 @@ import {
   OnDestroy,
   OnInit,
   computed,
+  effect,
   inject,
+  signal,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import {
@@ -15,7 +17,7 @@ import {
 import { MatDivider } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatTableModule } from '@angular/material/table';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { RouterLink } from '@angular/router';
 import {
   ApexAxisChartSeries,
@@ -75,7 +77,8 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
             Token usage
           </div>
           <div class="text-neutral-500">
-            All local clients on this install · live WebSocket
+            All local clients on this install · live WebSocket every
+            {{ feedSeconds() }}s
             @if (clientAppCount() > 0) {
               <span>· {{ clientAppCount() }} app{{ clientAppCount() === 1 ? '' : 's' }}</span>
             }
@@ -83,6 +86,9 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               <span class="text-green-600">· connected</span>
             } @else {
               <span class="text-amber-600">· reconnecting…</span>
+            }
+            @if (updatedAgo()) {
+              <span>· updated {{ updatedAgo() }}</span>
             }
           </div>
         </div>
@@ -236,20 +242,23 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           </div>
           <div class="h-72 w-full px-2 pb-2 pt-4">
             @if (chartSeries().length) {
-              <apx-chart
-                class="h-full w-full"
-                [series]="chartSeries()"
-                [chart]="spendChart.chart"
-                [colors]="spendChart.colors"
-                [dataLabels]="spendChart.dataLabels"
-                [fill]="spendChart.fill"
-                [grid]="spendChart.grid"
-                [legend]="spendChart.legend"
-                [stroke]="spendChart.stroke"
-                [tooltip]="spendChart.tooltip"
-                [xaxis]="spendChart.xaxis"
-                [yaxis]="spendChart.yaxis"
-              />
+              <!-- Remount on each feed snapshot so ApexCharts picks up live series. -->
+              @for (gen of [chartGeneration()]; track gen) {
+                <apx-chart
+                  class="h-full w-full"
+                  [series]="chartSeries()"
+                  [chart]="spendChart.chart"
+                  [colors]="spendChart.colors"
+                  [dataLabels]="spendChart.dataLabels"
+                  [fill]="spendChart.fill"
+                  [grid]="spendChart.grid"
+                  [legend]="spendChart.legend"
+                  [stroke]="spendChart.stroke"
+                  [tooltip]="spendChart.tooltip"
+                  [xaxis]="spendChart.xaxis"
+                  [yaxis]="spendChart.yaxis"
+                />
+              }
             } @else {
               <div
                 class="flex h-full items-center justify-center text-sm text-neutral-500"
@@ -275,8 +284,8 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               </div>
             </mat-card-header>
             <mat-card-content class="mt-2 px-0 pb-0">
-              @if (transactions().length) {
-                <table mat-table [dataSource]="transactions()" class="w-full">
+              @if (txDataSource.data.length) {
+                <table mat-table [dataSource]="txDataSource" class="w-full">
                   <ng-container matColumnDef="when">
                     <th mat-header-cell *matHeaderCellDef>When</th>
                     <td mat-cell *matCellDef="let r" class="whitespace-nowrap text-sm">
@@ -373,7 +382,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
         <!-- Rollup tables -->
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          @for (block of llmBlocks(d); track block.title) {
+          @for (block of llmBlocks(); track block.title) {
             <mat-card appearance="outlined" class="overflow-hidden">
               <mat-card-header>
                 <div class="text-lg font-medium tracking-tight">
@@ -431,6 +440,11 @@ export class LlmUsagePage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
   readonly llmCols = ['key', 'calls', 'total'];
   readonly txCols = ['when', 'app', 'model', 'tokens', 'status'];
+  readonly feedSeconds = signal(2);
+  /** Tick every second so "updated Ns ago" stays fresh. */
+  private readonly nowMs = signal(Date.now());
+  private clockTimer: ReturnType<typeof setInterval> | null = null;
+  readonly txDataSource = new MatTableDataSource<ReturnType<typeof mapTx>>([]);
 
   readonly data = computed(
     () =>
@@ -440,6 +454,22 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     const e =
       this.live.feedErrors()['llm_usage'] || this.live.feedErrors()['_'];
     return e || null;
+  });
+
+  readonly chartGeneration = computed(
+    () => String(this.data()?.generatedAt || '') || String(this.data()?.llm?.grandTotal?.totalTokens ?? 0),
+  );
+
+  readonly updatedAgo = computed(() => {
+    const iso = this.data()?.generatedAt;
+    if (!iso) return null;
+    const t = Date.parse(String(iso));
+    if (!Number.isFinite(t)) return null;
+    const sec = Math.max(0, Math.round((this.nowMs() - t) / 1000));
+    if (sec < 2) return 'just now';
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.round(sec / 60);
+    return `${min}m ago`;
   });
 
   readonly statements = computed(() => {
@@ -539,6 +569,17 @@ export class LlmUsagePage implements OnInit, OnDestroy {
       ).length,
   );
 
+  readonly llmBlocks = computed(() => {
+    const d = this.data();
+    if (!d) return [];
+    return [
+      { title: 'By app', rows: d.llm?.byAppId || [] },
+      { title: 'By user', rows: d.llm?.byUserId || [] },
+      { title: 'By client IP', rows: d.llm?.byClientIp || [] },
+      { title: 'By model', rows: d.llm?.byModel || [] },
+    ];
+  });
+
   protected spendChart = {
     chart: {
       animations: { enabled: false },
@@ -593,25 +634,27 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     } as ApexYAxis,
   };
 
+  constructor() {
+    effect(() => {
+      this.txDataSource.data = this.transactions();
+    });
+  }
+
   ngOnInit() {
-    this.live.acquire({ feeds: ['llm_usage'], feedIntervalMs: 4000 });
+    this.live.acquire({ feeds: ['llm_usage'], feedIntervalMs: 2000 });
+    this.clockTimer = setInterval(() => this.nowMs.set(Date.now()), 1000);
   }
 
   ngOnDestroy() {
+    if (this.clockTimer) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
     this.live.release();
   }
 
   resync() {
-    this.live.setFeedParams({});
-  }
-
-  llmBlocks(d: LlmUsageResponse): { title: string; rows: LlmUsageRollupRow[] }[] {
-    return [
-      { title: 'By app', rows: d.llm?.byAppId || [] },
-      { title: 'By user', rows: d.llm?.byUserId || [] },
-      { title: 'By client IP', rows: d.llm?.byClientIp || [] },
-      { title: 'By model', rows: d.llm?.byModel || [] },
-    ];
+    this.live.refreshFeeds();
   }
 }
 

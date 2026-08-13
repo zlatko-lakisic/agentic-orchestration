@@ -240,6 +240,19 @@ export interface LayoutResult {
     width: number;
     height: number;
   }>;
+  /**
+   * Labeled Kubernetes containment frames (cluster → nodes with nested pods,
+   * plus a Services group). Drawn only while the platform accordion is open.
+   */
+  k8sGroups?: Array<{
+    id: string;
+    role: 'cluster' | 'node' | 'services';
+    label: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
   nodes: PositionedNode[];
   edges: PositionedEdge[];
 }

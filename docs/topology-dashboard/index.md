@@ -34,7 +34,7 @@ Open it from Admin → **Topology**. Help icons on nodes and edges deep-link her
 **Layout:** three full-width horizontal bands; columns align vertically so you can follow a mechanism down without tracing sideways (e.g. Domain overlays → Overlay packer → `session_overlay`). Layout is deterministic — no force-directed shuffle on updates.
 
 <a id="expandable-panels"></a>
-**Expandable panels:** nodes with a chevron (Application `appId` groups and in-cluster **Kubernetes**) use a **wider header card** than ordinary nodes. Expanding draws a dashed **group frame** around the header plus its children (same visual language for apps and Kubernetes). Collapse returns to the summary row. See [[#app-accordion]] and [[#platform-expand]].
+**Expandable panels:** nodes with a chevron (Application `appId` groups and in-cluster **Kubernetes**) use a **wider header card** than ordinary nodes. Expanding draws labeled **group frames** around the header plus its children (apps: dashed teal; Kubernetes: cluster frame with nested **node** frames around each node’s pods, plus a **Services** frame). Collapse returns to the summary row. See [[#app-accordion]] and [[#platform-expand]].
 
 **Two exception flows** (drawn specially so they stay obvious):
 
@@ -527,10 +527,13 @@ MCP gateway pods attached for tool execution (fetch / filesystem gateways, and s
 #### Expand Kubernetes
 
 1. Chevron on the **Kubernetes** card (wider header) → expand.
-2. A steel-blue dashed **group frame** grows around the platform header plus nested inventory.
-3. **Cluster nodes** appear as groups (internal/host IP on the sublabel). **Pods** stack under each node with **podIP** · workload · phase. **Services** (`agentic-*`) show **clusterIP** and draw **Service → Pod** edges for endpoint paths.
-4. Sublabel on the platform shows live `ready/total` pods and node count; click a node/pod/service for Addresses and the pod table (phase, ready, podIP, hostIP, node, restarts).
-5. Collapse the chevron to hide children and shrink the frame back to the summary card.
+2. A steel-blue dashed **Kubernetes** group frame grows around the platform header plus nested inventory.
+3. Inside that frame, logical groupings mirror the cluster:
+   - **Node** frames (solid blue, labeled with the node name) each enclose that node’s card and the **pods scheduled on it**, stacked tightly underneath.
+   - A **Services** frame (cyan) groups Service cards to the right; **Service → Pod** edges remain for endpoint paths.
+4. Parent→child containment (platform→node, node→pod) is shown by the frames — those hierarchy links are not drawn as traffic arrows.
+5. Sublabel on the platform shows live `ready/total` pods and node count; click a node/pod/service for Addresses and the pod table (phase, ready, podIP, hostIP, node, restarts).
+6. Collapse the chevron to hide children and shrink back to the summary card.
 
 Off-cluster (local `ng serve` without an SA) the node stays `unknown` with a note that expand is unavailable — same honesty rule as other probes. The chevron only appears when the in-cluster probe finds pods or nodes.
 
@@ -543,7 +546,7 @@ See [[#k8s-node]], [[#k8s-pod]], [[#k8s-service]] for the nested inventory cards
 <a id="k8s-node"></a>
 ### Cluster node
 
-A Kubernetes **node** group inside the expanded Kubernetes panel. Sublabel shows the node’s internal / host IP when the API reports it. Child **pods** scheduled on that node stack underneath. Click for Addresses (node name, IPs) and the filtered pod table for this node only.
+A Kubernetes **node** group inside the expanded Kubernetes panel. Sublabel shows the node’s internal / host IP when the API reports it. Child **pods** scheduled on that node nest inside the same labeled node frame (stacked under the node card). Click for Addresses (node name, IPs) and the filtered pod table for this node only.
 
 **Example:** `omega-jetson-orin.mostardesigns.com` with `agentic-coordinator` / `agentic-engine` pods listed beneath.
 
@@ -554,7 +557,7 @@ Appears only while [[#platform-expand]] is open and the in-cluster probe can lis
 <a id="k8s-pod"></a>
 ### Pod
 
-An individual **pod** under a cluster node (or listed in a workload modal). Sublabel typically shows **podIP** · owning workload · phase. Click for Addresses: podIP, hostIP, nodeName, ready, restarts, and container status.
+An individual **pod** nested under its cluster node frame (or listed in a workload modal). Sublabel typically shows **podIP** · owning workload · phase. Click for Addresses: podIP, hostIP, nodeName, ready, restarts, and container status.
 
 **Example:** `agentic-engine-…` under the ARM edge node with `podIP` in the pod CIDR and `hostIP` `172.16.90.20`.
 

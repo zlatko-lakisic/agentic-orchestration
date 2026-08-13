@@ -31,7 +31,7 @@ Regenerate tables: `python scripts/generate_agent_catalog_md.py` then `python sc
 | `claude_research` | claude-3-5-haiku-20241022 | Research Analyst | Anthropic Claude—research, comparisons, grounded summaries, and struct | min_vram 0 GiB | ANTHROPIC_API_KEY | ✓ | research |
 | `claude_write` | claude-3-5-haiku-20241022 | Technical Writer | Anthropic Claude—polish prose, briefings, executive summaries, and cle | min_vram 0 GiB | ANTHROPIC_API_KEY |  | write |
 
-### ollama (85 providers)
+### ollama (86 providers)
 
 | ID | Model | Role | Good for | Hardware | Env | GP | Harness |
 |---|---|---|---|---|---|---|---|
@@ -103,6 +103,7 @@ Regenerate tables: `python scripts/generate_agent_catalog_md.py` then `python sc
 | `ollama_qwen` | qwen | General Assistant | Qwen base — legacy general Qwen family. | min_vram 8 GiB | OLLAMA_HOST |  | general |
 | `ollama_qwen2` | qwen2 | General Analyst | Qwen 2 — earlier Qwen general; still useful for many languages. | min_vram 8 GiB | OLLAMA_HOST |  | general |
 | `ollama_qwen2_5` | qwen2.5 | General Analyst | Qwen 2.5 general — strong multilingual and STEM-friendly chat. | min_vram 8 GiB | OLLAMA_HOST |  | general |
+| `ollama_qwen2_5_14b_instruct` | qwen2.5:14b-instruct | General Assistant | Qwen 2.5 14B instruct — strong local generalist for planning, Q&A, and | min_vram 10 GiB | OLLAMA_HOST |  | general |
 | `ollama_qwen2_5_coder` | qwen2.5-coder | Software Engineer | Primary code model — implementation, refactors, scripts, APIs. | min_vram 8 GiB | OLLAMA_HOST |  | reason |
 | `ollama_qwen2_5vl` | qwen2.5vl | Vision Analyst | Qwen2.5-VL — strong document and scene understanding. | min_vram 10 GiB | OLLAMA_HOST |  | general |
 | `ollama_qwen3` | qwen3 | General Analyst | Qwen 3 — newer general Qwen for harder questions and coding-adjacent c | cpu, gpu | OLLAMA_HOST |  | general |

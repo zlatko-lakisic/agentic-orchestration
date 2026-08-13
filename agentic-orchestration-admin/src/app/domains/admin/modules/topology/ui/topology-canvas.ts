@@ -18,14 +18,6 @@ type AppGroupFrame = {
   height: number;
 };
 
-type ExpandGroupFrame = {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
 function boundsOf(
   list: PositionedNode[],
   pad: number
@@ -214,16 +206,25 @@ function boundsOf(
           />
         }
 
-        @for (g of k8sFrames(); track g.id) {
+        @for (g of k8sGroupFrames(); track g.id) {
           <rect
             [attr.x]="g.x"
             [attr.y]="g.y"
             [attr.width]="g.width"
             [attr.height]="g.height"
             rx="12"
-            class="expand-group-frame"
-            [class.expand-group-frame-active]="expandedK8sId() === g.id"
+            class="k8s-group-frame"
+            [attr.data-role]="g.role"
+            [class.k8s-group-frame-active]="expandedK8sId() === 'platform/k3s'"
           />
+          <text
+            [attr.x]="g.x + 12"
+            [attr.y]="g.y + 14"
+            class="k8s-group-label text-[10px] font-medium tracking-wide uppercase"
+            [attr.data-role]="g.role"
+          >
+            {{ g.label }}
+          </text>
         }
 
         @for (e of edges(); track e.id) {
@@ -451,7 +452,7 @@ function boundsOf(
       opacity: 0.28;
       filter: grayscale(0.85);
     }
-    .expand-group-frame {
+    .k8s-group-frame {
       fill: color-mix(in oklab, #3b6ea5 6%, transparent);
       stroke: color-mix(in oklab, #3b6ea5 34%, transparent);
       stroke-width: 1.25;
@@ -459,10 +460,47 @@ function boundsOf(
       pointer-events: none;
       transition: opacity 160ms ease, fill 160ms ease;
     }
-    .expand-group-frame-active {
-      fill: color-mix(in oklab, #3b6ea5 12%, transparent);
+    .k8s-group-frame[data-role='cluster'] {
+      fill: color-mix(in oklab, #3b6ea5 5%, transparent);
+      stroke: color-mix(in oklab, #3b6ea5 40%, transparent);
+    }
+    .k8s-group-frame[data-role='node'] {
+      fill: color-mix(in oklab, #1d4ed8 8%, transparent);
+      stroke: color-mix(in oklab, #1d4ed8 48%, transparent);
+      stroke-dasharray: none;
+      stroke-width: 1.4;
+    }
+    .k8s-group-frame[data-role='services'] {
+      fill: color-mix(in oklab, #0e7490 7%, transparent);
+      stroke: color-mix(in oklab, #0e7490 45%, transparent);
+      stroke-dasharray: 4 3;
+    }
+    .k8s-group-frame-active[data-role='cluster'] {
+      fill: color-mix(in oklab, #3b6ea5 10%, transparent);
       stroke: color-mix(in oklab, #3b6ea5 58%, transparent);
       stroke-dasharray: none;
+    }
+    .k8s-group-label {
+      pointer-events: none;
+      fill: #3b6ea5;
+    }
+    .k8s-group-label[data-role='node'] {
+      fill: #1d4ed8;
+    }
+    .k8s-group-label[data-role='services'] {
+      fill: #0e7490;
+    }
+    :host-context(.dark) .k8s-group-label,
+    .dark .k8s-group-label {
+      fill: #93c5fd;
+    }
+    :host-context(.dark) .k8s-group-label[data-role='node'],
+    .dark .k8s-group-label[data-role='node'] {
+      fill: #bfdbfe;
+    }
+    :host-context(.dark) .k8s-group-label[data-role='services'],
+    .dark .k8s-group-label[data-role='services'] {
+      fill: #67e8f9;
     }
     .topo-node.app-panel-dim {
       opacity: 0.32;
@@ -696,41 +734,8 @@ export class TopologyCanvas {
     return frames;
   });
 
-  /** Bounding frame for expandable Kubernetes platform + node/pod/service children. */
-  readonly k8sFrames = computed(() => {
-    const list = this.nodes().filter(
-      (n) =>
-        n.id === 'platform/k3s' ||
-        n.kind === 'k8s-workload' ||
-        n.kind === 'k8s-node' ||
-        n.kind === 'k8s-pod' ||
-        n.kind === 'k8s-service' ||
-        n.parent === 'platform/k3s' ||
-        String(n.parent || '').startsWith('k8s/node/')
-    );
-    if (!list.some((n) => n.id === 'platform/k3s' && n.expandable)) return [];
-    const frames: ExpandGroupFrame[] = [
-      { id: 'platform/k3s', ...boundsOf(list, 8) },
-    ];
-    // Per-node group frames so pods read as "inside" the node.
-    const byNode = new Map<string, PositionedNode[]>();
-    for (const n of list) {
-      if (n.kind === 'k8s-node') {
-        const arr = byNode.get(n.id) || [];
-        arr.push(n);
-        byNode.set(n.id, arr);
-      } else if (n.kind === 'k8s-pod' && n.parent) {
-        const arr = byNode.get(n.parent) || [];
-        arr.push(n);
-        byNode.set(n.parent, arr);
-      }
-    }
-    for (const [id, members] of byNode) {
-      if (members.length < 2) continue;
-      frames.push({ id, ...boundsOf(members, 6) });
-    }
-    return frames;
-  });
+  /** Labeled Kubernetes containment frames from layout (cluster / node / services). */
+  readonly k8sGroupFrames = computed(() => this.layout().k8sGroups || []);
 
   isDimmedEdge(id: string): boolean {
     const c = this.closure();

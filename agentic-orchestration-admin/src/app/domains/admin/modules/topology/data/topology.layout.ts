@@ -106,6 +106,14 @@ const APP_FAMILY_GAP = 56;
 /** Extra top padding inside each Application family frame for its label. */
 const APP_FAMILY_LABEL_H = 20;
 const APP_FAMILY_PAD = 12;
+/** Gap from a k8s node card down to its first nested pod. */
+const K8S_NEST_GAP = 14;
+/** Vertical gap between pods stacked inside a node group. */
+const K8S_POD_GAP = 10;
+/** Label strip above a k8s group frame (node / services / cluster). */
+const K8S_GROUP_LABEL_H = 18;
+const K8S_GROUP_PAD = 10;
+const K8S_NODE_GROUP_PAD = 8;
 
 const APP_CHILD_LANE: Record<string, number> = {
   ui: 0,
@@ -1154,26 +1162,13 @@ export function layoutTopology(
     (reachSectionW > 0 ? reachSectionW : 0) +
     (reachSectionW > 0 && webApiSectionW > 0 ? APP_FAMILY_GAP : 0) +
     webApiSectionW;
-  const k8sChildCount = Math.max(
-    k8sNodeIds.length + k8sSvcIds.length,
-    ...[...podsByParent.values()].map((ids, i) => {
-      const lane = i; // width driven below
-      return ids.length;
-    }),
-    0
-  );
-  // Prefer widest row: node+svc columns, or max pods under a single node.
-  const maxPodsInColumn = Math.max(
-    0,
-    ...[...podsByParent.values()].map((ids) => ids.length)
-  );
+  // Pods nest under their node column (not a wide sibling row).
   const k8sExpandRowW =
-    k8sChildCount > 0 || maxPodsInColumn > 0
+    k8sNodeIds.length + k8sSvcIds.length > 0
       ? Math.max(
           EXPAND_PANEL_W,
           (k8sNodeIds.length + k8sSvcIds.length) * NODE_W +
-            Math.max(0, k8sNodeIds.length + k8sSvcIds.length - 1) * COL_GAP,
-          maxPodsInColumn * NODE_W + Math.max(0, maxPodsInColumn - 1) * COL_GAP
+            Math.max(0, k8sNodeIds.length + k8sSvcIds.length - 1) * COL_GAP
         )
       : 0;
   const canvasContentW = Math.max(
@@ -1183,9 +1178,13 @@ export function layoutTopology(
   );
   const width = canvasContentW + MARGIN * 2 + ROUTE_MARGIN;
 
+  // Pods are placed in a post-pass under their parent node — exclude from band rows.
+  const rowEntries = enriched.filter((e) => e.node.kind !== 'k8s-pod');
+  const podEntries = enriched.filter((e) => e.node.kind === 'k8s-pod');
+
   type RowKey = string;
   const rows = new Map<RowKey, typeof enriched>();
-  for (const e of enriched) {
+  for (const e of rowEntries) {
     const key = `${e.band}:${e.rank}`;
     if (!rows.has(key)) rows.set(key, []);
     rows.get(key)!.push(e);
@@ -1295,6 +1294,68 @@ export function layoutTopology(
     y = bandTop + bands[bands.length - 1].height + BAND_GAP;
   }
 
+  // Nest pods tightly under their parent node so each column reads as one group.
+  {
+    const parentById = new Map(positioned.map((n) => [n.id, n]));
+    const podsGrouped = new Map<string, typeof podEntries>();
+    for (const e of podEntries) {
+      const parentId = String(e.node.parent || '');
+      const list = podsGrouped.get(parentId) || [];
+      list.push(e);
+      podsGrouped.set(parentId, list);
+    }
+    for (const [parentId, siblings] of podsGrouped) {
+      const parent = parentById.get(parentId);
+      if (!parent) continue;
+      siblings.sort((a, b) => {
+        if (a.order !== b.order) return a.order - b.order;
+        return a.node.id.localeCompare(b.node.id);
+      });
+      siblings.forEach((e, i) => {
+        positioned.push({
+          ...e.node,
+          x: parent.x,
+          y:
+            parent.y +
+            NODE_H +
+            K8S_NEST_GAP +
+            i * (NODE_H + K8S_POD_GAP),
+          width: NODE_W,
+          height: NODE_H,
+          lane: parent.lane,
+          rank: parent.rank + 1 + i,
+          order: i,
+          displayStatus: displayStatus(e.node),
+        });
+      });
+    }
+  }
+
+  // Grow the AO band (and following canvas y) to enclose nested pod stacks + labels.
+  {
+    const ao = bands.find((b) => b.id === 'ao');
+    if (ao) {
+      let maxBottom = ao.y + ao.height - BAND_PAD_Y;
+      for (const n of positioned) {
+        if (
+          n.kind === 'k8s-pod' ||
+          n.kind === 'k8s-node' ||
+          n.kind === 'k8s-service' ||
+          n.kind === 'k8s-workload'
+        ) {
+          maxBottom = Math.max(maxBottom, n.y + n.height);
+        }
+      }
+      const needed =
+        maxBottom + BAND_PAD_Y + K8S_GROUP_LABEL_H - ao.y;
+      if (needed > ao.height) {
+        const delta = needed - ao.height;
+        ao.height = needed;
+        y += delta;
+      }
+    }
+  }
+
   const byId = new Map(positioned.map((n) => [n.id, n]));
 
   // Fan multiple edges off the same side so port stubs do not stack.
@@ -1310,6 +1371,8 @@ export function layoutTopology(
   const plans: EdgePlan[] = [];
   const sideCounts = new Map<string, number>();
   for (const e of edges) {
+    // Containment (platform→node/svc, node→pod) is shown by group frames, not wires.
+    if (String(e.protocol || '') === 'k8s') continue;
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
@@ -1393,12 +1456,23 @@ export function layoutTopology(
   }
 
   const applicationFamilies = buildApplicationFamilyFrames(positioned);
+  const k8sGroups = buildK8sGroupFrames(positioned);
+
+  // Nested pods / group labels may extend past the initial band floor.
+  for (const n of positioned) {
+    outHeight = Math.max(outHeight, n.y + n.height + MARGIN);
+  }
+  for (const g of k8sGroups) {
+    outHeight = Math.max(outHeight, g.y + g.height + MARGIN);
+    outWidth = Math.max(outWidth, g.x + g.width + MARGIN);
+  }
 
   return {
     width: outWidth,
     height: outHeight,
     bands,
     applicationFamilies,
+    k8sGroups,
     nodes: positioned,
     edges: positionedEdges,
   };
@@ -1469,6 +1543,86 @@ function buildApplicationFamilyFrames(
       height: box.height + APP_FAMILY_LABEL_H,
     });
   }
+  return frames;
+}
+
+/** Labeled containment frames: cluster → node(+pods) → services. */
+function buildK8sGroupFrames(
+  positioned: PositionedNode[]
+): NonNullable<LayoutResult['k8sGroups']> {
+  const platform = positioned.find((n) => n.id === 'platform/k3s');
+  if (!platform?.expandable) return [];
+
+  const inventory = positioned.filter(
+    (n) =>
+      n.id === 'platform/k3s' ||
+      n.kind === 'k8s-node' ||
+      n.kind === 'k8s-pod' ||
+      n.kind === 'k8s-service' ||
+      n.kind === 'k8s-workload'
+  );
+  // Only draw nested groups while inventory children are visible.
+  const hasChildren = inventory.some((n) => n.id !== 'platform/k3s');
+  if (!hasChildren) return [];
+
+  const frames: NonNullable<LayoutResult['k8sGroups']> = [];
+
+  const clusterBox = boundsOfNodes(inventory, K8S_GROUP_PAD);
+  frames.push({
+    id: 'platform/k3s',
+    role: 'cluster',
+    label: 'Kubernetes',
+    x: clusterBox.x,
+    y: clusterBox.y - K8S_GROUP_LABEL_H,
+    width: clusterBox.width,
+    height: clusterBox.height + K8S_GROUP_LABEL_H,
+  });
+
+  const byNode = new Map<string, PositionedNode[]>();
+  for (const n of inventory) {
+    if (n.kind === 'k8s-node') {
+      const list = byNode.get(n.id) || [];
+      list.push(n);
+      byNode.set(n.id, list);
+    } else if (n.kind === 'k8s-pod' && n.parent) {
+      const list = byNode.get(n.parent) || [];
+      list.push(n);
+      byNode.set(n.parent, list);
+    }
+  }
+  for (const [id, members] of byNode) {
+    const nodeCard = members.find((m) => m.kind === 'k8s-node');
+    if (!nodeCard) continue;
+    const box = boundsOfNodes(members, K8S_NODE_GROUP_PAD);
+    frames.push({
+      id,
+      role: 'node',
+      label: nodeCard.label || 'Node',
+      x: box.x,
+      y: box.y - K8S_GROUP_LABEL_H,
+      width: box.width,
+      height: box.height + K8S_GROUP_LABEL_H,
+    });
+  }
+
+  const services = inventory.filter(
+    (n) => n.kind === 'k8s-service' || n.kind === 'k8s-workload'
+  );
+  if (services.length) {
+    const box = boundsOfNodes(services, K8S_NODE_GROUP_PAD);
+    frames.push({
+      id: 'k8s/services',
+      role: 'services',
+      label: services.every((s) => s.kind === 'k8s-workload')
+        ? 'Workloads'
+        : 'Services',
+      x: box.x,
+      y: box.y - K8S_GROUP_LABEL_H,
+      width: box.width,
+      height: box.height + K8S_GROUP_LABEL_H,
+    });
+  }
+
   return frames;
 }
 

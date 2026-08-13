@@ -338,6 +338,118 @@ describe('topology.layout', () => {
     );
   });
 
+  it('nests pods under their node with labeled k8s group frames', () => {
+    const nodes: TopologyNode[] = [
+      n({
+        id: 'platform/k3s',
+        kind: 'platform',
+        band: 'ao',
+        expandable: true,
+        label: 'Kubernetes',
+      }),
+      n({
+        id: 'k8s/node/a',
+        kind: 'k8s-node',
+        band: 'ao',
+        parent: 'platform/k3s',
+        label: 'node-a',
+      }),
+      n({
+        id: 'k8s/node/b',
+        kind: 'k8s-node',
+        band: 'ao',
+        parent: 'platform/k3s',
+        label: 'node-b',
+      }),
+      n({
+        id: 'k8s/pod/p1',
+        kind: 'k8s-pod',
+        band: 'ao',
+        parent: 'k8s/node/a',
+        label: 'pod-1',
+      }),
+      n({
+        id: 'k8s/pod/p2',
+        kind: 'k8s-pod',
+        band: 'ao',
+        parent: 'k8s/node/a',
+        label: 'pod-2',
+      }),
+      n({
+        id: 'k8s/pod/p3',
+        kind: 'k8s-pod',
+        band: 'ao',
+        parent: 'k8s/node/b',
+        label: 'pod-3',
+      }),
+      n({
+        id: 'k8s/svc/web',
+        kind: 'k8s-service',
+        band: 'ao',
+        parent: 'platform/k3s',
+        label: 'web',
+      }),
+    ];
+    const edges: TopologyEdge[] = [
+      {
+        id: 'platform/k3s->k8s/node/a',
+        from: 'platform/k3s',
+        to: 'k8s/node/a',
+        kind: 'request',
+        protocol: 'k8s',
+      },
+      {
+        id: 'k8s/node/a->k8s/pod/p1',
+        from: 'k8s/node/a',
+        to: 'k8s/pod/p1',
+        kind: 'request',
+        protocol: 'k8s',
+      },
+      {
+        id: 'svc->pod',
+        from: 'k8s/svc/web',
+        to: 'k8s/pod/p1',
+        kind: 'request',
+        protocol: 'tcp',
+      },
+    ];
+    const layout = layoutTopology(nodes, edges, {
+      expandedK8sId: 'platform/k3s',
+    });
+
+    const nodeA = layout.nodes.find((x) => x.id === 'k8s/node/a')!;
+    const nodeB = layout.nodes.find((x) => x.id === 'k8s/node/b')!;
+    const p1 = layout.nodes.find((x) => x.id === 'k8s/pod/p1')!;
+    const p2 = layout.nodes.find((x) => x.id === 'k8s/pod/p2')!;
+    const p3 = layout.nodes.find((x) => x.id === 'k8s/pod/p3')!;
+
+    // Pods share the parent node column and stack vertically under it.
+    expect(p1.x).toBe(nodeA.x);
+    expect(p2.x).toBe(nodeA.x);
+    expect(p3.x).toBe(nodeB.x);
+    expect(p1.y).toBeGreaterThan(nodeA.y);
+    expect(p2.y).toBeGreaterThan(p1.y);
+    // Sibling nodes stay on one row; pods do not push a global band row gap.
+    expect(nodeA.y).toBe(nodeB.y);
+    expect(p2.y - p1.y).toBeLessThan(80);
+
+    const groups = layout.k8sGroups || [];
+    expect(groups.some((g) => g.role === 'cluster' && g.label === 'Kubernetes')).toBe(
+      true
+    );
+    expect(groups.some((g) => g.role === 'node' && g.id === 'k8s/node/a')).toBe(
+      true
+    );
+    expect(groups.some((g) => g.role === 'node' && g.id === 'k8s/node/b')).toBe(
+      true
+    );
+    expect(groups.some((g) => g.role === 'services')).toBe(true);
+
+    // Containment wires are omitted; Service → Pod network path remains.
+    expect(layout.edges.some((e) => e.protocol === 'k8s')).toBe(false);
+    expect(layout.edges.some((e) => e.id === 'svc->pod')).toBe(true);
+  });
+
   it('routes unknown kinds to trailing other lane', () => {
     const nodes: TopologyNode[] = [
       n({
