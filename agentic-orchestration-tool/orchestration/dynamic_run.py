@@ -188,12 +188,24 @@ def run_dynamic_goal(
     emit_log("dynamic planning", run_id=rid, component="engine")
     progress("planning")
     from orchestration.run_trace import append_run_event
+    from orchestration.agent_allowlist import resolve_allowed_agent_provider_ids
+    from orchestration.session_overlay import get_current_overlay
+
+    overlay = get_current_overlay()
+    app_id = overlay.app_id if overlay else None
+    overlay_allowed = overlay.allowed_agent_provider_ids if overlay else None
+    resolved_ids = resolve_allowed_agent_provider_ids(
+        tool_root=root,
+        app_id=app_id,
+        request_ids=agent_provider_ids,
+        overlay_ids=overlay_allowed,
+    )
 
     # Engine WS already emits request_start; do not duplicate the boundary here.
     config, plan = build_dynamic_workflow_config(
         user_prompt=text,
         catalog_path=paths.agent_providers,
-        allowed_agent_provider_ids=list(agent_provider_ids or []) or None,
+        allowed_agent_provider_ids=resolved_ids,
         mcp_catalog_path=paths.mcp_providers,
         agent_skills_catalog_path=paths.agent_skills,
         rag_sources_catalog_path=paths.rag_sources,

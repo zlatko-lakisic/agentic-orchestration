@@ -1531,8 +1531,9 @@ def build_dynamic_workflow_config(
         print(line, file=sys.stderr)
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
     if allowed_ids:
-        allowed_set = set(allowed_ids)
-        entries = [e for e in entries if str(e.get("id", "")).strip() in allowed_set]
+        from orchestration.agent_allowlist import filter_entries_by_allowlist
+
+        entries = filter_entries_by_allowlist(entries, allowed_ids)
         if not entries:
             raise RuntimeError(
                 "No agent providers left after applying explicit agent selection. "
@@ -1540,7 +1541,8 @@ def build_dynamic_workflow_config(
             )
         if not quiet:
             print(
-                f"(dynamic) agent selection: restricting planner catalog to {sorted(allowed_set)!r}",
+                f"(dynamic) agent selection: restricting planner catalog to {sorted(set(allowed_ids))!r} "
+                "(client.* overlays always kept)",
                 file=sys.stderr,
             )
     else:

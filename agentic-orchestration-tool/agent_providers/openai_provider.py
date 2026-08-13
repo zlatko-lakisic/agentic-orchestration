@@ -64,19 +64,26 @@ class OpenAIProvider(AgentProvider):
     """
 
     def initialize(self) -> None:
+        from orchestration.session_env import getenv
+
         raw = (self.config.openai_base_url or "").strip()
         if not raw:
-            raw = os.getenv("OPENAI_BASE_URL", "").strip() or os.getenv("OPENAI_API_BASE", "").strip()
+            raw = (getenv("OPENAI_BASE_URL", "") or "").strip() or (
+                getenv("OPENAI_API_BASE", "") or ""
+            ).strip()
         if raw:
             normalized = _normalize_openai_base(raw)
+            # Process-level base URL still helps CrewAI/LiteLLM; session key is read per call.
             os.environ["OPENAI_BASE_URL"] = normalized
             self._base_url = normalized
-            if _is_likely_local_url(normalized) and not os.getenv("OPENAI_API_KEY", "").strip():
+            if _is_likely_local_url(normalized) and not (getenv("OPENAI_API_KEY", "") or "").strip():
                 os.environ.setdefault("OPENAI_API_KEY", "local")
         else:
             self._base_url = None
 
     def health_check(self) -> None:
+        from orchestration.session_env import getenv
+
         if self._base_url is not None:
             if not _openai_models_reachable(self._base_url):
                 raise RuntimeError(
@@ -84,10 +91,11 @@ class OpenAIProvider(AgentProvider):
                     "Start the server or fix openai_base_url / OPENAI_BASE_URL."
                 )
             return
-        if not os.getenv("OPENAI_API_KEY", "").strip():
+        if not (getenv("OPENAI_API_KEY", "") or "").strip():
             raise RuntimeError(
                 "OPENAI_API_KEY is not set. Set it for cloud OpenAI, or set openai_base_url / "
-                "OPENAI_BASE_URL for a local OpenAI-compatible server."
+                "OPENAI_BASE_URL for a local OpenAI-compatible server "
+                "(Reach clients may pass OPENAI_API_KEY via session overlay env)."
             )
 
     def build_agent(
@@ -97,13 +105,15 @@ class OpenAIProvider(AgentProvider):
         skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
         role_suffix: str | None = None,
     ) -> Agent:
+        from orchestration.session_env import getenv
+
         clean = _strip_openai_model_prefix(self.config.model)
         llm_id = f"openai/{clean}"
 
         llm_kwargs: dict[str, Any] = {"model": llm_id}
         if self._base_url:
             llm_kwargs["base_url"] = self._base_url
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        api_key = (getenv("OPENAI_API_KEY", "") or "").strip()
         if api_key:
             llm_kwargs["api_key"] = api_key
 

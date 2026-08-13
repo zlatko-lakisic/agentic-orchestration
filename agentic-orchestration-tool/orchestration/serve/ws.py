@@ -332,6 +332,12 @@ class WsConnection:
                 agents=message.get("agents") if isinstance(message.get("agents"), list) else [],
                 mcps=message.get("mcps") if isinstance(message.get("mcps"), list) else [],
                 skills=message.get("skills") if isinstance(message.get("skills"), list) else [],
+                env=message.get("env") if isinstance(message.get("env"), dict) else message.get("secrets"),
+                allowed_agent_provider_ids=(
+                    message.get("allowedAgentProviderIds")
+                    if message.get("allowedAgentProviderIds") is not None
+                    else message.get("allowed_agent_provider_ids")
+                ),
                 ttl_seconds=ttl,
                 catalog_root=self.tool_root,
                 client_ip=self.client_ip,
@@ -385,6 +391,8 @@ class WsConnection:
                 "agentIds": [str(e.get("id")) for e in overlay.agents],
                 "mcpIds": [str(e.get("id")) for e in overlay.mcps],
                 "skillIds": [str(e.get("id")) for e in overlay.skills],
+                "envKeys": sorted(overlay.env.keys()),
+                "allowedAgentProviderIds": list(overlay.allowed_agent_provider_ids),
                 "expiresAt": overlay.expires_at,
             }
         )

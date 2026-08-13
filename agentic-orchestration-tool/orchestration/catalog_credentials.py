@@ -19,23 +19,32 @@ def _openai_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
     If a base URL is set (YAML or env), the provider does not require OPENAI_API_KEY
     for inclusion (reachability is checked later at health_check).
     """
+    from orchestration.session_env import getenv
+
     raw = _openai_base_raw_from_entry(entry)
     if not raw:
-        raw = os.getenv("OPENAI_BASE_URL", "").strip() or os.getenv("OPENAI_API_BASE", "").strip()
+        raw = (getenv("OPENAI_BASE_URL", "") or "").strip() or (
+            getenv("OPENAI_API_BASE", "") or ""
+        ).strip()
     if raw:
         return True
-    return bool(os.getenv("OPENAI_API_KEY", "").strip())
+    return bool((getenv("OPENAI_API_KEY", "") or "").strip())
 
 
 def _anthropic_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
+    from orchestration.session_env import getenv
+
     _ = entry
-    return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    return bool((getenv("ANTHROPIC_API_KEY", "") or "").strip())
 
 
 def _huggingface_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
+    from orchestration.session_env import getenv
+
     _ = entry
     return bool(
-        os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACE_API_KEY", "").strip()
+        (getenv("HF_TOKEN", "") or "").strip()
+        or (getenv("HUGGINGFACE_API_KEY", "") or "").strip()
     )
 
 

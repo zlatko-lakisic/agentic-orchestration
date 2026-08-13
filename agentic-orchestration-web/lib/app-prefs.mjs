@@ -1,5 +1,5 @@
 /**
- * Per-appId preferences (sticky defaults for dynamic planning).
+ * Per-appId preferences (sticky defaults for dynamic planning + agent allowlists).
  *
  * Stored beside the token registry:
  *   `<toolRoot>/__orchestrator_api_tokens__/app-prefs.json`
@@ -7,13 +7,15 @@
  *
  * Schema (keyed by normalized appId):
  *   {
- *     "knowbuddy": {
+ *     "comstar-ha": {
  *       "dynamicPlanning": true,
- *       "defaultRunMode": "dynamic"
+ *       "defaultRunMode": "dynamic",
+ *       "allowedAgentProviderIds": ["gpt_research", "ollama_llama3_2_3b"]
  *     }
  *   }
  *
  * Precedence for callers: explicit request fields > these prefs > env/globals.
+ * Empty allowedAgentProviderIds means unrestricted (current global catalog).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -52,23 +54,53 @@ export function normalizeDefaultRunMode(mode) {
 
 /**
  * @param {unknown} raw
- * @returns {{ dynamicPlanning: boolean, defaultRunMode: "dynamic"|"dynamic-iterative"|null }}
+ * @returns {string[]}
+ */
+export function normalizeAllowedAgentProviderIds(raw) {
+  if (raw == null) return [];
+  /** @type {unknown[]} */
+  let items = [];
+  if (typeof raw === "string") {
+    items = raw.split(",");
+  } else if (Array.isArray(raw)) {
+    items = raw;
+  } else {
+    return [];
+  }
+  /** @type {string[]} */
+  const out = [];
+  const seen = new Set();
+  for (const item of items) {
+    const id = String(item || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {{
+ *   dynamicPlanning: boolean,
+ *   defaultRunMode: "dynamic"|"dynamic-iterative"|null,
+ *   allowedAgentProviderIds: string[],
+ * }}
  */
 export function normalizeAppPrefs(raw) {
   const src = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const dynamicPlanning = Boolean(src.dynamicPlanning);
   let defaultRunMode = normalizeDefaultRunMode(src.defaultRunMode);
   if (dynamicPlanning && !defaultRunMode) defaultRunMode = "dynamic";
-  if (!dynamicPlanning) defaultRunMode = defaultRunMode; // allow sticky mode even if flag false
   return {
     dynamicPlanning,
     defaultRunMode,
+    allowedAgentProviderIds: normalizeAllowedAgentProviderIds(src.allowedAgentProviderIds),
   };
 }
 
 /**
  * @param {string} toolRoot
- * @returns {Record<string, { dynamicPlanning: boolean, defaultRunMode: "dynamic"|"dynamic-iterative"|null }>}
  */
 export function loadAllAppPrefs(toolRoot) {
   const file = prefsPath(toolRoot);
@@ -76,7 +108,7 @@ export function loadAllAppPrefs(toolRoot) {
   try {
     const raw = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-    /** @type {Record<string, { dynamicPlanning: boolean, defaultRunMode: "dynamic"|"dynamic-iterative"|null }>} */
+    /** @type {Record<string, ReturnType<typeof normalizeAppPrefs>>} */
     const out = {};
     for (const [key, val] of Object.entries(raw)) {
       const appId = normalizeAppPrefsAppId(key);
@@ -136,6 +168,10 @@ export function setAppPrefs(toolRoot, appId, patch) {
       src.dynamicPlanning !== undefined ? Boolean(src.dynamicPlanning) : prev.dynamicPlanning,
     defaultRunMode:
       src.defaultRunMode !== undefined ? src.defaultRunMode : prev.defaultRunMode,
+    allowedAgentProviderIds:
+      src.allowedAgentProviderIds !== undefined
+        ? src.allowedAgentProviderIds
+        : prev.allowedAgentProviderIds,
   });
   all[id] = next;
   saveAllAppPrefs(toolRoot, all);
@@ -144,7 +180,6 @@ export function setAppPrefs(toolRoot, appId, patch) {
 
 /**
  * @param {string} toolRoot
- * @returns {Array<{ appId: string, dynamicPlanning: boolean, defaultRunMode: "dynamic"|"dynamic-iterative"|null }>}
  */
 export function listAppPrefs(toolRoot) {
   return Object.entries(loadAllAppPrefs(toolRoot))
@@ -153,7 +188,6 @@ export function listAppPrefs(toolRoot) {
 }
 
 /**
- * Resolve sticky run mode for an authenticated app when the request omits one.
  * @param {{ dynamicPlanning?: boolean, defaultRunMode?: string|null }|null|undefined} prefs
  * @returns {"dynamic"|"dynamic-iterative"|null}
  */
@@ -164,7 +198,6 @@ export function stickyRunModeFromPrefs(prefs) {
 }
 
 /**
- * Effective run mode: explicit request > sticky app prefs > fallback.
  * @param {unknown} explicit
  * @param {{ dynamicPlanning?: boolean, defaultRunMode?: string|null }|null|undefined} prefs
  * @param {string} [fallback]
@@ -175,4 +208,21 @@ export function effectiveRunMode(explicit, prefs, fallback = "dynamic") {
   const sticky = stickyRunModeFromPrefs(prefs);
   if (sticky) return sticky;
   return normalizeDefaultRunMode(fallback) || "dynamic";
+}
+
+/**
+ * Intersect request selected ids with sticky app allowlist when both are set.
+ * Empty app allowlist = unrestricted.
+ * @param {unknown} requestSelected
+ * @param {{ allowedAgentProviderIds?: string[] }|null|undefined} prefs
+ * @returns {string[]|undefined}
+ */
+export function effectiveAllowedAgentProviderIds(requestSelected, prefs) {
+  const fromReq = normalizeAllowedAgentProviderIds(requestSelected);
+  const fromApp = normalizeAllowedAgentProviderIds(prefs?.allowedAgentProviderIds);
+  if (!fromReq.length && !fromApp.length) return undefined;
+  if (!fromReq.length) return fromApp;
+  if (!fromApp.length) return fromReq;
+  const allow = new Set(fromApp);
+  return fromReq.filter((id) => allow.has(id));
 }

@@ -37,6 +37,26 @@ def normalize_default_run_mode(mode: Any) -> str | None:
     return m if m in _RUN_MODES else None
 
 
+def _normalize_id_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.split(",")]
+        items = parts
+    elif isinstance(raw, (list, tuple, set)):
+        items = [str(x or "").strip() for x in raw]
+    else:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for pid in items:
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+    return out
+
+
 def normalize_app_prefs(raw: Any) -> dict[str, Any]:
     src = raw if isinstance(raw, dict) else {}
     dynamic_planning = bool(src.get("dynamicPlanning"))
@@ -46,6 +66,7 @@ def normalize_app_prefs(raw: Any) -> dict[str, Any]:
     return {
         "dynamicPlanning": dynamic_planning,
         "defaultRunMode": default_run_mode,
+        "allowedAgentProviderIds": _normalize_id_list(src.get("allowedAgentProviderIds")),
     }
 
 

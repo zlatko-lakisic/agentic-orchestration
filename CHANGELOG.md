@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Per-app agent allowlists + Reach session env** — enable stock agents (e.g. `gpt_research`) per `appId` via Admin prefs or Reach `allowedAgentProviderIds`; pass provider secrets (`OPENAI_API_KEY`, …) on `session_overlay_register.env` so Comstar can use its own keys without sharing Home Assistant’s host env. Session env is ContextVar-scoped (safe under concurrent WS runs).
+
+### Changed
+
+- **App prefs** — `allowedAgentProviderIds` sticky allowlist (empty = unrestricted); Admin Access UI field; HTTP/orchestrate intersects request pins with app allowlist.
+
 ## [2.1.0] - 2026-08-12
 
 ### Fixed

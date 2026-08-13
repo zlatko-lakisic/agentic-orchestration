@@ -107,8 +107,27 @@ Admin → **Access → Dynamic planning by app** (or `GET`/`PUT /api/v1/admin/ap
 |-------|---------|
 | `dynamicPlanning` | When true, HTTP clients that omit `runMode` / `agentic.runMode` default to orchestrate with `defaultRunMode`. |
 | `defaultRunMode` | `dynamic` or `dynamic-iterative`. |
+| `allowedAgentProviderIds` | When non-empty, only these **stock** agent ids are available to that app (Reach `client.*` overlays are always kept). Example: enable `gpt_research` for `comstar-ha` but not `home-assistant`. |
 
 Prefs live in `__orchestrator_api_tokens__/app-prefs.json` (same dir as API tokens).
+
+### Reach session env (per-client keys)
+
+Reach may send provider secrets on `session_overlay_register`:
+
+```json
+{
+  "type": "session_overlay_register",
+  "appId": "comstar-ha",
+  "agents": [],
+  "mcps": [],
+  "skills": [],
+  "env": { "OPENAI_API_KEY": "sk-…" },
+  "allowedAgentProviderIds": ["gpt_research"]
+}
+```
+
+Allowed env keys: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, and related base-URL vars (see `orchestration/session_env.py`). Values are bound for the session run via a ContextVar (not a global `os.environ` race). Dart/Python: `ReachConnectionConfig.sessionEnv` / `session_env` and `allowedAgentProviderIds`.
 
 ### Per-call override
 

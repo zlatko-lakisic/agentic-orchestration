@@ -39,11 +39,13 @@ class AnthropicProvider(AgentProvider):
     """
 
     def initialize(self) -> None:
+        from orchestration.session_env import getenv
+
         raw = (self.config.anthropic_base_url or "").strip()
         if not raw:
             raw = (
-                os.getenv("ANTHROPIC_BASE_URL", "").strip()
-                or os.getenv("ANTHROPIC_API_URL", "").strip()
+                (getenv("ANTHROPIC_BASE_URL", "") or "").strip()
+                or (getenv("ANTHROPIC_API_URL", "") or "").strip()
             )
         if raw:
             normalized = _normalize_anthropic_base(raw)
@@ -53,11 +55,14 @@ class AnthropicProvider(AgentProvider):
             self._base_url = None
 
     def health_check(self) -> None:
-        if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        from orchestration.session_env import getenv
+
+        if not (getenv("ANTHROPIC_API_KEY", "") or "").strip():
             raise RuntimeError(
                 "ANTHROPIC_API_KEY is not set. Set it for Anthropic Claude, or configure "
                 "anthropic_base_url / ANTHROPIC_BASE_URL for a compatible endpoint that "
-                "does not require this env name."
+                "does not require this env name "
+                "(Reach clients may pass ANTHROPIC_API_KEY via session overlay env)."
             )
 
     def build_agent(
@@ -67,13 +72,15 @@ class AnthropicProvider(AgentProvider):
         skill_backstory_blocks: Sequence[tuple[str, str]] | None = None,
         role_suffix: str | None = None,
     ) -> Agent:
+        from orchestration.session_env import getenv
+
         clean = _strip_anthropic_model_prefix(self.config.model)
         llm_id = f"anthropic/{clean}"
 
         llm_kwargs: dict[str, Any] = {"model": llm_id}
         if self._base_url:
             llm_kwargs["base_url"] = self._base_url
-        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        api_key = (getenv("ANTHROPIC_API_KEY", "") or "").strip()
         if api_key:
             llm_kwargs["api_key"] = api_key
 

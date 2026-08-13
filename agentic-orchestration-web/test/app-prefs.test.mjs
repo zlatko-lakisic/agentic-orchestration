@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  effectiveAllowedAgentProviderIds,
   effectiveRunMode,
   getAppPrefs,
   listAppPrefs,
@@ -23,15 +24,18 @@ test("setAppPrefs / getAppPrefs round-trip", () => {
   const saved = setAppPrefs(toolRoot, "KnowBuddy", {
     dynamicPlanning: true,
     defaultRunMode: "dynamic-iterative",
+    allowedAgentProviderIds: ["gpt_research", "ollama_fast"],
   });
   assert.equal(saved.appId, "knowbuddy");
   assert.equal(saved.dynamicPlanning, true);
   assert.equal(saved.defaultRunMode, "dynamic-iterative");
+  assert.deepEqual(saved.allowedAgentProviderIds, ["gpt_research", "ollama_fast"]);
 
   const got = getAppPrefs(toolRoot, "knowbuddy");
   assert.deepEqual(got, {
     dynamicPlanning: true,
     defaultRunMode: "dynamic-iterative",
+    allowedAgentProviderIds: ["gpt_research", "ollama_fast"],
   });
 
   const listed = listAppPrefs(toolRoot);
@@ -50,4 +54,16 @@ test("effectiveRunMode: request overrides sticky prefs", () => {
   assert.equal(effectiveRunMode(undefined, prefs), "dynamic-iterative");
   assert.equal(effectiveRunMode("", { dynamicPlanning: false, defaultRunMode: null }), "dynamic");
   assert.equal(stickyRunModeFromPrefs({ dynamicPlanning: false, defaultRunMode: "dynamic" }), null);
+});
+
+test("effectiveAllowedAgentProviderIds intersects request with app allowlist", () => {
+  const prefs = { allowedAgentProviderIds: ["gpt_research", "ollama_fast"] };
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["gpt_research", "claude_research"], prefs), [
+    "gpt_research",
+  ]);
+  assert.deepEqual(effectiveAllowedAgentProviderIds(undefined, prefs), [
+    "gpt_research",
+    "ollama_fast",
+  ]);
+  assert.equal(effectiveAllowedAgentProviderIds(undefined, { allowedAgentProviderIds: [] }), undefined);
 });

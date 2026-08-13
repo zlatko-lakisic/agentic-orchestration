@@ -56,6 +56,7 @@ import {
   recordUsage,
 } from "./lib/api-tokens.mjs";
 import {
+  effectiveAllowedAgentProviderIds,
   effectiveRunMode,
   getAppPrefs,
   stickyRunModeFromPrefs,
@@ -1445,19 +1446,26 @@ function effectiveOpenAiProxyOrchestratorReset(agentic) {
 }
 
 /**
- * Planner catalog restriction for OpenAI-proxy runs.
- * JSON body `agentic.selectedAgentProviderIds` wins when non-empty; otherwise use
- * AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS (comma-separated catalog ids), e.g. `gpt_write`
- * to avoid Ollama/HF picks when those backends are unavailable.
+ * Planner catalog restriction for OpenAI-proxy / orchestrate runs.
+ * Request `selectedAgentProviderIds` wins when non-empty; else
+ * AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS; then intersect sticky
+ * app prefs `allowedAgentProviderIds` when that list is non-empty.
+ * @param {unknown} agenticSelected
+ * @param {{ allowedAgentProviderIds?: string[] }|null|undefined} [prefs]
  */
-function effectiveOpenAiProxyAgentProviderIds(agenticSelected) {
+function effectiveOpenAiProxyAgentProviderIds(agenticSelected, prefs) {
   const fromBody = Array.isArray(agenticSelected)
     ? agenticSelected.map((x) => String(x || "").trim()).filter(Boolean)
     : [];
-  if (fromBody.length > 0) return fromBody;
-  const raw = String(process.env.AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS || "").trim();
-  if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  let requestIds = fromBody;
+  if (!requestIds.length) {
+    const raw = String(process.env.AGENTIC_OPENAI_PROXY_DYNAMIC_AGENT_PROVIDER_IDS || "").trim();
+    if (raw) {
+      requestIds = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  const merged = effectiveAllowedAgentProviderIds(requestIds, prefs);
+  return merged || [];
 }
 
 /** Serialize heavy Ollama /v1 chat calls so HA watering (~9 zones) does not pile on. */
@@ -1856,7 +1864,10 @@ async function handleOpenAiChatCompletions(req, res) {
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
-        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
+        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
+          agentic.selectedAgentProviderIds,
+          req.agenticAuth?.prefs,
+        ),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
@@ -2140,7 +2151,10 @@ async function handleOpenAiResponses(req, res) {
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
-        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(agentic.selectedAgentProviderIds),
+        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
+          agentic.selectedAgentProviderIds,
+          req.agenticAuth?.prefs,
+        ),
         attachmentManifestPath,
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
@@ -2260,7 +2274,10 @@ async function handleApiV1Orchestrate(req, res) {
   const runMode = effectiveRunMode(body.runMode, req.agenticAuth?.prefs, "dynamic");
   const verboseCrew = body.verboseCrew === true;
   // Same catalog restriction as OpenAI-proxy / WS paths (env or body).
-  const selectedIds = effectiveOpenAiProxyAgentProviderIds(body.selectedAgentProviderIds);
+  const selectedIds = effectiveOpenAiProxyAgentProviderIds(
+    body.selectedAgentProviderIds,
+    req.agenticAuth?.prefs,
+  );
   const simpleChat = isSimpleChatPrompt(text);
   const effectiveReset = resetSession || simpleChat;
   const performanceEnv = simpleChat
@@ -3552,6 +3569,7 @@ wss.on("connection", (ws, req) => {
         verboseCrew: Boolean(msg.verboseCrew),
         selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
           msg.selectedAgentProviderIds,
+          getAppPrefs(TOOL_ROOT, "ao-chat"),
         ),
         attachmentManifestPath,
         performanceEnv,

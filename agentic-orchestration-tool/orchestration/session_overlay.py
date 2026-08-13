@@ -86,6 +86,10 @@ class SessionOverlay:
     agents: list[dict[str, Any]] = field(default_factory=list)
     mcps: list[dict[str, Any]] = field(default_factory=list)
     skills: list[dict[str, Any]] = field(default_factory=list)
+    #: Reach-supplied provider secrets / base URLs (never logged).
+    env: dict[str, str] = field(default_factory=dict)
+    #: Optional session pin of stock agent ids (``client.*`` always remain).
+    allowed_agent_provider_ids: list[str] = field(default_factory=list)
     expires_at: float = 0.0
     byte_size: int = 0
     #: Peer IP of the Reach WebSocket client (best-effort; may be empty).
@@ -140,13 +144,18 @@ def overlay_run_context(
     session_id: str,
     connection_id: str | None = None,
 ) -> Iterator[None]:
-    """Bind identity (+ optional owning WS) for catalog merge / tunnel rewrite."""
+    """Bind identity (+ optional owning WS) for catalog merge / tunnel rewrite / session env."""
+    from orchestration.session_env import reset_session_env, set_session_env
+
     key = overlay_key(user_id, session_id)
     token_key = _OVERLAY_KEY.set(key if key[0] and key[1] else None)
     token_conn = _CONNECTION_ID.set(str(connection_id).strip() or None)
+    overlay = get_overlay(key[0], key[1]) if key[0] and key[1] else None
+    token_env = set_session_env(overlay.env if overlay and overlay.env else None)
     try:
         yield
     finally:
+        reset_session_env(token_env)
         _OVERLAY_KEY.reset(token_key)
         _CONNECTION_ID.reset(token_conn)
 
@@ -159,19 +168,53 @@ def current_connection_id() -> str | None:
     return _CONNECTION_ID.get()
 
 
-def _estimate_bytes(agents: list, mcps: list, skills: list) -> int:
+def _estimate_bytes(
+    agents: list,
+    mcps: list,
+    skills: list,
+    *,
+    env: dict[str, str] | None = None,
+    allowed_ids: list[str] | None = None,
+) -> int:
     import json
 
     try:
+        # Count env key names + lengths only (never serialize secret values into logs).
+        env_meta = {k: len(v) for k, v in (env or {}).items()}
         return len(
             json.dumps(
-                {"agents": agents, "mcps": mcps, "skills": skills},
+                {
+                    "agents": agents,
+                    "mcps": mcps,
+                    "skills": skills,
+                    "env": env_meta,
+                    "allowedAgentProviderIds": list(allowed_ids or []),
+                },
                 ensure_ascii=False,
                 default=str,
             ).encode("utf-8")
         )
     except (TypeError, ValueError):
         return overlay_max_bytes() + 1
+
+
+def _normalize_allowed_ids(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        items = [p.strip() for p in raw.split(",")]
+    elif isinstance(raw, (list, tuple, set)):
+        items = [str(x or "").strip() for x in raw]
+    else:
+        raise SessionOverlayError("allowedAgentProviderIds must be a list of agent ids")
+    out: list[str] = []
+    seen: set[str] = set()
+    for pid in items:
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+    return out
 
 
 def _require_client_id(entry_id: str, *, kind: str, index: int) -> str:
@@ -278,6 +321,8 @@ def register_overlay(
     agents: list[Any] | None = None,
     mcps: list[Any] | None = None,
     skills: list[Any] | None = None,
+    env: Any = None,
+    allowed_agent_provider_ids: Any = None,
     ttl_seconds: float | None = None,
     catalog_root: Any | None = None,
     stock_ids: set[str] | None = None,
@@ -297,6 +342,14 @@ def register_overlay(
     if not cid:
         raise SessionOverlayError("connection_id is required to register an overlay")
 
+    from orchestration.session_env import normalize_session_env
+
+    try:
+        validated_env = normalize_session_env(env)
+    except ValueError as exc:
+        raise SessionOverlayError(str(exc)) from exc
+    validated_allowed = _normalize_allowed_ids(allowed_agent_provider_ids)
+
     raw_agents = list(agents or [])
     raw_mcps = list(mcps or [])
     raw_skills = list(skills or [])
@@ -307,7 +360,13 @@ def register_overlay(
             "(AGENTIC_SERVE_SESSION_OVERLAY_MAX_ENTRIES)"
         )
 
-    byte_size = _estimate_bytes(raw_agents, raw_mcps, raw_skills)
+    byte_size = _estimate_bytes(
+        raw_agents,
+        raw_mcps,
+        raw_skills,
+        env=validated_env,
+        allowed_ids=validated_allowed,
+    )
     if byte_size > overlay_max_bytes():
         raise SessionOverlayError(
             f"overlay payload is {byte_size} bytes; max is {overlay_max_bytes()} "
@@ -370,6 +429,8 @@ def register_overlay(
         agents=validated_agents,
         mcps=validated_mcps,
         skills=validated_skills,
+        env=validated_env,
+        allowed_agent_provider_ids=validated_allowed,
         expires_at=now + ttl,
         byte_size=byte_size,
         client_ip=str(client_ip or "").strip(),

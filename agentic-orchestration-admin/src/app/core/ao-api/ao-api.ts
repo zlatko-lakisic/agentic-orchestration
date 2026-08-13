@@ -244,6 +244,7 @@ export class AoApi {
     body: {
       dynamicPlanning?: boolean;
       defaultRunMode?: 'dynamic' | 'dynamic-iterative' | null;
+      allowedAgentProviderIds?: string[];
     }
   ) {
     return this.put<AppPlanningPrefs>(

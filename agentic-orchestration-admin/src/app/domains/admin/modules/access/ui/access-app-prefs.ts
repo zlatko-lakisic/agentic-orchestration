@@ -40,8 +40,10 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
               Dynamic planning by app
             </div>
             <div class="text-sm text-neutral-500">
-              Sticky defaults per <code>appId</code> for Reach and HTTP API
-              calls. Per-call <code>runMode</code> always overrides.
+              Sticky defaults per <code>appId</code>: dynamic planning, and which
+              stock agents each app may use. Per-call <code>runMode</code> /
+              <code>selectedAgentProviderIds</code> always override. Reach may
+              also pass session <code>env</code> keys and allowlists.
             </div>
           </div>
         </div>
@@ -63,6 +65,14 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
               <mat-option value="dynamic">dynamic</mat-option>
               <mat-option value="dynamic-iterative">dynamic-iterative</mat-option>
             </mat-select>
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="min-w-[16rem] flex-1">
+            <mat-label>Allowed agents (comma-separated)</mat-label>
+            <input
+              matInput
+              [(ngModel)]="newAllowedAgents"
+              placeholder="gpt_research, ollama_llama3_2_3b"
+            />
           </mat-form-field>
           <button
             matButton="filled"
@@ -122,6 +132,20 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
                   </mat-form-field>
                 </td>
               </ng-container>
+              <ng-container matColumnDef="allowedAgents">
+                <th mat-header-cell *matHeaderCellDef>Allowed agents</th>
+                <td mat-cell *matCellDef="let a">
+                  <mat-form-field appearance="outline" class="min-w-[14rem]">
+                    <input
+                      matInput
+                      [ngModel]="(a.allowedAgentProviderIds || []).join(', ')"
+                      (change)="setAllowedAgents(a, $any($event.target).value)"
+                      [disabled]="savingId() === a.appId"
+                      placeholder="(all)"
+                    />
+                  </mat-form-field>
+                </td>
+              </ng-container>
               <tr mat-header-row *matHeaderRowDef="columns; sticky: true"></tr>
               <tr mat-row *matRowDef="let row; columns: columns"></tr>
             </table>
@@ -135,7 +159,12 @@ export class AccessAppPrefs implements OnInit {
   private readonly api = inject(AoApi);
   readonly live = inject(AoLiveWs);
 
-  readonly columns = ['appId', 'dynamicPlanning', 'defaultRunMode'];
+  readonly columns = [
+    'appId',
+    'dynamicPlanning',
+    'defaultRunMode',
+    'allowedAgents',
+  ];
   readonly apps = signal<AppPlanningPrefs[]>([]);
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
@@ -144,6 +173,7 @@ export class AccessAppPrefs implements OnInit {
   newAppId = '';
   newDynamic = true;
   newRunMode: 'dynamic' | 'dynamic-iterative' = 'dynamic';
+  newAllowedAgents = '';
 
   constructor() {
     effect(() => {
@@ -178,6 +208,7 @@ export class AccessAppPrefs implements OnInit {
       .setAppPrefs(appId, {
         dynamicPlanning: this.newDynamic,
         defaultRunMode: this.newRunMode,
+        allowedAgentProviderIds: this.parseIds(this.newAllowedAgents),
       })
       .subscribe((r) => {
         this.saving.set(false);
@@ -186,6 +217,7 @@ export class AccessAppPrefs implements OnInit {
           return;
         }
         this.newAppId = '';
+        this.newAllowedAgents = '';
         this.reload();
       });
   }
@@ -194,6 +226,7 @@ export class AccessAppPrefs implements OnInit {
     this.patch(row.appId, {
       dynamicPlanning: enabled,
       defaultRunMode: row.defaultRunMode || 'dynamic',
+      allowedAgentProviderIds: row.allowedAgentProviderIds || [],
     });
   }
 
@@ -201,7 +234,23 @@ export class AccessAppPrefs implements OnInit {
     this.patch(row.appId, {
       dynamicPlanning: Boolean(row.dynamicPlanning),
       defaultRunMode: mode,
+      allowedAgentProviderIds: row.allowedAgentProviderIds || [],
     });
+  }
+
+  setAllowedAgents(row: AppPlanningPrefs, raw: string) {
+    this.patch(row.appId, {
+      dynamicPlanning: Boolean(row.dynamicPlanning),
+      defaultRunMode: row.defaultRunMode || 'dynamic',
+      allowedAgentProviderIds: this.parseIds(raw),
+    });
+  }
+
+  private parseIds(raw: string): string[] {
+    return String(raw || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   private patch(
@@ -209,6 +258,7 @@ export class AccessAppPrefs implements OnInit {
     body: {
       dynamicPlanning: boolean;
       defaultRunMode: 'dynamic' | 'dynamic-iterative' | null;
+      allowedAgentProviderIds?: string[];
     }
   ) {
     this.savingId.set(appId);

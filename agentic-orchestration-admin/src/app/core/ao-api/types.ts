@@ -211,6 +211,8 @@ export interface AppPlanningPrefs {
   appId: string;
   dynamicPlanning: boolean;
   defaultRunMode?: 'dynamic' | 'dynamic-iterative' | null;
+  /** When non-empty, only these stock agents (+ client.* overlays) are available. */
+  allowedAgentProviderIds?: string[];
 }
 
 export interface MtlsClient {
