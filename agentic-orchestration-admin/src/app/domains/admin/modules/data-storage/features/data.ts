@@ -1,7 +1,14 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
-import { AoApi } from '@/app/core/ao-api/ao-api';
-import { StorageEntry } from '@/app/core/ao-api/types';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { StorageEntry, StorageResponse } from '@/app/core/ao-api/types';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
@@ -135,21 +142,31 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
     </div>
   `,
 })
-export class DataPage implements OnInit {
-  private api = inject(AoApi);
+export class DataPage implements OnInit, OnDestroy {
+  readonly live = inject(AoLiveWs);
   readonly error = signal<string | null>(null);
   readonly columns = ['name', 'path', 'files', 'bytes', 'status'];
   readonly dataSource: MatTableDataSource<StorageEntry> =
     new MatTableDataSource<StorageEntry>([]);
 
-  ngOnInit() {
-    this.api.storage().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.dataSource.data = r.data.roots || r.data.entries || [];
+  constructor() {
+    effect(() => {
+      const err =
+        this.live.feedErrors()['storage'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      const snap = this.live.feeds()['storage'] as StorageResponse | undefined;
+      if (!snap) return;
+      this.error.set(null);
+      this.dataSource.data = snap.roots || snap.entries || [];
     });
+  }
+
+  ngOnInit() {
+    this.live.acquire({ feeds: ['storage'], feedIntervalMs: 5000 });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 
   formatBytes(n?: number | null) {

@@ -611,13 +611,32 @@ def test_resolve_app_id_falls_back_to_connection_overlay(
 
     session = object.__new__(WsConnection)
     session.connection_id = "conn-1"
+    session.identity = None
 
     monkeypatch.setattr(
         "orchestration.session_overlay.overlays_for_connection",
-        lambda _cid: [SimpleNamespace(app_id="comstar-ha")],
+        lambda _cid: [SimpleNamespace(app_id="acme-client")],
     )
-    assert session._resolve_app_id({}) == "comstar-ha"
+    assert session._resolve_app_id({}) == "acme-client"
     assert session._resolve_app_id({"appId": "explicit-app"}) == "explicit-app"
+
+
+def test_resolve_app_id_falls_back_to_identity_slug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from orchestration.serve.ws import WsConnection
+
+    session = object.__new__(WsConnection)
+    session.connection_id = "conn-2"
+    session.identity = SimpleNamespace(user_id="knowbuddy", user_name="knowbuddy")
+
+    monkeypatch.setattr(
+        "orchestration.session_overlay.overlays_for_connection",
+        lambda _cid: [],
+    )
+    assert session._resolve_app_id({}) == "knowbuddy"
 
 
 def test_ws_session_overlay_denied_without_app_id(

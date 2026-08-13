@@ -1,10 +1,11 @@
 import { Clipboard } from '@angular/cdk/clipboard';
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { TopologyResponse } from '@/app/core/ao-api/types';
 import { ChangeSetStore } from '@/app/core/ao-changeset/changeset.store';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
@@ -100,29 +101,22 @@ type TimelineItem = {
   `,
 })
 export class ActivityPage implements OnInit, OnDestroy {
-  private api = inject(AoApi);
+  readonly live = inject(AoLiveWs);
   protected changeset = inject(ChangeSetStore);
   private clipboard = inject(Clipboard);
 
   readonly fingerprint = signal<string | null>(null);
   readonly timeline = signal<TimelineItem[]>([]);
-  private timer: ReturnType<typeof setInterval> | null = null;
   private lastFp: string | null = null;
   private lastAttention = '';
 
-  ngOnInit() {
-    this.poll();
-    this.timer = setInterval(() => this.poll(), 15000);
-  }
-
-  ngOnDestroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
-
-  private poll() {
-    this.api.fingerprint().subscribe((r) => {
-      if (!r.ok) return;
-      const fp = r.data.fingerprint;
+  constructor() {
+    effect(() => {
+      const fpSnap = this.live.feeds()['fingerprint'] as
+        | { fingerprint?: string }
+        | undefined;
+      const fp = fpSnap?.fingerprint;
+      if (!fp) return;
       this.fingerprint.set(fp);
       if (this.lastFp && this.lastFp !== fp) {
         this.push({
@@ -135,13 +129,14 @@ export class ActivityPage implements OnInit, OnDestroy {
       }
       this.lastFp = fp;
     });
-    this.api.topology().subscribe((r) => {
-      if (!r.ok) return;
-      const attention = (r.data.attention || [])
+    effect(() => {
+      const topo = this.live.feeds()['topology'] as TopologyResponse | undefined;
+      if (!topo) return;
+      const attention = (topo.attention || [])
         .map((a) => a.message)
         .join('|');
       if (this.lastAttention && this.lastAttention !== attention) {
-        for (const a of r.data.attention || []) {
+        for (const a of topo.attention || []) {
           this.push({
             id: `att-${Date.now()}-${a.message}`,
             ts: new Date().toISOString(),
@@ -152,10 +147,10 @@ export class ActivityPage implements OnInit, OnDestroy {
         }
       }
       if (!this.lastAttention && attention) {
-        for (const a of r.data.attention || []) {
+        for (const a of topo.attention || []) {
           this.push({
             id: `att0-${a.message}`,
-            ts: r.data.generatedAt || new Date().toISOString(),
+            ts: topo.generatedAt || new Date().toISOString(),
             kind: 'topology',
             message: a.message || 'Attention',
             href: a.href,
@@ -164,6 +159,17 @@ export class ActivityPage implements OnInit, OnDestroy {
       }
       this.lastAttention = attention;
     });
+  }
+
+  ngOnInit() {
+    this.live.acquire({
+      feeds: ['topology', 'fingerprint'],
+      feedIntervalMs: 5000,
+    });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 
   private push(item: TimelineItem) {

@@ -1,5 +1,11 @@
 import { DecimalPipe, DatePipe, NgClass } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import {
   MatCard,
@@ -24,7 +30,7 @@ import {
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import {
   LlmSpendTotals,
   LlmUsageEventRow,
@@ -69,19 +75,26 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
             Token usage
           </div>
           <div class="text-neutral-500">
-            LLM spend overview — tokens over time, by app, and recent model
-            calls
+            All local clients on this install · live WebSocket
+            @if (clientAppCount() > 0) {
+              <span>· {{ clientAppCount() }} app{{ clientAppCount() === 1 ? '' : 's' }}</span>
+            }
+            @if (live.connected()) {
+              <span class="text-green-600">· connected</span>
+            } @else {
+              <span class="text-amber-600">· reconnecting…</span>
+            }
           </div>
         </div>
         <div class="flex flex-wrap gap-2">
           <a matButton routerLink="/traces">Traces</a>
           <a matButton routerLink="/access">Access</a>
-          <button matButton="tonal" type="button" (click)="reload()">
+          <button matButton="tonal" type="button" (click)="resync()">
             <mat-icon
               class="icon-size-5"
               [svgIcon]="'refresh-cw'"
             />
-            Refresh
+            Resync
           </button>
         </div>
       </div>
@@ -341,7 +354,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               @if (topApps().length) {
                 <mat-divider />
                 <div class="text-sm font-medium text-neutral-500">
-                  Top apps by tokens
+                  Apps by tokens (this install)
                 </div>
                 <div class="flex flex-col gap-2">
                   @for (a of topApps(); track a.key) {
@@ -409,17 +422,25 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           }
         </div>
       } @else if (!error()) {
-        <ao-empty-state message="Loading token usage…" />
+        <ao-empty-state message="Waiting for live token usage feed…" />
       }
     </div>
   `,
 })
-export class LlmUsagePage implements OnInit {
-  private api = inject(AoApi);
-  readonly error = signal<string | null>(null);
-  readonly data = signal<LlmUsageResponse | null>(null);
+export class LlmUsagePage implements OnInit, OnDestroy {
+  readonly live = inject(AoLiveWs);
   readonly llmCols = ['key', 'calls', 'total'];
   readonly txCols = ['when', 'app', 'model', 'tokens', 'status'];
+
+  readonly data = computed(
+    () =>
+      (this.live.feeds()['llm_usage'] as LlmUsageResponse | undefined) || null,
+  );
+  readonly error = computed(() => {
+    const e =
+      this.live.feedErrors()['llm_usage'] || this.live.feedErrors()['_'];
+    return e || null;
+  });
 
   readonly statements = computed(() => {
     const d = this.data();
@@ -508,7 +529,14 @@ export class LlmUsagePage implements OnInit {
   });
 
   readonly topApps = computed((): LlmUsageRollupRow[] =>
-    (this.data()?.llm?.byAppId || []).slice(0, 5),
+    this.data()?.llm?.byAppId || [],
+  );
+
+  readonly clientAppCount = computed(
+    () =>
+      (this.data()?.llm?.byAppId || []).filter(
+        (r) => String(r.key || '').trim() && r.key !== '(unknown)',
+      ).length,
   );
 
   protected spendChart = {
@@ -566,18 +594,15 @@ export class LlmUsagePage implements OnInit {
   };
 
   ngOnInit() {
-    this.reload();
+    this.live.acquire({ feeds: ['llm_usage'], feedIntervalMs: 4000 });
   }
 
-  reload() {
-    this.api.llmUsage(200).subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.error.set(null);
-      this.data.set(r.data);
-    });
+  ngOnDestroy() {
+    this.live.release();
+  }
+
+  resync() {
+    this.live.setFeedParams({});
   }
 
   llmBlocks(d: LlmUsageResponse): { title: string; rows: LlmUsageRollupRow[] }[] {

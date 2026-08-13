@@ -94,6 +94,12 @@ def run(host: str | None = None, port: int | None = None) -> None:
     from orchestration.serve.mtls_tls import install_peercert_hooks, tls_configured, uvicorn_ssl_kwargs
 
     install_peercert_hooks()
+    try:
+        from orchestration.llm_usage import install_litellm_usage_callback
+
+        install_litellm_usage_callback()
+    except Exception:  # noqa: BLE001
+        pass
     ssl_kwargs = uvicorn_ssl_kwargs()
     uvicorn.run(
         create_app(),

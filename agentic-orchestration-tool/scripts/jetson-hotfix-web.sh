@@ -48,6 +48,7 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=text-normalize.mjs="${WEB_ROOT}/lib/text-normalize.mjs" \
   --from-file=user-context.mjs="${WEB_ROOT}/lib/user-context.mjs" \
   --from-file=admin-api.mjs="${WEB_ROOT}/lib/admin-api.mjs" \
+  --from-file=admin-live-feeds.mjs="${WEB_ROOT}/lib/admin-live-feeds.mjs" \
   --from-file=api-tokens.mjs="${WEB_ROOT}/lib/api-tokens.mjs" \
   --from-file=app-prefs.mjs="${WEB_ROOT}/lib/app-prefs.mjs" \
   --from-file=admin-logs.mjs="${WEB_ROOT}/lib/admin-logs.mjs" \

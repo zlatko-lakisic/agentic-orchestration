@@ -49,6 +49,13 @@ _apply_rollout_patch() {
     echo "=== LLM usage hostPath mount ==="
     kubectl patch deployment "${DEPLOY}" -n "${NS}" --patch-file "${llm_usage_patch}" 2>/dev/null || true
   fi
+  # Engine writes under the full tool hostPath; Admin reads these mounts — same host dirs.
+  if kubectl get deployment "${DEPLOY}" -n "${NS}" >/dev/null 2>&1; then
+    echo "=== ledger hostPath check (Admin ↔ engine on this install) ==="
+    kubectl get deployment "${DEPLOY}" -n "${NS}" \
+      -o jsonpath='{range .spec.template.spec.volumes[*]}{.name}{" -> "}{.hostPath.path}{"\n"}{end}' \
+      2>/dev/null | grep -E 'llm-usage|run-traces|tool' || true
+  fi
   local providers_patch="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-providers-hostpath-patch.yaml"
   if [[ -f "${providers_patch}" ]]; then
     echo "=== agent_providers_jetson hostPath mount ==="

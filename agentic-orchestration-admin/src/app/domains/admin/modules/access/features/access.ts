@@ -1,7 +1,13 @@
 import { NgClass } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+} from '@angular/core';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AccessPosture } from '@/app/core/ao-api/types';
 import { AccessApiTokens } from '@/app/domains/admin/modules/access/ui/access-api-tokens';
 import { AccessAppPrefs } from '@/app/domains/admin/modules/access/ui/access-app-prefs';
@@ -77,10 +83,20 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     </div>
   `,
 })
-export class AccessPage implements OnInit {
-  private api = inject(AoApi);
-  readonly posture = signal<AccessPosture | null>(null);
-  readonly error = signal<string | null>(null);
+export class AccessPage implements OnInit, OnDestroy {
+  readonly live = inject(AoLiveWs);
+
+  readonly posture = computed(() => {
+    const snap = this.live.feeds()['access'] as
+      | { posture?: AccessPosture }
+      | undefined;
+    return snap?.posture || null;
+  });
+  readonly error = computed(() => {
+    const e =
+      this.live.feedErrors()['access'] || this.live.feedErrors()['_'];
+    return e || null;
+  });
 
   readonly sections: SettingsSection[] = [
     { id: 'identity', title: 'Identity' },
@@ -90,12 +106,10 @@ export class AccessPage implements OnInit {
   ];
 
   ngOnInit() {
-    this.api.accessPosture().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.posture.set(r.data);
-    });
+    this.live.acquire({ feeds: ['access'], feedIntervalMs: 4000 });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 }

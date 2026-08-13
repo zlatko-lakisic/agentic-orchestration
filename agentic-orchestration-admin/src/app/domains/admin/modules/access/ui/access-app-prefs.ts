@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AppPlanningPrefs } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -125,6 +126,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 })
 export class AccessAppPrefs implements OnInit {
   private readonly api = inject(AoApi);
+  private readonly live = inject(AoLiveWs);
 
   readonly columns = ['appId', 'dynamicPlanning', 'defaultRunMode'];
   readonly apps = signal<AppPlanningPrefs[]>([]);
@@ -136,19 +138,26 @@ export class AccessAppPrefs implements OnInit {
   newDynamic = true;
   newRunMode: 'dynamic' | 'dynamic-iterative' = 'dynamic';
 
+  constructor() {
+    effect(() => {
+      const snap = this.live.feeds()['access'] as
+        | { apps?: AppPlanningPrefs[] }
+        | undefined;
+      if (!snap?.apps) return;
+      this.apps.set(snap.apps);
+      const err =
+        this.live.feedErrors()['access'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      else this.error.set(null);
+    });
+  }
+
   ngOnInit() {
-    this.reload();
+    // Parent Access page owns the live feed subscription.
   }
 
   reload() {
-    this.api.listAppPrefs().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.error.set(null);
-      this.apps.set(r.data);
-    });
+    this.live.setFeedParams({});
   }
 
   saveNew() {

@@ -1,11 +1,19 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { MatSidenav, MatSidenavContainer, MatSidenavContent } from '@angular/material/sidenav';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AdminRun, RunDetail } from '@/app/core/ao-api/types';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 
@@ -215,8 +223,9 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     </div>
   `,
 })
-export class RunsPage implements OnInit {
+export class RunsPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
+  readonly live = inject(AoLiveWs);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   readonly error = signal<string | null>(null);
@@ -225,24 +234,46 @@ export class RunsPage implements OnInit {
   readonly copyFlash = signal(false);
   readonly columns = ['id', 'scope', 'outcome', 'updated', 'mode', 'steps'];
   readonly dataSource = new MatTableDataSource<AdminRun>([]);
+  private openedFromQuery = false;
 
-  ngOnInit() {
-    this.api.runs(80).subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.scopeNote.set(r.data.scopeNote || null);
-      this.dataSource.data = r.data.runs || [];
-      const qid = String(this.route.snapshot.queryParamMap.get('id') || '').trim();
-      if (qid) {
+  constructor() {
+    effect(() => {
+      const err = this.live.feedErrors()['runs'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      const snap = this.live.feeds()['runs'] as RunsListResponse | undefined;
+      if (!snap) return;
+      this.error.set(null);
+      this.scopeNote.set(snap.scopeNote || null);
+      this.dataSource.data = snap.runs || [];
+      if (!this.openedFromQuery) {
+        const qid = String(
+          this.route.snapshot.queryParamMap.get('id') || '',
+        ).trim();
+        if (!qid) {
+          this.openedFromQuery = true;
+          return;
+        }
+        this.openedFromQuery = true;
         const row = this.dataSource.data.find((x) => x.id === qid);
         if (row) this.open(row);
-        else this.api.runDetail(qid).subscribe((d) => {
-          if (d.ok) this.detail.set(d.data);
-        });
+        else
+          this.api.runDetail(qid).subscribe((d) => {
+            if (d.ok) this.detail.set(d.data);
+          });
       }
     });
+  }
+
+  ngOnInit() {
+    this.live.acquire({
+      feeds: ['runs'],
+      feedIntervalMs: 4000,
+      feedParams: { limit: 80 },
+    });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 
   correlationId(d: RunDetail | AdminRun): string | null {

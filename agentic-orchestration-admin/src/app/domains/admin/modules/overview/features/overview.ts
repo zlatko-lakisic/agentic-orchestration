@@ -682,7 +682,6 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   private logViewport =
     viewChild<ElementRef<HTMLDivElement>>('logViewport');
-  private topologyTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly topology = signal<TopologyResponse | null>(null);
   readonly ping = signal<PingResponse | null>(null);
@@ -1046,6 +1045,18 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
+      const err =
+        this.live.feedErrors()['topology'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      const snap = this.live.feeds()['topology'] as
+        | TopologyResponse
+        | undefined;
+      if (!snap) return;
+      this.error.set(null);
+      this.topology.set(snap);
+    });
+
+    effect(() => {
       // Auto-scroll log viewport when new lines arrive.
       this.filteredLogs();
       if (!this.followLogs()) return;
@@ -1059,9 +1070,15 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.selectedSources.set([...this.live.logSourceOptions()]);
-    this.live.acquire({ metrics: true, logs: true });
-    this.reload();
-    this.topologyTimer = setInterval(() => this.reload(), 30000);
+    this.live.acquire({
+      metrics: true,
+      logs: true,
+      feeds: ['topology'],
+      feedIntervalMs: 5000,
+    });
+    // Session / ping are relatively static identity context (one-shot HTTP).
+    this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
+    this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
     const qRun =
       String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
       String(this.route.snapshot.queryParamMap.get('q') || '').trim();
@@ -1084,10 +1101,6 @@ export class OverviewPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    if (this.topologyTimer) {
-      clearInterval(this.topologyTimer);
-      this.topologyTimer = null;
-    }
     this.live.release();
   }
 
@@ -1126,10 +1139,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   reload() {
     this.error.set(null);
-    this.api.topology().subscribe((r) => {
-      if (r.ok) this.topology.set(r.data);
-      else this.error.set(r.message);
-    });
+    this.live.setFeedParams({});
     this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
     this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
   }

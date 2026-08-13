@@ -35,6 +35,9 @@ export class AoLiveWs implements OnDestroy {
   private wantMetrics = false;
   private wantLogs = false;
   private wantTopology = false;
+  private wantFeeds = new Set<string>();
+  private feedParams: Record<string, unknown> = {};
+  private feedIntervalMs = 4000;
   private logSources: string[] | null = null;
   private logSeq = 0;
   private refCount = 0;
@@ -43,6 +46,10 @@ export class AoLiveWs implements OnDestroy {
 
   /** Topology WS events (snapshot / delta / health / metrics / watch). */
   readonly topologyEvents = new Subject<{ type: string; [k: string]: unknown }>();
+
+  /** Latest snapshot per admin feed topic (llm_usage, traces, runs, …). */
+  readonly feeds = signal<Record<string, unknown>>({});
+  readonly feedErrors = signal<Record<string, string>>({});
 
   readonly connected = signal(false);
   readonly metrics = signal<HostMetrics | null>(null);
@@ -143,16 +150,50 @@ export class AoLiveWs implements OnDestroy {
     metrics?: boolean;
     logs?: boolean;
     topology?: boolean;
+    feeds?: string[];
+    feedParams?: Record<string, unknown>;
+    feedIntervalMs?: number;
     logSources?: string[];
   }) {
     this.refCount += 1;
     if (opts.metrics) this.wantMetrics = true;
     if (opts.logs) this.wantLogs = true;
     if (opts.topology) this.wantTopology = true;
+    if (opts.feeds?.length) {
+      for (const t of opts.feeds) {
+        const topic = String(t || '').trim();
+        if (topic) this.wantFeeds.add(topic);
+      }
+    }
+    if (opts.feedParams && typeof opts.feedParams === 'object') {
+      this.feedParams = { ...this.feedParams, ...opts.feedParams };
+    }
+    if (opts.feedIntervalMs != null) {
+      this.feedIntervalMs = Number(opts.feedIntervalMs) || 4000;
+    }
     if (opts.logSources) this.logSources = [...opts.logSources];
     this.bindVisibility();
     this.ensureConnected();
     this.pushSubscriptions();
+  }
+
+  /** Update feed query params (e.g. traces filters) and request an immediate push. */
+  setFeedParams(params: Record<string, unknown>) {
+    this.feedParams = { ...this.feedParams, ...params };
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(
+      JSON.stringify({
+        type: 'admin_feed_params',
+        params: this.feedParams,
+      }),
+    );
+  }
+
+  /** Typed helper for the latest snapshot of a feed topic. */
+  feedData<T = unknown>(topic: string): T | null {
+    const raw = this.feeds()[topic];
+    return (raw as T) ?? null;
   }
 
   resyncTopology() {
@@ -184,6 +225,8 @@ export class AoLiveWs implements OnDestroy {
       this.wantMetrics = false;
       this.wantTopology = false;
       this.wantLogs = false;
+      this.wantFeeds.clear();
+      this.feedParams = {};
       this.unbindVisibility();
       this.closeSocket();
     }
@@ -294,6 +337,19 @@ export class AoLiveWs implements OnDestroy {
     if (this.wantTopology && this.tabHidden()) {
       ws.send(JSON.stringify({ type: 'topology_unsubscribe' }));
     }
+    if (this.wantFeeds.size && !this.tabHidden()) {
+      ws.send(
+        JSON.stringify({
+          type: 'admin_feed_subscribe',
+          topics: [...this.wantFeeds],
+          intervalMs: this.feedIntervalMs,
+          params: this.feedParams,
+        }),
+      );
+    }
+    if (this.wantFeeds.size && this.tabHidden()) {
+      ws.send(JSON.stringify({ type: 'admin_feed_unsubscribe' }));
+    }
   }
 
   private tabHidden(): boolean {
@@ -365,6 +421,25 @@ export class AoLiveWs implements OnDestroy {
         return;
       }
       this.topologyEvents.next({ ...msg, type });
+      return;
+    }
+    if (type === 'admin_feed') {
+      if (this.tabHidden()) return;
+      const topic = String(msg['topic'] || '').trim();
+      if (!topic) return;
+      this.feeds.update((prev) => ({ ...prev, [topic]: msg['data'] }));
+      this.feedErrors.update((prev) => {
+        if (!prev[topic]) return prev;
+        const next = { ...prev };
+        delete next[topic];
+        return next;
+      });
+      return;
+    }
+    if (type === 'admin_feed_error') {
+      const topic = String(msg['topic'] || '').trim() || '_';
+      const message = String(msg['message'] || 'Feed error');
+      this.feedErrors.update((prev) => ({ ...prev, [topic]: message }));
     }
   }
 
@@ -463,6 +538,7 @@ export class AoLiveWs implements OnDestroy {
         ws.send(JSON.stringify({ type: 'host_metrics_unsubscribe' }));
         ws.send(JSON.stringify({ type: 'admin_logs_unsubscribe' }));
         ws.send(JSON.stringify({ type: 'topology_unsubscribe' }));
+        ws.send(JSON.stringify({ type: 'admin_feed_unsubscribe' }));
       }
       ws.close();
     } catch {

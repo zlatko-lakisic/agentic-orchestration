@@ -7,6 +7,7 @@ Identity is carried via contextvars set at run boundaries.
 from __future__ import annotations
 
 import json
+import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -110,6 +111,20 @@ def current_usage_identity() -> dict[str, str]:
     }
 
 
+def looks_like_app_id(raw: Any) -> bool:
+    """True when ``raw`` matches product appId shape (Reach / first-party UIs)."""
+    s = str(raw or "").strip().lower()
+    if not s or len(s) > 64:
+        return False
+    # Same shape as ReachConnectionConfig / minted API appIds (ao-chat, my-app, …).
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{1,63}", s):
+        return False
+    # Prefer slugs with separators; allow short bare product ids (knowbuddy).
+    if "-" in s or "_" in s:
+        return True
+    return len(s) >= 4
+
+
 def normalize_openai_usage(usage: Any) -> dict[str, int | None]:
     """Map OpenAI / LiteLLM usage object or dict to prompt/completion/total."""
     if usage is None:
@@ -202,6 +217,12 @@ def record_llm_usage(
             ident["userName"] = os.getenv("AGENTIC_USER_NAME", "").strip()
         if not ident.get("tokenId"):
             ident["tokenId"] = os.getenv("AGENTIC_API_TOKEN_ID", "").strip()
+        # Older clients sometimes only stamped the product id on userName/userId.
+        if not ident.get("appId"):
+            for cand in (ident.get("userName"), ident.get("userId")):
+                if looks_like_app_id(cand):
+                    ident["appId"] = str(cand).strip()
+                    break
 
         row: dict[str, Any] = {
             "ts": time.time(),

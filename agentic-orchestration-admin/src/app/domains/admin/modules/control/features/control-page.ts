@@ -1,10 +1,18 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
@@ -44,9 +52,9 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
             }
           </div>
         </div>
-        <button matButton="outlined" type="button" (click)="reload()">
+        <button matButton="outlined" type="button" (click)="resync()">
           <mat-icon svgIcon="refresh-cw" />
-          Refresh
+          Resync
         </button>
       </div>
 
@@ -173,12 +181,23 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
     </div>
   `,
 })
-export class ControlPage implements OnInit {
+export class ControlPage implements OnInit, OnDestroy {
   private readonly api = inject(AoApi);
+  readonly live = inject(AoLiveWs);
   private readonly dialog = inject(MatDialog);
 
-  readonly status = signal<ControlStatus | null>(null);
-  readonly error = signal<string | null>(null);
+  readonly status = computed(
+    () =>
+      (this.live.feeds()['control'] as ControlStatus | undefined) || null,
+  );
+  readonly actionError = signal<string | null>(null);
+  readonly error = computed(() => {
+    const e =
+      this.actionError() ||
+      this.live.feedErrors()['control'] ||
+      this.live.feedErrors()['_'];
+    return e || null;
+  });
   readonly flash = signal<string | null>(null);
   readonly busyId = signal<string | null>(null);
 
@@ -192,18 +211,19 @@ export class ControlPage implements OnInit {
   readonly hostArmed = computed(() => Boolean(this.status()?.hostControl?.armed));
 
   ngOnInit() {
-    this.reload();
+    this.live.acquire({ feeds: ['control'], feedIntervalMs: 4000 });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
+  }
+
+  resync() {
+    this.live.setFeedParams({});
   }
 
   reload() {
-    this.api.controlStatus().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.error.set(null);
-      this.status.set(r.data);
-    });
+    this.resync();
   }
 
   restart(target: ControlTarget) {
@@ -224,10 +244,10 @@ export class ControlPage implements OnInit {
           .subscribe((r) => {
             this.busyId.set(null);
             if (!r.ok) {
-              this.error.set(r.message);
+              this.actionError.set(r.message);
               return;
             }
-            this.error.set(null);
+            this.actionError.set(null);
             const disconnect = r.data.disconnectLikely
               ? ' Admin may disconnect while the coordinator rolls.'
               : '';

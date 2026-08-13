@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
 import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
@@ -208,6 +209,7 @@ import { MintTokenDialog } from './mint-token-dialog';
 })
 export class AccessApiTokens implements OnInit {
   private readonly api = inject(AoApi);
+  private readonly live = inject(AoLiveWs);
   private readonly webAuth = inject(WebAuth);
   private readonly dialog = inject(MatDialog);
 
@@ -227,8 +229,22 @@ export class AccessApiTokens implements OnInit {
   readonly usageRows = signal<ApiAccessTokenUsage[]>([]);
   readonly usageError = signal<string | null>(null);
 
+  constructor() {
+    effect(() => {
+      const snap = this.live.feeds()['access'] as
+        | { tokens?: ApiAccessToken[] }
+        | undefined;
+      if (!snap?.tokens) return;
+      this.tokens.set(snap.tokens);
+      const err =
+        this.live.feedErrors()['access'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      else this.error.set(null);
+    });
+  }
+
   ngOnInit() {
-    this.reload();
+    // Parent Access page owns the live feed subscription.
   }
 
   statusTone(status: string | undefined): string {
@@ -239,14 +255,7 @@ export class AccessApiTokens implements OnInit {
   }
 
   reload() {
-    this.api.listApiTokens().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.error.set(null);
-      this.tokens.set(r.data);
-    });
+    this.live.setFeedParams({});
   }
 
   openMint() {

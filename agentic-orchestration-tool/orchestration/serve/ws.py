@@ -260,7 +260,13 @@ class WsConnection:
         await self.send_error(f"Unknown message type: {kind or '(missing)'}")
 
     def _resolve_app_id(self, message: dict[str, Any]) -> str:
-        """Prefer message appId; else the Reach overlay registered on this connection."""
+        """Best-effort app id for any client on this install.
+
+        Order: message appId → session overlay → token appId fields →
+        identity user_name/user_id when they look like product app ids.
+        """
+        from orchestration.llm_usage import looks_like_app_id
+
         app_id = message.get("appId")
         if app_id is None:
             app_id = message.get("app_id")
@@ -275,6 +281,15 @@ class WsConnection:
                     return str(overlay.app_id).strip()
         except Exception:  # noqa: BLE001
             pass
+        for key in ("tokenAppId", "token_app_id", "apiAppId", "api_app_id"):
+            cand = str(message.get(key) or "").strip()
+            if cand:
+                return cand
+        if self.identity is not None:
+            for cand in (self.identity.user_name, self.identity.user_id):
+                s = str(cand or "").strip()
+                if looks_like_app_id(s):
+                    return s
         return ""
 
     async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:

@@ -424,6 +424,12 @@ export interface LlmUsageResponse {
     byClientIp?: ApiUsageRollupRow[];
     byTokenId?: ApiUsageRollupRow[];
   };
+  /** Local ledger vs run-trace backfill counts for this install only. */
+  sources?: {
+    ledgerRows?: number;
+    traceDerivedRows?: number;
+    mergedRows?: number;
+  };
 }
 
 export interface SupportBundle {

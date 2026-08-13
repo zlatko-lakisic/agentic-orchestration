@@ -1,9 +1,16 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { TopologyComponent, TopologyResponse } from '@/app/core/ao-api/types';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -132,20 +139,30 @@ const CATALOG: Array<{
     </div>
   `,
 })
-export class ComponentsPage implements OnInit {
-  private api = inject(AoApi);
+export class ComponentsPage implements OnInit, OnDestroy {
+  readonly live = inject(AoLiveWs);
   readonly error = signal<string | null>(null);
   readonly topology = signal<TopologyResponse | null>(null);
   readonly catalog = CATALOG;
 
-  ngOnInit() {
-    this.api.topology().subscribe((r) => {
-      if (!r.ok) {
-        this.error.set(r.message);
-        return;
-      }
-      this.topology.set(r.data);
+  constructor() {
+    effect(() => {
+      const err =
+        this.live.feedErrors()['topology'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      const snap = this.live.feeds()['topology'] as TopologyResponse | undefined;
+      if (!snap) return;
+      this.error.set(null);
+      this.topology.set(snap);
     });
+  }
+
+  ngOnInit() {
+    this.live.acquire({ feeds: ['topology'], feedIntervalMs: 5000 });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 
   private component(id: string): TopologyComponent | undefined {

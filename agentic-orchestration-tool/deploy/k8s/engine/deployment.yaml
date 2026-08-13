@@ -4,6 +4,8 @@
 #
 # Image: same coordinator image (Python + CrewAI deps). Tool tree is hostPath-mounted from
 # the git checkout so jetson-deploy.sh pull is enough — no docker rebuild for serve code.
+# That mount includes __orchestrator_llm_usage__ and __orchestrator_run_traces__ so Admin
+# (coordinator hostPath mounts of the same dirs) sees every local client's ledger/traces.
 # FastAPI/uvicorn install at start from requirements-serve.txt (optional extras).
 apiVersion: apps/v1
 kind: Deployment

@@ -2,9 +2,11 @@ import {
   Component,
   ElementRef,
   Injector,
+  OnDestroy,
   OnInit,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
   viewChild,
@@ -19,10 +21,12 @@ import { MatIconModule, MatIconRegistry } from '@angular/material/icon';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import {
   RunTraceEvent,
   RunTraceResponse,
   TraceListItem,
+  TracesListResponse,
 } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -464,8 +468,9 @@ declare global {
     </div>
   `,
 })
-export class TracesPage implements OnInit {
+export class TracesPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
+  readonly live = inject(AoLiveWs);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private injector = inject(Injector);
@@ -473,6 +478,7 @@ export class TracesPage implements OnInit {
   private readonly mermaidHost = viewChild<ElementRef<HTMLElement>>('mermaidHost');
   private mermaidGen = 0;
   private iconCache = new Map<string, Promise<SVGElement | null>>();
+  private openedFromQuery = false;
 
   readonly error = signal<string | null>(null);
   readonly detail = signal<RunTraceResponse | null>(null);
@@ -506,31 +512,49 @@ export class TracesPage implements OnInit {
 
   constructor() {
     afterNextRender(() => this.scheduleMermaidRender());
+    effect(() => {
+      const err =
+        this.live.feedErrors()['traces'] || this.live.feedErrors()['_'];
+      if (err) this.error.set(err);
+      const snap = this.live.feeds()['traces'] as TracesListResponse | undefined;
+      if (!snap) return;
+      this.dataSource.data = snap.runs || [];
+      if (!this.openedFromQuery) {
+        const q =
+          String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
+          String(this.route.snapshot.queryParamMap.get('id') || '').trim();
+        if (q) {
+          this.openedFromQuery = true;
+          this.openId(q);
+        }
+      }
+    });
   }
 
   ngOnInit() {
     this.ensureMermaid();
-    this.reloadList();
-    const q =
-      String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
-      String(this.route.snapshot.queryParamMap.get('id') || '').trim();
-    if (q) this.openId(q);
+    this.live.acquire({
+      feeds: ['traces'],
+      feedIntervalMs: 4000,
+      feedParams: this.listParams(),
+    });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
+  }
+
+  private listParams() {
+    return {
+      limit: 80,
+      client: this.filterClient().trim(),
+      clientIp: this.filterClientIp().trim(),
+      crewOnly: this.filterCrewOnly(),
+    };
   }
 
   reloadList() {
-    this.api
-      .traces(80, {
-        client: this.filterClient().trim() || undefined,
-        clientIp: this.filterClientIp().trim() || undefined,
-        crewOnly: this.filterCrewOnly() || undefined,
-      })
-      .subscribe((r) => {
-        if (!r.ok) {
-          this.error.set(r.message);
-          return;
-        }
-        this.dataSource.data = r.data.runs || [];
-      });
+    this.live.setFeedParams(this.listParams());
   }
 
   openId(id: string) {

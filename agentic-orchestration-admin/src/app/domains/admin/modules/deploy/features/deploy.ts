@@ -1,10 +1,19 @@
 import { Clipboard } from '@angular/cdk/clipboard';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { TopologyResponse } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
@@ -178,8 +187,8 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
     </div>
   `,
 })
-export class DeployPage implements OnInit {
-  private api = inject(AoApi);
+export class DeployPage implements OnInit, OnDestroy {
+  readonly live = inject(AoLiveWs);
   private config = inject(EffectiveConfigStore);
   private clipboard = inject(Clipboard);
 
@@ -228,12 +237,13 @@ export class DeployPage implements OnInit {
     { name: 'Engine NodePort', url: 'https://<host>:30765/' },
   ]);
 
-  ngOnInit() {
-    this.config.load();
-    this.api.topology().subscribe((r) => {
-      if (!r.ok) return;
-      const host = typeof window !== 'undefined' ? window.location.hostname : '<host>';
-      const ports = r.data.ports || {};
+  constructor() {
+    effect(() => {
+      const topo = this.live.feeds()['topology'] as TopologyResponse | undefined;
+      if (!topo) return;
+      const host =
+        typeof window !== 'undefined' ? window.location.hostname : '<host>';
+      const ports = topo.ports || {};
       this.endpoints.set([
         {
           name: 'Web / Admin',
@@ -249,6 +259,15 @@ export class DeployPage implements OnInit {
         },
       ]);
     });
+  }
+
+  ngOnInit() {
+    this.config.load();
+    this.live.acquire({ feeds: ['topology'], feedIntervalMs: 5000 });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
   }
 
   copy(text: string) {

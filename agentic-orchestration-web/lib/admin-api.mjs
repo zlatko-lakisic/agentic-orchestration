@@ -1876,11 +1876,22 @@ function detailIdentity(events) {
     const ts = Number(ev?.ts);
     if (startedTs == null && Number.isFinite(ts)) startedTs = ts;
     const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
-    if (clientIp == null && d.client_ip) clientIp = String(d.client_ip);
-    if (appId == null && d.app_id) appId = String(d.app_id);
-    if (userName == null && d.user_name) userName = String(d.user_name);
-    if (userId == null && d.user_id) userId = String(d.user_id);
+    if (clientIp == null && (d.client_ip || d.clientIp)) {
+      clientIp = String(d.client_ip || d.clientIp);
+    }
+    if (appId == null && (d.app_id || d.appId)) {
+      appId = String(d.app_id || d.appId);
+    }
+    if (userName == null && (d.user_name || d.userName)) {
+      userName = String(d.user_name || d.userName);
+    }
+    if (userId == null && (d.user_id || d.userId)) {
+      userId = String(d.user_id || d.userId);
+    }
     if (mode == null && d.mode) mode = String(d.mode);
+  }
+  if (!appId) {
+    appId = effectiveAppId({ appId, userName, userId }) || null;
   }
   return {
     clientIp,
@@ -2210,6 +2221,35 @@ function rollupKey(v) {
   return s || "(unknown)";
 }
 
+/** Prefer explicit appId; else product id stamped on userName/userId (any client). */
+function looksLikeAppId(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s || s.length > 64) return false;
+  if (!/^[a-z][a-z0-9_-]{1,63}$/.test(s)) return false;
+  if (s.includes("-") || s.includes("_")) return true;
+  return s.length >= 4;
+}
+
+function effectiveAppId(row) {
+  const app = String(row?.appId || "").trim();
+  if (app) return app;
+  for (const k of [row?.userName, row?.userId]) {
+    if (looksLikeAppId(k)) return String(k).trim();
+  }
+  return "";
+}
+
+function normalizeLlmUsageRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const appId = effectiveAppId(row) || null;
+  return {
+    ...row,
+    appId,
+  };
+}
+
 function addTokenBucket(map, key, row) {
   const cur = map.get(key) || {
     key,
@@ -2267,10 +2307,11 @@ function summarizeLlmUsage(rows) {
   const byTokenId = new Map();
   const byModel = new Map();
   const grandTotal = emptyTokenTotals();
-  for (const row of rows || []) {
+  for (const raw of rows || []) {
+    const row = normalizeLlmUsageRow(raw) || raw;
     addTokenBucket(byUserId, rollupKey(row.userId || row.userName), row);
     addTokenBucket(byClientIp, rollupKey(row.clientIp), row);
-    addTokenBucket(byAppId, rollupKey(row.appId), row);
+    addTokenBucket(byAppId, rollupKey(effectiveAppId(row)), row);
     addTokenBucket(byTokenId, rollupKey(row.tokenId), row);
     addTokenBucket(byModel, rollupKey(row.model), row);
     addToTotals(grandTotal, row);
@@ -2405,8 +2446,92 @@ function summarizeApiUsage(toolRoot) {
   };
 }
 
+/**
+ * Synthesize ledger rows from run-trace ``model_call`` events.
+ * Covers Reach/Comstar traffic that hit the engine before (or without) a durable
+ * usage.jsonl write, as long as traces were shared on the host.
+ */
+function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
+  const listed = listRecentTraces({ toolRoot, limit: limitRuns });
+  const rows = [];
+  for (const item of listed.runs || []) {
+    const runId = String(item.runId || "").trim();
+    if (!runId) continue;
+    const events = readRunTraceEvents(toolRoot, runId);
+    const ident = detailIdentity(events);
+    for (const ev of events || []) {
+      if (String(ev?.kind || "") !== "model_call") continue;
+      const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+      const prompt = d.prompt_tokens != null ? Number(d.prompt_tokens) : null;
+      const completion =
+        d.completion_tokens != null ? Number(d.completion_tokens) : null;
+      let total = d.total_tokens != null ? Number(d.total_tokens) : null;
+      if (
+        total == null &&
+        Number.isFinite(prompt) &&
+        Number.isFinite(completion)
+      ) {
+        total = prompt + completion;
+      }
+      if (
+        !Number.isFinite(prompt) &&
+        !Number.isFinite(completion) &&
+        !Number.isFinite(total)
+      ) {
+        continue;
+      }
+      rows.push(
+        normalizeLlmUsageRow({
+          ts: Number.isFinite(Number(ev.ts)) ? Number(ev.ts) : Date.now() / 1000,
+          runId,
+          userId: ident.userId,
+          userName: ident.userName,
+          appId: ident.appId,
+          clientIp: ident.clientIp,
+          source: String(d.source || "trace_model_call"),
+          model: d.model != null ? String(d.model) : String(ev.message || "") || null,
+          promptTokens: Number.isFinite(prompt) ? prompt : null,
+          completionTokens: Number.isFinite(completion) ? completion : null,
+          totalTokens: Number.isFinite(total) ? total : null,
+          latencyMs: d.latency_ms != null ? Number(d.latency_ms) : null,
+          ok: d.ok !== false,
+          fromTrace: true,
+        }),
+      );
+    }
+  }
+  return rows;
+}
+
+function mergeLlmUsageRows(ledgerRows, traceRows) {
+  const seen = new Set();
+  const out = [];
+  const keyOf = (r) => {
+    const ts = Number(r?.ts);
+    const rid = String(r?.runId || "");
+    const model = String(r?.model || "");
+    const total = String(r?.totalTokens ?? "");
+    const src = String(r?.source || "");
+    return `${rid}|${ts}|${model}|${total}|${src}`;
+  };
+  for (const raw of [...(ledgerRows || []), ...(traceRows || [])]) {
+    const row = normalizeLlmUsageRow(raw);
+    if (!row) continue;
+    const k = keyOf(row);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(row);
+  }
+  out.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+  return out;
+}
+
 function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
-  const all = readLlmUsageRows(toolRoot, { limit: 20000 });
+  const ledger = readLlmUsageRows(toolRoot, { limit: 20000 }).map(
+    (r) => normalizeLlmUsageRow(r) || r,
+  );
+  const fromTraces = llmUsageRowsFromTraces(toolRoot, { limitRuns: 150 });
+  const all = mergeLlmUsageRows(ledger, fromTraces);
   const recent = all.slice(-Math.max(1, Number(limit) || 200)).reverse();
   const llm = summarizeLlmUsage(all);
   const spend = buildLlmSpendSeries(all);
@@ -2416,6 +2541,11 @@ function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
     llm,
     spend,
     api: summarizeApiUsage(toolRoot),
+    sources: {
+      ledgerRows: ledger.length,
+      traceDerivedRows: fromTraces.length,
+      mergedRows: all.length,
+    },
   };
 }
 

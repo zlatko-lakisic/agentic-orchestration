@@ -78,6 +78,11 @@ import {
   subscribeTopologyWatch,
   unsubscribeTopologyWatch,
 } from "./lib/admin-topology-ws.mjs";
+import {
+  startAdminFeedsPush,
+  stopAdminFeedsPush,
+  updateAdminFeedsParams,
+} from "./lib/admin-live-feeds.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3423,6 +3428,48 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "topology_watch_unsubscribe") {
       unsubscribeTopologyWatch(ws, msg);
+      return;
+    }
+    if (msg.type === "admin_feed_subscribe") {
+      const topics = Array.isArray(msg.topics)
+        ? msg.topics
+        : msg.topic
+          ? [msg.topic]
+          : [];
+      startAdminFeedsPush(
+        ws,
+        sendJson,
+        {
+          toolRoot: TOOL_ROOT,
+          webRoot: __dirname,
+          webInstanceId: WEB_INSTANCE_ID,
+          webPid: process.pid,
+          fetchJson,
+          buildCatalogs,
+          req,
+        },
+        {
+          topics,
+          intervalMs: msg.intervalMs,
+          params: msg.params && typeof msg.params === "object" ? msg.params : {},
+        },
+      );
+      return;
+    }
+    if (msg.type === "admin_feed_params") {
+      updateAdminFeedsParams(
+        ws,
+        msg.params && typeof msg.params === "object" ? msg.params : {},
+      );
+      return;
+    }
+    if (msg.type === "admin_feed_unsubscribe") {
+      const topics = Array.isArray(msg.topics)
+        ? msg.topics
+        : msg.topic
+          ? [msg.topic]
+          : null;
+      stopAdminFeedsPush(ws, topics);
       return;
     }
     if (msg.type === "client_hello") {

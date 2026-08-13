@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildEffectiveConfig,
   buildCatalogs,
+  buildLlmUsagePayload,
   buildStorageInventory,
   isSecretKey,
   matchAdminRoute,
@@ -123,6 +124,93 @@ test("buildStorageInventory distinguishes not_mounted_here", () => {
   assert.equal(sessions.visibility, "present");
   const kb = inv.roots.find((r) => r.id === "kb");
   assert.equal(kb.visibility, "not_mounted_here");
+});
+
+test("buildLlmUsagePayload attributes Reach appId from userName and traces", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-usage-"));
+  const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");
+  const tracesDir = path.join(tmp, "__orchestrator_run_traces__");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  fs.mkdirSync(tracesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(ledgerDir, "usage.jsonl"),
+    [
+      JSON.stringify({
+        ts: Date.now() / 1000 - 10,
+        appId: null,
+        userName: "acme-client",
+        userId: "acme-client",
+        model: "ollama/x",
+        promptTokens: 11,
+        completionTokens: 7,
+        totalTokens: 18,
+        source: "direct_ollama",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: Date.now() / 1000 - 8,
+        appId: "ao-chat",
+        userName: "operator",
+        model: "ollama/x",
+        promptTokens: 2,
+        completionTokens: 1,
+        totalTokens: 3,
+        source: "crew_litellm",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: Date.now() / 1000 - 6,
+        appId: null,
+        userName: "knowbuddy",
+        userId: "knowbuddy",
+        model: "ollama/z",
+        promptTokens: 4,
+        completionTokens: 1,
+        totalTokens: 5,
+        source: "direct_ollama",
+        ok: true,
+      }),
+    ].join("\n") + "\n",
+  );
+  const runId = "run-client-1";
+  const now = Date.now() / 1000;
+  fs.writeFileSync(
+    path.join(tracesDir, `${runId}.jsonl`),
+    [
+      JSON.stringify({
+        ts: now - 5,
+        kind: "request_start",
+        detail: {
+          app_id: null,
+          user_name: "other-app",
+          user_id: "other-app",
+          mode: "direct_agent",
+        },
+      }),
+      JSON.stringify({
+        ts: now - 4,
+        kind: "model_call",
+        message: "ollama/y",
+        detail: {
+          source: "direct_ollama",
+          model: "ollama/y",
+          prompt_tokens: 3,
+          completion_tokens: 2,
+          total_tokens: 5,
+          ok: true,
+        },
+      }),
+      JSON.stringify({ ts: now - 3, kind: "run_end", message: "ok" }),
+    ].join("\n") + "\n",
+  );
+  const payload = buildLlmUsagePayload({ toolRoot: tmp, limit: 50 });
+  const keys = new Set((payload.llm.byAppId || []).map((r) => r.key));
+  assert.ok(keys.has("acme-client"));
+  assert.ok(keys.has("ao-chat"));
+  assert.ok(keys.has("knowbuddy"));
+  assert.ok(keys.has("other-app"));
+  assert.ok(payload.recent.some((r) => r.appId === "acme-client"));
+  assert.ok((payload.sources?.mergedRows || 0) >= 4);
 });
 
 test("TLS path keys are not treated as secrets", () => {
