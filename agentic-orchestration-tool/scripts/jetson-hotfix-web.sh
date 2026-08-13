@@ -167,6 +167,8 @@ WARM_SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpat
 WARM_RAG_SOURCES_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hostpath-patch.yaml"
 WARM_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml"
 WARM_OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml"
+WARM_RUN_TRACES_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml"
+WARM_LLM_USAGE_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
 
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${PATCH_FILE}"
 kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${TOOL_PATCH}"
@@ -220,6 +222,12 @@ if [[ -f "${WARM_MCP_PATCH}" ]]; then
 fi
 if [[ -f "${WARM_OPENCLAW_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_OPENCLAW_MCP_PATCH}"
+fi
+if [[ -f "${WARM_RUN_TRACES_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUN_TRACES_PATCH}"
+fi
+if [[ -f "${WARM_LLM_USAGE_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_LLM_USAGE_PATCH}"
 fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"

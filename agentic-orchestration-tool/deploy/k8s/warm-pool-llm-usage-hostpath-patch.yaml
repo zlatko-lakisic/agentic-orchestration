@@ -1,0 +1,17 @@
+# Share LLM usage ledger with warm-pool workers (same host dir Admin/engine use).
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: AGENTIC_TOOL_ROOT
+              value: /app
+          volumeMounts:
+            - name: llm-usage
+              mountPath: /app/__orchestrator_llm_usage__
+      volumes:
+        - name: llm-usage
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_llm_usage__
+            type: DirectoryOrCreate

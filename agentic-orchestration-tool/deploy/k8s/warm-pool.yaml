@@ -28,6 +28,8 @@ spec:
           env:
             - name: AGENTIC_RUN_STORE_PATH
               value: /run/store
+            - name: AGENTIC_TOOL_ROOT
+              value: /app
             - name: AGENTIC_LOG_FORMAT
               value: json
           envFrom:
@@ -37,6 +39,11 @@ spec:
           volumeMounts:
             - name: run-store
               mountPath: /run/store
+            # Admin Traces + Token usage: same host dirs as coordinator/engine.
+            - name: run-traces
+              mountPath: /app/__orchestrator_run_traces__
+            - name: llm-usage
+              mountPath: /app/__orchestrator_llm_usage__
           resources:
             requests:
               cpu: 100m
@@ -45,3 +52,11 @@ spec:
         - name: run-store
           persistentVolumeClaim:
             claimName: agentic-run-store
+        - name: run-traces
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_run_traces__
+            type: DirectoryOrCreate
+        - name: llm-usage
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_llm_usage__
+            type: DirectoryOrCreate

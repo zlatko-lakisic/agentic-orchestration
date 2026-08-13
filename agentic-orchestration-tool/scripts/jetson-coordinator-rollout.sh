@@ -56,6 +56,19 @@ _apply_rollout_patch() {
       -o jsonpath='{range .spec.template.spec.volumes[*]}{.name}{" -> "}{.hostPath.path}{"\n"}{end}' \
       2>/dev/null | grep -E 'llm-usage|run-traces|tool' || true
   fi
+  # Warm-pool must share the same ledgers or Admin Traces stays empty for k8s steps.
+  if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
+    local warm_traces="${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml"
+    local warm_usage="${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
+    if [[ -f "${warm_traces}" ]]; then
+      echo "=== warm-pool run traces hostPath mount ==="
+      kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${warm_traces}" 2>/dev/null || true
+    fi
+    if [[ -f "${warm_usage}" ]]; then
+      echo "=== warm-pool LLM usage hostPath mount ==="
+      kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${warm_usage}" 2>/dev/null || true
+    fi
+  fi
   local providers_patch="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-providers-hostpath-patch.yaml"
   if [[ -f "${providers_patch}" ]]; then
     echo "=== agent_providers_jetson hostPath mount ==="

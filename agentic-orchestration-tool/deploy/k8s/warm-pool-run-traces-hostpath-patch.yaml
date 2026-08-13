@@ -1,0 +1,18 @@
+# Share Admin Traces ledger with warm-pool workers (tool_root=/app).
+# Without this, append_run_event writes into the ephemeral container FS and Admin never sees runs.
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: AGENTIC_TOOL_ROOT
+              value: /app
+          volumeMounts:
+            - name: run-traces
+              mountPath: /app/__orchestrator_run_traces__
+      volumes:
+        - name: run-traces
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_run_traces__
+            type: DirectoryOrCreate
