@@ -600,6 +600,13 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     "agentIds": _ids(overlay.agents),
                     "mcpIds": _ids(overlay.mcps),
                     "skillIds": _ids(overlay.skills),
+                    # Stock AO agents the client allowlisted for dynamic planning
+                    # (not packed as client.* overlay YAML — planner catalog filter).
+                    "allowedAgentProviderIds": list(
+                        overlay.allowed_agent_provider_ids or []
+                    ),
+                    # Key names only — never secret values.
+                    "sessionEnvKeys": sorted((overlay.env or {}).keys()),
                     "expiresAt": overlay.expires_at,
                     "byteSize": overlay.byte_size,
                 }

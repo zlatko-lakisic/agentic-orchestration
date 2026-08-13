@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -219,7 +220,27 @@ def test_list_active_overlays_summarizes_sessions() -> None:
     assert rows[0]["tunnelMcpCount"] == 1
     assert rows[0]["agentIds"] == ["client.kb_researcher"]
     assert rows[0]["mcpIds"] == ["client.filesystem_local"]
+    assert rows[0]["allowedAgentProviderIds"] == []
+    assert rows[0]["sessionEnvKeys"] == []
     assert rows[0].get("clientIp") is None
+
+
+def test_list_active_overlays_includes_allowlist_and_env_keys() -> None:
+    register_overlay(
+        user_id="ada",
+        session_id="s1",
+        connection_id="c1",
+        app_id="comstar",
+        agents=[_agent()],
+        stock_ids=set(),
+        env={"OPENAI_API_KEY": "sk-test"},
+        allowed_agent_provider_ids=["gpt_research", "claude_research"],
+    )
+    rows = list_active_overlays()
+    assert rows[0]["allowedAgentProviderIds"] == ["gpt_research", "claude_research"]
+    assert rows[0]["sessionEnvKeys"] == ["OPENAI_API_KEY"]
+    # Secrets must never appear in the admin snapshot.
+    assert "sk-test" not in json.dumps(rows[0])
 
 
 def test_list_active_overlays_includes_client_ip() -> None:

@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Topology / engine probes with mTLS** — mount host `__orchestrator_mtls__/ca` into the coordinator so Admin can trust the engine HTTPS cert (`AGENTIC_SERVE_TLS_CA_FILE`). Missing CA made engine unreachable → Planner failed and Reach apps (e.g. Comstar) disappeared from Topology.
+- **Topology Reach agents** — surface Reach `allowedAgentProviderIds` (stock allowlist) alongside packed `client.*` overlays under each app / Agents cluster.
+
 ### Changed
 
 - **Token usage time range** — default spend window is the rolling past **6 hours** (running totals on the chart). Toolbar filters: 6 hours, 1 day, 7 days, 15 days, 30 days. Short windows use 15-minute / hourly buckets; longer windows stay daily.

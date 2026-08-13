@@ -117,8 +117,31 @@ type Pt = { x: number; y: number | null };
                       <ul
                         class="mt-1 space-y-0.5 font-mono text-xs text-neutral-600 dark:text-neutral-300"
                       >
-                        @for (id of group.ids; track id) {
-                          <li>{{ id }}</li>
+                        @if (group.overlayIds?.length || group.allowedIds?.length) {
+                          @if (group.overlayIds?.length) {
+                            <li
+                              class="pt-0.5 font-sans text-[10px] uppercase tracking-wide text-neutral-500"
+                            >
+                              Client overlays
+                            </li>
+                            @for (id of group.overlayIds; track id) {
+                              <li>{{ id }}</li>
+                            }
+                          }
+                          @if (group.allowedIds?.length) {
+                            <li
+                              class="pt-1 font-sans text-[10px] uppercase tracking-wide text-neutral-500"
+                            >
+                              Stock allowlist
+                            </li>
+                            @for (id of group.allowedIds; track id) {
+                              <li>{{ id }}</li>
+                            }
+                          }
+                        } @else {
+                          @for (id of group.ids; track id) {
+                            <li>{{ id }}</li>
+                          }
                         }
                       </ul>
                     </div>

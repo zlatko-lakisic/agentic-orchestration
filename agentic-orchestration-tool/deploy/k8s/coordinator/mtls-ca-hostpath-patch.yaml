@@ -1,0 +1,17 @@
+# Mount AO mTLS CA into the coordinator so Admin topology / engine probes can
+# verify the engine's HTTPS cert (AGENTIC_SERVE_TLS_CA_FILE). Without this,
+# engine probes fail → planner shows failed and Reach apps (e.g. Comstar) disappear.
+spec:
+  template:
+    spec:
+      containers:
+        - name: coordinator
+          volumeMounts:
+            - name: mtls-ca
+              mountPath: /app/tool/__orchestrator_mtls__/ca
+              readOnly: true
+      volumes:
+        - name: mtls-ca
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/__orchestrator_mtls__/ca
+            type: Directory

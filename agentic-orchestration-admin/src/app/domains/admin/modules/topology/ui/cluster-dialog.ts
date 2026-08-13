@@ -43,8 +43,27 @@ import { TopologyNode } from '../data/topology.types';
                   </span>
                 </div>
                 <ul class="mt-1.5 space-y-0.5 font-mono text-xs text-neutral-600 dark:text-neutral-300">
-                  @for (id of group.ids; track id) {
-                    <li>{{ id }}</li>
+                  @if (group.overlayIds?.length || group.allowedIds?.length) {
+                    @if (group.overlayIds?.length) {
+                      <li class="pt-0.5 text-[10px] font-sans uppercase tracking-wide text-neutral-500">
+                        Client overlays
+                      </li>
+                      @for (id of group.overlayIds; track id) {
+                        <li>{{ id }}</li>
+                      }
+                    }
+                    @if (group.allowedIds?.length) {
+                      <li class="pt-1 text-[10px] font-sans uppercase tracking-wide text-neutral-500">
+                        Stock allowlist
+                      </li>
+                      @for (id of group.allowedIds; track id) {
+                        <li>{{ id }}</li>
+                      }
+                    }
+                  } @else {
+                    @for (id of group.ids; track id) {
+                      <li>{{ id }}</li>
+                    }
                   }
                 </ul>
               </div>
@@ -66,8 +85,9 @@ import { TopologyNode } from '../data/topology.types';
         </ul>
       }
       <p class="mt-3 text-neutral-500">
-        Stock catalog providers stay on Capabilities; lists above are live
-        <code>client.*</code> overlays from connected apps.
+        Stock catalog providers stay on Capabilities. Lists above are live Reach
+        <code>client.*</code> overlays plus any stock agents allowlisted on the
+        session (<code>allowedAgentProviderIds</code>).
       </p>
       <a
         matButton

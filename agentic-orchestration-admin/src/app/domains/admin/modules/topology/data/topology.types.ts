@@ -54,7 +54,12 @@ export type TopologyNodeKind =
 export interface TopologyAppMembers {
   appId: string;
   instanceCount: number;
+  /** Union of packed client.* overlays and stock allowlist (agents). */
   ids: string[];
+  /** Packed ``client.*`` overlay agent ids only. */
+  overlayIds?: string[];
+  /** Stock AO agent ids allowlisted via Reach ``allowedAgentProviderIds``. */
+  allowedIds?: string[];
 }
 
 export interface TopologyNode {

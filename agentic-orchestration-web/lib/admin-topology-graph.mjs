@@ -95,6 +95,8 @@ function groupSessionsByAppId(sessionList) {
         agentIds: [],
         mcpIds: [],
         skillIds: [],
+        allowedAgentProviderIds: [],
+        sessionEnvKeys: [],
         clientIps: [],
       });
     }
@@ -107,6 +109,12 @@ function groupSessionsByAppId(sessionList) {
     for (const id of s.agentIds || []) g.agentIds.push(id);
     for (const id of s.mcpIds || []) g.mcpIds.push(id);
     for (const id of s.skillIds || []) g.skillIds.push(id);
+    for (const id of s.allowedAgentProviderIds || s.allowed_agent_provider_ids || []) {
+      g.allowedAgentProviderIds.push(id);
+    }
+    for (const key of s.sessionEnvKeys || s.session_env_keys || []) {
+      g.sessionEnvKeys.push(key);
+    }
     const ip = String(s.clientIp || s.client_ip || "").trim();
     if (ip) g.clientIps.push(ip);
   }
@@ -114,6 +122,8 @@ function groupSessionsByAppId(sessionList) {
     g.agentIds = uniqueSorted(g.agentIds);
     g.mcpIds = uniqueSorted(g.mcpIds);
     g.skillIds = uniqueSorted(g.skillIds);
+    g.allowedAgentProviderIds = uniqueSorted(g.allowedAgentProviderIds);
+    g.sessionEnvKeys = uniqueSorted(g.sessionEnvKeys);
     g.clientIps = uniqueSorted(g.clientIps);
     g.clientIpCount = g.clientIps.length;
     g.instanceCount = g.sessions.length;
@@ -123,6 +133,7 @@ function groupSessionsByAppId(sessionList) {
 
 /**
  * Per-app overlay member ids for catalog / sidecar modals.
+ * Agents include packed ``client.*`` overlays plus stock allowlist ids from Reach.
  * @param {'agents'|'mcps'|'skills'} field
  */
 function appMembersFor(appGroups, field) {
@@ -130,13 +141,21 @@ function appMembersFor(appGroups, field) {
     field === "agents" ? "agentIds" : field === "mcps" ? "mcpIds" : "skillIds";
   const out = [];
   for (const g of appGroups || []) {
-    const ids = uniqueSorted(g[key] || []);
+    const overlayIds = uniqueSorted(g[key] || []);
+    const allowedIds =
+      field === "agents" ? uniqueSorted(g.allowedAgentProviderIds || []) : [];
+    const ids = uniqueSorted([...overlayIds, ...allowedIds]);
     if (!ids.length) continue;
-    out.push({
+    const row = {
       appId: g.appId,
       instanceCount: g.instanceCount || g.sessions?.length || 0,
       ids,
-    });
+    };
+    if (field === "agents") {
+      if (overlayIds.length) row.overlayIds = overlayIds;
+      if (allowedIds.length) row.allowedIds = allowedIds;
+    }
+    out.push(row);
   }
   return out;
 }
@@ -465,6 +484,11 @@ export async function buildTopologyGraph(ctx) {
             statusReason: "Derived from Reach session registry",
           }),
         );
+        const stockN = (g.allowedAgentProviderIds || []).length;
+        const overlaySublabel =
+          stockN > 0
+            ? `${g.agentCount} client.* · ${stockN} stock`
+            : `${g.agentCount} client.*`;
         nodes.push(
           node({
             id: `${parentId}/overlays`,
@@ -472,13 +496,17 @@ export async function buildTopologyGraph(ctx) {
             band: "application",
             appGroup: "reach",
             label: "Domain overlays",
-            sublabel: `${g.agentCount} client.*`,
-            status: g.agentCount > 0 ? "healthy" : "offline",
+            sublabel: overlaySublabel,
+            status: g.agentCount > 0 || stockN > 0 ? "healthy" : "offline",
             instrumented: true,
-            deployed: g.agentCount > 0,
+            deployed: g.agentCount > 0 || stockN > 0,
             parent: parentId,
             appId: g.appId,
             ownedByApps: [g.appId],
+            statusReason:
+              stockN > 0
+                ? `client.* overlays plus ${stockN} allowlisted stock agent${stockN === 1 ? "" : "s"}`
+                : "Reach client.* overlay agents for this app",
           }),
         );
         nodes.push(
@@ -1564,6 +1592,12 @@ export async function buildTopologyGraph(ctx) {
   setAppMembers(nodes, "sidecars/cluster", mcpMembers);
   setAppMembers(nodes, "planner", agentMembers);
   setAppMembers(nodes, "engine/direct-agent", agentMembers);
+  // Attach each Reach app's agent list onto its Domain overlays node (click detail).
+  for (const g of appGroups) {
+    if (reservedAppIds.has(g.appId)) continue;
+    const row = agentMembers.find((m) => m.appId === g.appId);
+    if (row) setAppMembers(nodes, `app/${g.appId}/overlays`, [row]);
+  }
 
   sealTopologyGraphStatuses(graph);
   ingestTopologySample(graph, {

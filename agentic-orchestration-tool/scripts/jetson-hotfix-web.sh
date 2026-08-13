@@ -151,6 +151,7 @@ WARM_POOL_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml
 HOSTPROC_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/host-metrics-hostproc-patch.yaml"
 JTOP_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-jtop-metrics-patch.yaml"
 API_TOKENS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/api-tokens-hostpath-patch.yaml"
+MTLS_CA_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/mtls-ca-hostpath-patch.yaml"
 HOST_CONTROL_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-host-control-hostpath-patch.yaml"
 HOST_SYSRQ_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-host-sysrq-patch.yaml"
 SKILLS_PATCH="${TOOL_ROOT}/deploy/k8s/coordinator/jetson-agent-skills-hostpath-patch.yaml"
@@ -174,6 +175,9 @@ if [[ -f "${JTOP_PATCH}" ]]; then
 fi
 if [[ -f "${API_TOKENS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${API_TOKENS_PATCH}"
+fi
+if [[ -f "${MTLS_CA_PATCH}" ]]; then
+  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MTLS_CA_PATCH}"
 fi
 if [[ -f "${HOST_CONTROL_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${HOST_CONTROL_PATCH}"
