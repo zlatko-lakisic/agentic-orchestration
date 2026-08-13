@@ -397,7 +397,12 @@ export interface LlmUsageResponse {
   generatedAt?: string;
   recent?: LlmUsageEventRow[];
   spend?: {
+    /** Preset key: 6h | 1d | 7d | 15d | 30d */
+    window?: string;
+    windowHours?: number;
     windowDays?: number;
+    granularity?: '15m' | '1h' | '1d' | string;
+    bucketMs?: number;
     previous?: LlmSpendTotals;
     current?: LlmSpendTotals;
     growthPct?: {

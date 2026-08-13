@@ -11,6 +11,7 @@ import {
   buildEffectiveConfig,
   buildCatalogs,
   buildLlmUsagePayload,
+  buildLlmSpendSeries,
   buildStorageInventory,
   isSecretKey,
   matchAdminRoute,
@@ -321,6 +322,50 @@ test("buildLlmUsagePayload collapses ledger+trace and unknown duplicate", () => 
 test("TLS path keys are not treated as secrets", () => {
   assert.equal(isSecretKey("AGENTIC_SERVE_TLS_CERTFILE"), false);
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);
+});
+
+test("buildLlmSpendSeries defaults to 6h with 15m buckets", () => {
+  const nowMs = Date.parse("2026-08-13T12:00:00Z");
+  const rows = [
+    {
+      ts: new Date(nowMs - 30 * 60_000).toISOString(),
+      promptTokens: 100,
+      completionTokens: 50,
+      totalTokens: 150,
+    },
+    {
+      ts: new Date(nowMs - 8 * 3_600_000).toISOString(),
+      promptTokens: 999,
+      completionTokens: 1,
+      totalTokens: 1000,
+    },
+  ];
+  const spend = buildLlmSpendSeries(rows, { nowMs, window: "6h" });
+  assert.equal(spend.window, "6h");
+  assert.equal(spend.windowHours, 6);
+  assert.equal(spend.granularity, "15m");
+  assert.equal(spend.current.totalTokens, 150);
+  assert.equal(spend.previous.totalTokens, 1000);
+  assert.ok(spend.timeline.length >= 20);
+  assert.ok(spend.timeline.every((b) => b.ts >= nowMs - 6 * 3_600_000 - 15 * 60_000));
+});
+
+test("buildLlmSpendSeries 7d uses daily buckets", () => {
+  const nowMs = Date.parse("2026-08-13T12:00:00Z");
+  const spend = buildLlmSpendSeries(
+    [
+      {
+        ts: new Date(nowMs - 2 * 86_400_000).toISOString(),
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      },
+    ],
+    { nowMs, window: "7d" },
+  );
+  assert.equal(spend.windowHours, 7 * 24);
+  assert.equal(spend.granularity, "1d");
+  assert.equal(spend.current.totalTokens, 15);
 });
 
 test("parseEnvExampleHelp extracts comments before KEY=", () => {

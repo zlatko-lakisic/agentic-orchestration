@@ -30,6 +30,11 @@ const TOPIC_BUILDERS = {
     buildLlmUsagePayload({
       toolRoot: ctx.toolRoot,
       limit: Number(params?.limit) || 200,
+      window: params?.window || params?.range || undefined,
+      windowHours:
+        params?.windowHours != null ? Number(params.windowHours) : undefined,
+      windowDays:
+        params?.windowDays != null ? Number(params.windowDays) : undefined,
     }),
   traces: async (ctx, params) =>
     listRecentTraces({

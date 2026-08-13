@@ -2383,15 +2383,65 @@ function summarizeLlmUsage(rows) {
   };
 }
 
-/** Daily token spend series + previous/current 7-day statement windows. */
-function buildLlmSpendSeries(rows, { nowMs = Date.now(), windowDays = 7 } = {}) {
-  const dayMs = 86_400_000;
-  const win = Math.max(1, Number(windowDays) || 7);
-  const currentStart = nowMs - win * dayMs;
-  const previousStart = nowMs - win * 2 * dayMs;
+/** Preset spend windows for Admin Token usage (hours). Default: 6h. */
+const SPEND_WINDOW_PRESETS = Object.freeze({
+  "6h": 6,
+  "1d": 24,
+  "7d": 7 * 24,
+  "15d": 15 * 24,
+  "30d": 30 * 24,
+});
+
+function resolveSpendWindowHours(opts = {}) {
+  const key = String(opts.window ?? opts.range ?? opts.windowKey ?? "")
+    .trim()
+    .toLowerCase();
+  if (key && Object.prototype.hasOwnProperty.call(SPEND_WINDOW_PRESETS, key)) {
+    return SPEND_WINDOW_PRESETS[key];
+  }
+  if (opts.windowHours != null && Number.isFinite(Number(opts.windowHours))) {
+    return Math.max(1, Math.min(24 * 90, Math.round(Number(opts.windowHours))));
+  }
+  if (opts.windowDays != null && Number.isFinite(Number(opts.windowDays))) {
+    return Math.max(1, Math.min(90, Math.round(Number(opts.windowDays)))) * 24;
+  }
+  return 6;
+}
+
+function spendBucketMs(windowHours) {
+  const h = Math.max(1, Number(windowHours) || 6);
+  if (h <= 6) return 15 * 60_000;
+  if (h <= 24) return 60 * 60_000;
+  return 86_400_000;
+}
+
+function spendGranularityLabel(bucketMs) {
+  if (bucketMs <= 15 * 60_000) return "15m";
+  if (bucketMs <= 60 * 60_000) return "1h";
+  return "1d";
+}
+
+function windowPresetKey(windowHours) {
+  const h = Math.round(Number(windowHours) || 6);
+  for (const [k, v] of Object.entries(SPEND_WINDOW_PRESETS)) {
+    if (v === h) return k;
+  }
+  if (h % 24 === 0) return `${h / 24}d`;
+  return `${h}h`;
+}
+
+/** Token spend series for a rolling window (default 6h) with previous-window growth. */
+function buildLlmSpendSeries(rows, opts = {}) {
+  const nowMs = Number.isFinite(Number(opts.nowMs)) ? Number(opts.nowMs) : Date.now();
+  const windowHours = resolveSpendWindowHours(opts);
+  const winMs = windowHours * 3_600_000;
+  const bucketMs = spendBucketMs(windowHours);
+  const granularity = spendGranularityLabel(bucketMs);
+  const currentStart = nowMs - winMs;
+  const previousStart = nowMs - winMs * 2;
   const previous = emptyTokenTotals();
   const current = emptyTokenTotals();
-  const byDay = new Map();
+  const byBucket = new Map();
 
   for (const row of rows || []) {
     const ms = rowTsMs(row);
@@ -2399,38 +2449,23 @@ function buildLlmSpendSeries(rows, { nowMs = Date.now(), windowDays = 7 } = {}) 
     if (ms >= currentStart && ms <= nowMs) addToTotals(current, row);
     else if (ms >= previousStart && ms < currentStart) addToTotals(previous, row);
 
-    const key = dayKeyUtc(ms);
-    const cur = byDay.get(key) || {
-      day: key,
-      ts: Date.UTC(
-        Number(key.slice(0, 4)),
-        Number(key.slice(5, 7)) - 1,
-        Number(key.slice(8, 10)),
-      ),
+    if (ms < currentStart || ms > nowMs) continue;
+    const ts = Math.floor(ms / bucketMs) * bucketMs;
+    const cur = byBucket.get(ts) || {
+      day: new Date(ts).toISOString(),
+      ts,
       ...emptyTokenTotals(),
     };
     addToTotals(cur, row);
-    byDay.set(key, cur);
+    byBucket.set(ts, cur);
   }
 
-  // Fill contiguous days covering previous+current windows (and any older ledger days).
-  const keys = [...byDay.keys()].sort();
-  let fillStart = previousStart;
-  let fillEnd = nowMs;
-  if (keys.length) {
-    const first = Date.parse(`${keys[0]}T00:00:00Z`);
-    if (Number.isFinite(first) && first < fillStart) fillStart = first;
-  }
+  const fillStart = Math.floor(currentStart / bucketMs) * bucketMs;
   const timeline = [];
-  for (let t = Date.UTC(
-    new Date(fillStart).getUTCFullYear(),
-    new Date(fillStart).getUTCMonth(),
-    new Date(fillStart).getUTCDate(),
-  ); t <= fillEnd; t += dayMs) {
-    const key = dayKeyUtc(t);
+  for (let t = fillStart; t <= nowMs; t += bucketMs) {
     timeline.push(
-      byDay.get(key) || {
-        day: key,
+      byBucket.get(t) || {
+        day: new Date(t).toISOString(),
         ts: t,
         ...emptyTokenTotals(),
       },
@@ -2443,7 +2478,11 @@ function buildLlmSpendSeries(rows, { nowMs = Date.now(), windowDays = 7 } = {}) 
   };
 
   return {
-    windowDays: win,
+    window: windowPresetKey(windowHours),
+    windowHours,
+    windowDays: windowHours / 24,
+    granularity,
+    bucketMs,
     previous: {
       ...previous,
       label: "Previous window",
@@ -2460,7 +2499,10 @@ function buildLlmSpendSeries(rows, { nowMs = Date.now(), windowDays = 7 } = {}) 
       totalTokens: pctChange(current.totalTokens, previous.totalTokens),
       calls: pctChange(current.calls, previous.calls),
       promptTokens: pctChange(current.promptTokens, previous.promptTokens),
-      completionTokens: pctChange(current.completionTokens, previous.completionTokens),
+      completionTokens: pctChange(
+        current.completionTokens,
+        previous.completionTokens,
+      ),
     },
     timeline,
   };
@@ -2615,7 +2657,7 @@ function mergeLlmUsageRows(ledgerRows, traceRows) {
   return out;
 }
 
-function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
+function buildLlmUsagePayload({ toolRoot, limit = 200, windowHours, windowDays, window, range } = {}) {
   const ledger = readLlmUsageRows(toolRoot, { limit: 20000 }).map(
     (r) => normalizeLlmUsageRow(r) || r,
   );
@@ -2623,7 +2665,7 @@ function buildLlmUsagePayload({ toolRoot, limit = 200 }) {
   const all = mergeLlmUsageRows(ledger, fromTraces);
   const recent = all.slice(-Math.max(1, Number(limit) || 200)).reverse();
   const llm = summarizeLlmUsage(all);
-  const spend = buildLlmSpendSeries(all);
+  const spend = buildLlmSpendSeries(all, { windowHours, windowDays, window, range });
   return {
     generatedAt: new Date().toISOString(),
     recent,
@@ -3202,7 +3244,20 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "llm_usage") {
       const url = new URL(req.url || "/", "http://localhost");
       const limit = Number(url.searchParams.get("limit") || 200);
-      send(200, buildLlmUsagePayload({ ...ctx, limit }));
+      const window =
+        url.searchParams.get("window") || url.searchParams.get("range") || "";
+      const windowHoursRaw = url.searchParams.get("windowHours");
+      const windowDaysRaw = url.searchParams.get("windowDays");
+      send(
+        200,
+        buildLlmUsagePayload({
+          ...ctx,
+          limit,
+          window: window || undefined,
+          windowHours: windowHoursRaw != null ? Number(windowHoursRaw) : undefined,
+          windowDays: windowDaysRaw != null ? Number(windowDaysRaw) : undefined,
+        }),
+      );
       return true;
     }
     if (route.name === "runs_trace") {
@@ -3295,6 +3350,8 @@ export {
   listRecentTraces,
   buildRunTrace,
   buildLlmUsagePayload,
+  buildLlmSpendSeries,
+  resolveSpendWindowHours,
   fetchJson,
   isSecretKey,
   isInjectedK8sEnvKey,

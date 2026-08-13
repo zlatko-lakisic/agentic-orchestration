@@ -54,6 +54,16 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 type PanelView = 'diagram' | 'table';
 
+type SpendRangeId = '6h' | '1d' | '7d' | '15d' | '30d';
+
+const SPEND_RANGES: ReadonlyArray<{ id: SpendRangeId; label: string; hours: number }> = [
+  { id: '6h', label: '6 hours', hours: 6 },
+  { id: '1d', label: '1 day', hours: 24 },
+  { id: '7d', label: '7 days', hours: 7 * 24 },
+  { id: '15d', label: '15 days', hours: 15 * 24 },
+  { id: '30d', label: '30 days', hours: 30 * 24 },
+];
+
 type PieSlice = { series: ApexNonAxisChartSeries; labels: string[] };
 
 const PIE_COLORS = [
@@ -163,7 +173,17 @@ function pieFromRows(
             }
           </div>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <mat-button-toggle-group
+            [value]="spendRange()"
+            (change)="setSpendRange($event.value)"
+            class="!h-9"
+            hideSingleSelectionIndicator
+          >
+            @for (r of spendRanges; track r.id) {
+              <mat-button-toggle [value]="r.id">{{ r.label }}</mat-button-toggle>
+            }
+          </mat-button-toggle-group>
           <a matButton routerLink="/traces">Traces</a>
           <a matButton routerLink="/access">Access</a>
           <button matButton="tonal" type="button" (click)="resync()">
@@ -275,16 +295,26 @@ function pieFromRows(
             <div class="min-w-0 flex-auto">
               <div class="text-lg font-medium tracking-tight">Token spend</div>
               <div class="font-medium text-neutral-500">
-                Daily prompt + completion tokens
-                @if (d.spend?.windowDays; as w) {
-                  · {{ w }}-day statement windows
+                @switch (d.spend?.granularity) {
+                  @case ('15m') {
+                    Prompt + completion · 15-minute buckets
+                  }
+                  @case ('1h') {
+                    Prompt + completion · hourly buckets
+                  }
+                  @default {
+                    Prompt + completion · daily buckets
+                  }
+                }
+                @if (rangeLabel(); as label) {
+                  · {{ label }} window
                 }
               </div>
             </div>
             <div class="mt-3 flex shrink-0 gap-6 sm:mt-0">
               <div>
                 <div class="text-sm font-medium text-neutral-500">
-                  Avg daily growth
+                  Period growth
                 </div>
                 <div
                   class="text-2xl font-semibold tabular-nums tracking-tighter"
@@ -323,8 +353,8 @@ function pieFromRows(
                 [grid]="spendChart.grid"
                 [legend]="spendChart.legend"
                 [stroke]="spendChart.stroke"
-                [tooltip]="spendChart.tooltip"
-                [xaxis]="spendChart.xaxis"
+                [tooltip]="spendTooltip()"
+                [xaxis]="spendXaxis()"
                 [yaxis]="spendChart.yaxis"
               />
             } @else {
@@ -606,6 +636,9 @@ export class LlmUsagePage implements OnInit, OnDestroy {
   readonly llmCols = ['key', 'calls', 'total'];
   readonly txCols = ['when', 'app', 'model', 'tokens', 'status'];
   readonly feedSeconds = signal(2);
+  readonly spendRanges = SPEND_RANGES;
+  /** Rolling spend window (default past 6 hours). */
+  readonly spendRange = signal<SpendRangeId>('6h');
   /** Per-panel Diagram / Table preference (defaults to diagram). */
   private readonly panelViews = signal<Record<string, PanelView>>({});
   readonly txDataSource = new MatTableDataSource<ReturnType<typeof mapTx>>([]);
@@ -637,19 +670,20 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     const prev = d?.spend?.previous || emptyTotals();
     const cur = d?.spend?.current || emptyTotals();
     const growth = d?.spend?.growthPct?.totalTokens;
+    const hours = d?.spend?.windowHours ?? this.rangeHours();
     return [
       {
         id: 'previous',
-        title: 'Previous statement',
-        caption: windowCaption(prev, d?.spend?.windowDays),
+        title: 'Previous period',
+        caption: windowCaption(prev, hours),
         icon: 'calendar',
         totals: prev,
         growthPct: null as number | null,
       },
       {
         id: 'current',
-        title: 'Current statement',
-        caption: windowCaption(cur, d?.spend?.windowDays),
+        title: 'Current period',
+        caption: windowCaption(cur, hours),
         icon: 'wallet',
         totals: cur,
         growthPct: growth ?? null,
@@ -657,20 +691,63 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     ];
   });
 
+  readonly rangeLabel = computed(() => {
+    const id = (this.data()?.spend?.window || this.spendRange()) as SpendRangeId;
+    return SPEND_RANGES.find((r) => r.id === id)?.label || id;
+  });
+
+  readonly rangeHours = computed(() => {
+    const id = this.spendRange();
+    return SPEND_RANGES.find((r) => r.id === id)?.hours ?? 6;
+  });
+
   readonly chartSeries = computed((): ApexAxisChartSeries => {
     const timeline = this.data()?.spend?.timeline || [];
     if (!timeline.length) return [];
+    // Running totals within the selected window.
+    let promptRun = 0;
+    let completionRun = 0;
+    const prompt: { x: number; y: number }[] = [];
+    const completion: { x: number; y: number }[] = [];
+    for (const d of timeline) {
+      promptRun += d.promptTokens || 0;
+      completionRun += d.completionTokens || 0;
+      prompt.push({ x: d.ts, y: promptRun });
+      completion.push({ x: d.ts, y: completionRun });
+    }
     return [
-      {
-        name: 'Prompt',
-        data: timeline.map((d) => ({ x: d.ts, y: d.promptTokens || 0 })),
-      },
-      {
-        name: 'Completion',
-        data: timeline.map((d) => ({ x: d.ts, y: d.completionTokens || 0 })),
-      },
+      { name: 'Prompt', data: prompt },
+      { name: 'Completion', data: completion },
     ];
   });
+
+  readonly spendTooltip = computed(
+    (): ApexTooltip => ({
+      shared: true,
+      x: {
+        format:
+          (this.data()?.spend?.granularity || '1d') === '1d'
+            ? 'MMM dd'
+            : 'MMM dd HH:mm',
+      },
+    }),
+  );
+
+  readonly spendXaxis = computed(
+    (): ApexXAxis => ({
+      type: 'datetime',
+      labels: {
+        datetimeUTC: false,
+        format:
+          (this.data()?.spend?.granularity || '1d') === '1d'
+            ? 'MMM dd'
+            : 'HH:mm',
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+      axisBorder: { show: false },
+      tooltip: { enabled: false },
+    }),
+  );
 
   readonly transactions = computed(() =>
     (this.data()?.recent || []).slice(0, 12).map((r) => mapTx(r)),
@@ -975,8 +1052,23 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     this.panelViews.update((prev) => ({ ...prev, [id]: mode }));
   }
 
+  setSpendRange(value: SpendRangeId | string | null | undefined) {
+    const id = (SPEND_RANGES.find((r) => r.id === value)?.id ||
+      '6h') as SpendRangeId;
+    this.spendRange.set(id);
+    this.live.setFeedParams({ llm_usage: { window: id, limit: 200 } });
+  }
+
+  private feedParams() {
+    return { llm_usage: { window: this.spendRange(), limit: 200 } };
+  }
+
   ngOnInit() {
-    this.live.acquire({ feeds: ['llm_usage'], feedIntervalMs: 2000 });
+    this.live.acquire({
+      feeds: ['llm_usage'],
+      feedIntervalMs: 2000,
+      feedParams: this.feedParams(),
+    });
   }
 
   ngOnDestroy() {
@@ -984,6 +1076,7 @@ export class LlmUsagePage implements OnInit, OnDestroy {
   }
 
   resync() {
+    this.live.setFeedParams(this.feedParams());
     this.live.refreshFeeds();
   }
 }
@@ -992,16 +1085,31 @@ function emptyTotals(): LlmSpendTotals {
   return { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 }
 
-function windowCaption(t: LlmSpendTotals, days?: number): string {
-  const w = days || 7;
+function windowCaption(t: LlmSpendTotals, hours?: number): string {
+  const h = Math.max(1, Number(hours) || 6);
   if (t.from && t.to) {
     const a = new Date(t.from);
     const b = new Date(t.to);
-    const fmt = (d: Date) =>
-      d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    return `${fmt(a)} – ${fmt(b)} · ${w}-day window`;
+    if (Number.isFinite(a.getTime()) && Number.isFinite(b.getTime())) {
+      const sameDay = a.toDateString() === b.toDateString();
+      if (h <= 24) {
+        const opts: Intl.DateTimeFormatOptions = {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        };
+        return `${a.toLocaleString(undefined, opts)} – ${b.toLocaleString(undefined, sameDay ? { hour: '2-digit', minute: '2-digit' } : opts)}`;
+      }
+      return `${a.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${b.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    }
   }
-  return `${w}-day window`;
+  if (h < 24) return `Rolling ${h}h`;
+  if (h % 24 === 0) {
+    const days = h / 24;
+    return `Rolling ${days} day${days === 1 ? '' : 's'}`;
+  }
+  return `Rolling ${h}h`;
 }
 
 function mapTx(r: LlmUsageEventRow) {
