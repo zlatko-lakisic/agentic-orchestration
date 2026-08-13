@@ -159,6 +159,15 @@ spec:
               mountPath: /app/tool/orchestration/app_prefs.py
               subPath: app_prefs.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/agent_allowlist.py
+              subPath: agent_allowlist.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/session_env.py
+              subPath: session_env.py
+            - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/catalog_credentials.py
+              subPath: catalog_credentials.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/workflow_ollama.py
               subPath: workflow_ollama.py
             - name: tool-hotfix-orchestration

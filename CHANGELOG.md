@@ -18,6 +18,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Warm-pool / tool hotfix missing `agent_allowlist`** — hotfixed `dynamic_planner` / `dynamic_run` imported `orchestration.agent_allowlist` which was not in the ConfigMap or volume mounts, so Ada chat planning failed with `No module named 'orchestration.agent_allowlist'`. Also mount `session_env` + `catalog_credentials`.
 - **Traces sequence shows executed spans only** — plan/decision no longer synthesize fake `select` / step call arrows to agents, MCPs, or skills. Planned choices stay as notes on the planner; lifelines and message arrows appear only when `agent_start` / `step_start` / `model_call` / `tool_call` / `mcp_call` (etc.) actually fire.
 - **Traces sequence token help** — model_call arrows keep normal messages (model name outbound, `ok` return). A topology-style `?` chip to the right of each shows `prompt=…` on the outbound call and `completion=…` on the return (hover).
 - **Engine warm-pool hang (Reach/Comstar)** — `agentic-engine` now mounts PVC `agentic-run-store` at `/run/store` and sets `AGENTIC_RUN_STORE_PATH=/run/store` (overriding the host-path value in the env Secret). Steps were enqueued into pod-local `/var/lib/agentic/run-store` while warm-pool workers polled the shared PVC, so runs stalled at `step_start` until the client timed out.

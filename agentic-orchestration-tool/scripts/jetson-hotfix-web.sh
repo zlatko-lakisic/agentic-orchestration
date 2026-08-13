@@ -122,6 +122,9 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=llm_usage.py="${ORCH_ROOT}/llm_usage.py" \
   --from-file=tool_trace.py="${ORCH_ROOT}/tool_trace.py" \
   --from-file=app_prefs.py="${ORCH_ROOT}/app_prefs.py" \
+  --from-file=agent_allowlist.py="${ORCH_ROOT}/agent_allowlist.py" \
+  --from-file=session_env.py="${ORCH_ROOT}/session_env.py" \
+  --from-file=catalog_credentials.py="${ORCH_ROOT}/catalog_credentials.py" \
   --from-file=workflow_ollama.py="${ORCH_ROOT}/workflow_ollama.py" \
   --from-file=metrics.py="${ORCH_ROOT}/metrics.py" \
   --from-file=run_store_backends.py="${ORCH_ROOT}/run_store_backends.py" \
