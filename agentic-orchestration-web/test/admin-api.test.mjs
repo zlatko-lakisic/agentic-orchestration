@@ -238,6 +238,86 @@ test("buildLlmUsagePayload prefers refined identity over brand appId", () => {
   assert.equal(payload.recent[0].appId, "comstar-ai");
 });
 
+test("buildLlmUsagePayload collapses ledger+trace and unknown duplicate", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-usage-dedupe-"));
+  const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");
+  const tracesDir = path.join(tmp, "__orchestrator_run_traces__");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  fs.mkdirSync(tracesDir, { recursive: true });
+  const runId = "run-dedupe-1";
+  const ts = Math.floor(Date.now() / 1000) - 30;
+  // Two near-identical ledger writes (double callback) + sparse unknown row.
+  fs.writeFileSync(
+    path.join(ledgerDir, "usage.jsonl"),
+    [
+      JSON.stringify({
+        ts: ts + 0.12,
+        runId,
+        appId: null,
+        model: "qwen2.5:14b-instruct",
+        promptTokens: 1000,
+        completionTokens: 59,
+        totalTokens: 1059,
+        source: "crew_litellm",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: ts + 0.18,
+        runId,
+        appId: "comstar-ai",
+        userName: "comstar-ai",
+        model: "qwen2.5:14b-instruct",
+        promptTokens: 1000,
+        completionTokens: 59,
+        totalTokens: 1059,
+        source: "crew_litellm",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: ts + 0.2,
+        runId,
+        appId: "comstar-ai",
+        userName: "comstar-ai",
+        model: "ollama/qwen2.5:14b-instruct",
+        promptTokens: 1000,
+        completionTokens: 59,
+        totalTokens: 1059,
+        source: "direct_crew",
+        ok: true,
+      }),
+    ].join("\n") + "\n",
+  );
+  fs.writeFileSync(
+    path.join(tracesDir, `${runId}.jsonl`),
+    [
+      JSON.stringify({
+        ts,
+        kind: "request_start",
+        detail: { app_id: "comstar-ai", user_name: "comstar-ai", user_id: "comstar-ai" },
+      }),
+      JSON.stringify({
+        ts: ts + 0.15,
+        kind: "model_call",
+        message: "qwen2.5:14b-instruct",
+        detail: {
+          source: "crew_litellm",
+          model: "qwen2.5:14b-instruct",
+          prompt_tokens: 1000,
+          completion_tokens: 59,
+          total_tokens: 1059,
+          ok: true,
+        },
+      }),
+      JSON.stringify({ ts: ts + 1, kind: "run_end", message: "ok" }),
+    ].join("\n") + "\n",
+  );
+  const payload = buildLlmUsagePayload({ toolRoot: tmp, limit: 20 });
+  assert.equal(payload.recent.length, 1, "all duplicates should collapse");
+  assert.equal(payload.recent[0].appId, "comstar-ai");
+  assert.equal(payload.llm.grandTotal.calls, 1);
+  assert.equal(payload.llm.grandTotal.totalTokens, 1059);
+});
+
 test("TLS path keys are not treated as secrets", () => {
   assert.equal(isSecretKey("AGENTIC_SERVE_TLS_CERTFILE"), false);
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);

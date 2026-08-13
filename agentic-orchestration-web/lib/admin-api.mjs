@@ -2520,26 +2520,59 @@ function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
   return rows;
 }
 
+/** Strip provider prefixes so ledger/trace model strings compare equal. */
+function normalizeUsageModel(model) {
+  return String(model || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(ollama|openai|azure|anthropic|bedrock)\//, "");
+}
+
+function usageAppQuality(appId) {
+  const s = String(appId || "").trim().toLowerCase();
+  if (!s || s === "(unknown)" || s === "unknown") return 0;
+  return 2;
+}
+
+/** Prefer attributed ledger rows over sparse/unknown trace duplicates. */
+function usageRowPreferScore(row) {
+  let score = 0;
+  score += usageAppQuality(row?.appId);
+  if (!row?.fromTrace) score += 3;
+  if (String(row?.runId || "").trim()) score += 1;
+  if (String(row?.userName || row?.userId || "").trim()) score += 1;
+  if (String(row?.clientIp || "").trim()) score += 1;
+  return score;
+}
+
+/**
+ * Soft fingerprint for one model call. Ignores source / runId / exact float ts /
+ * appId so ledger + trace (and unknown vs attributed twins) collapse to one row.
+ */
+function llmUsageDedupeKey(row) {
+  const ms = rowTsMs(row);
+  const sec = Number.isFinite(ms) ? Math.round(ms / 1000) : 0;
+  const model = normalizeUsageModel(row?.model);
+  const total = String(row?.totalTokens ?? "");
+  const prompt = String(row?.promptTokens ?? "");
+  const completion = String(row?.completionTokens ?? "");
+  return `${sec}|${model}|${prompt}|${completion}|${total}`;
+}
+
 function mergeLlmUsageRows(ledgerRows, traceRows) {
-  const seen = new Set();
-  const out = [];
-  const keyOf = (r) => {
-    const ts = Number(r?.ts);
-    const rid = String(r?.runId || "");
-    const model = String(r?.model || "");
-    const total = String(r?.totalTokens ?? "");
-    const src = String(r?.source || "");
-    return `${rid}|${ts}|${model}|${total}|${src}`;
-  };
+  const byKey = new Map();
+  // Ledger first so equal-score ties keep the durable write.
   for (const raw of [...(ledgerRows || []), ...(traceRows || [])]) {
     const row = normalizeLlmUsageRow(raw);
     if (!row) continue;
-    const k = keyOf(row);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(row);
+    const k = llmUsageDedupeKey(row);
+    const prev = byKey.get(k);
+    if (!prev || usageRowPreferScore(row) > usageRowPreferScore(prev)) {
+      byKey.set(k, row);
+    }
   }
-  out.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+  const out = [...byKey.values()];
+  out.sort((a, b) => (rowTsMs(a) || 0) - (rowTsMs(b) || 0));
   return out;
 }
 

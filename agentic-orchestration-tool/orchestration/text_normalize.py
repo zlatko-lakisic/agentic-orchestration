@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
+import json
 import re
+from typing import Any
 
 from orchestration.language_policy import strip_unexpected_cjk
+
+# Prefer these keys when a model dumps a JSON object as the Final Answer (voice/TTS).
+_SPOKEN_JSON_KEYS = (
+    "spoken",
+    "spoken_hint",
+    "speech",
+    "say",
+    "utterance",
+    "answer",
+    "reply",
+    "message",
+    "text",
+    "content",
+    "response",
+    "output",
+    "final_answer",
+    "Final Answer",
+    "result",
+    "summary",
+)
 
 # LaTeX-style wrappers small models often emit (e.g. "The final answer is $\\boxed{...}$").
 _BOXED_RE = re.compile(
@@ -88,6 +110,105 @@ def strip_wrapping_quotes(text: str) -> str:
     return t
 
 
+def _strip_markdown_json_fence(text: str) -> str:
+    t = str(text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.splitlines()
+    if not lines:
+        return t
+    # Drop opening ``` / ```json and closing ```
+    body = lines[1:]
+    if body and body[-1].strip().startswith("```"):
+        body = body[:-1]
+    return "\n".join(body).strip()
+
+
+def _extract_spoken_from_json_value(value: Any, *, depth: int = 0) -> str:
+    """Pull the best speakable string out of a decoded JSON value."""
+    if depth > 6:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, list):
+        parts = [
+            _extract_spoken_from_json_value(item, depth=depth + 1) for item in value
+        ]
+        parts = [p for p in parts if p]
+        return " ".join(parts)
+    if not isinstance(value, dict) or not value:
+        return ""
+
+    lower_map = {str(k).strip().lower(): k for k in value.keys()}
+    for want in _SPOKEN_JSON_KEYS:
+        key = lower_map.get(want.lower())
+        if key is None:
+            continue
+        got = _extract_spoken_from_json_value(value[key], depth=depth + 1)
+        if got:
+            return got
+
+    # Single stringish field (common accidental wrappers).
+    str_vals = [
+        v.strip()
+        for v in value.values()
+        if isinstance(v, str) and v.strip() and not v.strip().startswith("{")
+    ]
+    if len(str_vals) == 1:
+        return str_vals[0]
+    if str_vals:
+        return max(str_vals, key=len)
+
+    # Recurse into nested objects/arrays as a last resort.
+    for nested in value.values():
+        if isinstance(nested, (dict, list)):
+            got = _extract_spoken_from_json_value(nested, depth=depth + 1)
+            if got:
+                return got
+    return ""
+
+
+def unwrap_json_speakable(text: str) -> str:
+    """
+    If the whole reply is a JSON object/array (optionally fenced), extract prose
+    suitable for chat / TTS. Leaves non-JSON text unchanged.
+
+    Tool-call stubs (``name`` + ``parameters``) are left intact so the existing
+    leak detector can still blank them.
+    """
+    t = _strip_markdown_json_fence(str(text or "").strip())
+    if not t:
+        return t
+    if not (
+        (t.startswith("{") and t.endswith("}"))
+        or (t.startswith("[") and t.endswith("]"))
+    ):
+        return str(text or "").strip()
+    try:
+        obj = json.loads(t)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return str(text or "").strip()
+
+    # Preserve tool-invocation stubs for looks_like_mcp_tool_call_leak.
+    if isinstance(obj, dict):
+        keys = {str(k).strip().lower() for k in obj.keys()}
+        if keys & {"name", "tool", "tool_name"} and keys & {
+            "parameters",
+            "arguments",
+            "args",
+            "input",
+        }:
+            return str(text or "").strip()
+
+    spoken = _extract_spoken_from_json_value(obj)
+    if spoken:
+        return spoken
+    # Unreadable machine JSON — do not feed braces to TTS.
+    return ""
+
+
 def _looks_like_instruction_echo(text: str) -> bool:
     t = str(text or "").strip().lower()
     if not t:
@@ -140,6 +261,13 @@ def sanitize_user_facing_prose(text: str) -> str:
     t = strip_wrapping_quotes(t)
     from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
 
+    if looks_like_mcp_tool_call_leak(t):
+        return ""
+    # Models (esp. voice + tools) often dump a JSON object as the Final Answer;
+    # unwrap speakable fields before TTS / Assist reads the braces aloud.
+    t = unwrap_json_speakable(t)
+    if not t:
+        return ""
     if looks_like_mcp_tool_call_leak(t):
         return ""
     if looks_like_format_instruction_only(t):
