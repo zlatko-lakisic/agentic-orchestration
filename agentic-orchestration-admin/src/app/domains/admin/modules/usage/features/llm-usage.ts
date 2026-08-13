@@ -514,8 +514,8 @@ function pieFromRows(
           </mat-card>
         </div>
 
-        <!-- Rollup breakdowns: donut or table -->
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <!-- Rollup breakdowns: donut or table — 1 col → 2×2 → 1×4 on desktop -->
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           @for (block of llmBlocks(); track block.id) {
             <mat-card appearance="outlined" class="overflow-hidden">
               <mat-card-header>
