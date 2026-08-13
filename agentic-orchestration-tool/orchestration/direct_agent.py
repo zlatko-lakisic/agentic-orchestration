@@ -626,7 +626,7 @@ def run_direct_agent(
             config,
             crew_verbose=not quiet,
             quiet=quiet,
-            emit_progress_lines=False,
+            emit_progress_lines=bool(on_progress),
             mcp_catalog_path=paths.mcp_providers,
             agent_skills_catalog_path=paths.agent_skills,
             on_progress=on_progress,

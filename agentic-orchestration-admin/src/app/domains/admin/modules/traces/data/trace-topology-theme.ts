@@ -228,10 +228,9 @@ export async function applyTopologyStylesToMermaidSvg(
           labelText.setAttribute('y', String(y + 22));
           labelText.style.setProperty('dominant-baseline', 'auto', 'important');
         }
-        labelText.querySelector('title')?.remove();
-        const tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-        tip.textContent = full;
-        labelText.appendChild(tip);
+        if (shown !== full) {
+          setSvgTitle(labelText, full);
+        }
       }
 
       if (h >= 48) {
@@ -242,7 +241,12 @@ export async function applyTopologyStylesToMermaidSvg(
         aspect.setAttribute('text-anchor', 'start');
         aspect.setAttribute('fill', muted);
         aspect.style.cssText = `fill:${muted};font-size:9px;font-family:inherit;text-anchor:start;`;
-        aspect.textContent = truncateChars(theme.aspect, Math.floor(textMaxW / 5.5));
+        const aspectFull = theme.aspect;
+        const aspectShown = truncateChars(aspectFull, Math.floor(textMaxW / 5.5));
+        aspect.textContent = aspectShown;
+        if (aspectShown !== aspectFull) {
+          setSvgTitle(aspect, aspectFull);
+        }
         parent.appendChild(aspect);
       }
     }
@@ -278,6 +282,64 @@ export async function applyTopologyStylesToMermaidSvg(
       el.setAttribute('stroke', arrowAccent);
       (el as SVGElement).style.setProperty('stroke', arrowAccent, 'important');
     });
+}
+
+function setSvgTitle(el: SVGElement, full: string): void {
+  const text = String(full || '').trim();
+  if (!text) return;
+  el.querySelectorAll('title').forEach((n) => n.remove());
+  const tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+  tip.textContent = text;
+  el.insertBefore(tip, el.firstChild);
+}
+
+/**
+ * Apply native SVG tooltips for truncated Mermaid labels.
+ * Prefer ``tips`` from the API (shown→full); also title any text that still ends with ….
+ */
+export function applyMermaidTextTooltips(
+  svg: SVGSVGElement,
+  tips: Array<{ shown?: string; full?: string }> | null | undefined
+): void {
+  const byShown = new Map<string, string>();
+  for (const tip of tips || []) {
+    const shown = String(tip?.shown || '').trim();
+    const full = String(tip?.full || '').trim();
+    if (shown && full && shown !== full) byShown.set(shown, full);
+  }
+
+  svg.querySelectorAll('text').forEach((el) => {
+    // Prefer text nodes only (ignore nested <title> when reading)
+    const own = Array.from(el.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => (n.textContent || '').trim())
+      .join('')
+      .trim();
+    const visible = own || (el.textContent || '').trim();
+    if (!visible) return;
+
+    const mapped = byShown.get(visible);
+    if (mapped) {
+      setSvgTitle(el, mapped);
+      return;
+    }
+
+    // Topology restyle may further shorten a tip's shown form.
+    for (const [shown, full] of byShown) {
+      if (visible.endsWith('…') && shown.startsWith(visible.slice(0, -1))) {
+        setSvgTitle(el, full);
+        return;
+      }
+    }
+
+    if (visible.includes('…')) {
+      const existing = el.querySelector('title')?.textContent?.trim();
+      if (!existing || existing === visible) {
+        // Keep any better title already set; otherwise at least expose visible.
+        if (!existing) setSvgTitle(el, visible);
+      }
+    }
+  });
 }
 
 function truncateChars(s: string, max: number): string {

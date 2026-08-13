@@ -122,6 +122,7 @@ def _progress(msg: str) -> None:
     """
     Emit a short progress line for UIs that don't stream verbose Crew logs.
     Written to the original stdout so it still appears when caller redirects stdout.
+    Also forwards to the session progress sink (Reach / engine WS status).
     """
     state = _KICKOFF_CB_STATE.get()
     if state is None or not state.progress_enabled or not state.emit_progress_lines:
@@ -132,6 +133,12 @@ def _progress(msg: str) -> None:
     try:
         sys.__stdout__.write(f"(progress) {text}\n")
         sys.__stdout__.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from orchestration.progress_sink import emit_progress
+
+        emit_progress(text)
     except Exception:  # noqa: BLE001
         return
 

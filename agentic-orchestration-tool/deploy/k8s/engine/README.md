@@ -13,6 +13,17 @@
 # Web UI stays at `http://<edge-host>:30487` — do not point Reach clients there
 # (`/api/v1/direct-agent` and `/api/v1/kb/*` only exist on the engine).
 #
+# ## Shared run store (warm pool)
+#
+# The engine mounts PVC `agentic-run-store` at `/run/store` and sets
+# `AGENTIC_RUN_STORE_PATH=/run/store` (same as coordinator / warm-pool). Explicit
+# Deployment env overrides the env Secret's host path (`/var/lib/agentic/run-store`)
+# so warm-pool queue files are visible to workers. Without this, Reach/Comstar
+# steps enqueue into pod-local disk and hang after `step_start`.
+#
+# Prerequisite: run-store PVC already applied (`scripts/k8s-apply-run-store.sh` or
+# `jetson-k3s-deploy.sh`).
+#
 # ## Apply (edge)
 #
 # ```bash

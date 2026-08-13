@@ -16,6 +16,7 @@ from orchestration.run_trace import (
     append_run_event,
     build_run_trace_payload,
     events_to_mermaid,
+    filter_events_by_depth,
     list_recent_trace_runs,
     read_run_events,
     trace_duration_ms,
@@ -39,7 +40,7 @@ def test_append_and_read_run_events(tmp_path: Path) -> None:
     assert len(events) == 3
     assert events[0]["kind"] == "request_start"
     assert events[1]["detail"]["agents"] == ["a1"]
-    mermaid = events_to_mermaid(events)
+    mermaid, _tips = events_to_mermaid(events)
     assert "sequenceDiagram" in mermaid
     assert "planner" in mermaid
     assert "orchestrator" in mermaid  # touched via run_end
@@ -53,19 +54,21 @@ def test_append_and_read_run_events(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_mermaid_omits_unused_orchestrator_and_truncates_labels(tmp_path: Path) -> None:
+    long_mode = "x" * 80
     append_run_event(
         tmp_path,
         "r2",
         "request_start",
         actor="engine",
         message="direct_agent",
-        detail={"mode": "direct_agent", "preview": "x" * 200},
+        detail={"mode": long_mode, "preview": "x" * 200},
     )
     append_run_event(tmp_path, "r2", "run_end", actor="engine", message="ok")
-    mermaid = events_to_mermaid(read_run_events(tmp_path, "r2"))
+    mermaid, tips = events_to_mermaid(read_run_events(tmp_path, "r2"))
     assert "participant orchestrator" not in mermaid
-    assert "direct_agent" in mermaid
     assert "x" * 50 not in mermaid
+    assert any(t.get("full") == long_mode for t in tips)
+    assert any(t.get("shown", "").endswith("…") for t in tips)
     info = trace_instrumentation(read_run_events(tmp_path, "r2"))
     assert info["present"]["runBoundary"] is True
     assert info["present"]["planner"] is False
@@ -169,6 +172,38 @@ def test_llm_usage_normalize_and_ledger(tmp_path: Path) -> None:
     assert any(e.get("kind") == "model_call" for e in events)
     model_ev = next(e for e in events if e.get("kind") == "model_call")
     assert model_ev.get("detail", {}).get("agent_provider_id") == "gpt_research"
+
+
+@pytest.mark.unit
+def test_mermaid_model_call_shows_token_charge(tmp_path: Path) -> None:
+    append_run_event(
+        tmp_path,
+        "tok1",
+        "request_start",
+        actor="engine",
+        detail={"mode": "chat"},
+    )
+    append_run_event(
+        tmp_path,
+        "tok1",
+        "model_call",
+        actor="engine",
+        message="ollama/qwen2.5:14b",
+        detail={
+            "model": "ollama/qwen2.5:14b",
+            "agent_provider_id": "gpt_research",
+            "prompt_tokens": 120,
+            "completion_tokens": 80,
+            "total_tokens": 200,
+        },
+    )
+    append_run_event(tmp_path, "tok1", "run_end", actor="engine", message="ok")
+    mermaid, tips = events_to_mermaid(read_run_events(tmp_path, "tok1"))
+    assert "120↑80↓=200" in mermaid
+    assert "qwen2.5:14b" in mermaid
+    assert any("prompt=120" in t.get("full", "") for t in tips)
+    filtered = filter_events_by_depth(read_run_events(tmp_path, "tok1"), "tokens")
+    assert [e["kind"] for e in filtered] == ["request_start", "model_call", "run_end"]
 
 
 @pytest.mark.unit

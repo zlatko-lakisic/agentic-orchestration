@@ -10,13 +10,17 @@ Client → server  ``ping``, ``client_hello``, ``host_metrics_subscribe``,
                  ``session_overlay_register``, ``session_overlay_clear``,
                  ``mcp_tunnel_response``
 Server → client  ``hello``, ``pong``, ``host_metrics``, ``preflight``,
-                 ``run_start``, ``chunk``, ``run_end``, ``error``, ``rated``,
+                 ``run_start``, ``status``, ``chunk``, ``run_end``, ``error``, ``rated``,
                  ``session_overlay_ack``, ``session_overlay_cleared``,
                  ``mcp_tunnel_request``
 ===============  ===========================================================
 
+``status`` frames carry ``processing``, ``phase``, and a user-friendly ``message``
+for Reach UIs (plus optional ``agentProviderId`` / ``step`` / ``code``). Legacy
+stderr ``chunk`` lines still stream for older clients.
+
 One deliberate extension: a ``question_id`` on ``chat`` / ``direct_agent`` opts into
-**concurrent** runs, and every ``chunk`` / ``run_end`` carries it back so a client can
+**concurrent** runs, and every ``chunk`` / ``status`` / ``run_end`` carries it back so a client can
 demux interleaved answers. Untagged messages keep the Node behavior — one run per
 connection, guarded by a busy lock.
 
@@ -125,13 +129,90 @@ class WsConnection:
         *,
         question_id: str | None = None,
         run_id: str | None = None,
+        code: str | None = None,
+        phase: str | None = None,
     ) -> None:
-        payload: dict[str, Any] = {"type": "error", "message": message}
+        payload: dict[str, Any] = {
+            "type": "error",
+            "message": message,
+            "processing": False,
+            "phase": phase or "error",
+        }
+        if code:
+            payload["code"] = code
         if question_id:
             payload["question_id"] = question_id
         if run_id:
             payload["run_id"] = run_id
         await self.send(payload)
+
+    def _emit_status(
+        self,
+        *,
+        phase: str,
+        processing: bool,
+        tag: dict[str, Any],
+        message: str | None = None,
+        detail: str | None = None,
+        agent_provider_id: str | None = None,
+        step: int | None = None,
+        step_count: int | None = None,
+        code: str | None = None,
+        also_stderr: bool = True,
+    ) -> None:
+        from orchestration.run_status import build_status_event
+
+        event = build_status_event(
+            phase=phase,
+            processing=processing,
+            message=message,
+            detail=detail,
+            agent_provider_id=agent_provider_id,
+            step=step,
+            step_count=step_count,
+            code=code,
+            question_id=tag.get("question_id"),
+            run_id=tag.get("run_id"),
+        )
+        self.send_threadsafe(event)
+        if also_stderr:
+            self.send_threadsafe(
+                {
+                    "type": "chunk",
+                    "stream": "stderr",
+                    "text": f"(engine) {event['message']}\n",
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
+
+    def _progress_to_status(self, line: str, tag: dict[str, Any]) -> None:
+        """Map a legacy progress line to status + keep stderr chunk for older clients."""
+        from orchestration.run_status import build_status_event, map_progress_line
+
+        mapped = map_progress_line(line)
+        text = str(line or "").strip()
+        self.send_threadsafe(
+            {
+                "type": "chunk",
+                "stream": "stderr",
+                "text": f"(engine) {text}\n",
+                **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+            }
+        )
+        if not mapped:
+            return
+        event = build_status_event(
+            phase=str(mapped.get("phase") or "info"),
+            processing=True,
+            message=mapped.get("message"),
+            detail=mapped.get("detail"),
+            agent_provider_id=mapped.get("agentProviderId"),
+            step=mapped.get("step"),
+            step_count=mapped.get("stepCount"),
+            question_id=tag.get("question_id"),
+            run_id=tag.get("run_id"),
+        )
+        self.send_threadsafe(event)
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -496,15 +577,25 @@ class WsConnection:
         question_id = _question_id(message)
         text = str(message.get("text") or "").strip()
         if not text:
-            await self.send_error("Empty message", question_id=question_id)
+            await self.send_error(
+                "Empty message",
+                question_id=question_id,
+                code="invalid_request",
+            )
             return
         if question_id is None and self._busy:
-            await self.send_error("A run is already in progress for this connection.")
+            await self.send_error(
+                "A run is already in progress for this connection.",
+                code="busy",
+                phase="busy",
+            )
             return
         if question_id is not None and len(self._runs) >= max_concurrent_runs():
             await self.send_error(
                 f"Too many concurrent runs (limit {max_concurrent_runs()}); retry shortly.",
                 question_id=question_id,
+                code="busy",
+                phase="busy",
             )
             return
         if question_id is None:
@@ -610,17 +701,50 @@ class WsConnection:
             await self.send(
                 {"type": "preflight", "status": "done", "message": "Engine warm.", **tag}
             )
-            await self.send({"type": "run_start", "mode": kind, "text": text, **tag})
+            await self.send(
+                {
+                    "type": "run_start",
+                    "mode": kind,
+                    "text": text,
+                    "processing": True,
+                    **tag,
+                }
+            )
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": True,
+                    "phase": "starting",
+                    "message": "Starting your request…",
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
             answer = await asyncio.to_thread(self._execute, message, kind, text, tag, run_id)
+            self._emit_status(
+                phase="preparing_response",
+                processing=True,
+                tag=tag,
+                message="Preparing the response…",
+            )
             if answer:
                 await self.send({"type": "chunk", "stream": "stdout", "text": answer, **tag})
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "done",
+                    "message": "Done.",
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
             await self.send(
                 {
                     "type": "run_end",
                     "ok": True,
                     "exitCode": 0,
                     "elapsedMs": elapsed_ms,
+                    "processing": False,
                     **tag,
                 }
             )
@@ -645,18 +769,40 @@ class WsConnection:
         except asyncio.CancelledError:
             raise
         except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
+            from orchestration.run_status import error_code_for_exception, friendly_error_message
+
+            err_code = error_code_for_exception(exc)
+            friendly = friendly_error_message(exc)
             if getattr(exc, "raw", None):
                 await self.send({"type": "chunk", "stream": "stdout", "text": exc.raw, **tag})
-            await self.send_error(exc.message, question_id=question_id, run_id=run_id)
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "error",
+                    "message": friendly,
+                    "detail": exc.message,
+                    "code": err_code,
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
+            await self.send_error(
+                friendly,
+                question_id=question_id,
+                run_id=run_id,
+                code=err_code,
+            )
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
                     "type": "run_end",
                     "ok": False,
                     "exitCode": 0,
-                    "error": exc.message,
+                    "error": friendly,
+                    "code": err_code,
                     "text": getattr(exc, "raw", None),
                     "elapsedMs": elapsed_ms,
+                    "processing": False,
                     **tag,
                 }
             )
@@ -684,15 +830,38 @@ class WsConnection:
             except Exception:  # noqa: BLE001
                 pass
         except Exception as exc:  # noqa: BLE001
+            from orchestration.run_status import error_code_for_exception, friendly_error_message
+
+            err_code = error_code_for_exception(exc)
+            friendly = friendly_error_message(exc)
             err_msg = str(exc) or exc.__class__.__name__
-            await self.send_error(err_msg, question_id=question_id, run_id=run_id)
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "error",
+                    "message": friendly,
+                    "detail": err_msg,
+                    "code": err_code,
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
+            await self.send_error(
+                friendly,
+                question_id=question_id,
+                run_id=run_id,
+                code=err_code,
+            )
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
                     "type": "run_end",
                     "ok": False,
                     "exitCode": 1,
+                    "error": friendly,
+                    "code": err_code,
                     "elapsedMs": elapsed_ms,
+                    "processing": False,
                     **tag,
                 }
             )
@@ -818,9 +987,7 @@ class WsConnection:
             )
 
             def progress(line: str) -> None:
-                self.send_threadsafe(
-                    {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n", **tag}
-                )
+                self._progress_to_status(line, tag)
 
             response_format = message.get("responseFormat") or message.get("response_format")
             json_schema = message.get("jsonSchema") or message.get("json_schema")
@@ -901,9 +1068,7 @@ class WsConnection:
         from orchestration.dynamic_run import run_dynamic_goal
 
         def progress(line: str) -> None:
-            self.send_threadsafe(
-                {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n", **tag}
-            )
+            self._progress_to_status(line, tag)
 
         app_id = self._resolve_app_id(message)
         prefs = get_app_prefs(self.tool_root, app_id)

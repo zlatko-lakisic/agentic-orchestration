@@ -37,6 +37,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
+  applyMermaidTextTooltips,
   applyTopologyStylesToMermaidSvg,
   isAoDarkScheme,
   svgSafeColor,
@@ -384,7 +385,10 @@ declare global {
         class="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800"
       >
         <div class="min-w-0 space-y-1">
-          <div class="truncate font-mono text-sm font-medium tracking-tight sm:text-md">
+          <div
+            class="truncate font-mono text-sm font-medium tracking-tight sm:text-md"
+            [attr.title]="d.runId"
+          >
             {{ d.runId }}
           </div>
           <div class="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
@@ -526,6 +530,7 @@ declare global {
               <mat-button-toggle value="decisions">Decisions</mat-button-toggle>
               <mat-button-toggle value="crew">Crew</mat-button-toggle>
               <mat-button-toggle value="tools">Tools</mat-button-toggle>
+              <mat-button-toggle value="tokens">Tokens</mat-button-toggle>
             </mat-button-toggle-group>
             <mat-button-toggle-group
               [value]="viewMode()"
@@ -564,6 +569,9 @@ declare global {
                 {{ item.label }}
               </span>
             }
+            <span class="w-full text-center text-neutral-400 sm:w-auto"
+              >LLM returns: prompt↑ completion↓ = total (hover for full)</span
+            >
           </div>
         } @else {
           <div
@@ -593,8 +601,13 @@ declare global {
               </ng-container>
               <ng-container matColumnDef="message">
                 <th mat-header-cell *matHeaderCellDef>Message</th>
-                <td mat-cell *matCellDef="let ev" class="max-w-xl truncate text-sm text-neutral-500">
-                  {{ ev.message || '—' }}
+                <td
+                  mat-cell
+                  *matCellDef="let ev"
+                  class="max-w-xl truncate text-sm text-neutral-500"
+                  [attr.title]="eventMessageTitle(ev)"
+                >
+                  {{ eventMessageDisplay(ev) }}
                 </td>
               </ng-container>
               <tr mat-header-row *matHeaderRowDef="eventColumns"></tr>
@@ -639,6 +652,13 @@ declare global {
                 @if (ev.message) {
                   <span class="min-w-0 flex-1 text-xs text-neutral-500">{{ ev.message }}</span>
                 }
+                @if (eventTokenLabel(ev); as toks) {
+                  <span
+                    class="shrink-0 rounded bg-neutral-200 px-1.5 py-0.5 font-mono text-2xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                    [attr.title]="eventTokenTitle(ev)"
+                    >{{ toks }}</span
+                  >
+                }
               </li>
             }
           </ol>
@@ -677,7 +697,7 @@ export class TracesPage implements OnInit, OnDestroy {
   /** Full unfiltered list from the live feed. */
   readonly allRuns = signal<TraceListItem[]>([]);
   readonly viewMode = signal<'diagram' | 'table'>('diagram');
-  readonly depthMode = signal<'all' | 'boundary' | 'decisions' | 'crew' | 'tools'>('all');
+  readonly depthMode = signal<'all' | 'boundary' | 'decisions' | 'crew' | 'tools' | 'tokens'>('all');
   readonly columns = [
     'runId',
     'client',
@@ -853,6 +873,11 @@ export class TracesPage implements OnInit, OnDestroy {
         } catch {
           /* diagram still visible without topology polish */
         }
+        try {
+          applyMermaidTextTooltips(svg, d.mermaidTips);
+        } catch {
+          /* tooltips optional */
+        }
         if (gen !== this.mermaidGen) return;
         const vb = svg.getAttribute('viewBox');
         if (vb) {
@@ -956,7 +981,7 @@ export class TracesPage implements OnInit, OnDestroy {
     }
   }
 
-  onDepthMode(mode: 'all' | 'boundary' | 'decisions' | 'crew' | 'tools') {
+  onDepthMode(mode: 'all' | 'boundary' | 'decisions' | 'crew' | 'tools' | 'tokens') {
     this.depthMode.set(mode);
     const rid = this.detail()?.runId || this.lookupId();
     if (rid) this.openId(rid);
@@ -1031,6 +1056,58 @@ export class TracesPage implements OnInit, OnDestroy {
   joinIds(ids: string[] | null | undefined): string {
     const list = (ids || []).map((x) => String(x || '').trim()).filter(Boolean);
     return list.length ? list.join(', ') : '—';
+  }
+
+  eventTokenParts(ev: RunTraceEvent): { prompt?: number; completion?: number; total?: number } | null {
+    if (String(ev?.kind || '') !== 'model_call') return null;
+    const detail = (ev.detail || {}) as Record<string, unknown>;
+    const toInt = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+      if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Math.trunc(Number(v));
+      return undefined;
+    };
+    const prompt = toInt(detail['prompt_tokens']);
+    const completion = toInt(detail['completion_tokens']);
+    let total = toInt(detail['total_tokens']);
+    if (total == null && prompt != null && completion != null) total = prompt + completion;
+    if (prompt == null && completion == null && total == null) return null;
+    return { prompt, completion, total };
+  }
+
+  eventTokenLabel(ev: RunTraceEvent): string | null {
+    const parts = this.eventTokenParts(ev);
+    if (!parts) return null;
+    if (parts.prompt != null && parts.completion != null) {
+      return `${parts.prompt}↑${parts.completion}↓=${parts.total ?? parts.prompt + parts.completion}`;
+    }
+    if (parts.total != null) return `${parts.total} tok`;
+    if (parts.prompt != null) return `${parts.prompt}↑`;
+    return `${parts.completion}↓`;
+  }
+
+  eventTokenTitle(ev: RunTraceEvent): string | null {
+    const parts = this.eventTokenParts(ev);
+    if (!parts) return null;
+    const bits: string[] = [];
+    if (parts.prompt != null) bits.push(`prompt=${parts.prompt}`);
+    if (parts.completion != null) bits.push(`completion=${parts.completion}`);
+    if (parts.total != null) bits.push(`total=${parts.total}`);
+    return bits.join(' ') || null;
+  }
+
+  eventMessageDisplay(ev: RunTraceEvent): string {
+    const base = String(ev?.message || '').trim();
+    const toks = this.eventTokenLabel(ev);
+    if (toks && base) return `${base} · ${toks}`;
+    if (toks) return toks;
+    return base || '—';
+  }
+
+  eventMessageTitle(ev: RunTraceEvent): string | null {
+    const title = this.eventTokenTitle(ev);
+    const msg = String(ev?.message || '').trim();
+    if (title && msg) return `${msg} · ${title}`;
+    return title || msg || null;
   }
 
   kindStatus(kind: string | null | undefined): string {

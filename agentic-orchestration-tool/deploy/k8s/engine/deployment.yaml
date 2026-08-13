@@ -65,6 +65,21 @@ spec:
               value: /host/agentic-metrics/nvidia-metrics.json
             - name: AGENTIC_AMD_HOST_METRICS_PATH
               value: /host/agentic-metrics/amd-metrics.json
+            # Must match coordinator / warm-pool. The env Secret often sets
+            # AGENTIC_RUN_STORE_PATH to the *host* path (/var/lib/agentic/run-store)
+            # for jetson-sync-k8s-secret; without an explicit override + PVC mount,
+            # the engine enqueues warm-pool jobs into pod-local disk and workers
+            # never claim them (Comstar / Reach steps hang at step_start).
+            - name: AGENTIC_EXECUTION_BACKEND
+              value: kubernetes
+            - name: AGENTIC_RUN_STORE_PATH
+              value: /run/store
+            - name: AGENTIC_K8S_NAMESPACE
+              value: agentic-orchestration
+            - name: AGENTIC_K8S_RUN_STORE_PVC
+              value: agentic-run-store
+            - name: AGENTIC_K8S_RUN_STORE_MOUNT
+              value: /run/store
             # One-writer story: this pod owns KB SQLite for Reach clients; Node web spawn
             # still writes its own emptyDir KB. Do not point Reach clients at :30487.
             - name: PYTHONUNBUFFERED
@@ -81,6 +96,8 @@ spec:
                 name: agentic-orchestrator-env
                 optional: true
           volumeMounts:
+            - name: run-store
+              mountPath: /run/store
             - name: tool-host
               mountPath: /app/tool
             - name: repo-version
@@ -110,6 +127,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
       volumes:
+        - name: run-store
+          persistentVolumeClaim:
+            claimName: agentic-run-store
         - name: tool-host
           hostPath:
             path: /var/projects/agentic-orchestration/agentic-orchestration-tool

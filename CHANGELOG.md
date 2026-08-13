@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Traces · per-call token charges on sequence** — each `model_call` return arrow shows `prompt↑completion↓=total` (hover for full). New **Tokens** depth filter focuses the diagram on billed LLM calls; Crew depth also includes model spans.
+- **Reach run status stream** — engine WebSocket emits `type: "status"` frames with `processing`, `phase`, and user-friendly `message` during chat / direct_agent (planning, warming agents, generating, steps, done/error). Errors include `code` + `processing: false`; clients decide how to handle. Legacy stderr `chunk` frames remain for compatibility.
 - **Reach catalog API** — engine `GET /api/v1/catalog` returns stock agents, MCPs, skills, and harnesses with structured `requiredSecrets` (name, label, secret, required, anyOfGroup) for client enablement UIs. No secret values are returned.
 - **Session MCP/skill allowlists** — `session_overlay_register` accepts `allowedMcpProviderIds` / `allowedSkillIds`; dynamic planner restricts catalogs accordingly (`client.*` overlays always kept).
 - **Session env for MCP/skill secrets** — Reach `env` may include catalog-declared keys (e.g. `TAVILY_API_KEY`); MCP/skill credential checks and `${VAR}` substitution prefer session overlay env.
@@ -16,6 +18,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Engine warm-pool hang (Reach/Comstar)** — `agentic-engine` now mounts PVC `agentic-run-store` at `/run/store` and sets `AGENTIC_RUN_STORE_PATH=/run/store` (overriding the host-path value in the env Secret). Steps were enqueued into pod-local `/var/lib/agentic/run-store` while warm-pool workers polled the shared PVC, so runs stalled at `step_start` until the client timed out.
 - **Dynamic planner domain suppression** — catalog filtering scores only the current user turn (`Current request:` / `User message:`), not Comstar/OpenClaw memory preambles, so `gpt_research` / `claude_research` are no longer dropped on research asks wrapped in hallway history.
 - **Topology / engine probes with mTLS** — mount host `__orchestrator_mtls__/ca` into the coordinator so Admin can trust the engine HTTPS cert (`AGENTIC_SERVE_TLS_CA_FILE`). Missing CA made engine unreachable → Planner failed and Reach apps (e.g. Comstar) disappeared from Topology.
 - **Topology Reach agents** — surface Reach `allowedAgentProviderIds` (stock allowlist) alongside packed `client.*` overlays under each app / Agents cluster.

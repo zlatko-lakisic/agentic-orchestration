@@ -341,6 +341,8 @@ export interface RunTraceResponse {
   eventCount?: number;
   events?: RunTraceEvent[];
   mermaid?: string;
+  /** Truncated diagram label → full text for hover tooltips. */
+  mermaidTips?: Array<{ shown: string; full: string }>;
   durationMs?: number | null;
   instrumentation?: TraceInstrumentation;
   depth?: string;

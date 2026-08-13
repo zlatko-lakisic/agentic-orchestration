@@ -330,10 +330,13 @@ def run_dynamic_goal(
         mcp_catalog_path=paths.mcp_providers,
         agent_skills_catalog_path=paths.agent_skills,
         rag_sources_catalog_path=paths.rag_sources,
-        emit_progress_lines=False,
+        emit_progress_lines=bool(on_progress),
         run_id=rid,
     )
-    result = execute_workflow_config_resolved(config, options=options)
+    from orchestration.progress_sink import progress_callback
+
+    with progress_callback(on_progress):
+        result = execute_workflow_config_resolved(config, options=options)
     last_task = config.tasks[-1] if config.tasks else None
     provider_id = last_task.agent_provider_id if last_task else "unknown"
     err_text = str(result.error) if result.error else None

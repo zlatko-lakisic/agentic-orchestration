@@ -55,6 +55,9 @@ DEPTH_KINDS: dict[str, set[str]] = {
         "step_start",
         "step_end",
         "step_fail",
+        "agent_start",
+        "agent_end",
+        "model_call",
     },
     "tools": {
         "request_start",
@@ -63,6 +66,12 @@ DEPTH_KINDS: dict[str, set[str]] = {
         "tool_call",
         "mcp_call",
         "qa",
+        "model_call",
+    },
+    "tokens": {
+        "request_start",
+        "run_end",
+        "run_error",
         "model_call",
     },
 }
@@ -361,12 +370,29 @@ def list_recent_trace_runs(
     return out
 
 
-def _short_label(*parts: object, limit: int = _MERMAID_LABEL_MAX) -> str:
+def _full_label(*parts: object) -> str:
     raw = " ".join(str(p).strip() for p in parts if p is not None and str(p).strip())
-    clean = raw.replace("\n", " ").replace('"', "'").strip() or "event"
+    return raw.replace("\n", " ").replace('"', "'").strip() or "event"
+
+
+def _short_label(*parts: object, limit: int = _MERMAID_LABEL_MAX) -> str:
+    clean = _full_label(*parts)
     if len(clean) <= limit:
         return clean
     return clean[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _label_with_tip(
+    tips: list[dict[str, str]],
+    *parts: object,
+    limit: int = _MERMAID_LABEL_MAX,
+) -> str:
+    """Return diagram label; when truncated, record ``{shown, full}`` for SVG tooltips."""
+    full = _full_label(*parts)
+    shown = full if len(full) <= limit else full[: max(1, limit - 1)].rstrip() + "…"
+    if shown != full:
+        tips.append({"shown": shown, "full": full})
+    return shown
 
 
 def trace_duration_ms(events: list[dict[str, Any]]) -> float | None:
@@ -431,15 +457,65 @@ def trace_instrumentation(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def events_to_mermaid(events: list[dict[str, Any]]) -> str:
+def _coerce_token_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _token_charge_parts(detail: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
+    prompt = _coerce_token_int(detail.get("prompt_tokens"))
+    completion = _coerce_token_int(detail.get("completion_tokens"))
+    total = _coerce_token_int(detail.get("total_tokens"))
+    if total is None and prompt is not None and completion is not None:
+        total = prompt + completion
+    return prompt, completion, total
+
+
+def _token_charge_labels(detail: dict[str, Any]) -> tuple[str, str]:
+    """
+    Compact + full labels for a billed model call.
+
+    Short example: ``120↑80↓=200``
+    Full example: ``prompt=120 completion=80 total=200``
+    """
+    prompt, completion, total = _token_charge_parts(detail)
+    if prompt is None and completion is None and total is None:
+        return "", ""
+    if prompt is not None and completion is not None:
+        short = f"{prompt}↑{completion}↓={total if total is not None else prompt + completion}"
+    elif total is not None:
+        short = f"{total} tok"
+    elif prompt is not None:
+        short = f"{prompt}↑"
+    else:
+        short = f"{completion}↓"
+    bits: list[str] = []
+    if prompt is not None:
+        bits.append(f"prompt={prompt}")
+    if completion is not None:
+        bits.append(f"completion={completion}")
+    if total is not None:
+        bits.append(f"total={total}")
+    return short, " ".join(bits)
+
+
+def events_to_mermaid(
+    events: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, str]]]:
     """Build a Mermaid ``sequenceDiagram`` from structured run events.
 
     Only participants that send or receive a message are declared (no dead
-    lifelines). Arrow labels are truncated; full text stays in the event log.
+    lifelines). Arrow labels are truncated; returns ``(mermaid, tips)`` where each
+    tip is ``{shown, full}`` for client hover tooltips on truncated text.
     """
     lines = ["sequenceDiagram"]
     actors: list[str] = []
     declared: set[str] = set()
+    tips: list[dict[str, str]] = []
 
     def pid_for(actor: str) -> str:
         a = str(actor or "orchestrator").strip() or "orchestrator"
@@ -453,9 +529,9 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
             actors.append(pid)
             raw = a.replace('"', "'")
             if raw.lower().startswith("agent:"):
-                label = raw[6:][:22]
+                label = _label_with_tip(tips, raw[6:], limit=22)
             else:
-                label = raw[:28]
+                label = _label_with_tip(tips, raw, limit=28)
             lines.append(f"  participant {pid} as {label}")
         return pid
 
@@ -473,12 +549,12 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
         caller = stack[-1] if stack else "client"
 
         if kind == "request_start":
-            label = _short_label(mode or "request")
+            label = _label_with_tip(tips, mode or "request")
             lines.append(f"  client->>{actor}: {label}")
             stack = ["client", actor]
         elif kind == "plan":
             lines.append(f"  {caller}->>{actor}: plan")
-            note = _short_label(ev.get("message") or "")
+            note = _label_with_tip(tips, ev.get("message") or "")
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
             agents = detail.get("agents") if isinstance(detail.get("agents"), list) else []
@@ -489,20 +565,24 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
             mcps = detail.get("mcps") if isinstance(detail.get("mcps"), list) else []
             if mcps:
                 mid = ensure("mcp")
-                lines.append(f"  {actor}->>{mid}: {_short_label(', '.join(str(x) for x in mcps[:3]))}")
+                lines.append(
+                    f"  {actor}->>{mid}: {_label_with_tip(tips, ', '.join(str(x) for x in mcps[:3]))}"
+                )
                 lines.append(f"  {mid}-->>{actor}: ok")
             skills = detail.get("skills") if isinstance(detail.get("skills"), list) else []
             if skills:
                 sid = ensure("skills")
                 lines.append(
-                    f"  {actor}->>{sid}: {_short_label(', '.join(str(x) for x in skills[:3]))}"
+                    f"  {actor}->>{sid}: {_label_with_tip(tips, ', '.join(str(x) for x in skills[:3]))}"
                 )
                 lines.append(f"  {sid}-->>{actor}: ok")
             if caller != actor:
                 lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "decision":
             lines.append(f"  {caller}->>{actor}: decision")
-            note = _short_label(ev.get("message") or detail.get("reason") or "decision")
+            note = _label_with_tip(
+                tips, ev.get("message") or detail.get("reason") or "decision"
+            )
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
             steps = detail.get("steps") if isinstance(detail.get("steps"), list) else []
@@ -513,7 +593,9 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
                 if not ag:
                     continue
                 aid = ensure(f"agent:{ag}")
-                lines.append(f"  {actor}->>{aid}: {_short_label(step.get('id') or 'step')}")
+                lines.append(
+                    f"  {actor}->>{aid}: {_label_with_tip(tips, step.get('id') or 'step')}"
+                )
                 bits: list[str] = []
                 mcps = step.get("mcps") if isinstance(step.get("mcps"), list) else []
                 skills = step.get("skills") if isinstance(step.get("skills"), list) else []
@@ -525,33 +607,39 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
                 if harness:
                     bits.append(f"harness {harness}")
                 if bits:
-                    lines.append(f"  Note over {aid}: {_short_label(' · '.join(bits))}")
+                    lines.append(
+                        f"  Note over {aid}: {_label_with_tip(tips, ' · '.join(bits))}"
+                    )
                 lines.append(f"  {aid}-->>{actor}: ok")
             if caller != actor:
                 lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "agent_start":
-            label = _short_label(provider or ev.get("message") or "agent")
+            label = _label_with_tip(tips, provider or ev.get("message") or "agent")
             lines.append(f"  {caller}->>{actor}: {label}")
             stack.append(actor)
         elif kind == "agent_end":
-            label = _short_label(ev.get("message") or "done")
+            label = _label_with_tip(tips, ev.get("message") or "done")
             if stack and stack[-1] == actor:
                 stack.pop()
             ret_to = stack[-1] if stack else "client"
             lines.append(f"  {actor}-->>{ret_to}: {label}")
         elif kind == "step_start":
-            label = _short_label(kind.replace("_", " "), provider or ev.get("message") or "")
+            label = _label_with_tip(
+                tips, kind.replace("_", " "), provider or ev.get("message") or ""
+            )
             lines.append(f"  {caller}->>{actor}: {label}")
             stack.append(actor)
         elif kind in ("step_end", "step_fail"):
-            label = _short_label(kind.replace("_", " "), provider or ev.get("message") or "")
+            label = _label_with_tip(
+                tips, kind.replace("_", " "), provider or ev.get("message") or ""
+            )
             if stack and stack[-1] == actor:
                 stack.pop()
             ret_to = stack[-1] if stack else "client"
             lines.append(f"  {actor}-->>{ret_to}: {label}")
         elif kind == "tool_call":
             phase = str(detail.get("phase") or "")
-            name = _short_label(detail.get("name") or ev.get("message") or "tool")
+            name = _label_with_tip(tips, detail.get("name") or ev.get("message") or "tool")
             tid = ensure(f"tool:{detail.get('name') or 'tool'}")
             if phase == "end":
                 lines.append(f"  {tid}-->>{caller}: {name}")
@@ -559,7 +647,9 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
                 lines.append(f"  {caller}->>{tid}: {name}")
         elif kind == "mcp_call":
             mid = ensure(f"mcp:{detail.get('mcp_id') or 'mcp'}")
-            label = _short_label(detail.get("method") or detail.get("path") or "mcp")
+            label = _label_with_tip(
+                tips, detail.get("method") or detail.get("path") or "mcp"
+            )
             phase = str(detail.get("phase") or "")
             if phase == "end" or detail.get("status") is not None:
                 lines.append(f"  {mid}-->>{caller}: {label}")
@@ -567,18 +657,44 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
                 lines.append(f"  {caller}->>{mid}: {label}")
         elif kind == "model_call":
             mid = ensure(f"model:{detail.get('model') or actor}")
-            toks = detail.get("total_tokens")
-            label = _short_label(detail.get("model") or "model", f"{toks} tok" if toks is not None else "")
-            lines.append(f"  {caller}->>{mid}: {label}")
-            lines.append(f"  {mid}-->>{caller}: ok")
+            model_name = str(detail.get("model") or "model").strip() or "model"
+            # Strip litellm-style prefixes for diagram clarity.
+            if "/" in model_name:
+                model_name = model_name.split("/", 1)[-1]
+            agent = str(
+                detail.get("agent_provider_id") or detail.get("provider_id") or ""
+            ).strip()
+            charge_short, charge_full = _token_charge_labels(detail)
+            # Outbound: which model is being called (+ agent when known).
+            req_full = model_name if not agent else f"{model_name} · agent {agent}"
+            req_shown = _label_with_tip(tips, req_full, limit=28)
+            lines.append(f"  {caller}->>{mid}: {req_shown}")
+            # Return: billed token charge for this call.
+            if charge_short:
+                ret_full = charge_full or charge_short
+                if agent:
+                    ret_full = f"{agent} · {ret_full}"
+                ret_shown = charge_short
+                if ret_shown != ret_full:
+                    tips.append({"shown": ret_shown, "full": ret_full})
+                # Keep return arrow short so Mermaid stays readable.
+                if len(ret_shown) > _MERMAID_LABEL_MAX:
+                    ret_shown = ret_shown[: _MERMAID_LABEL_MAX - 1].rstrip() + "…"
+                    tips.append({"shown": ret_shown, "full": ret_full})
+                lines.append(f"  {mid}-->>{caller}: {ret_shown}")
+            else:
+                lines.append(f"  {mid}-->>{caller}: ok")
         elif kind == "qa":
-            lines.append(f"  Note over {actor}: {_short_label('qa', ev.get('message') or detail.get('verdict') or '')}")
+            lines.append(
+                "  Note over "
+                f"{actor}: {_label_with_tip(tips, 'qa', ev.get('message') or detail.get('verdict') or '')}"
+            )
         elif kind in ("run_end", "run_error"):
-            label = _short_label(ev.get("message") or kind.replace("_", " "))
+            label = _label_with_tip(tips, ev.get("message") or kind.replace("_", " "))
             lines.append(f"  {actor}-->>client: {label}")
             stack = ["client"]
         else:
-            label = _short_label(kind, ev.get("message") or "")
+            label = _label_with_tip(tips, kind, ev.get("message") or "")
             lines.append(f"  {caller}->>{actor}: {label}")
             if actor != caller:
                 stack.append(actor)
@@ -586,7 +702,7 @@ def events_to_mermaid(events: list[dict[str, Any]]) -> str:
     if len(lines) == 1:
         ensure("client")
         lines.append("  Note over client: No events recorded for this run_id")
-    return "\n".join(lines)
+    return "\n".join(lines), tips
 
 
 def build_run_trace_payload(
@@ -602,11 +718,13 @@ def build_run_trace_payload(
     filtered = filter_events_by_depth(events, depth)
     ident = _detail_identity(events)
     tokens = sum_model_tokens(events)
+    mermaid, mermaid_tips = events_to_mermaid(filtered)
     return {
         "runId": rid,
         "eventCount": len(filtered),
         "events": filtered,
-        "mermaid": events_to_mermaid(filtered),
+        "mermaid": mermaid,
+        "mermaidTips": mermaid_tips,
         "durationMs": trace_duration_ms(events),
         "instrumentation": trace_instrumentation(events),
         "depth": str(depth or "all").strip().lower() or "all",
