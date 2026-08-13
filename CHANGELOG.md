@@ -27,6 +27,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Changed
 
+- **Jetson storage on NVMe** — project canonical path `/mnt/nvme/projects/agentic-orchestration` (symlink from `/var/projects/agentic-orchestration`); Ollama models on `/mnt/nvme/ollama/models` instead of NFS. One-time: `scripts/jetson-migrate-to-nvme.sh`.
 - **Token usage by agent** — Admin Token dashboard donut is **By agent** (catalog agent provider id) instead of By model. Each model call is attributed to the active agent; historical rows fall back to run-trace `agent_start` / unique catalog model→agent maps when the ledger predates `agentProviderId`.
 - **Shared model labels** — LiteLLM prefixes (`ollama/…`) are stripped in the usage ledger and Admin rollups so `ollama/qwen2.5:14b-instruct` and `qwen2.5:14b-instruct` count as one model.
 - **Token usage time range** — default spend window is the rolling past **6 hours** (running totals on the chart). Toolbar filters: 6 hours, 1 day, 7 days, 15 days, 30 days. Short windows use 15-minute / hourly buckets; longer windows stay daily.

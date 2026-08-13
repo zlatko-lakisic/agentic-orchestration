@@ -1,8 +1,7 @@
 # In-cluster Ollama for AGENTIC_OLLAMA_MODE=managed_k8s.
 # Models persist on hostPath under the AO project tree (Ada / default).
-# Jetson (no local disk): jetson-enable-ollama.sh also mounts
-# AGENTIC_OLLAMA_MODELS_HOSTPATH (e.g. /nfs/omega-jetson/ollama/models) at
-# /root/.ollama/models so NFS-backed host installs keep working without a copy.
+# Jetson: jetson-enable-ollama.sh uses AGENTIC_OLLAMA_MODELS_HOSTPATH
+# (default /mnt/nvme/ollama/models; legacy NFS is fallback only) via nsenter.
 #
 # Ada / x86 GPU: k3s may advertise RuntimeClass "nvidia" without a working
 # containerd handler. Mount NVIDIA devices + host driver libs, then symlink

@@ -4,7 +4,7 @@
 # Ada / x86: runs ollama/ollama:latest with models on hostPath var/ollama-models.
 # Jetson / aarch64: does NOT pull dustynv (≈6.7GiB) — rootfs is too small. Instead
 # a privileged pod nsenter's the host and runs /usr/local/bin/ollama serve against
-# NFS models (AGENTIC_OLLAMA_MODELS_HOSTPATH, default /nfs/omega-jetson/ollama/models).
+# local NVMe models (AGENTIC_OLLAMA_MODELS_HOSTPATH, default /mnt/nvme/ollama/models).
 #
 #   bash agentic-orchestration-tool/scripts/jetson-enable-ollama.sh
 set -eu
@@ -18,6 +18,7 @@ DEPLOY_YAML="${OLLAMA_DIR}/deployment.yaml"
 SVC_YAML="${OLLAMA_DIR}/service.yaml"
 NP_YAML="${OLLAMA_DIR}/service-nodeport.yaml"
 MODELS_HOME="${PROJECT_ROOT}/var/ollama-models"
+NVME_MODELS="${AGENTIC_JETSON_NVME_OLLAMA_MODELS:-/mnt/nvme/ollama/models}"
 
 if [[ ! -f "${DEPLOY_YAML}" ]]; then
   echo "error: missing ${DEPLOY_YAML}" >&2
@@ -31,6 +32,7 @@ ARCH="$(uname -m)"
 MODELS_DATA="${AGENTIC_OLLAMA_MODELS_HOSTPATH:-}"
 if [[ -z "${MODELS_DATA}" ]]; then
   for candidate in \
+    "${NVME_MODELS}" \
     "${MODELS_HOME}/models" \
     "/usr/share/ollama/.ollama/models" \
     "/nfs/omega-jetson/ollama/models"
@@ -38,7 +40,8 @@ if [[ -z "${MODELS_DATA}" ]]; then
     if [[ -L "${candidate}" ]]; then
       MODELS_DATA="$(readlink -f "${candidate}" 2>/dev/null || readlink "${candidate}")"
       break
-    elif [[ -d "${candidate}" && "${candidate}" == /nfs/* ]]; then
+    elif [[ -d "${candidate}" ]]; then
+      # Prefer NVMe / project-local stores; NFS is legacy fallback only.
       MODELS_DATA="${candidate}"
       break
     fi
@@ -67,13 +70,13 @@ trap 'rm -f "${TMP_DEPLOY}"' EXIT
 
 # Jetson: host-binary mode (no multi-GB image pull).
 if [[ "${ARCH}" == "aarch64" || "${ARCH}" == "arm64" ]] && [[ "${AGENTIC_OLLAMA_FORCE_IMAGE:-0}" != "1" ]]; then
-  MODELS_DATA="${MODELS_DATA:-/nfs/omega-jetson/ollama/models}"
+  MODELS_DATA="${MODELS_DATA:-${NVME_MODELS}}"
   OLLAMA_BIN="${AGENTIC_OLLAMA_HOST_BIN:-/usr/local/bin/ollama}"
   OLLAMA_HOME_HOST="${AGENTIC_OLLAMA_HOST_HOME:-/usr/share/ollama}"
   python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" <<'PY'
 import sys
 out, ns, obin, ohome, models = sys.argv[1:6]
-# Host-binary: busybox + nsenter runs host ollama with NFS models via host mount namespace.
+# Host-binary: busybox + nsenter runs host ollama with models via host mount namespace.
 doc = f"""apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -121,7 +124,7 @@ spec:
               export OLLAMA_HOST=0.0.0.0:11434
               export OLLAMA_KEEP_ALIVE=-1
               export HOME={ohome}
-              # Prefer NFS models when present (Jetson has no local model disk).
+              # Prefer local NVMe (or configured) models hostPath when present.
               if [ -d "{models}" ]; then
                 mkdir -p "{ohome}/.ollama"
                 ln -sfn "{models}" "{ohome}/.ollama/models"
