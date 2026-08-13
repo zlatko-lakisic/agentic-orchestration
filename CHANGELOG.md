@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Changed
+
+- **Token usage time range** — default spend window is the rolling past **6 hours** (running totals on the chart). Toolbar filters: 6 hours, 1 day, 7 days, 15 days, 30 days. Short windows use 15-minute / hourly buckets; longer windows stay daily.
+
 ## [2.2.0] - 2026-08-13
 
 ### Added
