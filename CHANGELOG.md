@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-12
+
 ### Fixed
 
 - **Token usage donuts** — charts fill their card width (square host), center labels use on-surface color (readable on dark theme) with smaller type on narrow breakpoints, and live WebSocket updates mutate Apex series in place instead of remounting (no more ~1–2s flicker).
