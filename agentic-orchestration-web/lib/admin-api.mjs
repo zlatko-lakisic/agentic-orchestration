@@ -1890,9 +1890,7 @@ function detailIdentity(events) {
     }
     if (mode == null && d.mode) mode = String(d.mode);
   }
-  if (!appId) {
-    appId = effectiveAppId({ appId, userName, userId }) || null;
-  }
+  appId = effectiveAppId({ appId, userName, userId }) || null;
   return {
     clientIp,
     appId,
@@ -2155,7 +2153,12 @@ function listRecentTraces({
   const clientQ = String(client || "").trim().toLowerCase();
   const ipQ = String(clientIp || "").trim().toLowerCase();
   const needFilter = Boolean(clientQ || ipQ || crewOnly);
-  const scan = needFilter ? Math.max(500, Number(limit) || 50) : Math.max(1, Number(limit) || 50);
+  const lim = Math.max(1, Number(limit) || 50);
+  // When the Admin asks for a large unfiltered window, scan the whole directory
+  // (bounded) so the UI can filter client-side.
+  const scan = needFilter
+    ? Math.max(500, lim)
+    : Math.min(Math.max(lim, files.length), 2000);
   for (const f of files.slice(0, scan)) {
     const runId = path.basename(f.name, ".jsonl");
     const events = readRunTraceEvents(toolRoot, runId);
@@ -2232,8 +2235,22 @@ function looksLikeAppId(raw) {
   return s.length >= 4;
 }
 
+/** Prefer refined identity slugs (comstar-ai) over a short brand appId (comstar). */
 function effectiveAppId(row) {
   const app = String(row?.appId || "").trim();
+  const refined = [];
+  for (const k of [row?.userName, row?.userId]) {
+    const s = String(k || "").trim();
+    if (!looksLikeAppId(s)) continue;
+    if (s.includes("-") || s.includes("_")) refined.push(s);
+  }
+  const appL = app.toLowerCase();
+  for (const s of refined) {
+    const sl = s.toLowerCase();
+    if (!appL || sl === appL || sl.startsWith(`${appL}-`) || sl.startsWith(`${appL}_`)) {
+      return s;
+    }
+  }
   if (app) return app;
   for (const k of [row?.userName, row?.userId]) {
     if (looksLikeAppId(k)) return String(k).trim();
@@ -3101,7 +3118,7 @@ async function handleAdminApi(req, res, ctx) {
     }
     if (route.name === "traces_list") {
       const url = new URL(req.url || "/", "http://localhost");
-      const limit = Number(url.searchParams.get("limit") || 50);
+      const limit = Number(url.searchParams.get("limit") || 500);
       const client = url.searchParams.get("client") || "";
       const clientIp = url.searchParams.get("clientIp") || "";
       const crewOnly = ["1", "true", "yes"].includes(

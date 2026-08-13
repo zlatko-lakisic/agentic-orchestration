@@ -34,7 +34,7 @@ const TOPIC_BUILDERS = {
   traces: async (ctx, params) =>
     listRecentTraces({
       toolRoot: ctx.toolRoot,
-      limit: Number(params?.limit) || 80,
+      limit: Number(params?.limit) || 500,
       client: String(params?.client || ""),
       clientIp: String(params?.clientIp || ""),
       crewOnly: Boolean(params?.crewOnly),

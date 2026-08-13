@@ -213,6 +213,31 @@ test("buildLlmUsagePayload attributes Reach appId from userName and traces", () 
   assert.ok((payload.sources?.mergedRows || 0) >= 4);
 });
 
+test("buildLlmUsagePayload prefers refined identity over brand appId", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-usage-refine-"));
+  const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(ledgerDir, "usage.jsonl"),
+    JSON.stringify({
+      ts: Date.now() / 1000,
+      appId: "comstar",
+      userName: "comstar-ai",
+      userId: "comstar-ai",
+      model: "ollama/x",
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+      source: "crew_litellm",
+      ok: true,
+    }) + "\n",
+  );
+  const payload = buildLlmUsagePayload({ toolRoot: tmp, limit: 20 });
+  const keys = (payload.llm.byAppId || []).map((r) => r.key);
+  assert.deepEqual(keys, ["comstar-ai"]);
+  assert.equal(payload.recent[0].appId, "comstar-ai");
+});
+
 test("TLS path keys are not treated as secrets", () => {
   assert.equal(isSecretKey("AGENTIC_SERVE_TLS_CERTFILE"), false);
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);

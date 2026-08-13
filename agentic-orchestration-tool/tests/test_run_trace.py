@@ -157,3 +157,13 @@ def test_llm_usage_normalize_and_ledger(tmp_path: Path) -> None:
     assert summary["byAppId"][0]["key"] == "app"
     events = read_run_events(tmp_path, "u1")
     assert any(e.get("kind") == "model_call" for e in events)
+
+
+@pytest.mark.unit
+def test_resolve_product_app_id_prefers_refined_identity() -> None:
+    from orchestration.llm_usage import resolve_product_app_id
+
+    assert resolve_product_app_id("comstar", "comstar-ai", "comstar-ai") == "comstar-ai"
+    assert resolve_product_app_id("comstar-ha", "comstar-ha", "comstar-ha") == "comstar-ha"
+    assert resolve_product_app_id("ao-chat", "None Administrator", "x") == "ao-chat"
+    assert resolve_product_app_id("", "knowbuddy", "knowbuddy") == "knowbuddy"

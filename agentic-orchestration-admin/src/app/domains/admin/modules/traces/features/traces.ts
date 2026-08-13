@@ -127,17 +127,33 @@ declare global {
       <div class="flex flex-wrap items-end gap-3">
         <mat-form-field appearance="outline" class="w-40" subscriptSizing="dynamic">
           <mat-label>Client</mat-label>
-          <input matInput [ngModel]="filterClient()" (ngModelChange)="filterClient.set($event)" />
+          <input
+            matInput
+            [ngModel]="filterClient()"
+            (ngModelChange)="filterClient.set($event)"
+            placeholder="app / user"
+          />
         </mat-form-field>
         <mat-form-field appearance="outline" class="w-40" subscriptSizing="dynamic">
           <mat-label>Client IP</mat-label>
-          <input matInput [ngModel]="filterClientIp()" (ngModelChange)="filterClientIp.set($event)" />
+          <input
+            matInput
+            [ngModel]="filterClientIp()"
+            (ngModelChange)="filterClientIp.set($event)"
+            placeholder="ip substring"
+          />
         </mat-form-field>
         <label class="mb-2 flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
-          <input type="checkbox" [ngModel]="filterCrewOnly()" (ngModelChange)="filterCrewOnly.set($event)" />
+          <input
+            type="checkbox"
+            [ngModel]="filterCrewOnly()"
+            (ngModelChange)="filterCrewOnly.set($event)"
+          />
           Crew only
         </label>
-        <button matButton="tonal" type="button" class="mb-2" (click)="reloadList()">Apply filters</button>
+        <button matButton="tonal" type="button" class="mb-2" (click)="reloadList()">
+          Refresh
+        </button>
       </div>
 
       @if (error()) {
@@ -363,18 +379,26 @@ declare global {
         </section>
       }
 
-      @if (!dataSource.data.length && !error() && !detail()) {
+      @if (!allRuns().length && !error() && !detail()) {
         <ao-empty-state
           message="No run traces yet. Complete a chat or engine run to populate __orchestrator_run_traces__."
         />
-      } @else if (dataSource.data.length) {
+      } @else if (!filteredRuns().length && allRuns().length && !detail()) {
+        <ao-empty-state message="No traces match the current filters." />
+      } @else if (filteredRuns().length) {
         <section
           class="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
         >
           <div
             class="border-b border-neutral-200 px-5 py-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase dark:border-neutral-800"
           >
-            Recent runs
+            Runs
+            <span class="ml-2 font-normal normal-case tracking-normal text-neutral-400">
+              {{ filteredRuns().length
+              }}@if (filteredRuns().length !== allRuns().length) {
+                of {{ allRuns().length }}
+              }
+            </span>
           </div>
           <table mat-table [dataSource]="dataSource" class="w-full">
             <ng-container matColumnDef="runId">
@@ -486,6 +510,8 @@ export class TracesPage implements OnInit, OnDestroy {
   readonly filterClient = signal('');
   readonly filterClientIp = signal('');
   readonly filterCrewOnly = signal(false);
+  /** Full unfiltered list from the live feed. */
+  readonly allRuns = signal<TraceListItem[]>([]);
   readonly viewMode = signal<'diagram' | 'table'>('diagram');
   readonly depthMode = signal<'all' | 'boundary' | 'decisions' | 'crew' | 'tools'>('all');
   readonly columns = [
@@ -503,6 +529,25 @@ export class TracesPage implements OnInit, OnDestroy {
   readonly dataSource = new MatTableDataSource<TraceListItem>([]);
   readonly eventRows = new MatTableDataSource<RunTraceEvent>([]);
 
+  /** Client / IP / crew filters apply locally over the full feed. */
+  readonly filteredRuns = computed(() => {
+    const clientQ = this.filterClient().trim().toLowerCase();
+    const ipQ = this.filterClientIp().trim().toLowerCase();
+    const crewOnly = this.filterCrewOnly();
+    return (this.allRuns() || []).filter((item) => {
+      if (clientQ) {
+        const blob = [item.appId, item.userName, item.userId, item.runId]
+          .map((x) => String(x || ''))
+          .join(' ')
+          .toLowerCase();
+        if (!blob.includes(clientQ)) return false;
+      }
+      if (ipQ && !String(item.clientIp || '').toLowerCase().includes(ipQ)) return false;
+      if (crewOnly && !(item.hasPlan || item.hasDecision || item.hasSteps)) return false;
+      return true;
+    });
+  });
+
   readonly outcomeChip = computed(() => {
     const events = this.detail()?.events || [];
     const last = events[events.length - 1];
@@ -518,7 +563,7 @@ export class TracesPage implements OnInit, OnDestroy {
       if (err) this.error.set(err);
       const snap = this.live.feeds()['traces'] as TracesListResponse | undefined;
       if (!snap) return;
-      this.dataSource.data = snap.runs || [];
+      this.allRuns.set(snap.runs || []);
       if (!this.openedFromQuery) {
         const q =
           String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
@@ -528,6 +573,9 @@ export class TracesPage implements OnInit, OnDestroy {
           this.openId(q);
         }
       }
+    });
+    effect(() => {
+      this.dataSource.data = this.filteredRuns();
     });
   }
 
@@ -545,12 +593,8 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   private listParams() {
-    return {
-      limit: 80,
-      client: this.filterClient().trim(),
-      clientIp: this.filterClientIp().trim(),
-      crewOnly: this.filterCrewOnly(),
-    };
+    // Always fetch the broad list; Client / IP / Crew filter in the UI.
+    return { limit: 500 };
   }
 
   reloadList() {

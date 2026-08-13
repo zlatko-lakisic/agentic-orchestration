@@ -265,32 +265,39 @@ class WsConnection:
         Order: message appId → session overlay → token appId fields →
         identity user_name/user_id when they look like product app ids.
         """
-        from orchestration.llm_usage import looks_like_app_id
+        from orchestration.llm_usage import looks_like_app_id, resolve_product_app_id
 
         app_id = message.get("appId")
         if app_id is None:
             app_id = message.get("app_id")
         app_id_s = str(app_id or "").strip()
-        if app_id_s:
-            return app_id_s
-        try:
-            from orchestration.session_overlay import overlays_for_connection
+        if not app_id_s:
+            try:
+                from orchestration.session_overlay import overlays_for_connection
 
-            for overlay in overlays_for_connection(self.connection_id):
-                if overlay.app_id:
-                    return str(overlay.app_id).strip()
-        except Exception:  # noqa: BLE001
-            pass
-        for key in ("tokenAppId", "token_app_id", "apiAppId", "api_app_id"):
-            cand = str(message.get(key) or "").strip()
-            if cand:
-                return cand
+                for overlay in overlays_for_connection(self.connection_id):
+                    if overlay.app_id:
+                        app_id_s = str(overlay.app_id).strip()
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+        if not app_id_s:
+            for key in ("tokenAppId", "token_app_id", "apiAppId", "api_app_id"):
+                cand = str(message.get(key) or "").strip()
+                if cand:
+                    app_id_s = cand
+                    break
+        user_name = ""
+        user_id = ""
         if self.identity is not None:
-            for cand in (self.identity.user_name, self.identity.user_id):
-                s = str(cand or "").strip()
-                if looks_like_app_id(s):
-                    return s
-        return ""
+            user_name = str(self.identity.user_name or "").strip()
+            user_id = str(self.identity.user_id or "").strip()
+            if not app_id_s:
+                for cand in (user_name, user_id):
+                    if looks_like_app_id(cand):
+                        app_id_s = cand
+                        break
+        return resolve_product_app_id(app_id_s, user_name, user_id)
 
     async def handle_session_overlay_register(self, message: dict[str, Any]) -> None:
         from orchestration.mcp_tunnel import register_connection_bridge

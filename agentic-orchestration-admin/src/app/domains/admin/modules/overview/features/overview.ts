@@ -278,7 +278,7 @@ const DEPENDENCY_ORDER = [
                 <div
                   class="text-3xl font-semibold tabular-nums tracking-tighter"
                 >
-                  {{ live.latestCpuTemp() != null ? (live.latestCpuTemp() | number: '1.0-1') : '—'
+                  {{ live.latestCpuTemp() ?? '—'
                   }}@if (live.latestCpuTemp() != null) {
                     <span class="text-lg text-neutral-500">°C</span>
                   }
@@ -343,7 +343,7 @@ const DEPENDENCY_ORDER = [
                 <div
                   class="text-3xl font-semibold tabular-nums tracking-tighter"
                 >
-                  {{ live.latestGpuTemp() != null ? (live.latestGpuTemp() | number: '1.0-1') : '—'
+                  {{ live.latestGpuTemp() ?? '—'
                   }}@if (live.latestGpuTemp() != null) {
                     <span class="text-lg text-neutral-500">°C</span>
                   }
@@ -732,21 +732,21 @@ export class OverviewPage implements OnInit, OnDestroy {
         name: 'CPU',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.cpu == null ? null : Number(h.cpu.toFixed(1)),
+          y: h.cpu == null ? null : Math.round(h.cpu),
         })),
       },
       {
         name: 'Memory',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.mem == null ? null : Number(h.mem.toFixed(1)),
+          y: h.mem == null ? null : Math.round(h.mem),
         })),
       },
       {
         name: 'Temp',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.cpuTemp == null ? null : Number(h.cpuTemp.toFixed(1)),
+          y: h.cpuTemp == null ? null : Math.round(h.cpuTemp),
         })),
       },
     ];
@@ -759,21 +759,21 @@ export class OverviewPage implements OnInit, OnDestroy {
         name: 'GPU',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.gpu == null ? null : Number(h.gpu.toFixed(1)),
+          y: h.gpu == null ? null : Math.round(h.gpu),
         })),
       },
       {
         name: 'VRAM',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.vram == null ? null : Number(h.vram.toFixed(1)),
+          y: h.vram == null ? null : Math.round(h.vram),
         })),
       },
       {
         name: 'Temp',
         data: hist.map((h) => ({
           x: h.t,
-          y: h.gpuTemp == null ? null : Number(h.gpuTemp.toFixed(1)),
+          y: h.gpuTemp == null ? null : Math.round(h.gpuTemp),
         })),
       },
     ];
@@ -807,8 +807,8 @@ export class OverviewPage implements OnInit, OnDestroy {
           if (v == null || Number.isNaN(Number(v))) return '—';
           const idx = opts?.seriesIndex ?? 0;
           return idx === 2
-            ? `${Number(v).toFixed(1)}°C`
-            : `${Number(v).toFixed(1)}%`;
+            ? `${Math.round(Number(v))}°C`
+            : `${Math.round(Number(v))}%`;
         },
       },
     })
@@ -823,8 +823,8 @@ export class OverviewPage implements OnInit, OnDestroy {
           if (v == null || Number.isNaN(Number(v))) return '—';
           const idx = opts?.seriesIndex ?? 0;
           return idx === 2
-            ? `${Number(v).toFixed(1)}°C`
-            : `${Number(v).toFixed(1)}%`;
+            ? `${Math.round(Number(v))}°C`
+            : `${Math.round(Number(v))}%`;
         },
       },
     })

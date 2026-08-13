@@ -639,6 +639,24 @@ def test_resolve_app_id_falls_back_to_identity_slug(
     assert session._resolve_app_id({}) == "knowbuddy"
 
 
+def test_resolve_app_id_refines_brand_prefix_with_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from orchestration.serve.ws import WsConnection
+
+    session = object.__new__(WsConnection)
+    session.connection_id = "conn-3"
+    session.identity = SimpleNamespace(user_id="comstar-ai", user_name="comstar-ai")
+
+    monkeypatch.setattr(
+        "orchestration.session_overlay.overlays_for_connection",
+        lambda _cid: [],
+    )
+    assert session._resolve_app_id({"appId": "comstar"}) == "comstar-ai"
+
+
 def test_ws_session_overlay_denied_without_app_id(
     kb_root: Path,
     monkeypatch: pytest.MonkeyPatch,

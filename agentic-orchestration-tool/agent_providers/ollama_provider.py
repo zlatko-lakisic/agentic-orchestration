@@ -642,10 +642,9 @@ class OllamaProvider(AgentProvider):
         fetch_tool_needed = bool(fetch_stdio)
         effective_mcps = other_mcps or None
 
-        if effective_mcps or fetch_tool_needed:
-            llm = LLM(model=model, api_base=litellm_api_base_for_ollama())
-        else:
-            llm = model
+        # Always use an LLM object so LiteLLM callbacks see completions
+        # (bare model strings skip api_base + usage hooks on some CrewAI builds).
+        llm = LLM(model=model, api_base=litellm_api_base_for_ollama())
 
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),

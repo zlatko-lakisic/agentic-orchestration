@@ -125,6 +125,39 @@ def looks_like_app_id(raw: Any) -> bool:
     return len(s) >= 4
 
 
+def resolve_product_app_id(
+    app_id: Any = None,
+    user_name: Any = None,
+    user_id: Any = None,
+) -> str:
+    """Pick the best product app id for rollups.
+
+    Prefer a hyphenated identity slug (``comstar-ai``) when the explicit appId is a
+    shorter brand prefix (``comstar``). Fall back to explicit appId, then any
+    identity that looks like an app id.
+    """
+    app = str(app_id or "").strip()
+    refined: list[str] = []
+    for cand in (user_name, user_id):
+        s = str(cand or "").strip()
+        if not looks_like_app_id(s):
+            continue
+        if "-" in s or "_" in s:
+            refined.append(s)
+    app_l = app.lower()
+    for s in refined:
+        sl = s.lower()
+        if not app_l or sl == app_l or sl.startswith(f"{app_l}-") or sl.startswith(f"{app_l}_"):
+            return s
+    if app:
+        return app
+    for cand in (user_name, user_id):
+        s = str(cand or "").strip()
+        if looks_like_app_id(s):
+            return s
+    return ""
+
+
 def normalize_openai_usage(usage: Any) -> dict[str, int | None]:
     """Map OpenAI / LiteLLM usage object or dict to prompt/completion/total."""
     if usage is None:
@@ -218,11 +251,12 @@ def record_llm_usage(
         if not ident.get("tokenId"):
             ident["tokenId"] = os.getenv("AGENTIC_API_TOKEN_ID", "").strip()
         # Older clients sometimes only stamped the product id on userName/userId.
-        if not ident.get("appId"):
-            for cand in (ident.get("userName"), ident.get("userId")):
-                if looks_like_app_id(cand):
-                    ident["appId"] = str(cand).strip()
-                    break
+        # Prefer refined slugs (comstar-ai) over a short brand appId (comstar).
+        ident["appId"] = resolve_product_app_id(
+            ident.get("appId"),
+            ident.get("userName"),
+            ident.get("userId"),
+        )
 
         row: dict[str, Any] = {
             "ts": time.time(),
@@ -378,54 +412,108 @@ def summarize_llm_usage(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def install_litellm_usage_callback() -> None:
-    """Register a LiteLLM success callback that records usage (idempotent)."""
+    """Register a LiteLLM success logger that records usage (idempotent).
+
+    Newer LiteLLM builds no longer reliably invoke bare callables on
+    ``litellm.success_callback``; use ``CustomLogger`` via ``litellm.callbacks``
+    (and the logging callback manager when available).
+    """
     try:
         import litellm
+        from litellm.integrations.custom_logger import CustomLogger
     except Exception:  # noqa: BLE001
         return
 
-    flag = "_agentic_llm_usage_cb"
+    flag = "_agentic_llm_usage_cb_v2"
     if getattr(litellm, flag, False):
         return
 
-    def _cb(kwargs: dict[str, Any], completion_response: Any, start_time: Any, end_time: Any) -> None:  # noqa: ANN401
-        try:
-            usage = None
-            if completion_response is not None:
-                usage = getattr(completion_response, "usage", None)
-                if usage is None and isinstance(completion_response, dict):
-                    usage = completion_response.get("usage")
-            norm = normalize_openai_usage(usage)
-            model = None
-            if isinstance(kwargs, dict):
-                model = kwargs.get("model")
-            if model is None and completion_response is not None:
-                model = getattr(completion_response, "model", None) or (
-                    completion_response.get("model") if isinstance(completion_response, dict) else None
-                )
-            latency_ms = None
-            try:
-                if start_time is not None and end_time is not None:
-                    latency_ms = round((end_time - start_time).total_seconds() * 1000.0, 1)
-            except Exception:  # noqa: BLE001
-                pass
-            record_llm_usage(
-                source="crew_litellm",
-                model=str(model) if model else None,
-                prompt_tokens=norm["prompt_tokens"],
-                completion_tokens=norm["completion_tokens"],
-                total_tokens=norm["total_tokens"],
-                latency_ms=latency_ms,
-                ok=True,
-            )
-        except Exception:  # noqa: BLE001
-            return
+    class _AgenticUsageLogger(CustomLogger):
+        def log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            self._record(kwargs, response_obj, start_time, end_time)
 
+        async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+            self._record(kwargs, response_obj, start_time, end_time)
+
+        def _record(self, kwargs: Any, response_obj: Any, start_time: Any, end_time: Any) -> None:
+            try:
+                usage = None
+                if response_obj is not None:
+                    usage = getattr(response_obj, "usage", None)
+                    if usage is None and isinstance(response_obj, dict):
+                        usage = response_obj.get("usage")
+                norm = normalize_openai_usage(usage)
+                model = None
+                if isinstance(kwargs, dict):
+                    model = kwargs.get("model")
+                if model is None and response_obj is not None:
+                    model = getattr(response_obj, "model", None) or (
+                        response_obj.get("model") if isinstance(response_obj, dict) else None
+                    )
+                latency_ms = None
+                try:
+                    if start_time is not None and end_time is not None:
+                        latency_ms = round((end_time - start_time).total_seconds() * 1000.0, 1)
+                except Exception:  # noqa: BLE001
+                    pass
+                record_llm_usage(
+                    source="crew_litellm",
+                    model=str(model) if model else None,
+                    prompt_tokens=norm["prompt_tokens"],
+                    completion_tokens=norm["completion_tokens"],
+                    total_tokens=norm["total_tokens"],
+                    latency_ms=latency_ms,
+                    ok=True,
+                )
+            except Exception:  # noqa: BLE001
+                return
+
+    handler = _AgenticUsageLogger()
     try:
-        cbs = list(getattr(litellm, "success_callback", None) or [])
-        if _cb not in cbs:
-            cbs.append(_cb)
-            litellm.success_callback = cbs
+        manager = getattr(litellm, "logging_callback_manager", None)
+        if manager is not None and hasattr(manager, "add_litellm_callback"):
+            manager.add_litellm_callback(handler)
+            if hasattr(manager, "add_litellm_success_callback"):
+                manager.add_litellm_success_callback(handler)
+        else:
+            cbs = list(getattr(litellm, "callbacks", None) or [])
+            if handler not in cbs:
+                cbs.append(handler)
+                litellm.callbacks = cbs
+            success = list(getattr(litellm, "success_callback", None) or [])
+            if handler not in success:
+                success.append(handler)
+                litellm.success_callback = success
         setattr(litellm, flag, True)
     except Exception:  # noqa: BLE001
         return
+
+
+def extract_crew_token_usage(result: Any) -> dict[str, int | None]:
+    """Best-effort prompt/completion/total from a CrewAI kickoff result."""
+    if result is None:
+        return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
+    usage: Any = getattr(result, "token_usage", None)
+    if usage is None:
+        usage = getattr(result, "usage_metrics", None)
+    if usage is None and isinstance(result, dict):
+        usage = result.get("token_usage") or result.get("usage_metrics")
+    if usage is None:
+        return {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None}
+    if hasattr(usage, "model_dump"):
+        try:
+            usage = usage.model_dump()
+        except Exception:  # noqa: BLE001
+            pass
+    elif hasattr(usage, "dict") and not isinstance(usage, dict):
+        try:
+            usage = usage.dict()
+        except Exception:  # noqa: BLE001
+            pass
+    if not isinstance(usage, dict):
+        usage = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None),
+            "completion_tokens": getattr(usage, "completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
+    return normalize_openai_usage(usage if isinstance(usage, dict) else None)

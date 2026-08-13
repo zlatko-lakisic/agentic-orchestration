@@ -63,42 +63,35 @@ export class AoLiveWs implements OnDestroy {
     'broker',
   ]);
 
-  readonly latestCpu = computed(() => {
-    const n = this.metrics()?.cpu?.percent;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
-  });
+  readonly latestCpu = computed(() => roundMetric(this.metrics()?.cpu?.percent));
 
   readonly latestMem = computed(() => {
     const m = this.metrics()?.memory;
-    const n = m?.usedPercent ?? m?.percent;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
+    return roundMetric(m?.usedPercent ?? m?.percent);
   });
 
   readonly latestGpu = computed(() => {
     const g = this.metrics()?.gpu;
-    const n = g?.percent;
-    if (n != null && !Number.isNaN(Number(n))) return Number(n);
+    const n = roundMetric(g?.percent);
+    if (n != null) return n;
     const jetson = this.metrics()?.jetson as
       | { gpu?: { percent?: number | null } }
       | null
       | undefined;
-    const j = jetson?.gpu?.percent;
-    return j == null || Number.isNaN(Number(j)) ? null : Number(j);
+    return roundMetric(jetson?.gpu?.percent);
   });
 
-  readonly latestVram = computed(() => {
-    const n = this.metrics()?.gpu?.vramUsedPercent;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
-  });
+  readonly latestVram = computed(() =>
+    roundMetric(this.metrics()?.gpu?.vramUsedPercent),
+  );
 
-  readonly latestCpuTemp = computed(() => {
-    const n = this.metrics()?.cpu?.tempC;
-    return n == null || Number.isNaN(Number(n)) ? null : Number(n);
-  });
+  readonly latestCpuTemp = computed(() =>
+    roundMetric(this.metrics()?.cpu?.tempC),
+  );
 
   readonly latestGpuTemp = computed(() => {
-    const n = this.metrics()?.gpu?.tempC;
-    if (n != null && !Number.isNaN(Number(n))) return Number(n);
+    const n = roundMetric(this.metrics()?.gpu?.tempC);
+    if (n != null) return n;
     const jetson = this.metrics()?.jetson as
       | { temperature?: Record<string, number | { temp?: number } | null> }
       | null
@@ -113,7 +106,8 @@ export class AoLiveWs implements OnDestroy {
           : raw && typeof raw === 'object'
             ? raw.temp
             : null;
-      if (v != null && !Number.isNaN(Number(v))) return Number(v);
+      const rounded = roundMetric(v);
+      if (rounded != null) return rounded;
     }
     return null;
   });
@@ -137,12 +131,13 @@ export class AoLiveWs implements OnDestroy {
   readonly vramLabel = computed(() => {
     const g = this.metrics()?.gpu;
     if (g?.vramTotalGb == null) return null;
-    const total = Number(g.vramTotalGb);
-    if (!Number.isFinite(total)) return null;
-    if (g.vramUsedGb != null && Number.isFinite(Number(g.vramUsedGb))) {
-      return `${Number(g.vramUsedGb).toFixed(1)} / ${total.toFixed(1)} GiB`;
+    const total = roundMetric(g.vramTotalGb);
+    if (total == null) return null;
+    const used = roundMetric(g.vramUsedGb);
+    if (used != null) {
+      return `${used} / ${total} GiB`;
     }
-    return `${total.toFixed(1)} GiB`;
+    return `${total} GiB`;
   });
 
   /** Acquire a shared live connection (call from component ngOnInit). */
@@ -451,32 +446,16 @@ export class AoLiveWs implements OnDestroy {
     }
     this.lastHistoryPushMs = now;
     const t = Date.parse(String(sample.ts || '')) || now;
-    const cpu =
-      sample.cpu?.percent == null || Number.isNaN(Number(sample.cpu.percent))
-        ? null
-        : Number(sample.cpu.percent);
-    const memRaw = sample.memory?.usedPercent ?? sample.memory?.percent;
-    const mem =
-      memRaw == null || Number.isNaN(Number(memRaw)) ? null : Number(memRaw);
+    const cpu = roundMetric(sample.cpu?.percent);
+    const mem = roundMetric(sample.memory?.usedPercent ?? sample.memory?.percent);
     const jetson = sample.jetson as
       | { gpu?: { percent?: number | null } }
       | null
       | undefined;
-    const gpuRaw = sample.gpu?.percent ?? jetson?.gpu?.percent;
-    const gpu =
-      gpuRaw == null || Number.isNaN(Number(gpuRaw)) ? null : Number(gpuRaw);
-    const vramRaw = sample.gpu?.vramUsedPercent;
-    const vram =
-      vramRaw == null || Number.isNaN(Number(vramRaw)) ? null : Number(vramRaw);
-    const cpuTempRaw = sample.cpu?.tempC;
-    const cpuTemp =
-      cpuTempRaw == null || Number.isNaN(Number(cpuTempRaw))
-        ? null
-        : Number(cpuTempRaw);
-    let gpuTemp: number | null =
-      sample.gpu?.tempC == null || Number.isNaN(Number(sample.gpu.tempC))
-        ? null
-        : Number(sample.gpu.tempC);
+    const gpu = roundMetric(sample.gpu?.percent ?? jetson?.gpu?.percent);
+    const vram = roundMetric(sample.gpu?.vramUsedPercent);
+    const cpuTemp = roundMetric(sample.cpu?.tempC);
+    let gpuTemp: number | null = roundMetric(sample.gpu?.tempC);
     if (gpuTemp == null) {
       const temps = (sample.jetson as { temperature?: Record<string, unknown> } | undefined)
         ?.temperature;
@@ -489,8 +468,9 @@ export class AoLiveWs implements OnDestroy {
               : raw && typeof raw === 'object' && 'temp' in raw
                 ? Number((raw as { temp?: unknown }).temp)
                 : null;
-          if (v != null && !Number.isNaN(v)) {
-            gpuTemp = v;
+          const rounded = roundMetric(v);
+          if (rounded != null) {
+            gpuTemp = rounded;
             break;
           }
         }
@@ -545,6 +525,13 @@ export class AoLiveWs implements OnDestroy {
       /* ignore */
     }
   }
+}
+
+function roundMetric(n: unknown): number | null {
+  if (n == null || n === '') return null;
+  const v = Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.round(v);
 }
 
 function formatBytes(n: number): string {
