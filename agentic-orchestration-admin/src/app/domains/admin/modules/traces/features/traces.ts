@@ -614,6 +614,14 @@ export class TracesPage implements OnInit, OnDestroy {
   readonly clock = inject(AoClock);
   private readonly mermaidHost = viewChild<ElementRef<HTMLElement>>('mermaidHost');
   private mermaidGen = 0;
+  /** Preserve horizontal scroll across live-feed MatTable remounts / Mermaid rebuilds. */
+  private mermaidScrollLeft = 0;
+  private lastMermaidSource = '';
+  private scrollBoundHost: HTMLElement | null = null;
+  private readonly onMermaidScroll = () => {
+    const host = this.mermaidHost()?.nativeElement;
+    if (host) this.mermaidScrollLeft = host.scrollLeft;
+  };
   private iconCache = new Map<string, Promise<SVGElement | null>>();
   private openedFromQuery = false;
 
@@ -703,10 +711,23 @@ export class TracesPage implements OnInit, OnDestroy {
     });
     effect(() => {
       this.dataSource.data = this.filteredRuns();
-      // Live feed refreshes recreate MatTable cells; redraw Mermaid if a run is open.
+      // Live feed refreshes may remount MatTable expand cells. Only rebuild Mermaid
+      // if the SVG was lost; otherwise keep the diagram and restore scroll.
       if (this.detail()?.runId && this.viewMode() === 'diagram') {
         this.expandOpen.set(true);
-        this.scheduleMermaidRender();
+        afterNextRender(
+          () => {
+            const host = this.mermaidHost()?.nativeElement;
+            if (!host) return;
+            if (!host.querySelector('svg')) {
+              void this.renderMermaid();
+              return;
+            }
+            this.bindMermaidScroll(host);
+            this.restoreMermaidScroll(host);
+          },
+          { injector: this.injector },
+        );
       }
     });
   }
@@ -721,6 +742,7 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.unbindMermaidScroll();
     this.live.release();
   }
 
@@ -731,6 +753,90 @@ export class TracesPage implements OnInit, OnDestroy {
 
   reloadList() {
     this.live.setFeedParams(this.listParams());
+  }
+
+  private bindMermaidScroll(host: HTMLElement) {
+    if (this.scrollBoundHost === host) return;
+    this.unbindMermaidScroll();
+    this.scrollBoundHost = host;
+    host.addEventListener('scroll', this.onMermaidScroll, { passive: true });
+  }
+
+  private unbindMermaidScroll() {
+    this.scrollBoundHost?.removeEventListener('scroll', this.onMermaidScroll);
+    this.scrollBoundHost = null;
+  }
+
+  private restoreMermaidScroll(host: HTMLElement) {
+    const left = this.mermaidScrollLeft;
+    host.scrollLeft = left;
+    requestAnimationFrame(() => {
+      host.scrollLeft = left;
+    });
+  }
+
+  private async renderMermaid() {
+    if (this.viewMode() !== 'diagram') return;
+    const host = this.mermaidHost()?.nativeElement;
+    const d = this.detail();
+    if (!host || !d?.mermaid) return;
+    if (!window.mermaid) {
+      this.ensureMermaid();
+      return;
+    }
+    const source = String(d.mermaid || '').trim();
+    this.bindMermaidScroll(host);
+    // Same diagram already painted — keep scroll, skip expensive Mermaid rebuild.
+    if (source === this.lastMermaidSource && host.querySelector('svg')) {
+      this.restoreMermaidScroll(host);
+      return;
+    }
+    this.mermaidScrollLeft = host.scrollLeft || this.mermaidScrollLeft;
+    const gen = ++this.mermaidGen;
+    this.initMermaid();
+    // Always rebuild from source — Mermaid mutates the node and won't re-run stale DOM.
+    host.replaceChildren();
+    const next = document.createElement('pre');
+    next.className = 'mermaid whitespace-pre';
+    next.textContent = source;
+    host.appendChild(next);
+    try {
+      await window.mermaid.run({ nodes: [next] });
+      if (gen !== this.mermaidGen) return;
+      const svg = host.querySelector('svg');
+      if (svg instanceof SVGSVGElement) {
+        try {
+          await applyTopologyStylesToMermaidSvg(svg, (icon) => this.loadTopologyIcon(icon));
+        } catch {
+          /* diagram still visible without topology polish */
+        }
+        if (gen !== this.mermaidGen) return;
+        const vb = svg.getAttribute('viewBox');
+        if (vb) {
+          const parts = vb.split(/[\s,]+/).map(Number);
+          if (parts.length === 4 && parts.every(Number.isFinite)) {
+            const w = Math.max(1, Math.ceil(parts[2]));
+            svg.removeAttribute('width');
+            svg.removeAttribute('height');
+            svg.style.width = `${w}px`;
+            svg.style.height = 'auto';
+            svg.style.maxWidth = 'none';
+            svg.style.minWidth = `${w}px`;
+          }
+        }
+      }
+      this.lastMermaidSource = source;
+      this.bindMermaidScroll(host);
+      this.restoreMermaidScroll(host);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Mermaid render failed';
+      host.replaceChildren();
+      const fail = document.createElement('div');
+      fail.className = 'p-4 text-sm text-red-400';
+      fail.textContent = msg;
+      host.appendChild(fail);
+      this.lastMermaidSource = '';
+    }
   }
 
   toggleRow(row: TraceListItem) {
@@ -748,7 +854,11 @@ export class TracesPage implements OnInit, OnDestroy {
     if (!rid) return;
     this.lookupId.set(rid);
     const alreadyOpen = this.detail()?.runId === rid && this.expandOpen();
-    if (!alreadyOpen) this.expandOpen.set(false);
+    if (!alreadyOpen) {
+      this.expandOpen.set(false);
+      this.mermaidScrollLeft = 0;
+      this.lastMermaidSource = '';
+    }
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: rid },
@@ -779,6 +889,9 @@ export class TracesPage implements OnInit, OnDestroy {
   clearDetail() {
     const closingId = this.detail()?.runId || null;
     this.expandOpen.set(false);
+    this.mermaidScrollLeft = 0;
+    this.lastMermaidSource = '';
+    this.unbindMermaidScroll();
     // Allow collapse animation before removing the detail row.
     window.setTimeout(() => {
       if (this.detail()?.runId !== closingId) return;
@@ -972,57 +1085,5 @@ export class TracesPage implements OnInit, OnDestroy {
       this.iconCache.set(key, p);
     }
     return p;
-  }
-
-  private async renderMermaid() {
-    if (this.viewMode() !== 'diagram') return;
-    const host = this.mermaidHost()?.nativeElement;
-    const d = this.detail();
-    if (!host || !d?.mermaid) return;
-    if (!window.mermaid) {
-      this.ensureMermaid();
-      return;
-    }
-    const gen = ++this.mermaidGen;
-    this.initMermaid();
-    // Always rebuild from source — Mermaid mutates the node and won't re-run stale DOM.
-    host.replaceChildren();
-    const next = document.createElement('pre');
-    next.className = 'mermaid whitespace-pre';
-    next.textContent = String(d.mermaid || '').trim();
-    host.appendChild(next);
-    try {
-      await window.mermaid.run({ nodes: [next] });
-      if (gen !== this.mermaidGen) return;
-      const svg = host.querySelector('svg');
-      if (svg instanceof SVGSVGElement) {
-        try {
-          await applyTopologyStylesToMermaidSvg(svg, (icon) => this.loadTopologyIcon(icon));
-        } catch {
-          /* diagram still visible without topology polish */
-        }
-        if (gen !== this.mermaidGen) return;
-        const vb = svg.getAttribute('viewBox');
-        if (vb) {
-          const parts = vb.split(/[\s,]+/).map(Number);
-          if (parts.length === 4 && parts.every(Number.isFinite)) {
-            const w = Math.max(1, Math.ceil(parts[2]));
-            svg.removeAttribute('width');
-            svg.removeAttribute('height');
-            svg.style.width = `${w}px`;
-            svg.style.height = 'auto';
-            svg.style.maxWidth = 'none';
-            svg.style.minWidth = `${w}px`;
-          }
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Mermaid render failed';
-      host.replaceChildren();
-      const fail = document.createElement('div');
-      fail.className = 'p-4 text-sm text-red-400';
-      fail.textContent = msg;
-      host.appendChild(fail);
-    }
   }
 }
