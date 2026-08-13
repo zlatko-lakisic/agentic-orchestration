@@ -28,6 +28,23 @@ _SPOKEN_JSON_KEYS = (
     "summary",
 )
 
+# Presence of these keys usually means machine / HA dumps, not a speakable wrapper.
+_MACHINE_JSON_KEYS = frozenset(
+    {
+        "entity_id",
+        "attributes",
+        "context",
+        "last_changed",
+        "last_updated",
+        "unique_id",
+        "device_id",
+        "parameters",
+        "arguments",
+        "tool_calls",
+        "function_call",
+    }
+)
+
 # LaTeX-style wrappers small models often emit (e.g. "The final answer is $\\boxed{...}$").
 _BOXED_RE = re.compile(
     r"(?:\$)?\\boxed\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}(?:\$)?",
@@ -156,9 +173,15 @@ def _extract_spoken_from_json_value(value: Any, *, depth: int = 0) -> str:
         for v in value.values()
         if isinstance(v, str) and v.strip() and not v.strip().startswith("{")
     ]
+    machineish = any(str(k).strip().lower() in _MACHINE_JSON_KEYS for k in value.keys())
+    if machineish and not any(
+        str(k).strip().lower() in {s.lower() for s in _SPOKEN_JSON_KEYS}
+        for k in value.keys()
+    ):
+        return ""
     if len(str_vals) == 1:
         return str_vals[0]
-    if str_vals:
+    if str_vals and not machineish:
         return max(str_vals, key=len)
 
     # Recurse into nested objects/arrays as a last resort.

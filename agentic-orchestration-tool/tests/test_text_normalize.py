@@ -1,4 +1,8 @@
-from orchestration.text_normalize import sanitize_user_facing_prose, strip_wrapping_quotes
+from orchestration.text_normalize import (
+    sanitize_user_facing_prose,
+    strip_wrapping_quotes,
+    unwrap_json_speakable,
+)
 
 
 def test_strip_wrapping_quotes_straight_double() -> None:
@@ -43,3 +47,45 @@ def test_sanitize_user_facing_prose_strips_format_instruction_echo() -> None:
     echoed = "Please provide your answer using only plain text (short paragraphs or bullet lists)."
     assert looks_like_format_instruction_only(echoed)
     assert sanitize_user_facing_prose(echoed) == ""
+
+
+def test_unwrap_json_speakable_prefers_spoken_keys() -> None:
+    raw = '{"spoken":"The front porch light is on.","entities":["light.porch"]}'
+    assert unwrap_json_speakable(raw) == "The front porch light is on."
+
+
+def test_unwrap_json_speakable_fenced_and_answer_key() -> None:
+    raw = '```json\n{"answer":"Garden got about two inches yesterday."}\n```'
+    assert unwrap_json_speakable(raw) == "Garden got about two inches yesterday."
+
+
+def test_unwrap_json_speakable_leaves_tool_stub_for_leak_detector() -> None:
+    stub = '{"name":"GetLiveContext","parameters":{}}'
+    assert unwrap_json_speakable(stub) == stub
+
+
+def test_unwrap_json_speakable_blanks_opaque_machine_json() -> None:
+    raw = '{"entity_id":"sensor.x","state":"on","attributes":{"foo":1}}'
+    assert unwrap_json_speakable(raw) == ""
+
+
+def test_sanitize_user_facing_prose_unwraps_json_answer(monkeypatch) -> None:
+    """sanitize path: JSON Final Answer → speakable prose (stub media import)."""
+    import sys
+    import types
+
+    stub = types.ModuleType("orchestration.media_grounding")
+    stub.strip_skill_echo_tokens = lambda t: t  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "orchestration.media_grounding", stub)
+
+    assert (
+        sanitize_user_facing_prose('{"spoken":"The porch light is on."}')
+        == "The porch light is on."
+    )
+    assert (
+        sanitize_user_facing_prose(
+            '{"entity_id":"sensor.x","state":"on","attributes":{}}'
+        )
+        == ""
+    )
+    assert sanitize_user_facing_prose('{"name":"GetLiveContext","parameters":{}}') == ""
