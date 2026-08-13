@@ -128,7 +128,7 @@ def test_dynamic_workflow_path(
 
     monkeypatch.setattr(main_mod, "execute_workflow_from_config", _fake_execute)
 
-    code, text, executed = main_mod._run_dynamic_workflow_with_hf_fallback(
+    code, text, executed, _execution = main_mod._run_dynamic_workflow_with_hf_fallback(
         cfg,
         agent_providers_catalog_path=tool_root / "config" / "agent_providers",
         mcp_catalog_path=None,

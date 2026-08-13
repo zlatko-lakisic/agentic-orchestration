@@ -7,6 +7,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Token usage donuts** — charts fill their card width (square host), center labels use on-surface color (readable on dark theme) with smaller type on narrow breakpoints, and live WebSocket updates mutate Apex series in place instead of remounting (no more ~1–2s flicker).
+- **In-process regression unpack** — `test_dynamic_workflow_path` expects the 4-tuple from `_run_dynamic_workflow_with_hf_fallback` (exit, text, cfg, execution).
+
 ### Added
 
 - **Per-app dynamic planning** — sticky prefs keyed by `appId` (`app-prefs.json` beside API tokens): `dynamicPlanning` + `defaultRunMode`. Admin **Access → Dynamic planning by app**; `GET/PUT /api/v1/admin/app-prefs`. HTTP `/api/v1/orchestrate` and `/v1/chat/completions` resolve `runMode` as request → app prefs → default. Engine WS `chat` honors `runMode` / `appId` (Reach overlays supply `appId` when omitted). Reach clients call `SessionBridge.chat` / `runDynamic` for per-call planning.

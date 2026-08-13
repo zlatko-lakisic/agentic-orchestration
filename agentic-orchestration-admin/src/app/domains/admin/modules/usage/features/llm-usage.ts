@@ -117,6 +117,20 @@ function pieFromRows(
     LoadingState,
     StatusChip,
   ],
+  styles: `
+    /* Square host so the donut diameter tracks container width (not a short h-72 box).
+       Cap height so ultra-wide cards don't grow endlessly; still much larger than h-72. */
+    :host ::ng-deep .ao-donut-host {
+      aspect-ratio: 1 / 1;
+      width: 100%;
+      max-height: min(28rem, 70vw);
+      min-height: 16rem;
+      margin-inline: auto;
+    }
+    :host ::ng-deep .ao-donut-host .apexcharts-canvas {
+      margin-inline: auto;
+    }
+  `,
   template: `
     <div
       class="@container mx-auto flex w-full max-w-7xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
@@ -292,23 +306,20 @@ function pieFromRows(
           </div>
           <div class="h-72 w-full px-2 pb-2 pt-4">
             @if (chartSeries().length) {
-              <!-- Remount on each feed snapshot so ApexCharts picks up live series. -->
-              @for (gen of [chartGeneration()]; track gen) {
-                <apx-chart
-                  class="h-full w-full"
-                  [series]="chartSeries()"
-                  [chart]="spendChart.chart"
-                  [colors]="spendChart.colors"
-                  [dataLabels]="spendChart.dataLabels"
-                  [fill]="spendChart.fill"
-                  [grid]="spendChart.grid"
-                  [legend]="spendChart.legend"
-                  [stroke]="spendChart.stroke"
-                  [tooltip]="spendChart.tooltip"
-                  [xaxis]="spendChart.xaxis"
-                  [yaxis]="spendChart.yaxis"
-                />
-              }
+              <apx-chart
+                class="h-full w-full"
+                [series]="chartSeries()"
+                [chart]="spendChart.chart"
+                [colors]="spendChart.colors"
+                [dataLabels]="spendChart.dataLabels"
+                [fill]="spendChart.fill"
+                [grid]="spendChart.grid"
+                [legend]="spendChart.legend"
+                [stroke]="spendChart.stroke"
+                [tooltip]="spendChart.tooltip"
+                [xaxis]="spendChart.xaxis"
+                [yaxis]="spendChart.yaxis"
+              />
             } @else {
               <div
                 class="flex h-full items-center justify-center text-sm text-neutral-500"
@@ -427,22 +438,20 @@ function pieFromRows(
             <mat-card-content class="mt-4 flex flex-col gap-5">
               @if (panelView('composition') === 'diagram') {
                 @if (compositionPie().series.length) {
-                  <div class="h-64 w-full px-2">
-                    @for (gen of [chartGeneration()]; track gen) {
-                      <apx-chart
-                        class="h-full w-full"
-                        [series]="compositionPie().series"
-                        [chart]="donutChart.chart"
-                        [colors]="donutChart.colors"
-                        [dataLabels]="donutChart.dataLabels"
-                        [labels]="compositionPie().labels"
-                        [legend]="donutChart.legend"
-                        [plotOptions]="donutChart.plotOptions"
-                        [responsive]="donutChart.responsive"
-                        [stroke]="donutChart.stroke"
-                        [tooltip]="donutChart.tooltip"
-                      />
-                    }
+                  <div class="ao-donut-host w-full px-2">
+                    <apx-chart
+                      class="h-full w-full"
+                      [series]="compositionPie().series"
+                      [chart]="donutChart.chart"
+                      [colors]="donutChart.colors"
+                      [dataLabels]="donutChart.dataLabels"
+                      [labels]="compositionPie().labels"
+                      [legend]="donutChart.legend"
+                      [plotOptions]="donutChart.plotOptions"
+                      [responsive]="donutChart.responsive"
+                      [stroke]="donutChart.stroke"
+                      [tooltip]="donutChart.tooltip"
+                    />
                   </div>
                 } @else {
                   <div class="px-2 pb-2 text-sm text-neutral-500">
@@ -524,22 +533,20 @@ function pieFromRows(
                     No rows yet.
                   </div>
                 } @else if (panelView(block.id) === 'diagram') {
-                  <div class="h-72 w-full px-2 pb-4 pt-2">
-                    @for (gen of [chartGeneration() + block.id]; track gen) {
-                      <apx-chart
-                        class="h-full w-full"
-                        [series]="block.pie.series"
-                        [chart]="donutChart.chart"
-                        [colors]="donutChart.colors"
-                        [dataLabels]="donutChart.dataLabels"
-                        [labels]="block.pie.labels"
-                        [legend]="donutChart.legend"
-                        [plotOptions]="donutChart.plotOptions"
-                        [responsive]="donutChart.responsive"
-                        [stroke]="donutChart.stroke"
-                        [tooltip]="donutChart.tooltip"
-                      />
-                    }
+                  <div class="ao-donut-host w-full px-2 pb-4 pt-2">
+                    <apx-chart
+                      class="h-full w-full"
+                      [series]="block.pie.series"
+                      [chart]="donutChart.chart"
+                      [colors]="donutChart.colors"
+                      [dataLabels]="donutChart.dataLabels"
+                      [labels]="block.pie.labels"
+                      [legend]="donutChart.legend"
+                      [plotOptions]="donutChart.plotOptions"
+                      [responsive]="donutChart.responsive"
+                      [stroke]="donutChart.stroke"
+                      [tooltip]="donutChart.tooltip"
+                    />
                   </div>
                 } @else {
                   <table mat-table [dataSource]="block.rows" class="w-full">
@@ -605,10 +612,6 @@ export class LlmUsagePage implements OnInit, OnDestroy {
       this.live.feedErrors()['llm_usage'] || this.live.feedErrors()['_'];
     return e || null;
   });
-
-  readonly chartGeneration = computed(
-    () => String(this.data()?.generatedAt || '') || String(this.data()?.llm?.grandTotal?.totalTokens ?? 0),
-  );
 
   readonly updatedAgo = computed(() => {
     const iso = this.data()?.generatedAt;
@@ -833,8 +836,9 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     chart: {
       animations: { enabled: false },
       fontFamily: 'inherit',
-      foreColor: 'inherit',
+      foreColor: 'var(--mat-sys-on-surface)',
       height: '100%',
+      width: '100%',
       type: 'donut',
       toolbar: { show: false },
     } as ApexChart,
@@ -842,26 +846,37 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     dataLabels: {
       enabled: true,
       formatter: (val: number) => `${Math.round(val)}%`,
-      style: { fontSize: '11px' },
+      style: {
+        fontSize: '12px',
+        colors: ['var(--mat-sys-on-surface)'],
+      },
       dropShadow: { enabled: false },
     } as ApexDataLabels,
     legend: {
       show: true,
       position: 'bottom',
       fontSize: '12px',
+      labels: { colors: 'var(--mat-sys-on-surface)' },
       itemMargin: { horizontal: 8, vertical: 2 },
     } as ApexLegend,
     plotOptions: {
       pie: {
+        expandOnClick: false,
         donut: {
-          size: '62%',
+          size: '58%',
           labels: {
             show: true,
-            name: { show: true, fontSize: '12px', offsetY: -4 },
+            name: {
+              show: true,
+              fontSize: '13px',
+              offsetY: -4,
+              color: 'var(--mat-sys-on-surface)',
+            },
             value: {
               show: true,
-              fontSize: '18px',
+              fontSize: '22px',
               fontWeight: 600,
+              color: 'var(--mat-sys-on-surface)',
               formatter: (v: string) => {
                 const n = Number(v);
                 if (!Number.isFinite(n)) return v;
@@ -873,7 +888,8 @@ export class LlmUsagePage implements OnInit, OnDestroy {
             total: {
               show: true,
               label: 'Tokens',
-              fontSize: '12px',
+              fontSize: '13px',
+              color: 'var(--mat-sys-on-surface)',
               formatter: (w: {
                 globals: { seriesTotals: number[] };
               }) => {
@@ -892,9 +908,37 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     } as ApexPlotOptions,
     responsive: [
       {
-        breakpoint: 640,
+        breakpoint: 768,
         options: {
-          legend: { position: 'bottom' },
+          plotOptions: {
+            pie: {
+              donut: {
+                labels: {
+                  name: { fontSize: '11px' },
+                  value: { fontSize: '16px' },
+                  total: { fontSize: '11px' },
+                },
+              },
+            },
+          },
+          dataLabels: { style: { fontSize: '10px' } },
+        },
+      },
+      {
+        breakpoint: 480,
+        options: {
+          plotOptions: {
+            pie: {
+              donut: {
+                labels: {
+                  name: { fontSize: '10px' },
+                  value: { fontSize: '14px' },
+                  total: { fontSize: '10px' },
+                },
+              },
+            },
+          },
+          dataLabels: { style: { fontSize: '9px' } },
         },
       },
     ] as ApexResponsive[],
