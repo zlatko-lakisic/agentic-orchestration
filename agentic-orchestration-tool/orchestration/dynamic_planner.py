@@ -54,6 +54,7 @@ from orchestration.agent_providers_catalog import (
     load_agent_providers_catalog_merged,
 )
 from agent_providers.ollama_provider import litellm_api_base_for_ollama
+from orchestration.ollama_catalog_filter import filter_catalog_by_pulled_ollama_models
 
 
 def _planner_llm_progress_log(*, resolved_model: str, messages: list[dict[str, str]]) -> None:
@@ -1556,6 +1557,26 @@ def build_dynamic_workflow_config(
                 f"provider(s) (dropped {before - len(entries)} cloud)",
                 file=sys.stderr,
             )
+
+    before_pull = len(entries)
+    entries = filter_catalog_by_pulled_ollama_models(
+        entries,
+        verbose=not quiet,
+        log_prefix="(dynamic) catalog",
+    )
+    if not entries:
+        raise RuntimeError(
+            "No agent providers left after filtering to Ollama models present at "
+            f"{litellm_api_base_for_ollama()}. Pull the model (ollama pull …), clear "
+            "chat agent selection chips so env defaults apply, or disable with "
+            "AGENTIC_DISABLE_OLLAMA_PULL_FILTER=1."
+        )
+    if not quiet and before_pull != len(entries):
+        print(
+            f"(dynamic) catalog: kept {len(entries)} provider(s) with pulled Ollama "
+            f"models (dropped {before_pull - len(entries)} unpulled)",
+            file=sys.stderr,
+        )
 
     limit = max_steps
     if limit is None:

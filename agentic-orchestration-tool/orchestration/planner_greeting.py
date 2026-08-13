@@ -14,6 +14,7 @@ from orchestration.agent_providers_catalog import (
 from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.dynamic_planner import _planner_chat_completion
 from orchestration.hardware_profile import filter_catalog_by_hardware
+from orchestration.ollama_catalog_filter import filter_catalog_by_pulled_ollama_models
 from orchestration.text_normalize import strip_wrapping_quotes
 
 
@@ -65,6 +66,11 @@ def _load_greeting_catalog(tool_root: Path) -> list[dict[str, Any]]:
         log_prefix="planner greet",
     )
     entries, _excluded, _vram, _arch = filter_catalog_by_hardware(entries)
+    entries = filter_catalog_by_pulled_ollama_models(
+        entries,
+        verbose=False,
+        log_prefix="(planner greet) catalog",
+    )
     return entries
 
 

@@ -9,6 +9,9 @@ spec:
               mountPath: /app/orchestration/ollama_keepalive.py
               subPath: ollama_keepalive.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/ollama_catalog_filter.py
+              subPath: ollama_catalog_filter.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/ollama_serve_lifecycle.py
               subPath: ollama_serve_lifecycle.py
             - name: tool-hotfix-orchestration

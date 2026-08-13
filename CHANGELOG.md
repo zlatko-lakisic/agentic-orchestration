@@ -19,6 +19,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Dynamic planner schedules unpulled Ollama models** — catalog entries whose `model` is missing from `OLLAMA_API_BASE` `/api/tags` are skipped (e.g. chat chips naming `ollama_mistral_nemo` when `mistral-nemo` is not pulled). Log: `skipping '…': model '…' not pulled`. Disable with `AGENTIC_DISABLE_OLLAMA_PULL_FILTER=1`.
 - **Traces sequence labels client as app id** — Mermaid left lifeline shows `ao-chat` / Reach `appId` from `request_start` instead of the generic `client` label.
 - **Warm-pool steps omit Token usage** — `execute_step` (k8s warm-pool / Jobs) kicked off CrewAI without installing the LiteLLM usage callback or recording crew token totals, so Jetson Admin Token usage stayed nearly empty aside from planner rows. Install the same hooks as in-process crew runs.
 - **Warm-pool Admin Traces / usage hostPaths** — workers wrote `__orchestrator_run_traces__` and `__orchestrator_llm_usage__` into the ephemeral pod FS, so Jetson Admin Traces stayed empty. Mount the same host dirs as coordinator/engine by default (`warm-pool.yaml` + deploy patches).
@@ -32,6 +33,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Changed
 
+- **Jetson Ollama pull script** — `jetson-pull-ollama-models.sh` pulls CORE models first (planner + common edge set), then OPTIONAL catalog tags; `AGENTIC_JETSON_PULL_OPTIONAL_MODELS=0` skips optional. Catalog README documents chip override vs env pin and pulled-model scheduling.
 - **Jetson storage on NVMe** — project canonical path `/mnt/nvme/projects/agentic-orchestration` (symlink from `/var/projects/agentic-orchestration`); Ollama models on `/mnt/nvme/ollama/models` instead of NFS. One-time: `scripts/jetson-migrate-to-nvme.sh`.
 - **Token usage by agent** — Admin Token dashboard donut is **By agent** (catalog agent provider id) instead of By model. Each model call is attributed to the active agent; historical rows fall back to run-trace `agent_start` / unique catalog model→agent maps when the ledger predates `agentProviderId`.
 - **Shared model labels** — LiteLLM prefixes (`ollama/…`) are stripped in the usage ledger and Admin rollups so `ollama/qwen2.5:14b-instruct` and `qwen2.5:14b-instruct` count as one model.

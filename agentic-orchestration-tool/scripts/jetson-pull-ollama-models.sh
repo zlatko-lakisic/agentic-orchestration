@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
-# Pull Jetson-friendly Ollama models into AGENTIC_OLLAMA_MODELS_HOSTPATH
+# Pull Jetson Ollama models into AGENTIC_OLLAMA_MODELS_HOSTPATH
 # (default /mnt/nvme/ollama/models). Safe to re-run.
+#
+# Catalog YAMLs under config/agent_providers_jetson map 1:1 to these tags.
+# The dynamic planner only schedules agents whose models appear in
+# OLLAMA_API_BASE /api/tags (see filter_catalog_by_pulled_ollama_models).
+# Pull CORE first for a usable chat path; OPTIONAL fills the rest of the catalog.
 set -u
 MODELS_DIR="${AGENTIC_OLLAMA_MODELS_HOSTPATH:-/mnt/nvme/ollama/models}"
 export OLLAMA_MODELS="${MODELS_DIR}"
 mkdir -p "${MODELS_DIR}"
 
-models=(
+# Default planner + currently prioritized edge set (fast / already common on NVMe).
+core_models=(
   llama3.2:3b
   gemma4:e2b
   gemma4:e4b
-  gemma4:12b
   gemma4:26b
   qwen3.5:4b
   qwen3.5:9b
+)
+
+# Remaining agent_providers_jetson models (larger / secondary).
+optional_models=(
+  gemma4:12b
   qwen3.5:27b
   llama3.1:8b
   muse-glimmer
@@ -28,6 +38,11 @@ models=(
   granite4.1:8b
   phi4
 )
+
+models=("${core_models[@]}")
+if [[ "${AGENTIC_JETSON_PULL_OPTIONAL_MODELS:-1}" != "0" ]]; then
+  models+=("${optional_models[@]}")
+fi
 
 ok=0
 fail=0
