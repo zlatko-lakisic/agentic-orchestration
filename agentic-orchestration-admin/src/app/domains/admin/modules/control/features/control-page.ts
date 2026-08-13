@@ -14,6 +14,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   controlConfirmSpec,
@@ -34,6 +35,7 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
     MatDialogModule,
     MatIconModule,
     ErrorState,
+    LoadingState,
     StatusChip,
   ],
   template: `
@@ -62,6 +64,12 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
         <ao-error-state [message]="error()!" />
       }
 
+      @if (live.feedLoading('control')) {
+        <ao-loading-state
+          title="Loading control"
+          message="Connecting to the live control feed…"
+        />
+      } @else {
       @if (flash()) {
         <mat-card appearance="outlined">
           <mat-card-content class="pt-4 text-sm text-teal-800 dark:text-teal-200">
@@ -177,6 +185,7 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
             · {{ (last.requestedAt || last.at) | date: 'medium' }}
           }
         </p>
+      }
       }
     </div>
   `,

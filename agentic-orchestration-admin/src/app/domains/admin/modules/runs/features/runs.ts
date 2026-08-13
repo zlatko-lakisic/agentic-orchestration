@@ -16,6 +16,7 @@ import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 
 @Component({
   selector: 'ao-runs-page',
@@ -29,6 +30,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     RouterLink,
     EmptyState,
     ErrorState,
+    LoadingState,
   ],
   template: `
     <div class="mx-auto flex h-full w-full max-w-7xl flex-auto flex-col overflow-hidden">
@@ -164,7 +166,12 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
             <ao-error-state [message]="error()!" />
           }
 
-          @if (!dataSource.data.length && !error()) {
+          @if (live.feedLoading('runs')) {
+            <ao-loading-state
+              title="Loading runs"
+              message="Connecting to the live runs feed…"
+            />
+          } @else if (!dataSource.data.length && !error()) {
             <ao-empty-state message="No runs visible from this process yet." />
           } @else {
             <table mat-table [dataSource]="dataSource" class="w-full">

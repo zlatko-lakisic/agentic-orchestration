@@ -10,11 +10,12 @@ import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { StorageEntry, StorageResponse } from '@/app/core/ao-api/types';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 @Component({
   selector: 'ao-data-page',
-  imports: [MatTableModule, StatusChip, ErrorState],
+  imports: [MatTableModule, StatusChip, ErrorState, LoadingState],
   template: `
     <div
       class="@container mx-auto flex w-full max-w-7xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
@@ -32,6 +33,12 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         <ao-error-state [message]="error()!" />
       }
 
+      @if (live.feedLoading('storage')) {
+        <ao-loading-state
+          title="Loading storage"
+          message="Connecting to the live storage feed…"
+        />
+      } @else {
       <div class="relative overflow-hidden rounded-xl border">
         <table
           class="-mt-px w-full border-separate border-spacing-0 whitespace-nowrap"
@@ -139,6 +146,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           ></tr>
         </table>
       </div>
+      }
     </div>
   `,
 })

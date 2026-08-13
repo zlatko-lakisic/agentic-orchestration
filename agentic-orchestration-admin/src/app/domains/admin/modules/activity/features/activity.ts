@@ -7,6 +7,7 @@ import { RouterLink } from '@angular/router';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { TopologyResponse } from '@/app/core/ao-api/types';
 import { ChangeSetStore } from '@/app/core/ao-changeset/changeset.store';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 type TimelineItem = {
@@ -26,6 +27,7 @@ type TimelineItem = {
     MatButtonModule,
     MatIconModule,
     RouterLink,
+    LoadingState,
     StatusChip,
   ],
   template: `
@@ -93,7 +95,16 @@ type TimelineItem = {
               </div>
             </div>
           } @empty {
-            <p class="text-sm text-neutral-500">Waiting for events…</p>
+            @if (
+              live.feedLoading('fingerprint') || live.feedLoading('topology')
+            ) {
+              <ao-loading-state
+                title="Loading activity"
+                message="Connecting to live feeds…"
+              />
+            } @else {
+              <p class="text-sm text-neutral-500">No activity events yet.</p>
+            }
           }
         </mat-card-content>
       </mat-card>

@@ -12,6 +12,7 @@ import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
 import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import { MintTokenDialog } from './mint-token-dialog';
 
@@ -29,6 +30,7 @@ import { MintTokenDialog } from './mint-token-dialog';
     MatTableModule,
     EmptyState,
     ErrorState,
+    LoadingState,
     StatusChip,
   ],
   template: `
@@ -53,6 +55,11 @@ import { MintTokenDialog } from './mint-token-dialog';
           <mat-card-content class="pt-3">
             @if (error()) {
               <ao-error-state [message]="error()!" />
+            } @else if (live.feedLoading('access')) {
+              <ao-loading-state
+                title="Loading access"
+                message="Connecting to the live access feed…"
+              />
             } @else if (!tokens().length) {
               <ao-empty-state
                 title="No API tokens"
@@ -209,7 +216,7 @@ import { MintTokenDialog } from './mint-token-dialog';
 })
 export class AccessApiTokens implements OnInit {
   private readonly api = inject(AoApi);
-  private readonly live = inject(AoLiveWs);
+  readonly live = inject(AoLiveWs);
   private readonly webAuth = inject(WebAuth);
   private readonly dialog = inject(MatDialog);
 

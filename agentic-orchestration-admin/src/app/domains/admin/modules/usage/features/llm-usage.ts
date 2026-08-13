@@ -39,8 +39,8 @@ import {
   LlmUsageResponse,
   LlmUsageRollupRow,
 } from '@/app/core/ao-api/types';
-import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 /**
@@ -63,8 +63,8 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
     DatePipe,
     NgClass,
     ChartComponent,
-    EmptyState,
     ErrorState,
+    LoadingState,
     StatusChip,
   ],
   template: `
@@ -431,7 +431,10 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           }
         </div>
       } @else if (!error()) {
-        <ao-empty-state message="Waiting for live token usage feed…" />
+        <ao-loading-state
+          title="Loading token usage"
+          message="Connecting to the live usage feed…"
+        />
       }
     </div>
   `,

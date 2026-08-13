@@ -197,6 +197,18 @@ export class AoLiveWs implements OnDestroy {
     return (raw as T) ?? null;
   }
 
+  /**
+   * True until the first snapshot (or error) arrives for an admin feed topic.
+   * Use this to show a loading animation instead of an empty-state flash.
+   */
+  feedLoading(topic: string): boolean {
+    const t = String(topic || '').trim();
+    if (!t) return false;
+    const errors = this.feedErrors();
+    if (errors[t] || errors['_']) return false;
+    return !Object.prototype.hasOwnProperty.call(this.feeds(), t);
+  }
+
   resyncTopology() {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;

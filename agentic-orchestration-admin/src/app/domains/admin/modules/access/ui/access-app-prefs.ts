@@ -12,6 +12,7 @@ import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AppPlanningPrefs } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 
 @Component({
   selector: 'ao-access-app-prefs',
@@ -28,6 +29,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
     MatTableModule,
     EmptyState,
     ErrorState,
+    LoadingState,
   ],
   template: `
     <mat-card appearance="outlined">
@@ -72,7 +74,12 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
           </button>
         </div>
 
-        @if (!apps().length) {
+        @if (live.feedLoading('access')) {
+          <ao-loading-state
+            title="Loading app prefs"
+            message="Connecting to the live access feed…"
+          />
+        } @else if (!apps().length) {
           <ao-empty-state
             title="No app planning prefs"
             message="Mint an API token or save prefs for a Reach appId to enable sticky dynamic planning."
@@ -126,7 +133,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 })
 export class AccessAppPrefs implements OnInit {
   private readonly api = inject(AoApi);
-  private readonly live = inject(AoLiveWs);
+  readonly live = inject(AoLiveWs);
 
   readonly columns = ['appId', 'dynamicPlanning', 'defaultRunMode'];
   readonly apps = signal<AppPlanningPrefs[]>([]);

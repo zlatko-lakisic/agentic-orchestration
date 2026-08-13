@@ -16,6 +16,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { TopologyStore } from '../data/topology.store';
 import {
   PositionedEdge,
@@ -65,6 +66,7 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
     MatMenuModule,
     MatTooltipModule,
     ErrorState,
+    LoadingState,
     TopologyCanvas,
     TopologyTable,
     TopologyLegend,
@@ -176,7 +178,10 @@ export function formatTopologyGeneratedAt(raw: string | null | undefined): strin
       }
 
       @if (store.loading()) {
-        <div class="text-sm text-neutral-500">Loading topology…</div>
+        <ao-loading-state
+          title="Loading topology"
+          message="Connecting to the live topology feed…"
+        />
       } @else if (useTable()) {
         @if (forceTable() && !store.tableMode()) {
           <p class="text-sm text-neutral-500">

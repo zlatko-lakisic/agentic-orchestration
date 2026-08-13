@@ -30,6 +30,7 @@ import {
 } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyTopologyStylesToMermaidSvg,
@@ -64,6 +65,7 @@ declare global {
     RouterLink,
     EmptyState,
     ErrorState,
+    LoadingState,
     StatusChip,
   ],
   styles: [
@@ -379,7 +381,12 @@ declare global {
         </section>
       }
 
-      @if (!allRuns().length && !error() && !detail()) {
+      @if (live.feedLoading('traces') && !detail()) {
+        <ao-loading-state
+          title="Loading traces"
+          message="Connecting to the live traces feed…"
+        />
+      } @else if (!allRuns().length && !error() && !detail()) {
         <ao-empty-state
           message="No run traces yet. Complete a chat or engine run to populate __orchestrator_run_traces__."
         />
