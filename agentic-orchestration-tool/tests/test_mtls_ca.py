@@ -75,12 +75,11 @@ def test_issue_server_cert_ip_san(tmp_path: Path) -> None:
     san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     dns = set(san.get_values_for_type(x509.DNSName))
     ips = set(san.get_values_for_type(x509.IPAddress))
-    assert "nvr.mostardesigns.com" in dns
-    assert "localhost" in dns
+    assert {"nvr.mostardesigns.com", "localhost"} <= dns
     assert IPv4Address("10.0.10.16") in ips
     assert IPv4Address("127.0.0.1") in ips
     # Must not encode the IP as a DNS name
-    assert "10.0.10.16" not in dns
+    assert not ({"10.0.10.16"} & dns)
 
 
 def test_sign_csr_requires_cn(tmp_path: Path) -> None:

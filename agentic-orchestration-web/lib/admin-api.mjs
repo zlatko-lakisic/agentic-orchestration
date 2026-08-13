@@ -1147,48 +1147,48 @@ function buildCatalogs(kind, { toolRoot }) {
       : path.join(toolRoot, catalogOverride)
     : path.join(toolRoot, "config", "agent_providers");
 
-  const map = {
-    agents: () => {
-      const entries = listYamlCatalog(agentDir, "agents").map((e) => {
-        const gate = credentialGateForAgent(e, env);
-        return { ...e, ...gate };
-      });
-      return entries;
-    },
-    mcp: () => {
-      const dir = path.join(toolRoot, "config", "mcp_providers");
-      return listYamlCatalog(dir, "mcp").map((e) => {
-        const gate = credentialGateForMcp(e, env);
-        return { ...e, ...gate };
-      });
-    },
-    skills: () => listYamlCatalog(path.join(toolRoot, "config", "agent_skills"), "skills"),
-    rag: () => listYamlCatalog(path.join(toolRoot, "config", "rag_sources"), "rag"),
-    workflows: () => listYamlCatalog(path.join(toolRoot, "config", "workflows"), "workflows"),
-    harnesses: () => listYamlCatalog(path.join(toolRoot, "config", "agent_harnesses"), "harnesses"),
-    societies: () => {
-      const examples = path.join(toolRoot, "..", "examples", "verticals", "society_research_panel");
-      const entries = [];
-      if (fs.existsSync(examples)) {
-        for (const n of fs.readdirSync(examples)) {
-          if (!n.endsWith(".yaml") && !n.endsWith(".yml")) continue;
-          entries.push({
-            id: path.basename(n, path.extname(n)),
-            kind: "societies",
-            file: n,
-            status: "available",
-            description: "Society charter example",
-            gateReason: null,
-          });
-        }
+  const catalogKind = String(kind || "").trim();
+  let entries = null;
+  if (catalogKind === "agents") {
+    entries = listYamlCatalog(agentDir, "agents").map((e) => {
+      const gate = credentialGateForAgent(e, env);
+      return { ...e, ...gate };
+    });
+  } else if (catalogKind === "mcp") {
+    const dir = path.join(toolRoot, "config", "mcp_providers");
+    entries = listYamlCatalog(dir, "mcp").map((e) => {
+      const gate = credentialGateForMcp(e, env);
+      return { ...e, ...gate };
+    });
+  } else if (catalogKind === "skills") {
+    entries = listYamlCatalog(path.join(toolRoot, "config", "agent_skills"), "skills");
+  } else if (catalogKind === "rag") {
+    entries = listYamlCatalog(path.join(toolRoot, "config", "rag_sources"), "rag");
+  } else if (catalogKind === "workflows") {
+    entries = listYamlCatalog(path.join(toolRoot, "config", "workflows"), "workflows");
+  } else if (catalogKind === "harnesses") {
+    entries = listYamlCatalog(path.join(toolRoot, "config", "agent_harnesses"), "harnesses");
+  } else if (catalogKind === "societies") {
+    const examples = path.join(toolRoot, "..", "examples", "verticals", "society_research_panel");
+    entries = [];
+    if (fs.existsSync(examples)) {
+      for (const n of fs.readdirSync(examples)) {
+        if (!n.endsWith(".yaml") && !n.endsWith(".yml")) continue;
+        entries.push({
+          id: path.basename(n, path.extname(n)),
+          kind: "societies",
+          file: n,
+          status: "available",
+          description: "Society charter example",
+          gateReason: null,
+        });
       }
-      return entries;
-    },
-  };
+    }
+  } else {
+    return null;
+  }
 
-  const fn = map[kind];
-  if (!fn) return null;
-  return { kind, entries: fn(), generatedAt: new Date().toISOString() };
+  return { kind: catalogKind, entries, generatedAt: new Date().toISOString() };
 }
 
 function buildCatalogDetail(kind, id, ctx) {
@@ -1348,6 +1348,45 @@ function buildStorageInventory({ toolRoot }) {
   };
 }
 
+/**
+ * Trust material for probing the local AO engine over HTTPS.
+ * Prefer AGENTIC_SERVE_TLS_CA_FILE; fall back to the server cert (self-signed).
+ * Never disables certificate validation (`rejectUnauthorized: false`).
+ * @returns {Buffer|null}
+ */
+function loadEngineTlsCaPem() {
+  const candidates = [
+    String(process.env.AGENTIC_SERVE_TLS_CA_FILE || "").trim(),
+    String(process.env.AGENTIC_SERVE_TLS_CERTFILE || "").trim(),
+  ].filter(Boolean);
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath);
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/**
+ * Apply HTTPS options for engine probes / admin proxy calls.
+ * Verifies the cert against the AO CA (or self-signed cert) while allowing
+ * internal DNS/hostPort names that may not match the certificate SAN.
+ * @param {import("node:https").RequestOptions} opts
+ * @param {boolean} trustPrivateEngine
+ */
+function applyEngineHttpsTrust(opts, trustPrivateEngine) {
+  if (!trustPrivateEngine) return;
+  const ca = loadEngineTlsCaPem();
+  if (!ca) return;
+  opts.ca = ca;
+  // Signature/CA verified; skip hostname match for in-cluster Service DNS / hostPort.
+  opts.checkServerIdentity = () => undefined;
+}
+
 function fetchJson(url, timeoutMs = 2000, tlsInsecure = false) {
   return fetchJsonRequest(url, { timeoutMs, tlsInsecure });
 }
@@ -1365,8 +1404,8 @@ function fetchJsonRequest(url, { method = "GET", body = null, timeoutMs = 2000, 
           ? { "Content-Type": "application/json", "Content-Length": String(payload.length) }
           : {},
       };
-      if (u.protocol === "https:" && tlsInsecure) {
-        opts.rejectUnauthorized = false;
+      if (u.protocol === "https:") {
+        applyEngineHttpsTrust(opts, Boolean(tlsInsecure));
       }
       const req = lib.request(url, opts, (res) => {
         let text = "";
