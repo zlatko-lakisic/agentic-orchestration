@@ -45,8 +45,11 @@ def test_append_and_read_run_events(tmp_path: Path) -> None:
     assert "planner" in mermaid
     assert "orchestrator" in mermaid  # touched via run_end
     assert "->>" in mermaid
-    assert "-->>" in mermaid  # synthesized select/plan returns + run_end
-    assert "select" in mermaid
+    assert "-->>" in mermaid  # plan return + run_end
+    assert "select" not in mermaid  # planned agents are notes, not fake calls
+    assert "Note over planner" in mermaid
+    assert "a1" in mermaid
+    assert "participant a1" not in mermaid  # agent not executed → no lifeline
     listed = list_recent_trace_runs(tmp_path, limit=10)
     assert listed and listed[0]["runId"] == "runabc"
     assert listed[0]["durationMs"] is not None

@@ -59,6 +59,33 @@ test("eventsToMermaid puts token helps on model_call arrows and restores ok retu
   assert.ok(tokenHelps[0].messageIndex < tokenHelps[1].messageIndex);
 });
 
+test("eventsToMermaid keeps plan intent as notes without fake agent select arrows", () => {
+  const { mermaid } = eventsToMermaid([
+    { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
+    {
+      kind: "plan",
+      actor: "planner",
+      message: "two steps",
+      detail: { agents: ["gpt_research"], mcps: ["tavily"], skills: ["web"] },
+    },
+    {
+      kind: "decision",
+      actor: "planner",
+      detail: {
+        steps: [{ id: "s1", agent_provider_id: "gpt_research", mcps: ["tavily"] }],
+      },
+    },
+    { kind: "run_end", actor: "engine", message: "ok" },
+  ]);
+  assert.match(mermaid, /->>planner: plan/);
+  assert.match(mermaid, /Note over planner:.*gpt_research/);
+  assert.match(mermaid, /Note over planner:.*s1 gpt_research/);
+  assert.doesNotMatch(mermaid, /: select/);
+  assert.doesNotMatch(mermaid, /participant gpt_research/);
+  assert.doesNotMatch(mermaid, /participant mcp\b/);
+  assert.doesNotMatch(mermaid, /participant skills\b/);
+});
+
 test("isSecretKey detects credentials", () => {
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);
   assert.equal(isSecretKey("HOME_ASSISTANT_TOKEN"), true);

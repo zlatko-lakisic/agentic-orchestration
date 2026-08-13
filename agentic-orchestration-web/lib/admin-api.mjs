@@ -2158,51 +2158,49 @@ function eventsToMermaid(events) {
       pushMsg(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
       stack = ["client", actor];
     } else if (kind === "plan") {
+      // Plan intent only — do not synthesize agent/mcp/skill call arrows.
+      // Actual invocations appear as agent_start / step_start / model_call / tool_call / mcp_call.
       pushMsg(`  ${caller}->>${actor}: plan`);
       const note = shortMermaidLabel(ev.message || "");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
-      for (const ag of (detail.agents || []).slice(0, 8)) {
-        const aid = ensure(`agent:${ag}`);
-        pushMsg(`  ${actor}->>${aid}: select`);
-        pushMsg(`  ${aid}-->>${actor}: ok`);
+      const planned = [];
+      const agents = Array.isArray(detail.agents) ? detail.agents : [];
+      if (agents.length) {
+        planned.push(`agents ${agents.slice(0, 6).map(String).join(", ")}`);
       }
       if ((detail.mcps || []).length) {
-        const mid = ensure("mcp");
-        pushMsg(
-          `  ${actor}->>${mid}: ${shortMermaidLabel((detail.mcps || []).slice(0, 3).join(", "))}`,
-        );
-        pushMsg(`  ${mid}-->>${actor}: ok`);
+        planned.push(`mcp ${(detail.mcps || []).slice(0, 3).join(", ")}`);
       }
       if ((detail.skills || []).length) {
-        const sid = ensure("skills");
-        pushMsg(
-          `  ${actor}->>${sid}: ${shortMermaidLabel((detail.skills || []).slice(0, 3).join(", "))}`,
-        );
-        pushMsg(`  ${sid}-->>${actor}: ok`);
+        planned.push(`skill ${(detail.skills || []).slice(0, 3).join(", ")}`);
+      }
+      if (planned.length) {
+        lines.push(`  Note over ${actor}: ${shortMermaidLabel(planned.join(" · "))}`);
       }
       if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "decision") {
+      // Decision intent only — step/agent rows are planned, not executed yet.
       pushMsg(`  ${caller}->>${actor}: decision`);
       const note = shortMermaidLabel(ev.message || detail.reason || "decision");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
+      const stepNotes = [];
       for (const step of (detail.steps || []).slice(0, 8)) {
         if (!step || typeof step !== "object") continue;
         const ag = String(step.agent_provider_id || "").trim();
-        if (!ag) continue;
-        const aid = ensure(`agent:${ag}`);
-        pushMsg(`  ${actor}->>${aid}: ${shortMermaidLabel(step.id || "step")}`);
-        const bits = [];
+        const sid = String(step.id || "step").trim() || "step";
+        const bits = [sid];
+        if (ag) bits.push(ag);
+        if (step.harness) bits.push(`harness ${step.harness}`);
         if ((step.mcps || []).length) {
           bits.push(`mcp ${(step.mcps || []).slice(0, 2).join(", ")}`);
         }
         if ((step.skills || []).length) {
           bits.push(`skill ${(step.skills || []).slice(0, 2).join(", ")}`);
         }
-        if (step.harness) bits.push(`harness ${step.harness}`);
-        if (bits.length) {
-          lines.push(`  Note over ${aid}: ${shortMermaidLabel(bits.join(" · "))}`);
-        }
-        pushMsg(`  ${aid}-->>${actor}: ok`);
+        stepNotes.push(bits.join(" "));
+      }
+      if (stepNotes.length) {
+        lines.push(`  Note over ${actor}: ${shortMermaidLabel(stepNotes.join(" · "))}`);
       }
       if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "agent_start") {

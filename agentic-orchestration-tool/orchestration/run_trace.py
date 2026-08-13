@@ -553,32 +553,30 @@ def events_to_mermaid(
             lines.append(f"  client->>{actor}: {label}")
             stack = ["client", actor]
         elif kind == "plan":
+            # Plan intent only — do not synthesize agent/mcp/skill call arrows.
+            # Actual invocations appear as agent_start / step_start / model_call / tool_call / mcp_call.
             lines.append(f"  {caller}->>{actor}: plan")
             note = _label_with_tip(tips, ev.get("message") or "")
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
+            planned: list[str] = []
             agents = detail.get("agents") if isinstance(detail.get("agents"), list) else []
-            for ag in agents[:8]:
-                aid = ensure(f"agent:{ag}")
-                lines.append(f"  {actor}->>{aid}: select")
-                lines.append(f"  {aid}-->>{actor}: ok")
+            if agents:
+                planned.append("agents " + ", ".join(str(x) for x in agents[:6]))
             mcps = detail.get("mcps") if isinstance(detail.get("mcps"), list) else []
             if mcps:
-                mid = ensure("mcp")
-                lines.append(
-                    f"  {actor}->>{mid}: {_label_with_tip(tips, ', '.join(str(x) for x in mcps[:3]))}"
-                )
-                lines.append(f"  {mid}-->>{actor}: ok")
+                planned.append("mcp " + ", ".join(str(x) for x in mcps[:3]))
             skills = detail.get("skills") if isinstance(detail.get("skills"), list) else []
             if skills:
-                sid = ensure("skills")
+                planned.append("skill " + ", ".join(str(x) for x in skills[:3]))
+            if planned:
                 lines.append(
-                    f"  {actor}->>{sid}: {_label_with_tip(tips, ', '.join(str(x) for x in skills[:3]))}"
+                    f"  Note over {actor}: {_label_with_tip(tips, ' · '.join(planned))}"
                 )
-                lines.append(f"  {sid}-->>{actor}: ok")
             if caller != actor:
                 lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "decision":
+            # Decision intent only — step/agent rows are planned, not executed yet.
             lines.append(f"  {caller}->>{actor}: decision")
             note = _label_with_tip(
                 tips, ev.get("message") or detail.get("reason") or "decision"
@@ -586,31 +584,29 @@ def events_to_mermaid(
             if note and note != "event":
                 lines.append(f"  Note over {actor}: {note}")
             steps = detail.get("steps") if isinstance(detail.get("steps"), list) else []
+            step_notes: list[str] = []
             for step in steps[:8]:
                 if not isinstance(step, dict):
                     continue
                 ag = str(step.get("agent_provider_id") or "").strip()
-                if not ag:
-                    continue
-                aid = ensure(f"agent:{ag}")
-                lines.append(
-                    f"  {actor}->>{aid}: {_label_with_tip(tips, step.get('id') or 'step')}"
-                )
-                bits: list[str] = []
+                sid = str(step.get("id") or "step").strip() or "step"
+                bits: list[str] = [sid]
+                if ag:
+                    bits.append(ag)
+                harness = str(step.get("harness") or "").strip()
+                if harness:
+                    bits.append(f"harness {harness}")
                 mcps = step.get("mcps") if isinstance(step.get("mcps"), list) else []
                 skills = step.get("skills") if isinstance(step.get("skills"), list) else []
-                harness = str(step.get("harness") or "").strip()
                 if mcps:
                     bits.append("mcp " + ", ".join(str(x) for x in mcps[:2]))
                 if skills:
                     bits.append("skill " + ", ".join(str(x) for x in skills[:2]))
-                if harness:
-                    bits.append(f"harness {harness}")
-                if bits:
-                    lines.append(
-                        f"  Note over {aid}: {_label_with_tip(tips, ' · '.join(bits))}"
-                    )
-                lines.append(f"  {aid}-->>{actor}: ok")
+                step_notes.append(" ".join(bits))
+            if step_notes:
+                lines.append(
+                    f"  Note over {actor}: {_label_with_tip(tips, ' · '.join(step_notes))}"
+                )
             if caller != actor:
                 lines.append(f"  {actor}-->>{caller}: ok")
         elif kind == "agent_start":
