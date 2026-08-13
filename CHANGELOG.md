@@ -9,15 +9,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Reach catalog API** — engine `GET /api/v1/catalog` returns stock agents, MCPs, skills, and harnesses with structured `requiredSecrets` (name, label, secret, required, anyOfGroup) for client enablement UIs. No secret values are returned.
+- **Session MCP/skill allowlists** — `session_overlay_register` accepts `allowedMcpProviderIds` / `allowedSkillIds`; dynamic planner restricts catalogs accordingly (`client.*` overlays always kept).
+- **Session env for MCP/skill secrets** — Reach `env` may include catalog-declared keys (e.g. `TAVILY_API_KEY`); MCP/skill credential checks and `${VAR}` substitution prefer session overlay env.
 - **Traces · dynamic planning + crew log** — `request_start` records `runMode` / `dynamicPlanning`; plan/decision events include per-step agents with MCPs, skills, RAG, and harness. Admin Traces shows a Dynamic planning chip and an ordered Crew log beside the sequence diagram.
 
 ### Fixed
 
+- **Dynamic planner domain suppression** — catalog filtering scores only the current user turn (`Current request:` / `User message:`), not Comstar/OpenClaw memory preambles, so `gpt_research` / `claude_research` are no longer dropped on research asks wrapped in hallway history.
 - **Topology / engine probes with mTLS** — mount host `__orchestrator_mtls__/ca` into the coordinator so Admin can trust the engine HTTPS cert (`AGENTIC_SERVE_TLS_CA_FILE`). Missing CA made engine unreachable → Planner failed and Reach apps (e.g. Comstar) disappeared from Topology.
 - **Topology Reach agents** — surface Reach `allowedAgentProviderIds` (stock allowlist) alongside packed `client.*` overlays under each app / Agents cluster.
 
 ### Changed
 
+- **Token usage by agent** — Admin Token dashboard donut is **By agent** (catalog agent provider id) instead of By model. Each model call is attributed to the active agent; historical rows fall back to run-trace `agent_start` / unique catalog model→agent maps when the ledger predates `agentProviderId`.
+- **Shared model labels** — LiteLLM prefixes (`ollama/…`) are stripped in the usage ledger and Admin rollups so `ollama/qwen2.5:14b-instruct` and `qwen2.5:14b-instruct` count as one model.
 - **Token usage time range** — default spend window is the rolling past **6 hours** (running totals on the chart). Toolbar filters: 6 hours, 1 day, 7 days, 15 days, 30 days. Short windows use 15-minute / hourly buckets; longer windows stay daily.
 
 ## [2.2.0] - 2026-08-13

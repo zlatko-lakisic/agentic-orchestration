@@ -38,6 +38,7 @@ from orchestration.goal_format_hints import (
 from orchestration.provider_goal_match import (
     maybe_remap_planner_provider_missing_from_catalog,
     suppress_general_providers_when_domains_align,
+    user_prompt_for_goal_matching,
 )
 from orchestration.hardware_profile import filter_catalog_by_hardware
 from orchestration.orchestrator_session import (
@@ -957,7 +958,7 @@ def workflow_config_from_plan(
             raise ValueError(
                 f"Unknown agent_provider_id {pid!r} in step {i}. Known: {known}",
             )
-        if user_wants_local_only(user_prompt) and is_cloud_provider_type(
+        if user_wants_local_only(user_prompt_for_goal_matching(user_prompt)) and is_cloud_provider_type(
             str(catalog_by_id[pid].get("type", ""))
         ):
             raise ValueError(
@@ -1173,22 +1174,6 @@ def _dynamic_plan_resolves_no_mcp(
         if resolve_workflow_mcp_refs(raw, mcp_catalog):
             return False
     return True
-
-
-def user_prompt_for_goal_matching(user_prompt: str) -> str:
-    """
-    When OpenClaw (or other hosts) prepend context, keep MCP/goal matching on the
-    real user turn — text after the last ``User message:`` marker.
-    """
-    text = (user_prompt or "").strip()
-    if not text:
-        return text
-    marker = "User message:"
-    if marker in text:
-        tail = text.rsplit(marker, 1)[-1].strip()
-        if tail:
-            return tail
-    return text
 
 
 def _maybe_augment_mcp_from_user_goal(
@@ -1473,6 +1458,8 @@ def build_dynamic_workflow_config(
     user_prompt: str,
     catalog_path: Path,
     allowed_agent_provider_ids: list[str] | None = None,
+    allowed_mcp_provider_ids: list[str] | None = None,
+    allowed_skill_ids: list[str] | None = None,
     mcp_catalog_path: Path | None = None,
     agent_skills_catalog_path: Path | None = None,
     rag_sources_catalog_path: Path | None = None,
@@ -1530,6 +1517,7 @@ def build_dynamic_workflow_config(
             )
         print(line, file=sys.stderr)
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
+    match_prompt = user_prompt_for_goal_matching(user_prompt)
     if allowed_ids:
         from orchestration.agent_allowlist import filter_entries_by_allowlist
 
@@ -1548,11 +1536,11 @@ def build_dynamic_workflow_config(
     else:
         entries = suppress_general_providers_when_domains_align(
             entries,
-            user_prompt,
+            match_prompt,
             quiet=quiet,
         )
 
-    if user_wants_local_only(user_prompt):
+    if user_wants_local_only(match_prompt):
         before = len(entries)
         entries = filter_catalog_to_local_providers(entries)
         if not entries:
@@ -1577,7 +1565,7 @@ def build_dynamic_workflow_config(
     model = (planner_model or "").strip() or os.getenv(
         "AGENTIC_PLANNER_MODEL", "gpt-4o-mini"
     ).strip()
-    if user_wants_local_only(user_prompt) and is_cloud_litellm_model(model):
+    if user_wants_local_only(match_prompt) and is_cloud_litellm_model(model):
         raise RuntimeError(
             f"Local-only / privacy wording detected, but planner model {model!r} is a cloud provider. "
             "Set AGENTIC_PLANNER_MODEL to an Ollama model (e.g. ollama/llama3.2) or remove "
@@ -1618,6 +1606,19 @@ def build_dynamic_workflow_config(
             verbose=not quiet,
             log_prefix="(dynamic) mcp catalog",
         )
+        mcp_allowed = [
+            str(x).strip() for x in (allowed_mcp_provider_ids or []) if str(x).strip()
+        ]
+        if mcp_allowed:
+            from orchestration.agent_allowlist import filter_entries_by_allowlist
+
+            mcp_entries = filter_entries_by_allowlist(mcp_entries, mcp_allowed)
+            if not quiet:
+                print(
+                    f"(dynamic) mcp selection: restricting planner catalog to "
+                    f"{sorted(set(mcp_allowed))!r}",
+                    file=sys.stderr,
+                )
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
     skill_entries: list[dict[str, Any]] = []
@@ -1628,6 +1629,19 @@ def build_dynamic_workflow_config(
             verbose=not quiet,
             log_prefix="(dynamic) skills catalog",
         )
+        skill_allowed = [
+            str(x).strip() for x in (allowed_skill_ids or []) if str(x).strip()
+        ]
+        if skill_allowed:
+            from orchestration.agent_allowlist import filter_entries_by_allowlist
+
+            skill_entries = filter_entries_by_allowlist(skill_entries, skill_allowed)
+            if not quiet:
+                print(
+                    f"(dynamic) skill selection: restricting planner catalog to "
+                    f"{sorted(set(skill_allowed))!r}",
+                    file=sys.stderr,
+                )
     skills_doc = skills_catalog_for_planner_prompt(skill_entries)
 
     rag_entries: list[dict[str, Any]] = []

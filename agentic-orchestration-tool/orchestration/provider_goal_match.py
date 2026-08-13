@@ -32,6 +32,32 @@ def extract_goal_terms(user_text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS}
 
 
+def user_prompt_for_goal_matching(user_prompt: str) -> str:
+    """
+    When hosts prepend context, keep MCP/goal matching on the real user turn.
+
+    Recognized markers (last occurrence in document order wins):
+    - ``Current request:`` (Comstar / Reach memory+history wrappers)
+    - ``User message:`` (OpenClaw)
+    """
+    text = (user_prompt or "").strip()
+    if not text:
+        return text
+    markers = ("Current request:", "User message:")
+    last_pos = -1
+    last_marker = ""
+    for marker in markers:
+        pos = text.rfind(marker)
+        if pos > last_pos:
+            last_pos = pos
+            last_marker = marker
+    if last_pos >= 0 and last_marker:
+        tail = text[last_pos + len(last_marker) :].strip()
+        if tail:
+            return tail
+    return text
+
+
 def _entry_text_blob(entry: dict[str, Any]) -> str:
     chunks = (
         entry.get("planner_hint"),

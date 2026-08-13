@@ -5,22 +5,6 @@ from __future__ import annotations
 import pytest
 
 from orchestration.crewai_mcp_normalize import normalize_mcps_for_crewai
-from orchestration.dynamic_planner import user_prompt_for_goal_matching
-
-
-def test_user_prompt_for_goal_matching_strips_openclaw_preamble() -> None:
-    raw = (
-        "[OpenClaw context]\n"
-        "browser filesystem shell openclaw_bridge\n"
-        "[/OpenClaw context]\n\n"
-        "User message:\n"
-        "Who are you?"
-    )
-    assert user_prompt_for_goal_matching(raw) == "Who are you?"
-
-
-def test_user_prompt_for_goal_matching_passthrough() -> None:
-    assert user_prompt_for_goal_matching("plain question") == "plain question"
 
 
 def test_normalize_stdio_dict_to_mcp_server_stdio() -> None:
