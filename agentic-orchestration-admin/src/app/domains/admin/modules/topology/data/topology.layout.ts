@@ -106,10 +106,15 @@ const APP_FAMILY_GAP = 56;
 /** Extra top padding inside each Application family frame for its label. */
 const APP_FAMILY_LABEL_H = 20;
 const APP_FAMILY_PAD = 12;
-/** Gap from a k8s node card down to its first nested pod. */
-const K8S_NEST_GAP = 14;
-/** Vertical gap between pods stacked inside a node group. */
-const K8S_POD_GAP = 10;
+/** Gap from a k8s node card down to its first nested pod (wire channel). */
+const K8S_NEST_GAP = 40;
+/**
+ * Vertical gap between pods stacked inside a node group.
+ * Must leave a channel for Service→Pod orthogonal edges (PORT_STUB + CLEARANCE).
+ */
+const K8S_POD_GAP = 56;
+/** Vertical gap between the pod stack and the Services row underneath. */
+const K8S_POD_TO_SVC_GAP = 64;
 /** Label strip above a k8s group frame (node / services / cluster). */
 const K8S_GROUP_LABEL_H = 18;
 const K8S_GROUP_PAD = 10;
@@ -1162,13 +1167,15 @@ export function layoutTopology(
     (reachSectionW > 0 ? reachSectionW : 0) +
     (reachSectionW > 0 && webApiSectionW > 0 ? APP_FAMILY_GAP : 0) +
     webApiSectionW;
-  // Pods nest under their node column (not a wide sibling row).
+  // Pods nest under their node column; services sit on a row under that stack.
   const k8sExpandRowW =
     k8sNodeIds.length + k8sSvcIds.length > 0
       ? Math.max(
           EXPAND_PANEL_W,
-          (k8sNodeIds.length + k8sSvcIds.length) * NODE_W +
-            Math.max(0, k8sNodeIds.length + k8sSvcIds.length - 1) * COL_GAP
+          k8sNodeIds.length * NODE_W +
+            Math.max(0, k8sNodeIds.length - 1) * COL_GAP,
+          k8sSvcIds.length * NODE_W +
+            Math.max(0, k8sSvcIds.length - 1) * COL_GAP
         )
       : 0;
   const canvasContentW = Math.max(
@@ -1178,9 +1185,19 @@ export function layoutTopology(
   );
   const width = canvasContentW + MARGIN * 2 + ROUTE_MARGIN;
 
-  // Pods are placed in a post-pass under their parent node — exclude from band rows.
-  const rowEntries = enriched.filter((e) => e.node.kind !== 'k8s-pod');
+  // Services are placed in a post-pass under the pod stacks — exclude from band rows
+  // so they do not sit beside the node (which forced every Service→Pod edge upward
+  // through a cramped gutter).
+  const rowEntries = enriched.filter(
+    (e) =>
+      e.node.kind !== 'k8s-pod' &&
+      e.node.kind !== 'k8s-service' &&
+      e.node.kind !== 'k8s-workload'
+  );
   const podEntries = enriched.filter((e) => e.node.kind === 'k8s-pod');
+  const serviceEntries = enriched.filter(
+    (e) => e.node.kind === 'k8s-service' || e.node.kind === 'k8s-workload'
+  );
 
   type RowKey = string;
   const rows = new Map<RowKey, typeof enriched>();
@@ -1294,7 +1311,7 @@ export function layoutTopology(
     y = bandTop + bands[bands.length - 1].height + BAND_GAP;
   }
 
-  // Nest pods tightly under their parent node so each column reads as one group.
+  // Nest pods under their parent node with wire-channel gaps for Service→Pod edges.
   {
     const parentById = new Map(positioned.map((n) => [n.id, n]));
     const podsGrouped = new Map<string, typeof podEntries>();
@@ -1329,6 +1346,53 @@ export function layoutTopology(
         });
       });
     }
+  }
+
+  // Services / workloads: one row under the tallest node+pod stack so
+  // Service→Pod edges drop down through a wire channel (not climb past siblings).
+  if (serviceEntries.length) {
+    let stackBottom = -Infinity;
+    for (const n of positioned) {
+      if (
+        n.kind === 'k8s-node' ||
+        n.kind === 'k8s-pod' ||
+        n.id === 'platform/k3s'
+      ) {
+        stackBottom = Math.max(stackBottom, n.y + n.height);
+      }
+    }
+    if (!Number.isFinite(stackBottom)) {
+      const aoNodes = positioned.filter((n) => n.band === 'ao');
+      stackBottom = aoNodes.reduce(
+        (m, n) => Math.max(m, n.y + n.height),
+        MARGIN
+      );
+    }
+    const svcY = stackBottom + K8S_POD_TO_SVC_GAP;
+    // Left-align with the first k8s node column when present.
+    const firstNode = positioned
+      .filter((n) => n.kind === 'k8s-node')
+      .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id))[0];
+    const originX = firstNode?.x ?? MARGIN;
+    serviceEntries
+      .slice()
+      .sort((a, b) => {
+        if (a.lane !== b.lane) return a.lane - b.lane;
+        return a.node.id.localeCompare(b.node.id);
+      })
+      .forEach((e, i) => {
+        positioned.push({
+          ...e.node,
+          x: originX + i * colWidth,
+          y: svcY,
+          width: NODE_W,
+          height: NODE_H,
+          lane: i,
+          rank: 7,
+          order: i,
+          displayStatus: displayStatus(e.node),
+        });
+      });
   }
 
   // Grow the AO band (and following canvas y) to enclose nested pod stacks + labels.

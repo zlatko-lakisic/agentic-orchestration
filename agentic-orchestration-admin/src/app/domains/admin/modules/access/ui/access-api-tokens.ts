@@ -8,6 +8,11 @@ import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoClock } from '@/app/core/ao-time/ao-time';
+import {
+  AoAbsoluteTimePipe,
+  AoTimeAgoPipe,
+} from '@/app/core/ao-time/ao-time-ago.pipe';
 import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
 import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
@@ -32,6 +37,8 @@ import { MintTokenDialog } from './mint-token-dialog';
     ErrorState,
     LoadingState,
     StatusChip,
+    AoTimeAgoPipe,
+    AoAbsoluteTimePipe,
   ],
   template: `
     <mat-drawer-container class="min-h-[280px]" autosize>
@@ -107,7 +114,9 @@ import { MintTokenDialog } from './mint-token-dialog';
                     <th mat-header-cell *matHeaderCellDef>Last used</th>
                     <td mat-cell *matCellDef="let t" class="text-sm">
                       @if (t.lastUsedAt) {
-                        <div>{{ t.lastUsedAt | date: 'short' }}</div>
+                        <div [attr.title]="t.lastUsedAt | aoAbsoluteTime">
+                          {{ t.lastUsedAt | aoTimeAgo: clock.nowMs() }}
+                        </div>
                         <div class="font-mono text-xs text-neutral-500">
                           {{ t.lastUsedIp || '—' }}
                         </div>

@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import {
   MatCard,
   MatCardContent,
@@ -26,6 +27,9 @@ import {
   ApexFill,
   ApexGrid,
   ApexLegend,
+  ApexNonAxisChartSeries,
+  ApexPlotOptions,
+  ApexResponsive,
   ApexStroke,
   ApexTooltip,
   ApexXAxis,
@@ -33,6 +37,11 @@ import {
   ChartComponent,
 } from 'ng-apexcharts';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoClock } from '@/app/core/ao-time/ao-time';
+import {
+  AoAbsoluteTimePipe,
+  AoTimeAgoPipe,
+} from '@/app/core/ao-time/ao-time-ago.pipe';
 import {
   LlmSpendTotals,
   LlmUsageEventRow,
@@ -43,6 +52,45 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
+type PanelView = 'diagram' | 'table';
+
+type PieSlice = { series: ApexNonAxisChartSeries; labels: string[] };
+
+const PIE_COLORS = [
+  '#38bdf8',
+  '#f59e0b',
+  '#34d399',
+  '#a78bfa',
+  '#fb7185',
+  '#2dd4bf',
+  '#f472b6',
+  '#94a3b8',
+];
+
+/** Collapse long tails into an Other slice for readable Fuse-style donuts. */
+function pieFromRows(
+  rows: LlmUsageRollupRow[],
+  maxSlices = 7,
+): PieSlice {
+  const sorted = [...(rows || [])]
+    .map((r) => ({
+      key: String(r.key || '(unknown)'),
+      total: Number(r.totalTokens) || 0,
+    }))
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.total - a.total);
+  if (!sorted.length) return { series: [], labels: [] };
+  const top = sorted.slice(0, maxSlices);
+  const rest = sorted.slice(maxSlices);
+  const labels = top.map((r) => r.key);
+  const series: number[] = top.map((r) => r.total);
+  if (rest.length) {
+    labels.push('Other');
+    series.push(rest.reduce((n, r) => n + r.total, 0));
+  }
+  return { series, labels };
+}
+
 /**
  * Token usage — Fuse Finance dashboard pattern:
  * statement cards, spend-over-time area chart, recent transactions, budget split.
@@ -52,6 +100,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
   imports: [
     RouterLink,
     MatButtonModule,
+    MatButtonToggleModule,
     MatIconModule,
     MatCard,
     MatCardHeader,
@@ -63,6 +112,8 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
     DatePipe,
     NgClass,
     ChartComponent,
+    AoTimeAgoPipe,
+    AoAbsoluteTimePipe,
     ErrorState,
     LoadingState,
     StatusChip,
@@ -288,14 +339,36 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
                 <table mat-table [dataSource]="txDataSource" class="w-full">
                   <ng-container matColumnDef="when">
                     <th mat-header-cell *matHeaderCellDef>When</th>
-                    <td mat-cell *matCellDef="let r" class="whitespace-nowrap text-sm">
-                      {{ r.whenMs | date: 'MMM d, HH:mm:ss' }}
+                    <td
+                      mat-cell
+                      *matCellDef="let r"
+                      class="whitespace-nowrap text-sm"
+                      [attr.title]="r.whenMs | aoAbsoluteTime"
+                    >
+                      @if (r.runId) {
+                        <a
+                          class="text-primary-700 underline-offset-2 hover:underline dark:text-primary-400"
+                          [routerLink]="['/traces']"
+                          [queryParams]="{ runId: r.runId }"
+                          >{{ r.whenMs | aoTimeAgo: clock.nowMs() }}</a
+                        >
+                      } @else {
+                        {{ r.whenMs | aoTimeAgo: clock.nowMs() }}
+                      }
                     </td>
                   </ng-container>
                   <ng-container matColumnDef="app">
                     <th mat-header-cell *matHeaderCellDef>App / user</th>
                     <td mat-cell *matCellDef="let r" class="font-mono text-sm">
-                      {{ r.app }}
+                      <div>{{ r.app }}</div>
+                      @if (r.runId) {
+                        <a
+                          class="text-2xs text-primary-700 underline-offset-2 hover:underline dark:text-primary-400"
+                          [routerLink]="['/traces']"
+                          [queryParams]="{ runId: r.runId }"
+                          >run {{ r.runId }}</a
+                        >
+                      }
                     </td>
                   </ng-container>
                   <ng-container matColumnDef="model">
@@ -334,63 +407,142 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
           <!-- Budget-style composition -->
           <mat-card appearance="outlined" class="overflow-hidden">
             <mat-card-header>
-              <div>
-                <div class="text-lg font-medium tracking-tight">Composition</div>
-                <div class="text-sm text-neutral-500">
-                  Lifetime token mix and API request volume
+              <div class="flex w-full flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div class="text-lg font-medium tracking-tight">Composition</div>
+                  <div class="text-sm text-neutral-500">
+                    Lifetime token mix and API request volume
+                  </div>
                 </div>
+                <mat-button-toggle-group
+                  [value]="panelView('composition')"
+                  (change)="setPanelView('composition', $event.value)"
+                  class="!h-8"
+                  hideSingleSelectionIndicator
+                >
+                  <mat-button-toggle value="diagram">Diagram</mat-button-toggle>
+                  <mat-button-toggle value="table">Table</mat-button-toggle>
+                </mat-button-toggle-group>
               </div>
             </mat-card-header>
             <mat-card-content class="mt-4 flex flex-col gap-5">
-              @for (b of budgetBars(); track b.title) {
-                <div class="flex flex-col gap-1.5">
-                  <div class="flex items-baseline justify-between gap-2">
-                    <div class="text-sm font-medium">{{ b.title }}</div>
-                    <div class="text-sm tabular-nums text-neutral-500">
-                      {{ b.value | number }}
-                      <span class="ml-1 font-medium" [ngClass]="b.toneClass"
-                        >{{ b.pct | number: '1.0-1' }}%</span
-                      >
-                    </div>
+              @if (panelView('composition') === 'diagram') {
+                @if (compositionPie().series.length) {
+                  <div class="h-64 w-full px-2">
+                    @for (gen of [chartGeneration()]; track gen) {
+                      <apx-chart
+                        class="h-full w-full"
+                        [series]="compositionPie().series"
+                        [chart]="donutChart.chart"
+                        [colors]="donutChart.colors"
+                        [dataLabels]="donutChart.dataLabels"
+                        [labels]="compositionPie().labels"
+                        [legend]="donutChart.legend"
+                        [plotOptions]="donutChart.plotOptions"
+                        [responsive]="donutChart.responsive"
+                        [stroke]="donutChart.stroke"
+                        [tooltip]="donutChart.tooltip"
+                      />
+                    }
                   </div>
-                  <mat-progress-bar
-                    mode="determinate"
-                    [value]="b.pct"
-                    [color]="b.color"
-                  />
-                </div>
-              }
-              @if (topApps().length) {
-                <mat-divider />
-                <div class="text-sm font-medium text-neutral-500">
-                  Apps by tokens (this install)
-                </div>
-                <div class="flex flex-col gap-2">
-                  @for (a of topApps(); track a.key) {
-                    <div class="flex items-center justify-between gap-2 text-sm">
-                      <span class="truncate font-mono">{{ a.key }}</span>
-                      <span class="shrink-0 tabular-nums font-medium">{{
-                        a.totalTokens ?? 0 | number
-                      }}</span>
+                } @else {
+                  <div class="px-2 pb-2 text-sm text-neutral-500">
+                    No token mix yet.
+                  </div>
+                }
+                @if (apiRequestCount() > 0) {
+                  <div class="text-sm text-neutral-500">
+                    API requests (Access ledger):
+                    <span
+                      class="font-medium tabular-nums text-neutral-700 dark:text-neutral-300"
+                      >{{ apiRequestCount() | number }}</span
+                    >
+                  </div>
+                }
+              } @else {
+                @for (b of budgetBars(); track b.title) {
+                  <div class="flex flex-col gap-1.5">
+                    <div class="flex items-baseline justify-between gap-2">
+                      <div class="text-sm font-medium">{{ b.title }}</div>
+                      <div class="text-sm tabular-nums text-neutral-500">
+                        {{ b.value | number }}
+                        <span class="ml-1 font-medium" [ngClass]="b.toneClass"
+                          >{{ b.pct | number: '1.0-1' }}%</span
+                        >
+                      </div>
                     </div>
-                  }
-                </div>
+                    <mat-progress-bar
+                      mode="determinate"
+                      [value]="b.pct"
+                      [color]="b.color"
+                    />
+                  </div>
+                }
+                @if (topApps().length) {
+                  <mat-divider />
+                  <div class="text-sm font-medium text-neutral-500">
+                    Apps by tokens (this install)
+                  </div>
+                  <div class="flex flex-col gap-2">
+                    @for (a of topApps(); track a.key) {
+                      <div class="flex items-center justify-between gap-2 text-sm">
+                        <span class="truncate font-mono">{{ a.key }}</span>
+                        <span class="shrink-0 tabular-nums font-medium">{{
+                          a.totalTokens ?? 0 | number
+                        }}</span>
+                      </div>
+                    }
+                  </div>
+                }
               }
             </mat-card-content>
           </mat-card>
         </div>
 
-        <!-- Rollup tables -->
+        <!-- Rollup breakdowns: donut or table -->
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          @for (block of llmBlocks(); track block.title) {
+          @for (block of llmBlocks(); track block.id) {
             <mat-card appearance="outlined" class="overflow-hidden">
               <mat-card-header>
-                <div class="text-lg font-medium tracking-tight">
-                  {{ block.title }}
+                <div class="flex w-full flex-wrap items-center justify-between gap-3">
+                  <div class="text-lg font-medium tracking-tight">
+                    {{ block.title }}
+                  </div>
+                  <mat-button-toggle-group
+                    [value]="panelView(block.id)"
+                    (change)="setPanelView(block.id, $event.value)"
+                    class="!h-8"
+                    hideSingleSelectionIndicator
+                  >
+                    <mat-button-toggle value="diagram">Diagram</mat-button-toggle>
+                    <mat-button-toggle value="table">Table</mat-button-toggle>
+                  </mat-button-toggle-group>
                 </div>
               </mat-card-header>
               <mat-card-content class="mt-2 px-0 pb-0">
-                @if (block.rows.length) {
+                @if (!block.rows.length) {
+                  <div class="px-6 pb-6 text-sm text-neutral-500">
+                    No rows yet.
+                  </div>
+                } @else if (panelView(block.id) === 'diagram') {
+                  <div class="h-72 w-full px-2 pb-4 pt-2">
+                    @for (gen of [chartGeneration() + block.id]; track gen) {
+                      <apx-chart
+                        class="h-full w-full"
+                        [series]="block.pie.series"
+                        [chart]="donutChart.chart"
+                        [colors]="donutChart.colors"
+                        [dataLabels]="donutChart.dataLabels"
+                        [labels]="block.pie.labels"
+                        [legend]="donutChart.legend"
+                        [plotOptions]="donutChart.plotOptions"
+                        [responsive]="donutChart.responsive"
+                        [stroke]="donutChart.stroke"
+                        [tooltip]="donutChart.tooltip"
+                      />
+                    }
+                  </div>
+                } @else {
                   <table mat-table [dataSource]="block.rows" class="w-full">
                     <ng-container matColumnDef="key">
                       <th mat-header-cell *matHeaderCellDef>Key</th>
@@ -421,10 +573,6 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
                     <tr mat-header-row *matHeaderRowDef="llmCols"></tr>
                     <tr mat-row *matRowDef="let row; columns: llmCols"></tr>
                   </table>
-                } @else {
-                  <div class="px-6 pb-6 text-sm text-neutral-500">
-                    No rows yet.
-                  </div>
                 }
               </mat-card-content>
             </mat-card>
@@ -441,12 +589,12 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 })
 export class LlmUsagePage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  readonly clock = inject(AoClock);
   readonly llmCols = ['key', 'calls', 'total'];
   readonly txCols = ['when', 'app', 'model', 'tokens', 'status'];
   readonly feedSeconds = signal(2);
-  /** Tick every second so "updated Ns ago" stays fresh. */
-  private readonly nowMs = signal(Date.now());
-  private clockTimer: ReturnType<typeof setInterval> | null = null;
+  /** Per-panel Diagram / Table preference (defaults to diagram). */
+  private readonly panelViews = signal<Record<string, PanelView>>({});
   readonly txDataSource = new MatTableDataSource<ReturnType<typeof mapTx>>([]);
 
   readonly data = computed(
@@ -468,7 +616,7 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     if (!iso) return null;
     const t = Date.parse(String(iso));
     if (!Number.isFinite(t)) return null;
-    const sec = Math.max(0, Math.round((this.nowMs() - t) / 1000));
+    const sec = Math.max(0, Math.round((this.clock.nowMs() - t) / 1000));
     if (sec < 2) return 'just now';
     if (sec < 60) return `${sec}s ago`;
     const min = Math.round(sec / 60);
@@ -565,6 +713,30 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     this.data()?.llm?.byAppId || [],
   );
 
+  readonly apiRequestCount = computed(() =>
+    (this.data()?.api?.byAppId || []).reduce(
+      (n, r) => n + (r.calls || 0),
+      0,
+    ),
+  );
+
+  readonly compositionPie = computed((): PieSlice => {
+    const g = this.data()?.llm?.grandTotal;
+    const prompt = Number(g?.promptTokens) || 0;
+    const completion = Number(g?.completionTokens) || 0;
+    const labels: string[] = [];
+    const series: number[] = [];
+    if (prompt > 0) {
+      labels.push('Prompt');
+      series.push(prompt);
+    }
+    if (completion > 0) {
+      labels.push('Completion');
+      series.push(completion);
+    }
+    return { series, labels };
+  });
+
   readonly clientAppCount = computed(
     () =>
       (this.data()?.llm?.byAppId || []).filter(
@@ -576,10 +748,30 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     const d = this.data();
     if (!d) return [];
     return [
-      { title: 'By app', rows: d.llm?.byAppId || [] },
-      { title: 'By user', rows: d.llm?.byUserId || [] },
-      { title: 'By client IP', rows: d.llm?.byClientIp || [] },
-      { title: 'By model', rows: d.llm?.byModel || [] },
+      {
+        id: 'byApp',
+        title: 'By app',
+        rows: d.llm?.byAppId || [],
+        pie: pieFromRows(d.llm?.byAppId || []),
+      },
+      {
+        id: 'byUser',
+        title: 'By user',
+        rows: d.llm?.byUserId || [],
+        pie: pieFromRows(d.llm?.byUserId || []),
+      },
+      {
+        id: 'byClientIp',
+        title: 'By client IP',
+        rows: d.llm?.byClientIp || [],
+        pie: pieFromRows(d.llm?.byClientIp || []),
+      },
+      {
+        id: 'byModel',
+        title: 'By model',
+        rows: d.llm?.byModel || [],
+        pie: pieFromRows(d.llm?.byModel || []),
+      },
     ];
   });
 
@@ -637,22 +829,105 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     } as ApexYAxis,
   };
 
+  /** Fuse-style donut for composition + rollup breakdowns. */
+  protected donutChart = {
+    chart: {
+      animations: { enabled: false },
+      fontFamily: 'inherit',
+      foreColor: 'inherit',
+      height: '100%',
+      type: 'donut',
+      toolbar: { show: false },
+    } as ApexChart,
+    colors: PIE_COLORS,
+    dataLabels: {
+      enabled: true,
+      formatter: (val: number) => `${Math.round(val)}%`,
+      style: { fontSize: '11px' },
+      dropShadow: { enabled: false },
+    } as ApexDataLabels,
+    legend: {
+      show: true,
+      position: 'bottom',
+      fontSize: '12px',
+      itemMargin: { horizontal: 8, vertical: 2 },
+    } as ApexLegend,
+    plotOptions: {
+      pie: {
+        donut: {
+          size: '62%',
+          labels: {
+            show: true,
+            name: { show: true, fontSize: '12px', offsetY: -4 },
+            value: {
+              show: true,
+              fontSize: '18px',
+              fontWeight: 600,
+              formatter: (v: string) => {
+                const n = Number(v);
+                if (!Number.isFinite(n)) return v;
+                return Math.abs(n) >= 1000
+                  ? `${(n / 1000).toFixed(1)}k`
+                  : String(Math.round(n));
+              },
+            },
+            total: {
+              show: true,
+              label: 'Tokens',
+              fontSize: '12px',
+              formatter: (w: {
+                globals: { seriesTotals: number[] };
+              }) => {
+                const sum = (w.globals.seriesTotals || []).reduce(
+                  (a, b) => a + b,
+                  0,
+                );
+                return Math.abs(sum) >= 1000
+                  ? `${(sum / 1000).toFixed(1)}k`
+                  : String(Math.round(sum));
+              },
+            },
+          },
+        },
+      },
+    } as ApexPlotOptions,
+    responsive: [
+      {
+        breakpoint: 640,
+        options: {
+          legend: { position: 'bottom' },
+        },
+      },
+    ] as ApexResponsive[],
+    stroke: { width: 0 } as ApexStroke,
+    tooltip: {
+      y: {
+        formatter: (v: number) =>
+          `${Number(v || 0).toLocaleString()} tokens`,
+      },
+    } as ApexTooltip,
+  };
+
   constructor() {
     effect(() => {
       this.txDataSource.data = this.transactions();
     });
   }
 
+  panelView(id: string): PanelView {
+    return this.panelViews()[id] || 'diagram';
+  }
+
+  setPanelView(id: string, value: PanelView | string | null | undefined) {
+    const mode: PanelView = value === 'table' ? 'table' : 'diagram';
+    this.panelViews.update((prev) => ({ ...prev, [id]: mode }));
+  }
+
   ngOnInit() {
     this.live.acquire({ feeds: ['llm_usage'], feedIntervalMs: 2000 });
-    this.clockTimer = setInterval(() => this.nowMs.set(Date.now()), 1000);
   }
 
   ngOnDestroy() {
-    if (this.clockTimer) {
-      clearInterval(this.clockTimer);
-      this.clockTimer = null;
-    }
     this.live.release();
   }
 
@@ -688,8 +963,10 @@ function mapTx(r: LlmUsageEventRow) {
     String(r.appId || '').trim() ||
     String(r.userName || r.userId || '').trim() ||
     '(unknown)';
+  const runId = String(r.runId || '').trim() || null;
   return {
     whenMs: ms,
+    runId,
     app,
     model: String(r.model || r.source || '—'),
     tokens: Number(r.totalTokens) || 0,

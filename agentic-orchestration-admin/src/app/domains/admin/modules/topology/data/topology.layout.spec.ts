@@ -429,9 +429,13 @@ describe('topology.layout', () => {
     expect(p3.x).toBe(nodeB.x);
     expect(p1.y).toBeGreaterThan(nodeA.y);
     expect(p2.y).toBeGreaterThan(p1.y);
-    // Sibling nodes stay on one row; pods do not push a global band row gap.
+    // Sibling nodes stay on one row; pods stack with a wire channel between them.
     expect(nodeA.y).toBe(nodeB.y);
-    expect(p2.y - p1.y).toBeLessThan(80);
+    expect(p2.y - p1.y).toBe(52 + 56);
+    // Services sit under the pod stacks so edges drop down (not climb).
+    const svc = layout.nodes.find((x) => x.id === 'k8s/svc/web')!;
+    expect(svc.y).toBeGreaterThan(p2.y);
+    expect(svc.y).toBeGreaterThan(p3.y);
 
     const groups = layout.k8sGroups || [];
     expect(groups.some((g) => g.role === 'cluster' && g.label === 'Kubernetes')).toBe(

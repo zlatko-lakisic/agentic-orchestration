@@ -529,8 +529,8 @@ MCP gateway pods attached for tool execution (fetch / filesystem gateways, and s
 1. Chevron on the **Kubernetes** card (wider header) → expand.
 2. A steel-blue dashed **Kubernetes** group frame grows around the platform header plus nested inventory.
 3. Inside that frame, logical groupings mirror the cluster:
-   - **Node** frames (solid blue, labeled with the node name) each enclose that node’s card and the **pods scheduled on it**, stacked tightly underneath.
-   - A **Services** frame (cyan) groups Service cards to the right; **Service → Pod** edges remain for endpoint paths.
+   - **Node** frames (solid blue, labeled with the node name) each enclose that node’s card and the **pods scheduled on it**, stacked underneath with wire-channel spacing.
+   - A **Services** frame groups Service cards on a **row under** the node/pod stacks so **Service → Pod** edges drop through open space (not climb past sibling pods).
 4. Parent→child containment (platform→node, node→pod) is shown by the frames — those hierarchy links are not drawn as traffic arrows.
 5. Sublabel on the platform shows live `ready/total` pods and node count; click a node/pod/service for Addresses and the pod table (phase, ready, podIP, hostIP, node, restarts).
 6. Collapse the chevron to hide children and shrink back to the summary card.

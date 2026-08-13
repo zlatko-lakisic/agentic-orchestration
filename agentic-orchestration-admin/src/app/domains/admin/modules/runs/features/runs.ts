@@ -13,6 +13,11 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoClock } from '@/app/core/ao-time/ao-time';
+import {
+  AoAbsoluteTimePipe,
+  AoTimeAgoPipe,
+} from '@/app/core/ao-time/ao-time-ago.pipe';
 import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -31,6 +36,8 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
     EmptyState,
     ErrorState,
     LoadingState,
+    AoTimeAgoPipe,
+    AoAbsoluteTimePipe,
   ],
   template: `
     <div class="mx-auto flex h-full w-full max-w-7xl flex-auto flex-col overflow-hidden">
@@ -60,7 +67,10 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
                 </div>
               </div>
               <div class="text-sm text-neutral-500">
-                scope {{ d.scope }} · updated {{ d.updatedAt || '—' }}
+                scope {{ d.scope }} · updated
+                <span [attr.title]="d.updatedAt | aoAbsoluteTime">{{
+                  d.updatedAt | aoTimeAgo: clock.nowMs()
+                }}</span>
                 @if (d.outcome) {
                   ·
                   <span [class.text-red-600]="d.ok === false" [class.text-emerald-700]="d.ok === true">
@@ -204,8 +214,13 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
               </ng-container>
               <ng-container matColumnDef="updated">
                 <th mat-header-cell *matHeaderCellDef>Updated</th>
-                <td mat-cell *matCellDef="let r" class="font-mono text-sm">
-                  {{ r.updatedAt || '—' }}
+                <td
+                  mat-cell
+                  *matCellDef="let r"
+                  class="whitespace-nowrap text-sm"
+                  [attr.title]="r.updatedAt | aoAbsoluteTime"
+                >
+                  {{ r.updatedAt | aoTimeAgo: clock.nowMs() }}
                 </td>
               </ng-container>
               <ng-container matColumnDef="mode">
@@ -233,6 +248,7 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
 export class RunsPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
   readonly live = inject(AoLiveWs);
+  readonly clock = inject(AoClock);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   readonly error = signal<string | null>(null);
