@@ -125,6 +125,12 @@ declare global {
         overflow: hidden;
         min-height: 0;
       }
+
+      /* After open, allow async Mermaid SVG growth (overflow:hidden clips it). */
+      .ao-trace-expand--open .ao-trace-expand__inner {
+        overflow: visible;
+        min-height: auto;
+      }
     `,
   ],
   template: `
@@ -334,7 +340,7 @@ declare global {
             <tr mat-header-row *matHeaderRowDef="columns"></tr>
             <tr
               mat-row
-              *matRowDef="let row; columns: columns"
+              *matRowDef="let row; columns: columns; trackBy: trackByRunId"
               class="cursor-pointer hover:bg-neutral-50 dark:hover:bg-white/5"
               [attr.id]="'trace-row-' + row.runId"
               [ngClass]="
@@ -344,7 +350,7 @@ declare global {
             ></tr>
             <tr
               mat-row
-              *matRowDef="let row; columns: ['expandedDetail']; when: isExpandedRow"
+              *matRowDef="let row; columns: ['expandedDetail']; when: isExpandedRow; trackBy: trackByRunId"
               class="ao-trace-detail-row"
             ></tr>
           </table>
@@ -651,6 +657,8 @@ export class TracesPage implements OnInit, OnDestroy {
 
   isExpandedRow = (_: number, row: TraceListItem) => this.detail()?.runId === row.runId;
 
+  trackByRunId = (_: number, row: TraceListItem) => String(row?.runId || '');
+
   /** Drives CSS expand after the detail row mounts. */
   readonly expandOpen = signal(false);
 
@@ -675,6 +683,11 @@ export class TracesPage implements OnInit, OnDestroy {
     });
     effect(() => {
       this.dataSource.data = this.filteredRuns();
+      // Live feed refreshes recreate MatTable cells; redraw Mermaid if a run is open.
+      if (this.detail()?.runId && this.viewMode() === 'diagram') {
+        this.expandOpen.set(true);
+        this.scheduleMermaidRender();
+      }
     });
   }
 
@@ -714,7 +727,8 @@ export class TracesPage implements OnInit, OnDestroy {
     const rid = String(id || '').trim();
     if (!rid) return;
     this.lookupId.set(rid);
-    this.expandOpen.set(false);
+    const alreadyOpen = this.detail()?.runId === rid && this.expandOpen();
+    if (!alreadyOpen) this.expandOpen.set(false);
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: rid },
@@ -730,11 +744,14 @@ export class TracesPage implements OnInit, OnDestroy {
       this.detail.set(r.data);
       this.eventRows.data = r.data.events || [];
       afterNextRender(() => {
-        requestAnimationFrame(() => this.expandOpen.set(true));
+        requestAnimationFrame(() => {
+          this.expandOpen.set(true);
+          // Mermaid needs a laid-out, non-clipped host — render after expand opens.
+          window.setTimeout(() => this.scheduleMermaidRender(), 50);
+        });
         document
           .getElementById(`trace-row-${rid}`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        this.scheduleMermaidRender();
       }, { injector: this.injector });
     });
   }
