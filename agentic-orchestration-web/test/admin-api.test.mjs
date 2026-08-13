@@ -214,6 +214,117 @@ test("buildLlmUsagePayload attributes Reach appId from userName and traces", () 
   assert.ok((payload.sources?.mergedRows || 0) >= 4);
 });
 
+test("buildLlmUsagePayload rolls up by agent from ledger and traces", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-agent-"));
+  const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");
+  const tracesDir = path.join(tmp, "__orchestrator_run_traces__");
+  const agentsDir = path.join(tmp, "config", "agent_providers");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  fs.mkdirSync(tracesDir, { recursive: true });
+  fs.mkdirSync(agentsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(agentsDir, "solo.yaml"),
+    ["id: solo_agent", "type: ollama", "model: unique-solo-model", "role: r", "goal: g", "backstory: b"].join(
+      "\n",
+    ) + "\n",
+  );
+  const now = Date.now() / 1000;
+  fs.writeFileSync(
+    path.join(ledgerDir, "usage.jsonl"),
+    [
+      JSON.stringify({
+        ts: now - 20,
+        appId: "ao-chat",
+        agentProviderId: "gpt_research",
+        model: "openai/gpt-4o-mini",
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+        source: "crew_litellm",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: now - 15,
+        appId: "ao-chat",
+        model: "ollama/unique-solo-model",
+        promptTokens: 4,
+        completionTokens: 2,
+        totalTokens: 6,
+        source: "crew_litellm",
+        ok: true,
+      }),
+    ].join("\n") + "\n",
+  );
+  const runId = "run-agent-1";
+  fs.writeFileSync(
+    path.join(tracesDir, `${runId}.jsonl`),
+    [
+      JSON.stringify({
+        ts: now - 10,
+        kind: "agent_start",
+        message: "claude_research",
+        detail: { agent_provider_id: "claude_research" },
+      }),
+      JSON.stringify({
+        ts: now - 9,
+        kind: "model_call",
+        message: "anthropic/claude",
+        detail: {
+          model: "anthropic/claude",
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+          ok: true,
+        },
+      }),
+      JSON.stringify({ ts: now - 8, kind: "agent_end", message: "ok" }),
+    ].join("\n") + "\n",
+  );
+  const payload = buildLlmUsagePayload({ toolRoot: tmp, limit: 50 });
+  const byAgent = new Map((payload.llm.byAgent || []).map((r) => [r.key, r.totalTokens]));
+  assert.equal(byAgent.get("gpt_research"), 15);
+  assert.equal(byAgent.get("solo_agent"), 6);
+  assert.equal(byAgent.get("claude_research"), 11);
+  assert.ok(payload.recent.some((r) => r.agentProviderId === "gpt_research"));
+});
+
+test("buildLlmUsagePayload shares ollama/ and bare model ids", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-model-share-"));
+  const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");
+  fs.mkdirSync(ledgerDir, { recursive: true });
+  const now = Date.now() / 1000;
+  fs.writeFileSync(
+    path.join(ledgerDir, "usage.jsonl"),
+    [
+      JSON.stringify({
+        ts: now - 2,
+        appId: "ao-chat",
+        model: "ollama/qwen2.5:14b-instruct",
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+        source: "crew_litellm",
+        ok: true,
+      }),
+      JSON.stringify({
+        ts: now - 1,
+        appId: "ao-chat",
+        model: "qwen2.5:14b-instruct",
+        promptTokens: 4,
+        completionTokens: 2,
+        totalTokens: 6,
+        source: "direct_ollama",
+        ok: true,
+      }),
+    ].join("\n") + "\n",
+  );
+  const payload = buildLlmUsagePayload({ toolRoot: tmp, limit: 20 });
+  assert.ok(payload.recent.every((r) => r.model === "qwen2.5:14b-instruct"));
+  assert.equal((payload.llm.byModel || []).length, 1);
+  assert.equal(payload.llm.byModel[0].key, "qwen2.5:14b-instruct");
+  assert.equal(payload.llm.byModel[0].totalTokens, 21);
+});
+
 test("buildLlmUsagePayload prefers refined identity over brand appId", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ao-llm-usage-refine-"));
   const ledgerDir = path.join(tmp, "__orchestrator_llm_usage__");

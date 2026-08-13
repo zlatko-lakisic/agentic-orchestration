@@ -1,32 +1,46 @@
 import { __decorate } from "tslib";
-import { Component } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
+import { AoApi } from '@/app/core/ao-api/ao-api';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
-/** Fuse admin sidebar structure with AO branding. */
+import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
+/** Fuse admin sidebar structure with AO branding + environment identity. */
 let AdminSidebar = class AdminSidebar {
+    api = inject(AoApi);
+    hostname = signal(null);
+    profile = signal(null);
+    userName = signal(null);
+    ngOnInit() {
+        this.api.topology().subscribe((r) => {
+            if (!r.ok)
+                return;
+            this.hostname.set(r.data.hostname || null);
+            this.profile.set(r.data.environment || null);
+        });
+        this.api.session().subscribe((r) => {
+            if (r.ok)
+                this.userName.set(r.data.userName || null);
+        });
+    }
 };
 AdminSidebar = __decorate([
     Component({
         selector: 'admin-sidebar',
-        imports: [Navigation, User, MatButton, MatIcon],
+        imports: [Navigation, User, MatButton, MatIcon, AoMark],
         host: {
             class: 'flex w-full flex-auto flex-col',
         },
         template: `
     <div class="relative flex items-center gap-x-2.5 pt-5 pr-4 pb-0 pl-6">
-      <img
-        src="images/logo/logo.svg"
-        class="size-8"
-        alt="AO logo"
-      />
+      <ao-mark size="md" tint="steel" />
 
-      <div class="flex flex-col">
+      <div class="flex min-w-0 flex-col">
         <div
-          class="text-on-surface text-lg leading-none font-bold tracking-wider"
+          class="text-sm leading-tight font-bold tracking-tight text-[#3B6EA5] dark:text-[#E6EAF0]"
         >
-          AO
+          Agentic Orchestration
         </div>
         <div class="font-mono text-2xs leading-3 font-medium tracking-tighter">
           Admin
@@ -43,7 +57,7 @@ AdminSidebar = __decorate([
     >
       <div class="font-semibold">Open chat UI</div>
       <div class="mt-1 text-sm">
-        Operator chat stays on the web root. Reach / KnowBuddy uses the engine
+        Operator chat stays on the web root. Reach clients use the engine
         port, not this Admin surface.
       </div>
       <a
@@ -57,6 +71,23 @@ AdminSidebar = __decorate([
           iconPositionEnd
         />
       </a>
+    </div>
+
+    <div
+      class="mx-4 mb-2 border-l-4 px-3 py-2 text-xs"
+      [class.border-teal-500]="profile() === 'jetson'"
+      [class.border-violet-500]="profile() === 'nvr'"
+      [class.border-amber-500]="profile() === 'host'"
+      [class.border-neutral-400]="
+        profile() !== 'jetson' && profile() !== 'nvr' && profile() !== 'host'
+      "
+    >
+      <div class="font-mono font-medium">
+        {{ hostname() || 'unknown-host' }} · {{ profile() || 'local' }}
+      </div>
+      @if (userName()) {
+        <div class="text-neutral-500">{{ userName() }}</div>
+      }
     </div>
 
     <div class="p-2">

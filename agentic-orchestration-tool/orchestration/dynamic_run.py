@@ -246,6 +246,8 @@ def run_dynamic_goal(
     overlay = get_current_overlay()
     app_id = overlay.app_id if overlay else None
     overlay_allowed = overlay.allowed_agent_provider_ids if overlay else None
+    overlay_mcp_allowed = overlay.allowed_mcp_provider_ids if overlay else None
+    overlay_skill_allowed = overlay.allowed_skill_ids if overlay else None
     resolved_ids = resolve_allowed_agent_provider_ids(
         tool_root=root,
         app_id=app_id,
@@ -258,6 +260,8 @@ def run_dynamic_goal(
         user_prompt=text,
         catalog_path=paths.agent_providers,
         allowed_agent_provider_ids=resolved_ids,
+        allowed_mcp_provider_ids=overlay_mcp_allowed,
+        allowed_skill_ids=overlay_skill_allowed,
         mcp_catalog_path=paths.mcp_providers,
         agent_skills_catalog_path=paths.agent_skills,
         rag_sources_catalog_path=paths.rag_sources,

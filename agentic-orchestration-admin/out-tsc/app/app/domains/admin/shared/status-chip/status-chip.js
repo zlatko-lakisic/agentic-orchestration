@@ -16,6 +16,7 @@ let StatusChip = class StatusChip {
             'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300': s === 'healthy' ||
                 s === 'available' ||
                 s === 'succeeded' ||
+                s === 'completed' ||
                 s === 'pass' ||
                 s === 'passed',
             'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300': s === 'degraded' ||
@@ -30,6 +31,7 @@ let StatusChip = class StatusChip {
                 'healthy',
                 'available',
                 'succeeded',
+                'completed',
                 'pass',
                 'passed',
                 'degraded',

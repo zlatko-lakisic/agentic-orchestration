@@ -1,0 +1,48 @@
+const BY_KIND = {
+    app: { accent: '#0f766e', icon: 'app-window', aspect: 'App' },
+    ui: { accent: '#0d9488', icon: 'monitor', aspect: 'Client' },
+    'overlay-source': { accent: '#0891b2', icon: 'layers', aspect: 'Overlays' },
+    'local-tools': { accent: '#059669', icon: 'wrench', aspect: 'Local tools' },
+    openclaw: { accent: '#7c3aed', icon: 'bot', aspect: 'OpenClaw' },
+    'ao-web': { accent: '#0284c7', icon: 'layout-dashboard', aspect: 'Admin UI' },
+    'ao-chat': { accent: '#0d9488', icon: 'messages-square', aspect: 'Chat UI' },
+    'web-api-client': { accent: '#0369a1', icon: 'key-round', aspect: 'API client' },
+    'session-bridge': { accent: '#2563eb', icon: 'cable', aspect: 'Reach bridge' },
+    'overlay-packer': { accent: '#4f46e5', icon: 'package', aspect: 'Overlay pack' },
+    'local-mcp-host': { accent: '#6366f1', icon: 'plug', aspect: 'Local MCP' },
+    'speech-client': { accent: '#db2777', icon: 'mic', aspect: 'Speech' },
+    'mtls-enroller': { accent: '#b45309', icon: 'shield', aspect: 'mTLS' },
+    engine: { accent: '#dc2626', icon: 'cpu', aspect: 'Engine' },
+    endpoint: { accent: '#ea580c', icon: 'radio', aspect: 'Endpoint' },
+    'web-ui': { accent: '#0284c7', icon: 'globe', aspect: 'Web UI' },
+    planner: { accent: '#ca8a04', icon: 'brain', aspect: 'Planner' },
+    catalog: { accent: '#16a34a', icon: 'book-open', aspect: 'Catalog' },
+    'model-backend': { accent: '#0f766e', icon: 'boxes', aspect: 'Models' },
+    'model-runtime': { accent: '#0d9488', icon: 'sparkles', aspect: 'Runtime' },
+    'execution-backend': { accent: '#9333ea', icon: 'workflow', aspect: 'Execution' },
+    worker: { accent: '#a855f7', icon: 'server', aspect: 'Workers' },
+    'mcp-sidecar': { accent: '#c026d3', icon: 'puzzle', aspect: 'Sidecar' },
+    platform: { accent: '#3B6EA5', icon: 'container', aspect: 'Platform' },
+    storage: { accent: '#64748b', icon: 'hard-drive', aspect: 'Storage' },
+    'k8s-workload': { accent: '#3B6EA5', icon: 'server', aspect: 'K8s workload' },
+    'k8s-node': { accent: '#1d4ed8', icon: 'server', aspect: 'K8s node' },
+    'k8s-pod': { accent: '#2563eb', icon: 'boxes', aspect: 'K8s pod' },
+    'k8s-service': { accent: '#0ea5e9', icon: 'cable', aspect: 'K8s service' },
+};
+const BY_BAND = {
+    application: { accent: '#0d9488', icon: 'monitor', aspect: 'Application' },
+    reach: { accent: '#2563eb', icon: 'cable', aspect: 'Reach' },
+    ao: { accent: '#3B6EA5', icon: 'cpu', aspect: 'Orchestration' },
+};
+export function themeForKind(kind, band) {
+    return (BY_KIND[String(kind)] ||
+        (band ? BY_BAND[band] : null) || {
+        accent: '#737373',
+        icon: 'circle',
+        aspect: 'Other',
+    });
+}
+export function themeForBand(band) {
+    return BY_BAND[band];
+}
+export const KIND_THEMES = BY_KIND;

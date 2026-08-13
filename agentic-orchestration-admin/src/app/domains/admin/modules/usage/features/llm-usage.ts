@@ -54,6 +54,15 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 type PanelView = 'diagram' | 'table';
 
+type LlmTxRow = {
+  whenMs: number;
+  runId: string | null;
+  app: string;
+  model: string;
+  tokens: number;
+  status: 'failed' | 'succeeded';
+};
+
 type SpendRangeId = '6h' | '1d' | '7d' | '15d' | '30d';
 
 const SPEND_RANGES: ReadonlyArray<{ id: SpendRangeId; label: string; hours: number }> = [
@@ -641,7 +650,8 @@ export class LlmUsagePage implements OnInit, OnDestroy {
   readonly spendRange = signal<SpendRangeId>('6h');
   /** Per-panel Diagram / Table preference (defaults to diagram). */
   private readonly panelViews = signal<Record<string, PanelView>>({});
-  readonly txDataSource = new MatTableDataSource<ReturnType<typeof mapTx>>([]);
+  readonly txDataSource: MatTableDataSource<LlmTxRow> =
+    new MatTableDataSource<LlmTxRow>([]);
 
   readonly data = computed(
     () =>
@@ -853,10 +863,10 @@ export class LlmUsagePage implements OnInit, OnDestroy {
         pie: pieFromRows(d.llm?.byClientIp || []),
       },
       {
-        id: 'byModel',
-        title: 'By model',
-        rows: d.llm?.byModel || [],
-        pie: pieFromRows(d.llm?.byModel || []),
+        id: 'byAgent',
+        title: 'By agent',
+        rows: d.llm?.byAgent || [],
+        pie: pieFromRows(d.llm?.byAgent || []),
       },
     ];
   });
@@ -1112,7 +1122,7 @@ function windowCaption(t: LlmSpendTotals, hours?: number): string {
   return `Rolling ${h}h`;
 }
 
-function mapTx(r: LlmUsageEventRow) {
+function mapTx(r: LlmUsageEventRow): LlmTxRow {
   const ms = (() => {
     const n = Number(r.ts);
     if (Number.isFinite(n)) return n < 1e12 ? n * 1000 : n;

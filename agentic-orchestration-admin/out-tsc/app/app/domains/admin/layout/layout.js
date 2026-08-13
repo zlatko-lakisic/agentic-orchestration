@@ -1,13 +1,18 @@
 import { __decorate } from "tslib";
-import { Component, computed, inject, viewChild } from '@angular/core';
+import { Component, DestroyRef, computed, inject, viewChild, } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialogModule } from '@angular/material/dialog';
 import { MatDivider } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSidenav, MatSidenavContainer, MatSidenavContent, } from '@angular/material/sidenav';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Media } from '@/app/core/media';
 import { CommandPalette } from '@/app/domains/admin/layout/ui/command-palette';
+import { HostUtilizationButton } from '@/app/domains/admin/layout/ui/host-utilization-button';
 import { Notifications } from '@/app/domains/admin/layout/ui/notifications';
 import { SchemeSwitcher } from '@/app/domains/admin/layout/ui/scheme-switcher';
 import { Shortcuts } from '@/app/domains/admin/layout/ui/shortcuts';
@@ -18,8 +23,20 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
  */
 let AdminLayout = class AdminLayout {
     media = inject(Media);
+    router = inject(Router);
+    live = inject(AoLiveWs);
     commandPalette = viewChild.required(CommandPalette);
     isMobile = computed(() => this.media.match(`(max-width: 1023px)`)());
+    url = toSignal(this.router.events.pipe(filter((e) => e instanceof NavigationEnd), map((e) => e.urlAfterRedirects), startWith(this.router.url)), { initialValue: this.router.url });
+    /** Compact graphs live in the top bar on every page except Overview. */
+    showHostUtilization = computed(() => {
+        const path = (this.url() || '').split('?')[0].replace(/\/$/, '') || '/';
+        return path !== '/' && path !== '/overview';
+    });
+    constructor() {
+        this.live.acquire({ metrics: true });
+        inject(DestroyRef).onDestroy(() => this.live.release());
+    }
     openPalette() {
         this.commandPalette().open();
     }
@@ -40,7 +57,9 @@ AdminLayout = __decorate([
             Notifications,
             Shortcuts,
             MatDivider,
+            MatDialogModule,
             CommandPalette,
+            HostUtilizationButton,
         ],
         template: `
     <mat-sidenav-container>
@@ -72,6 +91,9 @@ AdminLayout = __decorate([
           <div class="flex-auto"></div>
 
           <div class="flex items-center gap-x-2">
+            @if (showHostUtilization()) {
+              <ao-host-utilization-button />
+            }
             <scheme-switcher />
             <notifications />
             <mat-divider

@@ -10,27 +10,44 @@ const routes = [
                 loadComponent: () => import('./modules/overview/features/overview').then((m) => m.OverviewPage),
             },
             {
-                path: 'runtime',
-                loadComponent: () => import('./modules/runtime/layout').then((m) => m.RuntimeLayout),
-                children: [
-                    { path: '', pathMatch: 'full', redirectTo: 'planner' },
-                    {
-                        path: 'planner',
-                        loadComponent: () => import('./modules/runtime/features/planner').then((m) => m.PlannerPage),
-                    },
-                    {
-                        path: 'execution',
-                        loadComponent: () => import('./modules/runtime/features/execution').then((m) => m.ExecutionPage),
-                    },
-                    {
-                        path: 'models',
-                        loadComponent: () => import('./modules/runtime/features/models').then((m) => m.ModelsPage),
-                    },
-                ],
+                path: 'topology',
+                loadComponent: () => import('./modules/topology/features/topology-page').then((m) => m.TopologyPage),
             },
-            { path: 'catalogs', pathMatch: 'full', redirectTo: 'catalogs/agents' },
             {
-                path: 'catalogs/:kind',
+                path: 'control',
+                loadComponent: () => import('./modules/control/features/control-page').then((m) => m.ControlPage),
+            },
+            {
+                path: 'components',
+                loadComponent: () => import('./modules/components/features/components').then((m) => m.ComponentsPage),
+            },
+            {
+                path: 'components/:id',
+                loadComponent: () => import('./modules/components/features/component-detail').then((m) => m.ComponentDetailPage),
+            },
+            {
+                path: 'runs',
+                loadComponent: () => import('./modules/runs/features/runs').then((m) => m.RunsPage),
+            },
+            {
+                path: 'traces',
+                loadComponent: () => import('./modules/traces/features/traces').then((m) => m.TracesPage),
+            },
+            {
+                path: 'llm-usage',
+                loadComponent: () => import('./modules/usage/features/llm-usage').then((m) => m.LlmUsagePage),
+            },
+            {
+                path: 'activity',
+                loadComponent: () => import('./modules/activity/features/activity').then((m) => m.ActivityPage),
+            },
+            {
+                path: 'capabilities',
+                pathMatch: 'full',
+                redirectTo: 'capabilities/agents',
+            },
+            {
+                path: 'capabilities/:kind',
                 loadComponent: () => import('./modules/catalogs/features/catalogs').then((m) => m.CatalogsPage),
                 children: [
                     {
@@ -40,37 +57,39 @@ const routes = [
                 ],
             },
             {
-                path: 'memory',
-                loadComponent: () => import('./modules/memory/features/memory').then((m) => m.MemoryPage),
+                path: 'behaviour',
+                loadComponent: () => import('./modules/behaviour/features/behaviour').then((m) => m.BehaviourPage),
             },
             {
-                path: 'security',
-                loadComponent: () => import('./modules/security/features/security').then((m) => m.SecurityPage),
-            },
-            {
-                path: 'integrations',
-                loadComponent: () => import('./modules/integrations/features/integrations').then((m) => m.IntegrationsPage),
-            },
-            {
-                path: 'deployments',
-                loadComponent: () => import('./modules/deployments/features/deployments').then((m) => m.DeploymentsPage),
+                path: 'access',
+                loadComponent: () => import('./modules/access/features/access').then((m) => m.AccessPage),
             },
             {
                 path: 'data',
                 loadComponent: () => import('./modules/data-storage/features/data').then((m) => m.DataPage),
             },
             {
-                path: 'audit',
-                loadComponent: () => import('./modules/audit/features/audit').then((m) => m.AuditPage),
+                path: 'deploy',
+                loadComponent: () => import('./modules/deploy/features/deploy').then((m) => m.DeployPage),
             },
             {
-                path: 'advanced',
-                loadComponent: () => import('./modules/advanced/features/advanced').then((m) => m.AdvancedPage),
+                path: 'settings',
+                loadComponent: () => import('./modules/settings/features/settings').then((m) => m.SettingsPage),
             },
-            {
-                path: 'changes',
-                loadComponent: () => import('./modules/changes/features/changes').then((m) => m.ChangesPage),
-            },
+            // Legacy redirects
+            { path: 'runtime', pathMatch: 'full', redirectTo: 'behaviour' },
+            { path: 'runtime/planner', redirectTo: 'behaviour' },
+            { path: 'runtime/execution', redirectTo: 'components/execution' },
+            { path: 'runtime/models', redirectTo: 'components/ollama' },
+            { path: 'catalogs', redirectTo: 'capabilities/agents' },
+            { path: 'catalogs/:kind', redirectTo: 'capabilities/:kind' },
+            { path: 'memory', redirectTo: 'behaviour' },
+            { path: 'security', redirectTo: 'access' },
+            { path: 'integrations', redirectTo: 'components' },
+            { path: 'deployments', redirectTo: 'deploy' },
+            { path: 'audit', redirectTo: 'activity' },
+            { path: 'changes', redirectTo: 'activity' },
+            { path: 'advanced', redirectTo: 'settings' },
             {
                 path: '404',
                 loadComponent: () => import('./modules/extras/error/features/error-404'),

@@ -15,7 +15,14 @@ export declare class CatalogsPage implements OnInit {
     readonly entries: import("@angular/core").WritableSignal<CatalogEntry[]>;
     readonly error: import("@angular/core").WritableSignal<string | null>;
     readonly search: import("@angular/core").WritableSignal<string>;
+    readonly statusFilter: import("@angular/core").WritableSignal<string>;
+    readonly providerFilter: import("@angular/core").WritableSignal<string>;
     readonly columns: string[];
+    readonly counts: import("@angular/core").Signal<{
+        status: string;
+        count: number;
+    }[]>;
+    readonly providers: import("@angular/core").Signal<string[]>;
     readonly dataSource: MatTableDataSource<CatalogEntry>;
     private url;
     protected isMobile: import("@angular/core").Signal<boolean>;
@@ -23,6 +30,8 @@ export declare class CatalogsPage implements OnInit {
     ngOnInit(): void;
     load(kind: string): void;
     onSearch(value: string): void;
+    onStatusFilter(value: string): void;
+    onProviderFilter(value: string): void;
     private applyFilter;
     closeDetail(): void;
     fixRoute(key: string): string;

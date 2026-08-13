@@ -1,5 +1,5 @@
-import { provideHttpClient, withFetch } from '@angular/common/http';
-import { isDevMode, provideBrowserGlobalErrorListeners, } from '@angular/core';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
+import { inject, isDevMode, provideAppInitializer, provideBrowserGlobalErrorListeners, } from '@angular/core';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { MAT_FORM_FIELD_DEFAULT_OPTIONS } from '@angular/material/form-field';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling, } from '@angular/router';
@@ -7,11 +7,14 @@ import { provideTransloco } from '@jsverse/transloco';
 import { provideIcons } from '@/app/core/icons/provider';
 import { provideTheming } from '@/app/core/theming';
 import { TranslocoHttpLoader } from '@/app/core/transloco/transloco-http-loader';
+import { webAuthInterceptor } from '@/app/core/ao-api/web-auth.interceptor';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { routes } from './app.routes';
 export const appConfig = {
     providers: [
         provideBrowserGlobalErrorListeners(),
-        provideHttpClient(withFetch()),
+        provideHttpClient(withFetch(), withInterceptors([webAuthInterceptor])),
+        provideAppInitializer(() => inject(WebAuth).refreshOnce()),
         provideRouter(routes, withComponentInputBinding(), withInMemoryScrolling({ scrollPositionRestoration: 'enabled' })),
         {
             provide: MAT_FORM_FIELD_DEFAULT_OPTIONS,
@@ -23,7 +26,7 @@ export const appConfig = {
         provideIcons(),
         provideTheming({
             scheme: 'system',
-            primary: '#1565C0',
+            primary: '#3B6EA5',
             error: '#dc2626',
         }),
         provideTransloco({

@@ -65,6 +65,7 @@ class _SequentialKickoffState:
     progress_enabled: bool = field(default=False)
     emit_progress_lines: bool = True
     rag_audits: dict[str, RagStepAudit] = field(default_factory=dict)
+    usage_agent_tokens: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -88,7 +89,33 @@ def crew_kickoff_context(built: BuiltWorkflow):
     try:
         yield
     finally:
+        try:
+            from orchestration.llm_usage import reset_usage_context
+
+            if st.usage_agent_tokens:
+                reset_usage_context(st.usage_agent_tokens)
+                st.usage_agent_tokens = []
+        except Exception:  # noqa: BLE001
+            pass
         _KICKOFF_CB_STATE.reset(token)
+
+
+def _bind_task_agent_usage(ap: AgentProvider) -> None:
+    """Attribute LiteLLM usage to the agent provider for the active task."""
+    state = _KICKOFF_CB_STATE.get()
+    if state is None:
+        return
+    try:
+        from orchestration.llm_usage import bind_usage_context, reset_usage_context
+
+        if state.usage_agent_tokens:
+            reset_usage_context(state.usage_agent_tokens)
+            state.usage_agent_tokens = []
+        aid = str(getattr(ap.config, "id", "") or "").strip()
+        if aid:
+            state.usage_agent_tokens = bind_usage_context(agent_provider_id=aid)
+    except Exception:  # noqa: BLE001
+        state.usage_agent_tokens = []
 
 
 def _progress(msg: str) -> None:
@@ -155,6 +182,7 @@ def _serial_crew_before_kickoff(inputs: dict[str, Any] | None) -> dict[str, Any]
         first_id, first_task, ap = state.task_run_order[0]
         _progress(f"starting {_task_human_label(first_id, first_task)}")
         ap.before_task(first_id, first_task, dict(state.inputs_holder))
+        _bind_task_agent_usage(ap)
     return merged
 
 
@@ -213,6 +241,7 @@ def _serial_crew_task_callback(output: Any) -> None:
         )
         _progress(f"starting {_task_human_label(next_id, next_task)}")
         next_ap.before_task(next_id, next_task, dict(state.inputs_holder))
+        _bind_task_agent_usage(next_ap)
 
 
 def _to_process(value: str) -> Process:
@@ -434,6 +463,12 @@ def build_workflow(
                 )
             else:
                 raise
+        try:
+            from orchestration.llm_usage import attach_usage_agent_to_crew_agent
+
+            attach_usage_agent_to_crew_agent(crew_agent_cache[key], apid)
+        except Exception:  # noqa: BLE001
+            pass
 
     agents = list(crew_agent_cache.values())
 

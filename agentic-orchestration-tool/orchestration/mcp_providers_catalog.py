@@ -15,10 +15,11 @@ _EXTRA_MCP_PATH_ENV = "AGENTIC_EXTRA_MCP_PROVIDERS_PATH"
 
 
 def substitute_mcp_env_vars(text: str) -> str:
-    """Replace ``${VAR}`` placeholders with ``os.environ[VAR]`` (empty string if unset)."""
+    """Replace ``${VAR}`` placeholders (session overlay env, then process env)."""
+    from orchestration.session_env import getenv
 
     def _repl(match: re.Match[str]) -> str:
-        return os.getenv(match.group(1).strip(), "")
+        return getenv(match.group(1).strip(), "") or ""
 
     return re.sub(r"\$\{([^}]+)\}", _repl, text)
 
@@ -110,19 +111,21 @@ def mcp_entry_has_api_credentials(entry: dict[str, Any]) -> bool:
     - required_env: list[str] (all must be set and non-empty)
     - required_env_any: list[str] (at least one must be set and non-empty)
     """
+    from orchestration.session_env import getenv
+
     raw_all = entry.get("required_env")
     if isinstance(raw_all, list) and raw_all:
         for k in raw_all:
             key = str(k).strip()
             if not key:
                 continue
-            if not os.getenv(key, "").strip():
+            if not (getenv(key, "") or "").strip():
                 return False
 
     raw_any = entry.get("required_env_any")
     if isinstance(raw_any, list) and raw_any:
         keys = [str(k).strip() for k in raw_any if str(k).strip()]
-        if keys and not any(os.getenv(k, "").strip() for k in keys):
+        if keys and not any((getenv(k, "") or "").strip() for k in keys):
             return False
 
     return True

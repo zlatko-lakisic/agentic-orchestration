@@ -2397,10 +2397,12 @@ function normalizeLlmUsageRow(row) {
         detail?.provider_id ||
         "",
     ).trim() || null;
+  const model = canonicalizeUsageModel(row.model) || null;
   return {
     ...row,
     appId,
     agentProviderId,
+    model,
   };
 }
 
@@ -2562,19 +2564,25 @@ function dayKeyUtc(ms) {
   return `${y}-${m}-${day}`;
 }
 
-function summarizeLlmUsage(rows) {
+function summarizeLlmUsage(rows, { modelToAgent, traceAgents } = {}) {
   const byUserId = new Map();
   const byClientIp = new Map();
   const byAppId = new Map();
   const byTokenId = new Map();
+  const byAgent = new Map();
   const byModel = new Map();
   const grandTotal = emptyTokenTotals();
   for (const raw of rows || []) {
     const row = normalizeLlmUsageRow(raw) || raw;
+    const agentId = effectiveAgentId(row, { modelToAgent, traceAgents });
+    if (agentId && !row.agentProviderId) {
+      row.agentProviderId = agentId;
+    }
     addTokenBucket(byUserId, rollupKey(row.userId || row.userName), row);
     addTokenBucket(byClientIp, rollupKey(row.clientIp), row);
     addTokenBucket(byAppId, rollupKey(effectiveAppId(row)), row);
     addTokenBucket(byTokenId, rollupKey(row.tokenId), row);
+    addTokenBucket(byAgent, rollupKey(agentId), row);
     addTokenBucket(byModel, rollupKey(row.model), row);
     addToTotals(grandTotal, row);
   }
@@ -2584,6 +2592,7 @@ function summarizeLlmUsage(rows) {
     byClientIp: [...byClientIp.values()].sort(sortFn),
     byAppId: [...byAppId.values()].sort(sortFn),
     byTokenId: [...byTokenId.values()].sort(sortFn),
+    byAgent: [...byAgent.values()].sort(sortFn),
     byModel: [...byModel.values()].sort(sortFn),
     grandTotal,
   };
@@ -2763,9 +2772,18 @@ function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
     if (!runId) continue;
     const events = readRunTraceEvents(toolRoot, runId);
     const ident = detailIdentity(events);
+    let activeAgent = "";
     for (const ev of events || []) {
-      if (String(ev?.kind || "") !== "model_call") continue;
+      const kind = String(ev?.kind || "");
       const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+      const provider = String(
+        d.agent_provider_id || d.provider_id || (kind === "agent_start" ? ev.message : "") || "",
+      ).trim();
+      if (kind === "agent_start" || kind === "agent_select" || kind === "step_start") {
+        if (provider) activeAgent = provider;
+        continue;
+      }
+      if (kind !== "model_call") continue;
       const prompt = d.prompt_tokens != null ? Number(d.prompt_tokens) : null;
       const completion =
         d.completion_tokens != null ? Number(d.completion_tokens) : null;
@@ -2784,6 +2802,8 @@ function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
       ) {
         continue;
       }
+      const agentProviderId =
+        String(d.agent_provider_id || d.provider_id || "").trim() || activeAgent || null;
       rows.push(
         normalizeLlmUsageRow({
           ts: Number.isFinite(Number(ev.ts)) ? Number(ev.ts) : Date.now() / 1000,
@@ -2792,6 +2812,7 @@ function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
           userName: ident.userName,
           appId: ident.appId,
           clientIp: ident.clientIp,
+          agentProviderId,
           source: String(d.source || "trace_model_call"),
           model: d.model != null ? String(d.model) : String(ev.message || "") || null,
           promptTokens: Number.isFinite(prompt) ? prompt : null,
@@ -2807,12 +2828,17 @@ function llmUsageRowsFromTraces(toolRoot, { limitRuns = 120 } = {}) {
   return rows;
 }
 
-/** Strip provider prefixes so ledger/trace model strings compare equal. */
-function normalizeUsageModel(model) {
+/** Strip LiteLLM provider prefixes; keep the shared backend model id. */
+function canonicalizeUsageModel(model) {
   return String(model || "")
     .trim()
-    .toLowerCase()
-    .replace(/^(ollama|openai|azure|anthropic|bedrock)\//, "");
+    .replace(/^(ollama|openai|azure|anthropic|bedrock)\//i, "")
+    .trim();
+}
+
+/** Strip provider prefixes so ledger/trace model strings compare equal. */
+function normalizeUsageModel(model) {
+  return canonicalizeUsageModel(model).toLowerCase();
 }
 
 function usageAppQuality(appId) {
@@ -2829,6 +2855,7 @@ function usageRowPreferScore(row) {
   if (String(row?.runId || "").trim()) score += 1;
   if (String(row?.userName || row?.userId || "").trim()) score += 1;
   if (String(row?.clientIp || "").trim()) score += 1;
+  if (String(row?.agentProviderId || "").trim()) score += 2;
   return score;
 }
 
@@ -2869,8 +2896,14 @@ function buildLlmUsagePayload({ toolRoot, limit = 200, windowHours, windowDays, 
   );
   const fromTraces = llmUsageRowsFromTraces(toolRoot, { limitRuns: 150 });
   const all = mergeLlmUsageRows(ledger, fromTraces);
+  const modelToAgent = uniqueAgentModelMap(toolRoot);
+  const traceAgents = agentAttributionFromTraces(toolRoot, { limitRuns: 150 });
+  for (const row of all) {
+    const agentId = effectiveAgentId(row, { modelToAgent, traceAgents });
+    if (agentId) row.agentProviderId = agentId;
+  }
   const recent = all.slice(-Math.max(1, Number(limit) || 200)).reverse();
-  const llm = summarizeLlmUsage(all);
+  const llm = summarizeLlmUsage(all, { modelToAgent, traceAgents });
   const spend = buildLlmSpendSeries(all, { windowHours, windowDays, window, range });
   return {
     generatedAt: new Date().toISOString(),

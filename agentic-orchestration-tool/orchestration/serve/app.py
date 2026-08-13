@@ -219,6 +219,19 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             headers={"X-Agentic-Engine": "1"},
         )
 
+    @app.get("/api/v1/catalog")
+    async def api_v1_catalog(
+        kinds: str | None = Query(
+            default=None,
+            description="Comma-separated: agents,mcps,skills,harnesses (default: all)",
+        ),
+        _identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        """Stock catalog for Reach enablement UIs (ids + requiredSecrets metadata only)."""
+        from orchestration.catalog_public import build_reach_catalog
+
+        return await run_in_threadpool(build_reach_catalog, root, kinds=kinds)
+
     @app.get("/metrics")
     async def metrics() -> Response:
         from orchestration.metrics import metrics_payload

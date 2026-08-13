@@ -32,7 +32,7 @@ let CatalogDetailPage = class CatalogDetailPage {
         });
     }
     close() {
-        this.router.navigate(['/catalogs', this.kind()]);
+        this.router.navigate(['/capabilities', this.kind()]);
     }
 };
 CatalogDetailPage = __decorate([

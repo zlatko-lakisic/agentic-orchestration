@@ -4,66 +4,64 @@ import { Component, computed, effect, inject, signal, viewChild, } from '@angula
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader, } from '@angular/material/card';
 import { MatChipListbox, MatChipOption, } from '@angular/material/chips';
-import { MatDivider } from '@angular/material/divider';
+import { MatExpansionPanel, MatExpansionPanelDescription, MatExpansionPanelHeader, MatExpansionPanelTitle, } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { RouterLink } from '@angular/router';
+import { RouterLink, ActivatedRoute } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 import { ChartComponent, } from 'ng-apexcharts';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
-import { Theming } from '@/app/core/theming';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { HostUtilization } from '@/app/domains/admin/shared/host-utilization/host-utilization';
+/** Topology reads top-down: each entry depends on the ones above it. */
+const DEPENDENCY_ORDER = [
+    'web',
+    'engine',
+    'execution',
+    'ollama',
+    'mcp',
+    'speech',
+    'openclaw',
+    'reach',
+];
 /**
  * Overview — live host metrics (WS) + Fuse Apex charts + filterable live logs.
  */
 let OverviewPage = class OverviewPage {
     api = inject(AoApi);
-    theming = inject(Theming);
+    route = inject(ActivatedRoute);
     live = inject(AoLiveWs);
     logViewport = viewChild('logViewport');
-    topologyTimer = null;
     topology = signal(null);
     ping = signal(null);
     session = signal(null);
     error = signal(null);
     selectedSources = signal([]);
+    followLogs = signal(true);
+    runIdFilter = signal('');
+    logsExpanded = signal(false);
     components = computed(() => (this.topology()?.components || []));
+    /** Dependency order for the topology list; unknown ids keep API order at the end. */
+    orderedComponents = computed(() => {
+        const rank = (id) => {
+            const i = DEPENDENCY_ORDER.indexOf(id);
+            return i === -1 ? DEPENDENCY_ORDER.length : i;
+        };
+        return [...this.components()].sort((a, b) => rank(a.id) - rank(b.id));
+    });
+    topologyUnhealthyCount = computed(() => this.components().filter((c) => ['failed', 'degraded', 'blocking', 'warning'].includes(String(c.status || '').toLowerCase())).length);
     filteredLogs = computed(() => {
         const allow = new Set(this.selectedSources());
-        const logs = this.live.logs();
-        if (!allow.size)
-            return logs;
-        return logs.filter((e) => allow.has(e.source));
-    });
-    chartSeries = computed(() => {
-        const hist = this.live.history();
-        const series = [
-            {
-                name: 'CPU',
-                data: hist.map((h) => ({
-                    x: h.t,
-                    y: h.cpu == null ? null : Number(h.cpu.toFixed(1)),
-                })),
-            },
-            {
-                name: 'Memory',
-                data: hist.map((h) => ({
-                    x: h.t,
-                    y: h.mem == null ? null : Number(h.mem.toFixed(1)),
-                })),
-            },
-        ];
-        if (hist.some((h) => h.gpu != null)) {
-            series.push({
-                name: 'GPU',
-                data: hist.map((h) => ({
-                    x: h.t,
-                    y: h.gpu == null ? null : Number(h.gpu.toFixed(1)),
-                })),
-            });
+        const needle = this.runIdFilter().trim().toLowerCase();
+        let logs = this.live.logs();
+        if (allow.size)
+            logs = logs.filter((e) => allow.has(e.source));
+        if (needle) {
+            logs = logs.filter((e) => String(e.line || '').toLowerCase().includes(needle));
         }
-        return series;
+        return logs;
     });
     summary = computed(() => {
         const comps = this.components();
@@ -71,12 +69,16 @@ let OverviewPage = class OverviewPage {
         const degraded = comps.filter((c) => ['degraded', 'warning', 'running', 'reconciling'].includes(String(c.status || '').toLowerCase())).length;
         const failed = comps.filter((c) => ['failed', 'blocking'].includes(String(c.status || '').toLowerCase())).length;
         const attention = this.topology()?.attention?.length ?? 0;
+        const healthyNames = comps
+            .filter((c) => ['healthy', 'available', 'succeeded'].includes(String(c.status || '').toLowerCase()))
+            .map((c) => c.id)
+            .join(', ');
         return [
             {
                 title: 'Healthy',
                 icon: 'circle-check',
                 value: healthy,
-                caption: 'components up',
+                caption: healthyNames || 'components up',
                 toneIcon: 'arrow-up',
                 toneClass: 'text-green-600',
             },
@@ -106,65 +108,9 @@ let OverviewPage = class OverviewPage {
             },
         ];
     });
-    utilChart = {
-        chart: {
-            animations: { enabled: false },
-            fontFamily: 'inherit',
-            foreColor: 'inherit',
-            height: '100%',
-            type: 'area',
-            toolbar: { show: false },
-            zoom: { enabled: false },
-        },
-        colors: ['#f59e0b', '#60a5fa', '#c084fc'],
-        dataLabels: { enabled: false },
-        fill: {
-            type: 'gradient',
-            gradient: {
-                shadeIntensity: 0.4,
-                opacityFrom: 0.45,
-                opacityTo: 0.05,
-                stops: [0, 90, 100],
-            },
-        },
-        grid: {
-            borderColor: 'rgba(148, 163, 184, 0.2)',
-            strokeDashArray: 3,
-            padding: { left: 8, right: 8 },
-        },
-        legend: {
-            show: true,
-            position: 'top',
-            horizontalAlign: 'right',
-        },
-        stroke: { curve: 'smooth', width: 2 },
-        tooltip: computed(() => ({
-            theme: this.theming.isDark() ? 'dark' : 'light',
-            x: { format: 'HH:mm:ss' },
-            y: { formatter: (v) => `${Number(v).toFixed(1)}%` },
-        })),
-        xaxis: {
-            type: 'datetime',
-            labels: {
-                datetimeUTC: false,
-                style: { colors: 'var(--mat-sys-on-surface)' },
-            },
-            axisBorder: { show: false },
-            tooltip: { enabled: false },
-        },
-        yaxis: {
-            min: 0,
-            max: 100,
-            tickAmount: 4,
-            labels: {
-                formatter: (v) => `${Math.round(v)}%`,
-                style: { colors: 'var(--mat-sys-on-surface)' },
-            },
-        },
-    };
     sparkChart = {
         chart: {
-            animations: { enabled: false },
+            animations: { enabled: false, dynamicAnimation: { enabled: false } },
             fontFamily: 'inherit',
             foreColor: 'inherit',
             height: '101%',
@@ -185,8 +131,20 @@ let OverviewPage = class OverviewPage {
     };
     constructor() {
         effect(() => {
+            const err = this.live.feedErrors()['topology'] || this.live.feedErrors()['_'];
+            if (err)
+                this.error.set(err);
+            const snap = this.live.feeds()['topology'];
+            if (!snap)
+                return;
+            this.error.set(null);
+            this.topology.set(snap);
+        });
+        effect(() => {
             // Auto-scroll log viewport when new lines arrive.
             this.filteredLogs();
+            if (!this.followLogs())
+                return;
             queueMicrotask(() => {
                 const el = this.logViewport()?.nativeElement;
                 if (!el)
@@ -197,15 +155,33 @@ let OverviewPage = class OverviewPage {
     }
     ngOnInit() {
         this.selectedSources.set([...this.live.logSourceOptions()]);
-        this.live.acquire({ metrics: true, logs: true });
-        this.reload();
-        this.topologyTimer = setInterval(() => this.reload(), 30000);
+        this.live.acquire({
+            metrics: true,
+            logs: true,
+            feeds: ['topology'],
+            feedIntervalMs: 5000,
+        });
+        // Session / ping are relatively static identity context (one-shot HTTP).
+        this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
+        this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
+        const qRun = String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
+            String(this.route.snapshot.queryParamMap.get('q') || '').trim();
+        if (qRun) {
+            this.applyRunIdFilter(qRun);
+        }
+    }
+    onRunIdFilterChange(value) {
+        this.applyRunIdFilter(String(value || ''));
+    }
+    applyRunIdFilter(value) {
+        const rid = value.trim();
+        this.runIdFilter.set(rid);
+        if (rid) {
+            this.logsExpanded.set(true);
+            this.live.followRunLogs(rid);
+        }
     }
     ngOnDestroy() {
-        if (this.topologyTimer) {
-            clearInterval(this.topologyTimer);
-            this.topologyTimer = null;
-        }
         this.live.release();
     }
     sparkSeries(key) {
@@ -221,14 +197,26 @@ let OverviewPage = class OverviewPage {
         this.selectedSources.set(list);
         this.live.setLogSources(list.length ? list : null);
     }
+    exportBundle() {
+        this.api.supportBundle().subscribe((r) => {
+            if (!r.ok) {
+                this.error.set(r.message);
+                return;
+            }
+            const blob = new Blob([JSON.stringify(r.data, null, 2)], {
+                type: 'application/json',
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ao-support-bundle-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+    }
     reload() {
         this.error.set(null);
-        this.api.topology().subscribe((r) => {
-            if (r.ok)
-                this.topology.set(r.data);
-            else
-                this.error.set(r.message);
-        });
+        this.live.setFeedParams({});
         this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
         this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
     }
@@ -248,15 +236,6 @@ let OverviewPage = class OverviewPage {
         }
         return resolved;
     }
-    resourceBarColor(pct) {
-        if (pct == null)
-            return 'primary';
-        if (pct >= 90)
-            return 'error';
-        if (pct >= 75)
-            return 'warn';
-        return 'primary';
-    }
     statusLabel(status) {
         const s = String(status || 'unknown').replace(/-/g, ' ');
         return s.charAt(0).toUpperCase() + s.slice(1);
@@ -273,36 +252,16 @@ let OverviewPage = class OverviewPage {
         }
         return 'text-neutral-500';
     }
-    watermarkIcon(status) {
+    statusDotClass(status) {
         const s = String(status || '').toLowerCase();
         if (['healthy', 'available', 'succeeded'].includes(s))
-            return 'circle-check';
+            return 'bg-green-500';
         if (['failed', 'blocking'].includes(s))
-            return 'circle-x';
-        return 'circle-alert';
-    }
-    watermarkClass(status) {
-        const s = String(status || '').toLowerCase();
-        if (['healthy', 'available', 'succeeded'].includes(s)) {
-            return 'text-green-600/25 dark:text-green-500/25';
+            return 'bg-red-500';
+        if (['degraded', 'warning', 'running', 'reconciling'].includes(s)) {
+            return 'bg-amber-500';
         }
-        if (['failed', 'blocking'].includes(s)) {
-            return 'text-red-600/25 dark:text-red-500/25';
-        }
-        return 'text-amber-600/25 dark:text-amber-500/25';
-    }
-    formatUptime(sec) {
-        if (sec == null || !Number.isFinite(sec))
-            return '—';
-        const s = Math.floor(sec);
-        const d = Math.floor(s / 86400);
-        const h = Math.floor((s % 86400) / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        if (d > 0)
-            return `${d}d ${h}h`;
-        if (h > 0)
-            return `${h}h ${m}m`;
-        return `${m}m`;
+        return 'bg-neutral-400';
     }
     formatLogTime(ts) {
         const d = new Date(ts);
@@ -342,17 +301,22 @@ OverviewPage = __decorate([
         selector: 'ao-overview-page',
         imports: [
             RouterLink,
+            FormsModule,
+            MatFormFieldModule,
+            MatInputModule,
             ErrorState,
             MatButtonModule,
             MatIconModule,
-            MatMenuModule,
             MatCard,
             MatCardHeader,
             MatCardContent,
-            MatDivider,
-            MatProgressBarModule,
             MatChipListbox,
+            HostUtilization,
             MatChipOption,
+            MatExpansionPanel,
+            MatExpansionPanelHeader,
+            MatExpansionPanelTitle,
+            MatExpansionPanelDescription,
             DecimalPipe,
             NgClass,
             ChartComponent,
@@ -371,6 +335,14 @@ OverviewPage = __decorate([
           </div>
         </div>
         <div class="flex-auto"></div>
+        <button
+          matButton="outlined"
+          type="button"
+          class="mr-2"
+          (click)="exportBundle()"
+        >
+          Export support bundle
+        </button>
         <div
           class="flex items-center gap-x-1.5 text-sm"
           [ngClass]="live.connected() ? 'text-green-600' : 'text-neutral-500'"
@@ -388,6 +360,53 @@ OverviewPage = __decorate([
       @if (error()) {
         <ao-error-state [message]="error()!" />
       }
+
+      <mat-card
+        class="p-6"
+        appearance="outlined"
+      >
+        <div class="flex items-center gap-x-2">
+          <mat-icon
+            class="size-5 text-primary-600 dark:text-primary-500"
+            svgIcon="sparkles"
+          />
+          <div class="truncate text-lg font-medium tracking-tight">
+            Needs attention
+          </div>
+        </div>
+        <div class="mt-6 flex flex-col gap-y-4">
+          @for (a of topology()?.attention || []; track a.message) {
+            <div class="flex items-start gap-x-3">
+              <mat-icon
+                class="size-5 shrink-0 text-neutral-500"
+                [svgIcon]="
+                  a.severity === 'warning' ? 'octagon-alert' : 'circle-alert'
+                "
+              />
+              <div class="min-w-0 flex-auto">
+                <div class="text-neutral-500">{{ a.message }}</div>
+                @if (a.href) {
+                  <a
+                    matButton
+                    class="mt-1"
+                    [routerLink]="a.href"
+                  >
+                    Open
+                  </a>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="flex items-start gap-x-3">
+              <mat-icon
+                class="size-5 shrink-0 text-green-600"
+                svgIcon="circle-check"
+              />
+              <div class="text-neutral-500">Nothing flagged</div>
+            </div>
+          }
+        </div>
+      </mat-card>
 
       <div
         class="grid gap-4 sm:gap-6 @max-md:grid-cols-1 @md:grid-cols-2 @4xl:grid-cols-4"
@@ -422,113 +441,8 @@ OverviewPage = __decorate([
         }
       </div>
 
-      <!-- Live host utilization (Fuse Analytics multi-series area) -->
-      <mat-card
-        class="overflow-hidden"
-        appearance="outlined"
-      >
-        <div class="flex flex-col gap-y-1 px-5 pt-5 sm:flex-row sm:items-start">
-          <div class="min-w-0 flex-auto">
-            <div class="text-lg font-medium tracking-tight">
-              Host utilization
-            </div>
-            <div class="font-medium text-neutral-500">
-              {{ live.metrics()?.hostname || 'Coordinator host' }}
-              · scope {{ live.metrics()?.scope || '—' }}
-              · WebSocket push ~2s
-            </div>
-          </div>
-          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 sm:mt-0">
-            <div>
-              <div class="text-sm font-medium text-neutral-500">CPU</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ live.latestCpu() ?? '—'
-                }}@if (live.latestCpu() != null) {
-                  <span class="text-lg text-neutral-500">%</span>
-                }
-              </div>
-            </div>
-            <div>
-              <div class="text-sm font-medium text-neutral-500">Memory</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ live.latestMem() ?? '—'
-                }}@if (live.latestMem() != null) {
-                  <span class="text-lg text-neutral-500">%</span>
-                }
-              </div>
-            </div>
-            @if (live.latestGpu() != null) {
-              <div>
-                <div class="text-sm font-medium text-neutral-500">GPU</div>
-                <div
-                  class="text-3xl font-semibold tabular-nums tracking-tighter"
-                >
-                  {{ live.latestGpu()
-                  }}<span class="text-lg text-neutral-500">%</span>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
-
-        <div class="mt-2 flex flex-auto flex-col px-2 pb-2">
-          <apx-chart
-            class="h-72 w-full"
-            [chart]="utilChart.chart"
-            [colors]="utilChart.colors"
-            [dataLabels]="utilChart.dataLabels"
-            [fill]="utilChart.fill"
-            [grid]="utilChart.grid"
-            [legend]="utilChart.legend"
-            [series]="chartSeries()"
-            [stroke]="utilChart.stroke"
-            [tooltip]="utilChart.tooltip()"
-            [xaxis]="utilChart.xaxis"
-            [yaxis]="utilChart.yaxis"
-          />
-        </div>
-
-        <mat-divider />
-
-        <div class="flex flex-wrap gap-x-8 gap-y-3 px-5 py-4 text-sm">
-          <div>
-            <div class="font-medium text-neutral-500">Load</div>
-            <div class="font-mono tabular-nums">
-              {{ (live.metrics()?.loadAvg || []).join(' · ') || '—' }}
-            </div>
-          </div>
-          <div>
-            <div class="font-medium text-neutral-500">Uptime</div>
-            <div class="font-mono tabular-nums">
-              {{ formatUptime(live.metrics()?.uptimeSec) }}
-            </div>
-          </div>
-          <div>
-            <div class="font-medium text-neutral-500">Cores</div>
-            <div class="font-mono tabular-nums">
-              {{ live.metrics()?.cpu?.cores ?? '—' }}
-            </div>
-          </div>
-          <div class="min-w-40 flex-auto">
-            <div class="font-medium text-neutral-500">CPU</div>
-            <mat-progress-bar
-              class="mt-1 rounded-full"
-              mode="determinate"
-              [color]="resourceBarColor(live.latestCpu())"
-              [value]="live.latestCpu() ?? 0"
-            />
-          </div>
-          <div class="min-w-40 flex-auto">
-            <div class="font-medium text-neutral-500">Memory</div>
-            <mat-progress-bar
-              class="mt-1 rounded-full"
-              mode="determinate"
-              [color]="resourceBarColor(live.latestMem())"
-              [value]="live.latestMem() ?? 0"
-            />
-          </div>
-        </div>
-      </mat-card>
+      <!-- Live host utilization: CPU/mem left, GPU/VRAM right -->
+      <ao-host-utilization />
 
       <div class="grid w-full grid-cols-1 gap-6 xl:grid-cols-2">
         <mat-card
@@ -663,119 +577,82 @@ OverviewPage = __decorate([
         }
       </div>
 
-      <div class="mt-2 w-full">
-        <div class="text-xl font-semibold tracking-tighter sm:text-2xl">
-          Topology
-        </div>
-        <div class="text-neutral-500">
-          Runtime components and how they are exposed on this host
-        </div>
-      </div>
-
-      <div class="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-2">
-        @for (c of components(); track c.id) {
-          <mat-card
-            class="relative overflow-hidden px-5 py-4"
-            appearance="outlined"
-          >
-            <div class="absolute right-0 bottom-0 -m-6 h-24 w-24">
-              <mat-icon
-                class="size-24"
-                [ngClass]="watermarkClass(c.status)"
-                [svgIcon]="watermarkIcon(c.status)"
-              />
-            </div>
-            <div class="flex items-center">
-              <div class="flex min-w-0 flex-col">
-                <div class="truncate text-lg font-medium tracking-tight">
-                  {{ c.label }}
-                </div>
-                <div
-                  class="text-sm font-medium"
-                  [ngClass]="statusTextClass(c.status)"
-                >
-                  {{ statusLabel(c.status) }}
-                </div>
+      <mat-card class="overflow-hidden" appearance="outlined">
+        <mat-card-header>
+          <div class="flex w-full items-start justify-between gap-3">
+            <div>
+              <div class="text-lg font-medium tracking-tight">
+                Deployment topology
               </div>
-              <div class="-mt-2 ml-auto">
-                @if (componentHref(c); as href) {
-                  <button
-                    mat-icon-button
-                    type="button"
-                    [matMenuTriggerFor]="compMenu"
-                  >
-                    <mat-icon svgIcon="ellipsis" />
-                  </button>
-                  <mat-menu #compMenu="matMenu">
-                    <a
-                      mat-menu-item
-                      [href]="href"
-                      target="_blank"
-                      rel="noopener"
-                    >
-                      Open
-                    </a>
-                  </mat-menu>
-                }
+              <div class="text-sm text-neutral-500">
+                Live three-band graph of what is deployed and healthy
               </div>
             </div>
-            <div class="mt-4 flex flex-row flex-wrap gap-6">
-              <div class="flex flex-col">
-                <div class="text-sm font-medium text-neutral-500">Port</div>
-                <div class="text-3xl font-medium tabular-nums">
-                  {{ c.port ?? '—' }}
-                </div>
-              </div>
-              <div class="flex flex-col">
-                <div class="text-sm font-medium text-neutral-500">NodePort</div>
-                <div class="text-3xl font-medium tabular-nums">
-                  {{ c.nodePort ?? '—' }}
-                </div>
-              </div>
-              <div class="flex min-w-0 flex-col">
-                <div class="text-sm font-medium text-neutral-500">Detail</div>
-                <div class="max-w-56 truncate text-sm text-neutral-500">
-                  {{ c.fact || c.detail || '—' }}
-                </div>
-              </div>
-            </div>
-            @if (componentHref(c); as href) {
-              <div class="mt-3">
-                <a
-                  matButton
-                  [href]="href"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Open
-                </a>
-              </div>
-            }
-          </mat-card>
-        } @empty {
-          <mat-card
-            class="px-5 py-8"
-            appearance="outlined"
-          >
-            <div class="text-neutral-500">No topology components reported</div>
-          </mat-card>
-        }
-      </div>
-
-      <!-- Live logs -->
-      <mat-card
-        class="overflow-hidden"
-        appearance="outlined"
-      >
-        <div
-          class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
-        >
-          <div class="min-w-0 flex-auto">
-            <div class="text-lg font-medium tracking-tight">Live logs</div>
-            <div class="text-sm text-neutral-500">
-              Streaming from web + kubectl tails when available
-            </div>
+            <a matButton="filled" routerLink="/topology">
+              <mat-icon svgIcon="share-2" />
+              Open Topology
+            </a>
           </div>
+        </mat-card-header>
+        <mat-card-content class="pt-2">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span>
+              {{ orderedComponents().length }} components reported
+            </span>
+            <span
+              class="font-medium"
+              [ngClass]="
+                topologyUnhealthyCount() > 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-neutral-500'
+              "
+            >
+              {{ topologyUnhealthyCount() }} unhealthy
+            </span>
+            @if (topology()?.generatedAt; as ts) {
+              <span class="text-neutral-500">Snapshot {{ ts }}</span>
+            }
+          </div>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- Live logs (collapsed by default for triage) -->
+      <mat-expansion-panel
+        class="!rounded-xl !border !shadow-none"
+        [expanded]="logsExpanded()"
+        (opened)="logsExpanded.set(true)"
+        (closed)="logsExpanded.set(false)"
+      >
+        <mat-expansion-panel-header>
+          <mat-panel-title>Live logs</mat-panel-title>
+          <mat-panel-description>
+            Streaming from web + cluster tails
+            @if (runIdFilter()) {
+              · filter {{ runIdFilter() }}
+            }
+          </mat-panel-description>
+        </mat-expansion-panel-header>
+        <div class="flex flex-col gap-3 pb-2 sm:flex-row sm:items-center">
+          <div class="min-w-0 flex-auto text-sm text-neutral-500">
+            Filter sources · errors red, warnings amber
+          </div>
+          <mat-form-field class="w-full sm:w-72" appearance="outline" subscriptSizing="dynamic">
+            <mat-label>run_id filter</mat-label>
+            <input
+              matInput
+              [ngModel]="runIdFilter()"
+              (ngModelChange)="onRunIdFilterChange($event)"
+              placeholder="paste run_id"
+            />
+          </mat-form-field>
+          <button
+            matButton="outlined"
+            type="button"
+            (click)="followLogs.set(!followLogs())"
+          >
+            <mat-icon [svgIcon]="followLogs() ? 'circle-check' : 'circle'" />
+            {{ followLogs() ? 'Following' : 'Follow' }}
+          </button>
           <button
             matButton="outlined"
             type="button"
@@ -784,7 +661,7 @@ OverviewPage = __decorate([
             Clear
           </button>
         </div>
-        <div class="px-5 pb-3">
+        <div class="pb-3">
           <mat-chip-listbox
             aria-label="Log sources"
             [multiple]="true"
@@ -796,7 +673,6 @@ OverviewPage = __decorate([
             }
           </mat-chip-listbox>
         </div>
-        <mat-divider />
         <div
           #logViewport
           class="max-h-96 overflow-y-auto bg-neutral-950 px-4 py-3 font-mono text-xs leading-relaxed text-neutral-200"
@@ -817,54 +693,7 @@ OverviewPage = __decorate([
             <div class="text-neutral-500">Waiting for log lines…</div>
           }
         </div>
-      </mat-card>
-
-      <mat-card
-        class="p-6"
-        appearance="outlined"
-      >
-        <div class="flex items-center gap-x-2">
-          <mat-icon
-            class="size-5 text-primary-600 dark:text-primary-500"
-            svgIcon="sparkles"
-          />
-          <div class="truncate text-lg font-medium tracking-tight">
-            Needs attention
-          </div>
-        </div>
-        <div class="mt-6 flex flex-col gap-y-4">
-          @for (a of topology()?.attention || []; track a.message) {
-            <div class="flex items-start gap-x-3">
-              <mat-icon
-                class="size-5 shrink-0 text-neutral-500"
-                [svgIcon]="
-                  a.severity === 'warning' ? 'octagon-alert' : 'circle-alert'
-                "
-              />
-              <div class="min-w-0 flex-auto">
-                <div class="text-neutral-500">{{ a.message }}</div>
-                @if (a.href) {
-                  <a
-                    matButton
-                    class="mt-1"
-                    [routerLink]="a.href"
-                  >
-                    Open
-                  </a>
-                }
-              </div>
-            </div>
-          } @empty {
-            <div class="flex items-start gap-x-3">
-              <mat-icon
-                class="size-5 shrink-0 text-green-600"
-                svgIcon="circle-check"
-              />
-              <div class="text-neutral-500">Nothing flagged</div>
-            </div>
-          }
-        </div>
-      </mat-card>
+      </mat-expansion-panel>
     </div>
   `,
     })

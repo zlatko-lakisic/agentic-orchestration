@@ -380,6 +380,7 @@ export interface LlmUsageEventRow {
   appId?: string | null;
   clientIp?: string | null;
   tokenId?: string | null;
+  agentProviderId?: string | null;
   source?: string | null;
   model?: string | null;
   promptTokens?: number | null;
@@ -433,6 +434,7 @@ export interface LlmUsageResponse {
     byClientIp?: LlmUsageRollupRow[];
     byAppId?: LlmUsageRollupRow[];
     byTokenId?: LlmUsageRollupRow[];
+    byAgent?: LlmUsageRollupRow[];
     byModel?: LlmUsageRollupRow[];
     grandTotal?: {
       calls: number;

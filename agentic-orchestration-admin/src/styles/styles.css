@@ -29,3 +29,21 @@
 /* Third Party                                                                */
 /* -------------------------------------------------------------------------- */
 @import './third-party/lucide-icons.css';
+
+/* Host utilization modal — backdrop sits on body, outside component styles */
+.ao-host-util-backdrop.cdk-overlay-backdrop {
+  background: color-mix(in srgb, var(--color-neutral-950) 42%, transparent) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ao-host-util-dialog .mat-mdc-dialog-container,
+.ao-host-util-dialog .mat-mdc-dialog-surface {
+  overflow: hidden;
+  padding: 0;
+}
+
+.ao-host-util-dialog ao-host-utilization mat-card {
+  border: none;
+  box-shadow: none;
+}

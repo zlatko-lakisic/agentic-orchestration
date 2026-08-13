@@ -140,7 +140,14 @@ def test_decision_and_depth_payload(tmp_path: Path) -> None:
 def test_llm_usage_normalize_and_ledger(tmp_path: Path) -> None:
     assert normalize_openai_usage({"prompt_tokens": 3, "completion_tokens": 2})["total_tokens"] == 5
     assert normalize_ollama_chat_payload({"prompt_eval_count": 7, "eval_count": 4})["total_tokens"] == 11
-    with usage_context(tool_root=tmp_path, run_id="u1", app_id="app", client_ip="1.2.3.4", user_id="u"):
+    with usage_context(
+        tool_root=tmp_path,
+        run_id="u1",
+        app_id="app",
+        client_ip="1.2.3.4",
+        user_id="u",
+        agent_provider_id="gpt_research",
+    ):
         record_llm_usage(
             source="planner",
             model="ollama/x",
@@ -152,11 +159,16 @@ def test_llm_usage_normalize_and_ledger(tmp_path: Path) -> None:
     rows = read_llm_usage_rows(tmp_path)
     assert len(rows) == 1
     assert rows[0]["appId"] == "app"
+    assert rows[0]["model"] == "x"
+    assert rows[0]["agentProviderId"] == "gpt_research"
     summary = summarize_llm_usage(rows)
     assert summary["grandTotal"]["totalTokens"] == 11
     assert summary["byAppId"][0]["key"] == "app"
+    assert summary["byAgent"][0]["key"] == "gpt_research"
     events = read_run_events(tmp_path, "u1")
     assert any(e.get("kind") == "model_call" for e in events)
+    model_ev = next(e for e in events if e.get("kind") == "model_call")
+    assert model_ev.get("detail", {}).get("agent_provider_id") == "gpt_research"
 
 
 @pytest.mark.unit

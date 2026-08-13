@@ -1,22 +1,32 @@
 import { __decorate } from "tslib";
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, } from '@angular/core';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
-import { AoApi } from '@/app/core/ao-api/ao-api';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 let DataPage = class DataPage {
-    api = inject(AoApi);
+    live = inject(AoLiveWs);
     error = signal(null);
     columns = ['name', 'path', 'files', 'bytes', 'status'];
     dataSource = new MatTableDataSource([]);
-    ngOnInit() {
-        this.api.storage().subscribe((r) => {
-            if (!r.ok) {
-                this.error.set(r.message);
+    constructor() {
+        effect(() => {
+            const err = this.live.feedErrors()['storage'] || this.live.feedErrors()['_'];
+            if (err)
+                this.error.set(err);
+            const snap = this.live.feeds()['storage'];
+            if (!snap)
                 return;
-            }
-            this.dataSource.data = r.data.roots || r.data.entries || [];
+            this.error.set(null);
+            this.dataSource.data = snap.roots || snap.entries || [];
         });
+    }
+    ngOnInit() {
+        this.live.acquire({ feeds: ['storage'], feedIntervalMs: 5000 });
+    }
+    ngOnDestroy() {
+        this.live.release();
     }
     formatBytes(n) {
         if (n == null)
@@ -29,11 +39,19 @@ let DataPage = class DataPage {
             return `${(n / 1024 ** 2).toFixed(1)} MiB`;
         return `${(n / 1024 ** 3).toFixed(2)} GiB`;
     }
+    visibilityLabel(r) {
+        if (r.visibility === 'present' || r.exists)
+            return 'Present';
+        if (r.visibility === 'not_mounted_here') {
+            return `Not visible from this process${r.owner ? ` (${r.owner})` : ''}`;
+        }
+        return 'Absent';
+    }
 };
 DataPage = __decorate([
     Component({
         selector: 'ao-data-page',
-        imports: [MatTableModule, StatusChip, ErrorState],
+        imports: [MatTableModule, StatusChip, ErrorState, LoadingState],
         template: `
     <div
       class="@container mx-auto flex w-full max-w-7xl flex-auto flex-col gap-4 p-6 sm:gap-6 lg:px-8 lg:pt-8 lg:pb-10"
@@ -43,7 +61,7 @@ DataPage = __decorate([
           Data & storage
         </div>
         <div class="text-neutral-500">
-          Runtime directories under the tool root (wipe actions are Phase 1+)
+          Runtime directories probed from the web process (wipe actions are Phase 1+)
         </div>
       </div>
 
@@ -51,6 +69,12 @@ DataPage = __decorate([
         <ao-error-state [message]="error()!" />
       }
 
+      @if (live.feedLoading('storage')) {
+        <ao-loading-state
+          title="Loading storage"
+          message="Connecting to the live storage feed…"
+        />
+      } @else {
       <div class="relative overflow-hidden rounded-xl border">
         <table
           class="-mt-px w-full border-separate border-spacing-0 whitespace-nowrap"
@@ -135,8 +159,14 @@ DataPage = __decorate([
               *matCellDef="let r"
             >
               <ao-status-chip
-                [status]="r.exists ? 'healthy' : 'unset'"
-                [label]="r.exists ? 'Present' : 'Missing'"
+                [status]="
+                  r.visibility === 'present' || r.exists
+                    ? 'healthy'
+                    : r.visibility === 'not_mounted_here'
+                      ? 'info'
+                      : 'unset'
+                "
+                [label]="visibilityLabel(r)"
               />
             </td>
           </ng-container>
@@ -152,6 +182,7 @@ DataPage = __decorate([
           ></tr>
         </table>
       </div>
+      }
     </div>
   `,
     })

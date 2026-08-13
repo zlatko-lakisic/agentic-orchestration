@@ -23,6 +23,7 @@ _cv_user_name: ContextVar[str] = ContextVar("llm_usage_user_name", default="")
 _cv_app_id: ContextVar[str] = ContextVar("llm_usage_app_id", default="")
 _cv_client_ip: ContextVar[str] = ContextVar("llm_usage_client_ip", default="")
 _cv_token_id: ContextVar[str] = ContextVar("llm_usage_token_id", default="")
+_cv_agent_provider_id: ContextVar[str] = ContextVar("llm_usage_agent_provider_id", default="")
 
 
 def llm_usage_dir(tool_root: Path) -> Path:
@@ -42,6 +43,7 @@ def bind_usage_context(
     app_id: str | None = None,
     client_ip: str | None = None,
     token_id: str | None = None,
+    agent_provider_id: str | None = None,
 ) -> list[Any]:
     """Set contextvars; returns tokens for :func:`reset_usage_context`."""
     tokens: list[Any] = []
@@ -59,6 +61,8 @@ def bind_usage_context(
         tokens.append(_cv_client_ip.set(str(client_ip or "").strip()))
     if token_id is not None:
         tokens.append(_cv_token_id.set(str(token_id or "").strip()))
+    if agent_provider_id is not None:
+        tokens.append(_cv_agent_provider_id.set(str(agent_provider_id or "").strip()))
     return tokens
 
 
@@ -80,6 +84,7 @@ def usage_context(
     app_id: str | None = None,
     client_ip: str | None = None,
     token_id: str | None = None,
+    agent_provider_id: str | None = None,
 ) -> Iterator[None]:
     tokens = bind_usage_context(
         tool_root=tool_root,
@@ -89,6 +94,7 @@ def usage_context(
         app_id=app_id,
         client_ip=client_ip,
         token_id=token_id,
+        agent_provider_id=agent_provider_id,
     )
     try:
         yield
@@ -108,7 +114,65 @@ def current_usage_identity() -> dict[str, str]:
         "appId": _cv_app_id.get() or "",
         "clientIp": _cv_client_ip.get() or "",
         "tokenId": _cv_token_id.get() or "",
+        "agentProviderId": _cv_agent_provider_id.get() or "",
     }
+
+
+def attach_usage_agent_to_crew_agent(agent: Any, agent_provider_id: str) -> None:
+    """Tag a CrewAI agent LLM so LiteLLM usage rows carry ``agentProviderId``.
+
+    Wraps ``call`` / ``acall`` to bind the agent provider id for the duration of
+    each model invocation (covers sync and async LiteLLM success callbacks).
+    """
+    aid = str(agent_provider_id or "").strip()
+    if not aid or agent is None:
+        return
+    llm = getattr(agent, "llm", None)
+    if llm is None:
+        return
+    if getattr(llm, "_agentic_usage_agent_id", None) == aid:
+        return
+
+    def _wrap(meth_name: str) -> None:
+        orig = getattr(llm, meth_name, None)
+        if not callable(orig):
+            return
+        if getattr(orig, "_agentic_usage_wrapped", False):
+            return
+
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            tokens = bind_usage_context(agent_provider_id=aid)
+            try:
+                return orig(*args, **kwargs)
+            finally:
+                reset_usage_context(tokens)
+
+        setattr(wrapped, "_agentic_usage_wrapped", True)
+        setattr(llm, meth_name, wrapped)
+
+    _wrap("call")
+    _wrap("acall")
+    try:
+        setattr(llm, "_agentic_usage_agent_id", aid)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def canonicalize_usage_model(model: Any) -> str | None:
+    """Strip LiteLLM provider prefixes so shared backends share one ledger label.
+
+    ``ollama/qwen2.5:14b-instruct`` and ``qwen2.5:14b-instruct`` both become
+    ``qwen2.5:14b-instruct``.
+    """
+    s = str(model or "").strip()
+    if not s:
+        return None
+    lower = s.lower()
+    for prefix in ("ollama/", "openai/", "azure/", "anthropic/", "bedrock/"):
+        if lower.startswith(prefix):
+            s = s[len(prefix) :].strip()
+            break
+    return s or None
 
 
 def looks_like_app_id(raw: Any) -> bool:
@@ -266,8 +330,9 @@ def record_llm_usage(
             "appId": ident["appId"] or None,
             "clientIp": ident["clientIp"] or None,
             "tokenId": ident["tokenId"] or None,
+            "agentProviderId": ident.get("agentProviderId") or None,
             "source": str(source or "unknown"),
-            "model": str(model or "").strip() or None,
+            "model": canonicalize_usage_model(model),
             "promptTokens": prompt_tokens,
             "completionTokens": completion_tokens,
             "totalTokens": total_tokens,
@@ -285,22 +350,27 @@ def record_llm_usage(
         if rid:
             from orchestration.run_trace import append_run_event
 
+            agent_id = str(ident.get("agentProviderId") or "").strip() or None
+            detail_out: dict[str, Any] = {
+                "source": source,
+                "model": canonicalize_usage_model(model) or model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "latency_ms": latency_ms,
+                "ok": ok,
+                **(detail or {}),
+            }
+            if agent_id and "agent_provider_id" not in detail_out:
+                detail_out["agent_provider_id"] = agent_id
+
             append_run_event(
                 root,
                 rid,
                 "model_call",
                 actor=str(source or "model"),
                 message=str(model or source or "model")[:200],
-                detail={
-                    "source": source,
-                    "model": model,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "latency_ms": latency_ms,
-                    "ok": ok,
-                    **(detail or {}),
-                },
+                detail=detail_out,
             )
     except Exception:  # noqa: BLE001
         return
@@ -367,6 +437,7 @@ def summarize_llm_usage(rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_ip: dict[str, dict[str, Any]] = {}
     by_app: dict[str, dict[str, Any]] = {}
     by_token: dict[str, dict[str, Any]] = {}
+    by_agent: dict[str, dict[str, Any]] = {}
     grand = {"calls": 0, "promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 
     for row in rows:
@@ -390,6 +461,12 @@ def summarize_llm_usage(rows: list[dict[str, Any]]) -> dict[str, Any]:
         _add_tokens(by_ip, _rollup_key(row.get("clientIp")), prompt=prompt_i, completion=completion_i, total=total_i)
         _add_tokens(by_app, _rollup_key(row.get("appId")), prompt=prompt_i, completion=completion_i, total=total_i)
         _add_tokens(by_token, _rollup_key(row.get("tokenId")), prompt=prompt_i, completion=completion_i, total=total_i)
+        agent_key = row.get("agentProviderId") or (
+            (row.get("detail") or {}).get("agent_provider_id")
+            if isinstance(row.get("detail"), dict)
+            else None
+        )
+        _add_tokens(by_agent, _rollup_key(agent_key), prompt=prompt_i, completion=completion_i, total=total_i)
 
         grand["calls"] += 1
         if prompt_i is not None:
@@ -407,6 +484,7 @@ def summarize_llm_usage(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "byClientIp": _sorted(by_ip),
         "byAppId": _sorted(by_app),
         "byTokenId": _sorted(by_token),
+        "byAgent": _sorted(by_agent),
         "grandTotal": grand,
     }
 

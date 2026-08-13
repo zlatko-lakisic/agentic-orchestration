@@ -338,6 +338,16 @@ class WsConnection:
                     if message.get("allowedAgentProviderIds") is not None
                     else message.get("allowed_agent_provider_ids")
                 ),
+                allowed_mcp_provider_ids=(
+                    message.get("allowedMcpProviderIds")
+                    if message.get("allowedMcpProviderIds") is not None
+                    else message.get("allowed_mcp_provider_ids")
+                ),
+                allowed_skill_ids=(
+                    message.get("allowedSkillIds")
+                    if message.get("allowedSkillIds") is not None
+                    else message.get("allowed_skill_ids")
+                ),
                 ttl_seconds=ttl,
                 catalog_root=self.tool_root,
                 client_ip=self.client_ip,
@@ -393,6 +403,8 @@ class WsConnection:
                 "skillIds": [str(e.get("id")) for e in overlay.skills],
                 "envKeys": sorted(overlay.env.keys()),
                 "allowedAgentProviderIds": list(overlay.allowed_agent_provider_ids),
+                "allowedMcpProviderIds": list(overlay.allowed_mcp_provider_ids),
+                "allowedSkillIds": list(overlay.allowed_skill_ids),
                 "expiresAt": overlay.expires_at,
             }
         )

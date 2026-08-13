@@ -11,7 +11,7 @@ import { LocalStorage } from '@/app/core/local-storage';
 import { Media } from '@/app/core/media';
 import { NAVIGATION, } from '@/app/domains/admin/layout/data/navigation';
 const STORAGE_KEY = 'shortcuts';
-const DEFAULT_SHORTCUTS = ['overview', 'catalogs', 'runtime/planner'];
+const DEFAULT_SHORTCUTS = ['overview', 'capabilities', 'behaviour'];
 let Shortcuts = class Shortcuts {
     // Dependencies
     localStorage = inject(LocalStorage);

@@ -1,17 +1,15 @@
 import { OnInit } from '@angular/core';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
-/**
- * Fuse Settings body pattern: section title + description + rows
- * (see extras/settings/features/account|notifications).
- */
+import { SettingsSection } from '@/app/domains/admin/shared/config-settings/config-settings-table';
 export declare class ConfigSettingsPage implements OnInit {
     protected config: EffectiveConfigStore;
     private route;
-    /** When set, override route data.groups */
     readonly groups: import("@angular/core").InputSignal<string[] | null>;
+    readonly sections: import("@angular/core").InputSignal<SettingsSection[]>;
     readonly sectionTitle: import("@angular/core").InputSignal<string>;
     readonly sectionDescription: import("@angular/core").InputSignal<string | null>;
-    private resolvedGroups;
-    readonly rows: import("@angular/core").Signal<import("../../../../core/ao-api/types").EffectiveConfigEntry[]>;
+    readonly conditionalKubernetes: import("@angular/core").InputSignal<boolean>;
+    readonly component: import("@angular/core").InputSignal<string | null>;
+    readonly resolvedGroups: import("@angular/core").Signal<string[]>;
     ngOnInit(): void;
 }

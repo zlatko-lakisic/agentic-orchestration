@@ -1,0 +1,54 @@
+import { OnDestroy, OnInit } from '@angular/core';
+import { MatDialogRef } from '@angular/material/dialog';
+import { ApexAxisChartSeries, ApexChart, ApexDataLabels, ApexFill, ApexGrid, ApexStroke, ApexTooltip, ApexXAxis, ApexYAxis } from 'ng-apexcharts';
+import { TopologyAppMembers, TopologyNodeDetail } from '../data/topology.types';
+export type NodeDetailDialogData = {
+    nodeId: string;
+    offlineBanner?: string | null;
+};
+type Pt = {
+    x: number;
+    y: number | null;
+};
+export declare class NodeDetailDialog implements OnInit, OnDestroy {
+    readonly data: NodeDetailDialogData;
+    readonly ref: MatDialogRef<any, any>;
+    private readonly api;
+    private readonly live;
+    readonly loading: import("@angular/core").WritableSignal<boolean>;
+    readonly error: import("@angular/core").WritableSignal<string | null>;
+    readonly detail: import("@angular/core").WritableSignal<TopologyNodeDetail | null>;
+    readonly liveStatus: import("@angular/core").WritableSignal<string | null>;
+    readonly healthSeries: import("@angular/core").WritableSignal<Pt[]>;
+    readonly trafficRate: import("@angular/core").WritableSignal<Pt[]>;
+    readonly trafficLatency: import("@angular/core").WritableSignal<Pt[]>;
+    readonly trafficActive: import("@angular/core").WritableSignal<boolean>;
+    readonly trafficInstrumented: import("@angular/core").WritableSignal<boolean>;
+    readonly wikiPage = "Topology-dashboard";
+    readonly accent: import("@angular/core").Signal<string>;
+    readonly wikiHelp: import("@angular/core").Signal<import("../data/topology.help").TopologyHelp>;
+    readonly latestLatency: import("@angular/core").Signal<number | null>;
+    readonly sparkChart: ApexChart;
+    readonly sparkStroke: ApexStroke;
+    readonly sparkFill: ApexFill;
+    readonly sparkTooltip: ApexTooltip;
+    readonly sparkXaxis: ApexXAxis;
+    readonly sparkYaxis: ApexYAxis;
+    readonly sparkGrid: ApexGrid;
+    readonly noDataLabels: ApexDataLabels;
+    private sub;
+    private watching;
+    private trafficWatch;
+    ngOnInit(): void;
+    ngOnDestroy(): void;
+    onTab(index: number): void;
+    ownerLabel(d: TopologyNodeDetail): string | null;
+    appMembers(d: TopologyNodeDetail): TopologyAppMembers[] | null;
+    k8sPods(d: TopologyNodeDetail): NonNullable<NonNullable<TopologyNodeDetail['k8sResource']>['pods']> | null;
+    healthChartSeries(): ApexAxisChartSeries;
+    trafficRateSeries(): ApexAxisChartSeries;
+    trafficLatencySeries(): ApexAxisChartSeries;
+    private applyWatch;
+    private teardown;
+}
+export {};

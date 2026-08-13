@@ -28,6 +28,27 @@ def test_normalize_session_env_allows_provider_keys_only() -> None:
         normalize_session_env({"PATH": "/bin"})
 
 
+def test_register_overlay_stores_mcp_and_skill_allowlists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_SERVE_SESSION_OVERLAY", "1")
+    reset_overlays_for_tests()
+    overlay = register_overlay(
+        user_id="u1",
+        session_id="s2",
+        connection_id="c2",
+        app_id="comstar-ha",
+        env={"OPENAI_API_KEY": "sk"},
+        allowed_agent_provider_ids=["gpt_research"],
+        allowed_mcp_provider_ids=["search_tavily"],
+        allowed_skill_ids=["web_research"],
+        catalog_root=tmp_path,
+        stock_ids=set(),
+    )
+    assert overlay.allowed_mcp_provider_ids == ["search_tavily"]
+    assert overlay.allowed_skill_ids == ["web_research"]
+
 def test_getenv_prefers_session_overlay_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     token = set_session_env({"OPENAI_API_KEY": "from-reach"})
