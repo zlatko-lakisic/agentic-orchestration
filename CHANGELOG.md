@@ -19,6 +19,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Warm-pool steps omit Token usage** — `execute_step` (k8s warm-pool / Jobs) kicked off CrewAI without installing the LiteLLM usage callback or recording crew token totals, so Jetson Admin Token usage stayed nearly empty aside from planner rows. Install the same hooks as in-process crew runs.
 - **Warm-pool Admin Traces / usage hostPaths** — workers wrote `__orchestrator_run_traces__` and `__orchestrator_llm_usage__` into the ephemeral pod FS, so Jetson Admin Traces stayed empty. Mount the same host dirs as coordinator/engine by default (`warm-pool.yaml` + deploy patches).
 - **Warm-pool / tool hotfix missing `agent_allowlist`** — hotfixed `dynamic_planner` / `dynamic_run` imported `orchestration.agent_allowlist` which was not in the ConfigMap or volume mounts, so Ada chat planning failed with `No module named 'orchestration.agent_allowlist'`. Also mount `session_env` + `catalog_credentials`.
 - **Traces sequence shows executed spans only** — plan/decision no longer synthesize fake `select` / step call arrows to agents, MCPs, or skills. Planned choices stay as notes on the planner; lifelines and message arrows appear only when `agent_start` / `step_start` / `model_call` / `tool_call` / `mcp_call` (etc.) actually fire.

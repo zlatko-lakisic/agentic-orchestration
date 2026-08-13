@@ -94,6 +94,27 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
         print(f"loading spec {spec_path.name}", file=sys.stderr)
 
         tool_root = _tool_root()
+        usage_ctx_tokens: list[Any] = []
+        try:
+            from orchestration.llm_usage import (
+                bind_usage_context,
+                install_litellm_usage_callback,
+            )
+            from orchestration.tool_trace import apply_tool_call_trace_wrap
+
+            # Warm-pool / Job path bypasses CrewAIBackend.execute_built — install
+            # the same usage + tool-trace hooks so Admin Token usage / Traces see
+            # model_call rows (shared hostPath ledgers on Jetson).
+            apply_tool_call_trace_wrap()
+            install_litellm_usage_callback()
+            usage_ctx_tokens = bind_usage_context(
+                tool_root=tool_root,
+                run_id=run_id or None,
+                agent_provider_id=str(agent_provider.get("id") or "").strip() or None,
+            )
+        except Exception:  # noqa: BLE001
+            usage_ctx_tokens = []
+
         mcp_resolved = _resolved_mcps_from_spec(data)
         mcp_ids = mcp_ids_from_step_spec(data)
         skill_ids = skill_ids_from_step_spec(data)
@@ -255,6 +276,16 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print("kickoff", file=sys.stderr)
                 with crew_kickoff_context(built):
                     workflow_result = built.crew.kickoff(inputs={"topic": topic})
+                try:
+                    from orchestration.llm_usage import record_crew_result_usage
+
+                    record_crew_result_usage(
+                        workflow_result,
+                        source="execute_step",
+                        tool_root=tool_root,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 raw_text = workflow_result_to_extractable_text(workflow_result)
                 text = sanitize_user_facing_prose(raw_text)
                 # sanitize may strip leaks to ""; detect on raw so recovery still runs.
@@ -317,6 +348,16 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                         agent.tools = []
                     with crew_kickoff_context(built):
                         workflow_result = built.crew.kickoff(inputs={"topic": user_q})
+                    try:
+                        from orchestration.llm_usage import record_crew_result_usage
+
+                        record_crew_result_usage(
+                            workflow_result,
+                            source="execute_step_irrigation",
+                            tool_root=tool_root,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                     text = sanitize_user_facing_prose(
                         workflow_result_to_extractable_text(workflow_result)
                     )
@@ -402,3 +443,11 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 _write_step_result(result_path, step_result)
             print(f"error: step {step_id!r} failed: {exc}", file=sys.stderr)
             return 1
+        finally:
+            if usage_ctx_tokens:
+                try:
+                    from orchestration.llm_usage import reset_usage_context
+
+                    reset_usage_context(usage_ctx_tokens)
+                except Exception:  # noqa: BLE001
+                    pass
