@@ -85,19 +85,31 @@ declare global {
       }
 
       :host ::ng-deep .ao-mermaid-host {
-        display: flex;
-        justify-content: safe center;
-        align-items: flex-start;
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
       }
 
-      :host ::ng-deep .ao-mermaid-host .mermaid,
-      :host ::ng-deep .ao-mermaid-host svg {
-        /* Natural width; host centers when narrower than container. */
-        height: auto;
+      /* Keep SVG at natural diagram width so the host scrolls when wider than the card. */
+      :host ::ng-deep .ao-mermaid-host .mermaid {
         display: block;
-        margin-inline: auto;
+        width: max-content;
         max-width: none;
-        min-width: max-content;
+        min-width: 100%;
+        margin-inline: auto;
+      }
+
+      :host ::ng-deep .ao-mermaid-host svg {
+        display: block;
+        height: auto;
+        max-width: none;
+        width: auto;
+        margin-inline: auto;
       }
 
       :host ::ng-deep .ao-mermaid-host .actor > rect,
@@ -106,9 +118,11 @@ declare global {
         ry: 8;
       }
 
+      /* Colspanned detail cell must respect table width or the SVG expands the row. */
       :host ::ng-deep tr.ao-trace-detail-row > td {
         padding: 0 !important;
         border-bottom-width: 0;
+        max-width: 0;
       }
 
       .ao-trace-expand {
@@ -124,17 +138,23 @@ declare global {
       .ao-trace-expand__inner {
         overflow: hidden;
         min-height: 0;
+        min-width: 0;
       }
 
-      /* After open, allow async Mermaid SVG growth (overflow:hidden clips it). */
+      /* Grow vertically for Mermaid; keep horizontal scroll on the diagram host. */
       .ao-trace-expand--open .ao-trace-expand__inner {
         overflow: visible;
         min-height: auto;
       }
+
+      .ao-trace-sequence {
+        min-width: 0;
+        max-width: 100%;
+      }
     `,
   ],
   template: `
-    <div class="mx-auto flex w-full max-w-7xl flex-auto flex-col gap-6 p-6 lg:px-8 lg:pt-8">
+    <div class="mx-auto flex w-full min-w-0 max-w-7xl flex-auto flex-col gap-6 p-6 lg:px-8 lg:pt-8">
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div class="min-w-0">
           <div class="text-xl font-semibold tracking-tighter sm:text-2xl">Traces</div>
@@ -198,7 +218,7 @@ declare global {
       @if (detail(); as d) {
         @if (detailOutsideFiltered()) {
           <section
-            class="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none"
+            class="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none"
           >
             <ng-container *ngTemplateOutlet="traceDetailTpl; context: { $implicit: d }" />
           </section>
@@ -218,7 +238,7 @@ declare global {
         <ao-empty-state message="No traces match the current filters." />
       } @else if (filteredRuns().length) {
         <section
-          class="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+          class="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
         >
           <div
             class="border-b border-neutral-200 px-5 py-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase dark:border-neutral-800"
@@ -446,7 +466,7 @@ declare global {
         </div>
       }
 
-      <div class="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+      <div class="ao-trace-sequence border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div class="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
             Sequence
@@ -479,7 +499,7 @@ declare global {
         @if (viewMode() === 'diagram') {
           <div
             #mermaidHost
-            class="ao-mermaid-host overflow-x-auto rounded-2xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950"
+            class="ao-mermaid-host max-w-full rounded-2xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950"
           ></div>
           <div
             class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-2xs text-neutral-500"
@@ -986,9 +1006,13 @@ export class TracesPage implements OnInit, OnDestroy {
         if (vb) {
           const parts = vb.split(/[\s,]+/).map(Number);
           if (parts.length === 4 && parts.every(Number.isFinite)) {
+            const w = Math.max(1, Math.ceil(parts[2]));
             svg.removeAttribute('width');
-            svg.style.width = `${parts[2]}px`;
+            svg.removeAttribute('height');
+            svg.style.width = `${w}px`;
+            svg.style.height = 'auto';
             svg.style.maxWidth = 'none';
+            svg.style.minWidth = `${w}px`;
           }
         }
       }
