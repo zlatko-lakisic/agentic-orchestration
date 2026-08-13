@@ -1880,6 +1880,44 @@ function shortMermaidLabel(...parts) {
   return text.length <= 40 ? text : `${text.slice(0, 39).trimEnd()}…`;
 }
 
+/** Coerce trace detail token fields to a finite int (or null). */
+function coerceTokenInt(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+/**
+ * Compact billed-token label for a ``model_call`` return arrow.
+ * Matches Python ``orchestration.run_trace._token_charge_labels``.
+ * @returns {{ short: string, full: string }}
+ */
+function modelCallChargeLabel(detail) {
+  const d = detail && typeof detail === "object" ? detail : {};
+  const prompt = coerceTokenInt(d.prompt_tokens);
+  const completion = coerceTokenInt(d.completion_tokens);
+  const total = coerceTokenInt(d.total_tokens);
+  if (prompt == null && completion == null && total == null) {
+    return { short: "", full: "" };
+  }
+  let short;
+  if (prompt != null && completion != null) {
+    short = `${prompt}↑${completion}↓=${total != null ? total : prompt + completion}`;
+  } else if (total != null) {
+    short = `${total} tok`;
+  } else if (prompt != null) {
+    short = `${prompt}↑`;
+  } else {
+    short = `${completion}↓`;
+  }
+  const bits = [];
+  if (prompt != null) bits.push(`prompt=${prompt}`);
+  if (completion != null) bits.push(`completion=${completion}`);
+  if (total != null) bits.push(`total=${total}`);
+  return { short, full: bits.join(" ") };
+}
+
 function traceDurationMs(events) {
   const times = (events || [])
     .map((e) => Number(e?.ts))
@@ -2191,14 +2229,16 @@ function eventsToMermaid(events) {
       if (phase === "end" || detail.status != null) lines.push(`  ${mid}-->>${caller}: ${label}`);
       else lines.push(`  ${caller}->>${mid}: ${label}`);
     } else if (kind === "model_call") {
-      const mid = ensure(`model:${detail.model || actor}`);
-      const toks = detail.total_tokens;
-      const label = shortMermaidLabel(
-        detail.model || "model",
-        toks != null ? `${toks} tok` : "",
+      let modelName = String(detail.model || "model").trim() || "model";
+      if (modelName.includes("/")) modelName = modelName.split("/", 2)[1] || modelName;
+      const mid = ensure(`model:${modelName}`);
+      const agent = String(detail.agent_provider_id || detail.provider_id || "").trim();
+      const reqFull = agent ? `${modelName} · agent ${agent}` : modelName;
+      lines.push(`  ${caller}->>${mid}: ${shortMermaidLabel(reqFull)}`);
+      const { short: charge } = modelCallChargeLabel(detail);
+      lines.push(
+        `  ${mid}-->>${caller}: ${charge ? shortMermaidLabel(charge) : "ok"}`,
       );
-      lines.push(`  ${caller}->>${mid}: ${label}`);
-      lines.push(`  ${mid}-->>${caller}: ok`);
     } else if (kind === "qa") {
       lines.push(
         `  Note over ${actor}: ${shortMermaidLabel("qa", ev.message || detail.verdict || "")}`,
@@ -3588,6 +3628,8 @@ export {
   buildRunDetail,
   listRecentTraces,
   buildRunTrace,
+  eventsToMermaid,
+  modelCallChargeLabel,
   buildLlmUsagePayload,
   buildLlmSpendSeries,
   resolveSpendWindowHours,

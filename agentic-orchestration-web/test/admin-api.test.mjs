@@ -13,10 +13,44 @@ import {
   buildLlmUsagePayload,
   buildLlmSpendSeries,
   buildStorageInventory,
+  eventsToMermaid,
   isSecretKey,
   matchAdminRoute,
+  modelCallChargeLabel,
   parseEnvExampleHelp,
 } from "../lib/admin-api.mjs";
+
+test("modelCallChargeLabel formats prompt↑completion↓=total", () => {
+  assert.equal(
+    modelCallChargeLabel({
+      prompt_tokens: 2050,
+      completion_tokens: 140,
+      total_tokens: 2190,
+    }).short,
+    "2050↑140↓=2190",
+  );
+  assert.equal(modelCallChargeLabel({ total_tokens: 50 }).short, "50 tok");
+  assert.equal(modelCallChargeLabel({}).short, "");
+});
+
+test("eventsToMermaid puts token charge on model_call return arrow", () => {
+  const mermaid = eventsToMermaid([
+    { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
+    {
+      kind: "model_call",
+      actor: "planner",
+      detail: {
+        model: "ollama/qwen2.5:14b-instruct",
+        prompt_tokens: 2050,
+        completion_tokens: 140,
+        total_tokens: 2190,
+      },
+    },
+  ]);
+  assert.match(mermaid, /->>model_\w+: qwen2\.5:14b-instruct/);
+  assert.match(mermaid, /-->>\w+: 2050↑140↓=2190/);
+  assert.doesNotMatch(mermaid, /2190 tok/);
+});
 
 test("isSecretKey detects credentials", () => {
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);
