@@ -118,17 +118,24 @@ function pieFromRows(
     StatusChip,
   ],
   styles: `
-    /* Square host so the donut diameter tracks container width (not a short h-72 box).
-       Cap height so ultra-wide cards don't grow endlessly; still much larger than h-72. */
+    /* Full card width; slightly taller than wide so the bottom legend does not
+       shrink the donut diameter below 100% of the container width. */
     :host ::ng-deep .ao-donut-host {
-      aspect-ratio: 1 / 1;
+      display: block;
       width: 100%;
-      max-height: min(28rem, 70vw);
-      min-height: 16rem;
-      margin-inline: auto;
+      max-width: 100%;
+      aspect-ratio: 1 / 1.18;
+      min-height: 14rem;
     }
-    :host ::ng-deep .ao-donut-host .apexcharts-canvas {
-      margin-inline: auto;
+    :host ::ng-deep .ao-donut-host > apx-chart {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    :host ::ng-deep .ao-donut-host .apexcharts-canvas,
+    :host ::ng-deep .ao-donut-host .apexcharts-svg {
+      width: 100% !important;
+      max-width: 100%;
     }
   `,
   template: `
@@ -841,6 +848,8 @@ export class LlmUsagePage implements OnInit, OnDestroy {
       width: '100%',
       type: 'donut',
       toolbar: { show: false },
+      redrawOnParentResize: true,
+      redrawOnWindowResize: true,
     } as ApexChart,
     colors: PIE_COLORS,
     dataLabels: {
