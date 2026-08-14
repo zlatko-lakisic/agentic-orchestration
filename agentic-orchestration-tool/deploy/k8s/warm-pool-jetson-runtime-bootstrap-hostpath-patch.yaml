@@ -14,6 +14,9 @@ spec:
               mountPath: /app/orchestration/runtime_bootstrap.py
               subPath: runtime_bootstrap.py
             - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/ollama_ownership.py
+              subPath: ollama_ownership.py
+            - name: jetson-orch-hostpath
               mountPath: /app/orchestration/ollama_catalog_filter.py
               subPath: ollama_catalog_filter.py
       volumes:

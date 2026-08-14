@@ -252,9 +252,20 @@ def ensure_planner_runtime_if_ollama() -> None:
     """
     if not auto_ensure_runtime_enabled():
         return
-    from orchestration.ollama_ownership import should_spawn_ollama_process
+    try:
+        from orchestration.ollama_ownership import should_spawn_ollama_process
 
-    if not should_spawn_ollama_process(selfcontained=True):
+        may_spawn = should_spawn_ollama_process(selfcontained=True)
+    except Exception:  # noqa: BLE001
+        # Older images may lack ollama_ownership; never fall through to a host
+        # ``ollama`` binary ensure inside Kubernetes pods.
+        if os.path.isdir("/var/run/secrets/kubernetes.io/serviceaccount"):
+            return
+        mode = os.getenv("AGENTIC_OLLAMA_MODE", "").strip().lower()
+        if mode in ("external", "managed_k8s", "k8s", "kubernetes"):
+            return
+        may_spawn = True
+    if not may_spawn:
         return
     raw = os.getenv("AGENTIC_PLANNER_MODEL", "").strip()
     if not raw:
