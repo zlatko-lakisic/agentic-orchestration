@@ -64,6 +64,10 @@ spec:
               value: "0.0.0.0:11434"
             - name: OLLAMA_KEEP_ALIVE
               value: "-1"
+            # Cap default context so large-context models do not OOM the host.
+            # Override via AGENTIC_OLLAMA_CONTEXT_LENGTH before applying this manifest.
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "16384"
             - name: NVIDIA_VISIBLE_DEVICES
               value: all
             - name: NVIDIA_DRIVER_CAPABILITIES

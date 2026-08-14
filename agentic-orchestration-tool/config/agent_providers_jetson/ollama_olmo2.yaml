@@ -1,6 +1,7 @@
 id: ollama_olmo2
 type: ollama
 min_vram_gb: 8
+num_ctx: 16384
 planner_hint: >-
   OLMo 2 — open research LM for general-knowledge and educational tasks on
   Jetson.

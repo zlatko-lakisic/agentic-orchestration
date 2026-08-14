@@ -644,11 +644,20 @@ class OllamaProvider(AgentProvider):
 
         # Force LiteLLM path so Admin usage callbacks fire. CrewAI's native
         # Ollama provider (is_litellm=False) bypasses litellm.callbacks entirely.
-        llm = LLM(
-            model=model,
-            api_base=litellm_api_base_for_ollama(),
-            is_litellm=True,
-        )
+        llm_kwargs: dict[str, Any] = {
+            "model": model,
+            "api_base": litellm_api_base_for_ollama(),
+            "is_litellm": True,
+        }
+        # Optional per-agent context cap from YAML (lands in provider_options).
+        # LiteLLM maps num_ctx into Ollama's options payload.
+        raw_num_ctx = self.config.provider_options.get("num_ctx")
+        if raw_num_ctx is not None and str(raw_num_ctx).strip() != "":
+            try:
+                llm_kwargs["num_ctx"] = int(raw_num_ctx)
+            except (TypeError, ValueError):
+                pass
+        llm = LLM(**llm_kwargs)
 
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),

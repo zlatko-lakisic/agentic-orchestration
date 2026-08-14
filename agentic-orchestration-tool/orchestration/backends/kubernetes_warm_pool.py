@@ -29,6 +29,40 @@ def warm_pool_request_path(*, run_store_mount: str, run_id: str, step_id: str) -
     return warm_pool_queue_dir(run_store_mount) / f"{safe_run}__{safe_step}.json"
 
 
+def warm_pool_result_path(*, run_store_mount: str, run_id: str, step_id: str) -> Path:
+    return Path(run_store_mount.rstrip("/")) / run_id / step_id / "result.json"
+
+
+# Clock slack when comparing result mtime against enqueue time (shared node clock).
+_RESULT_MTIME_SLACK_SECONDS = 1.0
+
+
+def invalidate_warm_pool_result(*, run_store_mount: str, run_id: str, step_id: str) -> bool:
+    """Remove a previous attempt's ``result.json`` so a retry cannot short-circuit on it.
+
+    Returns True if a file was removed.
+    """
+    result_path = warm_pool_result_path(
+        run_store_mount=run_store_mount,
+        run_id=run_id,
+        step_id=step_id,
+    )
+    if not result_path.is_file():
+        return False
+    try:
+        result_path.unlink()
+    except OSError:
+        return False
+    emit_log(
+        "warm pool invalidated prior result",
+        run_id=run_id,
+        step_id=step_id,
+        component="coordinator",
+        extra={"result_path": str(result_path)},
+    )
+    return True
+
+
 @dataclass(frozen=True)
 class WarmPoolRequest:
     run_id: str
@@ -97,14 +131,43 @@ def wait_for_warm_pool_result(
     step_id: str,
     timeout_seconds: int,
     poll_interval: float = 1.0,
+    not_before: float = 0.0,
 ) -> K8sJobWaitResult:
-    """Poll ``{run_store}/{run_id}/{step_id}/result.json`` until present or timeout."""
-    result_path = (
-        Path(run_store_mount.rstrip("/")) / run_id / step_id / "result.json"
+    """Poll ``{run_store}/{run_id}/{step_id}/result.json`` until present or timeout.
+
+    When ``not_before`` is set (enqueue time), ignore results whose mtime is older
+    than that timestamp (minus a small clock slack). This prevents provider-recovery
+    retries from instantly returning the previous attempt's failure file.
+    """
+    result_path = warm_pool_result_path(
+        run_store_mount=run_store_mount,
+        run_id=run_id,
+        step_id=step_id,
     )
     deadline = time.time() + timeout_seconds
+    min_mtime = (not_before - _RESULT_MTIME_SLACK_SECONDS) if not_before > 0 else 0.0
     while time.time() < deadline:
         if result_path.is_file():
+            try:
+                mtime = result_path.stat().st_mtime
+            except OSError:
+                time.sleep(poll_interval)
+                continue
+            if min_mtime > 0 and mtime < min_mtime:
+                emit_log(
+                    "warm pool ignoring stale result",
+                    level="debug",
+                    run_id=run_id,
+                    step_id=step_id,
+                    component="coordinator",
+                    extra={
+                        "result_path": str(result_path),
+                        "mtime": mtime,
+                        "not_before": not_before,
+                    },
+                )
+                time.sleep(poll_interval)
+                continue
             try:
                 data = json.loads(result_path.read_text(encoding="utf-8"))
                 exit_code = int(data.get("exit_code", 1))
@@ -158,6 +221,13 @@ def dispatch_step_via_warm_pool(
     agent_provider_id: str,
     timeout_seconds: int,
 ) -> tuple[K8sJobRecord, K8sJobWaitResult]:
+    # Drop any prior attempt's result so retries cannot short-circuit on it.
+    invalidate_warm_pool_result(
+        run_store_mount=run_store_mount,
+        run_id=run_id,
+        step_id=step_id,
+    )
+    started = time.time()
     enqueue_warm_pool_request(
         run_store_mount=run_store_mount,
         run_id=run_id,
@@ -170,6 +240,7 @@ def dispatch_step_via_warm_pool(
         run_id=run_id,
         step_id=step_id,
         timeout_seconds=timeout_seconds,
+        not_before=started,
     )
     record = K8sJobRecord(
         job_name="warm-pool",

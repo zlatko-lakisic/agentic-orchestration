@@ -73,9 +73,10 @@ if [[ "${ARCH}" == "aarch64" || "${ARCH}" == "arm64" ]] && [[ "${AGENTIC_OLLAMA_
   MODELS_DATA="${MODELS_DATA:-${NVME_MODELS}}"
   OLLAMA_BIN="${AGENTIC_OLLAMA_HOST_BIN:-/usr/local/bin/ollama}"
   OLLAMA_HOME_HOST="${AGENTIC_OLLAMA_HOST_HOME:-/usr/share/ollama}"
-  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" <<'PY'
+  OLLAMA_CTX_LEN="${AGENTIC_OLLAMA_CONTEXT_LENGTH:-16384}"
+  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" "${OLLAMA_CTX_LEN}" <<'PY'
 import sys
-out, ns, obin, ohome, models = sys.argv[1:6]
+out, ns, obin, ohome, models, ctx_len = sys.argv[1:7]
 # Host-binary: busybox + nsenter runs host ollama with models via host mount namespace.
 doc = f"""apiVersion: apps/v1
 kind: Deployment
@@ -123,6 +124,9 @@ spec:
               set -eu
               export OLLAMA_HOST=0.0.0.0:11434
               export OLLAMA_KEEP_ALIVE=-1
+              # Cap default context so 128k models (e.g. granite-code) do not
+              # allocate a ~40 GiB KV cache on Jetson unified memory.
+              export OLLAMA_CONTEXT_LENGTH={ctx_len}
               export HOME={ohome}
               # Prefer local NVMe (or configured) models hostPath when present.
               if [ -d "{models}" ]; then

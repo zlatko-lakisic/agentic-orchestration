@@ -9,9 +9,12 @@ import pytest
 from orchestration.backends.kubernetes_warm_pool import (
     WarmPoolRequest,
     claim_next_warm_pool_request,
+    dispatch_step_via_warm_pool,
     enqueue_warm_pool_request,
+    invalidate_warm_pool_result,
     warm_pool_enabled_from_env,
     warm_pool_queue_dir,
+    warm_pool_result_path,
     wait_for_warm_pool_result,
 )
 from orchestration.structured_logging import emit_log, log_format_from_env, structured_log_record
@@ -145,3 +148,100 @@ def test_warm_pool_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert not req_path.is_file()
     assert path.name.endswith(".claimed-test-pod")
     path.unlink()
+
+
+@pytest.mark.unit
+def test_warm_pool_ignores_stale_result_until_fresh(tmp_path: Path) -> None:
+    """A result.json from a prior attempt must not satisfy a new wait."""
+    mount = str(tmp_path)
+    result_path = warm_pool_result_path(
+        run_store_mount=mount, run_id="run-stale", step_id="step-1"
+    )
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text('{"exit_code":1,"error":"old failure"}', encoding="utf-8")
+    # Force mtime into the past so not_before rejects it.
+    past = time.time() - 30
+    os_utime = __import__("os").utime
+    os_utime(result_path, (past, past))
+
+    def _write_fresh() -> None:
+        time.sleep(0.25)
+        result_path.write_text('{"exit_code":0}', encoding="utf-8")
+
+    import threading
+
+    not_before = time.time()
+    threading.Thread(target=_write_fresh, daemon=True).start()
+    wait = wait_for_warm_pool_result(
+        run_store_mount=mount,
+        run_id="run-stale",
+        step_id="step-1",
+        timeout_seconds=5,
+        poll_interval=0.05,
+        not_before=not_before,
+    )
+    assert wait.succeeded
+    assert wait.failed is False
+
+
+@pytest.mark.unit
+def test_warm_pool_fresh_failure_still_reported(tmp_path: Path) -> None:
+    mount = str(tmp_path)
+    result_path = warm_pool_result_path(
+        run_store_mount=mount, run_id="run-fail", step_id="step-1"
+    )
+    result_path.parent.mkdir(parents=True)
+
+    def _write_fail() -> None:
+        time.sleep(0.15)
+        result_path.write_text(
+            '{"exit_code":1,"error":"llama runner process has terminated"}',
+            encoding="utf-8",
+        )
+
+    import threading
+
+    not_before = time.time()
+    threading.Thread(target=_write_fail, daemon=True).start()
+    wait = wait_for_warm_pool_result(
+        run_store_mount=mount,
+        run_id="run-fail",
+        step_id="step-1",
+        timeout_seconds=5,
+        poll_interval=0.05,
+        not_before=not_before,
+    )
+    assert wait.failed
+    assert wait.succeeded is False
+    assert "llama runner" in (wait.message or "")
+
+
+@pytest.mark.unit
+def test_dispatch_deletes_prior_result_before_enqueue(tmp_path: Path) -> None:
+    mount = str(tmp_path)
+    result_path = warm_pool_result_path(
+        run_store_mount=mount, run_id="run-retry", step_id="step_1"
+    )
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text('{"exit_code":1,"error":"stale"}', encoding="utf-8")
+    assert result_path.is_file()
+
+    removed = invalidate_warm_pool_result(
+        run_store_mount=mount, run_id="run-retry", step_id="step_1"
+    )
+    assert removed is True
+    assert not result_path.is_file()
+
+    # Full dispatch path: prior result gone, then wait times out with no worker.
+    _record, wait = dispatch_step_via_warm_pool(
+        namespace="ns",
+        run_store_mount=mount,
+        run_id="run-retry",
+        step_id="step_1",
+        spec_container_path=f"{mount}/run-retry/step_1-spec.json",
+        agent_provider_id="ollama_granite_code",
+        timeout_seconds=1,
+    )
+    assert wait.failed
+    assert "timed out" in (wait.message or "")
+    assert (warm_pool_queue_dir(mount) / "run-retry__step_1.json").is_file()

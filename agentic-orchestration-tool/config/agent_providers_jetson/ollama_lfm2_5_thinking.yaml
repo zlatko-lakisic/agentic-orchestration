@@ -1,6 +1,8 @@
 id: ollama_lfm2_5_thinking
 type: ollama
-min_vram_gb: 14
+# Pulled model is ~731 MB; prior 14 GB was carried over from desktop lfm2:24b.
+min_vram_gb: 4
+num_ctx: 16384
 planner_hint: >-
   LFM2.5 Thinking — thinking-augmented efficient model for step-by-step
   reasoning on Jetson.

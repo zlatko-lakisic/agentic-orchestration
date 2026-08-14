@@ -1,6 +1,8 @@
 id: ollama_granite_code
 type: ollama
 min_vram_gb: 8
+# Cap context: default 128k KV cache is ~39 GiB and OOMs Jetson unified memory.
+num_ctx: 16384
 planner_hint: >-
   Granite Code — IBM code model for enterprise-grade implementation, refactors,
   and code docs on Jetson.
