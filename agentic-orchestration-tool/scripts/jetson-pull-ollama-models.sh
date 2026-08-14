@@ -37,6 +37,9 @@ optional_models=(
   lfm2:24b
   granite4.1:8b
   phi4
+  granite-code
+  lfm2.5-thinking
+  olmo2
 )
 
 models=("${core_models[@]}")

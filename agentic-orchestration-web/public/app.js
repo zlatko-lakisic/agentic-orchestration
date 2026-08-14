@@ -171,8 +171,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
   const skipFinalQaEl = document.getElementById("skipFinalQa");
   const skipLearningEvalEl = document.getElementById("skipLearningEval");
   const verboseCrewEl = document.getElementById("verboseCrew");
-  const agentPickerSelectEl = document.getElementById("agentPickerSelect");
-  const agentPickerAddBtn = document.getElementById("agentPickerAddBtn");
+  const agentPickerSearchEl = document.getElementById("agentPickerSearch");
+  const agentPickerToggleBtn = document.getElementById("agentPickerToggleBtn");
+  const agentPickerListEl = document.getElementById("agentPickerList");
   const agentPickerClearBtn = document.getElementById("agentPickerClearBtn");
   const agentPickerChipsEl = document.getElementById("agentPickerChips");
   const connStatus = document.getElementById("connStatus");
@@ -202,6 +203,8 @@ if (globalThis.__agenticOrchestratorUiInit) {
   let lastRunRatingPayload = null;
   let availableAgentProviders = [];
   const selectedAgentProviderIds = new Set();
+  let agentPickerOpen = false;
+  let agentPickerActiveId = "";
 
   let browserSessionId = "";
   let chatTranscript = [];
@@ -1377,50 +1380,176 @@ if (globalThis.__agenticOrchestratorUiInit) {
     return availableAgentProviders.find((p) => String(p.id || "").trim() === String(pid || "").trim()) || null;
   }
 
-  function renderAgentProviderOptions() {
-    if (!agentPickerSelectEl) return;
-    const selectedNow = agentPickerSelectEl.value;
-    agentPickerSelectEl.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select agent provider to add…";
-    agentPickerSelectEl.appendChild(placeholder);
+  const AGENT_BACKEND_ORDER = [
+    "ollama",
+    "openai",
+    "anthropic",
+    "huggingface",
+    "vllm",
+    "jetstream",
+    "crewai",
+    "other",
+  ];
+
+  /** Every whitespace-separated token must appear in id / backend / role / planner hint. */
+  function agentProviderMatchesQuery(p, query) {
+    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    const haystack = [p.id, p.type, p.role, p.planner_hint]
+      .map((v) => String(v || "").toLowerCase())
+      .join(" ");
+    return tokens.every((t) => haystack.includes(t));
+  }
+
+  /** Offerable agents: already-added chips are excluded so the list never repeats a selection. */
+  function agentPickerCandidates() {
+    const query = String(agentPickerSearchEl?.value || "").trim();
+    return availableAgentProviders.filter(
+      (p) => p.id && !selectedAgentProviderIds.has(p.id) && agentProviderMatchesQuery(p, query),
+    );
+  }
+
+  function agentPickerGroups() {
     const grouped = new Map();
-    for (const p of availableAgentProviders) {
-      const pid = String(p.id || "").trim();
-      if (!pid || selectedAgentProviderIds.has(pid)) continue;
+    for (const p of agentPickerCandidates()) {
       const typ = String(p.type || "").trim().toLowerCase() || "other";
       if (!grouped.has(typ)) grouped.set(typ, []);
       grouped.get(typ).push(p);
     }
-    const order = ["ollama", "openai", "anthropic", "huggingface", "vllm", "jetstream", "crewai", "other"];
     const keys = Array.from(grouped.keys()).sort((a, b) => {
-      const ia = order.indexOf(a);
-      const ib = order.indexOf(b);
+      const ia = AGENT_BACKEND_ORDER.indexOf(a);
+      const ib = AGENT_BACKEND_ORDER.indexOf(b);
       if (ia === -1 && ib === -1) return a.localeCompare(b);
       if (ia === -1) return 1;
       if (ib === -1) return -1;
       return ia - ib;
     });
-    for (const key of keys) {
-      const grp = document.createElement("optgroup");
-      grp.label = key.toUpperCase();
-      const rows = grouped.get(key) || [];
-      rows.sort((a, b) => String(a.id || "").localeCompare(String(b.id || "")));
-      for (const p of rows) {
-        const pid = String(p.id || "").trim();
-        const opt = document.createElement("option");
-        opt.value = pid;
-        opt.textContent = chipLabelForProvider(p);
-        grp.appendChild(opt);
+    return keys.map((key) => ({
+      key,
+      rows: (grouped.get(key) || []).sort((a, b) => a.id.localeCompare(b.id)),
+    }));
+  }
+
+  /** Candidates in rendered order, so keyboard navigation matches what the user sees. */
+  function agentPickerFlatCandidates() {
+    return agentPickerGroups().reduce((acc, g) => acc.concat(g.rows), []);
+  }
+
+  function agentPickerMetaText(p) {
+    const parts = [];
+    const typ = String(p.type || "").trim();
+    if (typ) parts.push(typ);
+    const role = String(p.role || "").trim();
+    if (role) parts.push(role);
+    if (Number.isFinite(p.min_vram_gb) && p.min_vram_gb > 0) {
+      parts.push(`VRAM >= ${p.min_vram_gb} GB`);
+    }
+    return parts.join(" · ");
+  }
+
+  function agentPickerOptionEl(p) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "agent-picker-option";
+    btn.dataset.id = p.id;
+    btn.setAttribute("role", "option");
+    const isActive = p.id === agentPickerActiveId;
+    btn.setAttribute("aria-selected", String(isActive));
+    if (isActive) btn.classList.add("active");
+
+    const name = document.createElement("span");
+    name.textContent = p.id;
+    btn.appendChild(name);
+
+    const meta = agentPickerMetaText(p);
+    if (meta) {
+      const sub = document.createElement("span");
+      sub.className = "agent-picker-option-meta";
+      sub.textContent = meta;
+      btn.appendChild(sub);
+    }
+    const hint = String(p.planner_hint || "").trim();
+    if (hint) btn.title = hint;
+
+    // Keep focus in the search box so typing can continue after a pick.
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => addAgentProvider(p.id));
+    return btn;
+  }
+
+  function renderAgentProviderOptions() {
+    if (!agentPickerListEl) return;
+    agentPickerListEl.hidden = !agentPickerOpen;
+    agentPickerSearchEl?.setAttribute("aria-expanded", String(agentPickerOpen));
+    agentPickerToggleBtn?.setAttribute("aria-expanded", String(agentPickerOpen));
+    agentPickerListEl.innerHTML = "";
+    if (!agentPickerOpen) return;
+
+    const groups = agentPickerGroups();
+    const total = groups.reduce((n, g) => n + g.rows.length, 0);
+    if (!total) {
+      const empty = document.createElement("div");
+      empty.className = "agent-picker-empty";
+      empty.textContent = availableAgentProviders.length
+        ? "No agents match this search."
+        : "Agent catalog unavailable.";
+      agentPickerListEl.appendChild(empty);
+      agentPickerActiveId = "";
+      return;
+    }
+
+    const count = document.createElement("div");
+    count.className = "agent-picker-count";
+    const selectedCount = selectedAgentProviderIds.size;
+    count.textContent = selectedCount
+      ? `${total} available · ${selectedCount} selected`
+      : `${total} available`;
+    agentPickerListEl.appendChild(count);
+
+    const flat = groups.reduce((acc, g) => acc.concat(g.rows), []);
+    if (!flat.some((p) => p.id === agentPickerActiveId)) {
+      agentPickerActiveId = flat[0].id;
+    }
+
+    for (const group of groups) {
+      const head = document.createElement("div");
+      head.className = "agent-picker-group";
+      head.textContent = group.key.toUpperCase();
+      agentPickerListEl.appendChild(head);
+      for (const p of group.rows) {
+        agentPickerListEl.appendChild(agentPickerOptionEl(p));
       }
-      agentPickerSelectEl.appendChild(grp);
     }
-    if (selectedNow && agentPickerSelectEl.querySelector(`option[value="${CSS.escape(selectedNow)}"]`)) {
-      agentPickerSelectEl.value = selectedNow;
-    } else {
-      agentPickerSelectEl.value = "";
-    }
+  }
+
+  function setAgentPickerOpen(open) {
+    agentPickerOpen = Boolean(open);
+    renderAgentProviderOptions();
+  }
+
+  function addAgentProvider(pid) {
+    const id = String(pid || "").trim();
+    if (!id || selectedAgentProviderIds.has(id)) return;
+    selectedAgentProviderIds.add(id);
+    agentPickerActiveId = "";
+    if (agentPickerSearchEl) agentPickerSearchEl.value = "";
+    renderAgentProviderChips();
+    // Stay open so several agents can be added in a row; the new chip is now filtered out.
+    renderAgentProviderOptions();
+    agentPickerSearchEl?.focus();
+  }
+
+  function moveAgentPickerActive(delta) {
+    const flat = agentPickerFlatCandidates();
+    if (!flat.length) return;
+    const idx = flat.findIndex((p) => p.id === agentPickerActiveId);
+    const next =
+      idx < 0 ? (delta > 0 ? 0 : flat.length - 1) : (idx + delta + flat.length) % flat.length;
+    agentPickerActiveId = flat[next].id;
+    renderAgentProviderOptions();
+    agentPickerListEl
+      ?.querySelector(".agent-picker-option.active")
+      ?.scrollIntoView({ block: "nearest" });
   }
 
   function renderAgentProviderChips() {
@@ -1453,7 +1582,7 @@ if (globalThis.__agenticOrchestratorUiInit) {
   }
 
   async function loadAgentProviderCatalog() {
-    if (!agentPickerSelectEl) return;
+    if (!agentPickerListEl) return;
     try {
       // Try relative path first (works behind reverse-proxy subpaths), then absolute fallback.
       let res = await fetch("api/agent-providers", await withChatAuth({ cache: "no-store" }));
@@ -1680,12 +1809,54 @@ if (globalThis.__agenticOrchestratorUiInit) {
   crewLogTabText?.addEventListener("click", () => setCrewLogTab("text"));
   syncCrewLogVisibility();
   setCrewLogTab("diagram");
-  agentPickerAddBtn?.addEventListener("click", () => {
-    const pid = String(agentPickerSelectEl?.value || "").trim();
-    if (!pid) return;
-    selectedAgentProviderIds.add(pid);
-    renderAgentProviderChips();
-    renderAgentProviderOptions();
+  agentPickerSearchEl?.addEventListener("input", () => {
+    agentPickerActiveId = "";
+    setAgentPickerOpen(true);
+  });
+  agentPickerSearchEl?.addEventListener("focus", () => setAgentPickerOpen(true));
+  agentPickerSearchEl?.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!agentPickerOpen) setAgentPickerOpen(true);
+      else moveAgentPickerActive(1);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (agentPickerOpen) moveAgentPickerActive(-1);
+      return;
+    }
+    if (e.key === "Enter") {
+      if (!agentPickerOpen) return;
+      e.preventDefault();
+      const flat = agentPickerFlatCandidates();
+      const pick = flat.find((p) => p.id === agentPickerActiveId) || flat[0];
+      if (pick) addAgentProvider(pick.id);
+      return;
+    }
+    if (e.key === "Escape" && agentPickerOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+      setAgentPickerOpen(false);
+    }
+  });
+  agentPickerToggleBtn?.addEventListener("click", () => {
+    if (agentPickerOpen) {
+      setAgentPickerOpen(false);
+      return;
+    }
+    // Expanding always browses the whole catalog, so drop any stale query.
+    if (agentPickerSearchEl) agentPickerSearchEl.value = "";
+    agentPickerActiveId = "";
+    setAgentPickerOpen(true);
+    agentPickerSearchEl?.focus();
+  });
+  document.addEventListener("click", (e) => {
+    if (!agentPickerOpen) return;
+    // Picking an agent re-renders the list and chips, so the clicked node is often already
+    // detached by the time this fires: match those nodes directly instead of by ancestry.
+    if (e.target?.closest?.(".agent-picker-option, .chip-remove, #agentPicker")) return;
+    setAgentPickerOpen(false);
   });
   agentPickerClearBtn?.addEventListener("click", () => {
     selectedAgentProviderIds.clear();

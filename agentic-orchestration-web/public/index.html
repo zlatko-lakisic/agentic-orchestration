@@ -258,15 +258,45 @@
       <details class="advanced" id="advancedPanel">
         <summary>Advanced · Agent selection</summary>
         <div class="advanced-body">
-          <div class="field" style="margin-top: 0.5rem">
+          <div class="field" id="agentPicker" style="margin-top: 0.5rem">
             <span class="field-label">Agents (optional)</span>
             <div class="agent-picker-row">
-              <select id="agentPickerSelect"></select>
-              <button type="button" id="agentPickerAddBtn" class="secondary">Add</button>
+              <input
+                type="text"
+                id="agentPickerSearch"
+                placeholder="Search agents…"
+                autocomplete="off"
+                spellcheck="false"
+                role="combobox"
+                aria-expanded="false"
+                aria-autocomplete="list"
+                aria-controls="agentPickerList"
+              />
+              <button
+                type="button"
+                id="agentPickerToggleBtn"
+                class="secondary agent-picker-toggle"
+                aria-expanded="false"
+                aria-controls="agentPickerList"
+                title="Show all agents"
+              >
+                All ▾
+              </button>
               <button type="button" id="agentPickerClearBtn" class="secondary">Clear</button>
             </div>
+            <div
+              id="agentPickerList"
+              class="agent-picker-list"
+              role="listbox"
+              aria-label="Available agents"
+              hidden
+            ></div>
             <div id="agentPickerChips" class="chips" aria-live="polite"></div>
-            <small class="hint">If no agents are selected, planner chooses automatically.</small>
+            <small class="hint">
+              Type to filter by id, backend, role, or hint — or press <strong>All</strong> to browse
+              every agent in the active catalog. Selected agents move to chips below and drop out of
+              the list. If no agents are selected, planner chooses automatically.
+            </small>
           </div>
           <small class="hint composer-hint">
             Attachments: drag &amp; drop onto the composer or use 📎. Preview chips before send; images/audio/video

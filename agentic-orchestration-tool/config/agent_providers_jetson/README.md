@@ -43,6 +43,12 @@ Disable with `AGENTIC_DISABLE_OLLAMA_PULL_FILTER=1`.
 Clear Chat agent chips to fall back to `ollama_llama3_2_3b`, or select only
 agents whose models appear in `ollama list`.
 
+The Chat "Select agent provider" dropdown now reads
+`AGENTIC_AGENT_PROVIDERS_CATALOG`, so on Jetson it lists **only** this edge
+catalog (not the full desktop `config/agent_providers`). Extend the edge
+offering by adding a Jetson-tuned YAML here (with `selfcontained: false` and the
+in-cluster host) plus its tag in `scripts/jetson-pull-ollama-models.sh`.
+
 ### Ollama on ARM edge
 
 NVIDIA documents two approaches ([forum thread](https://forums.developer.nvidia.com/t/introducing-ollama-support-for-jetson-devices/289333)):
@@ -93,6 +99,9 @@ schedulable; keep the full catalog so Admin/Chat can advertise agents as pulls f
 | `ollama_lfm2_24b` | `lfm2:24b` | optional |
 | `ollama_granite4_1_8b` | `granite4.1:8b` | optional |
 | `ollama_phi4` | `phi4` | optional |
+| `ollama_granite_code` | `granite-code` | optional |
+| `ollama_lfm2_5_thinking` | `lfm2.5-thinking` | optional |
+| `ollama_olmo2` | `olmo2` | optional |
 
 Keep **one large (≤~20 GB) + optional 3B planner** resident; store the rest cold on NVMe.
 

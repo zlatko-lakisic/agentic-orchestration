@@ -734,9 +734,80 @@ body {
   flex-wrap: wrap;
 }
 
-#agentPickerSelect {
+.field #agentPickerSearch {
   min-width: 0;
-  flex: 1 1 140px;
+  flex: 1 1 150px;
+  width: auto;
+}
+
+.agent-picker-toggle {
+  white-space: nowrap;
+}
+
+/* Expands in flow: the settings form lives in a scrollable rail / sheet that would clip an overlay. */
+.agent-picker-list {
+  margin-top: 0.4rem;
+  max-height: min(42vh, 280px);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--mono-bg);
+}
+
+.agent-picker-list[hidden] {
+  display: none;
+}
+
+.agent-picker-count {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.agent-picker-group {
+  position: sticky;
+  top: 0;
+  padding: 5px 10px 4px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+.agent-picker-option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-picker-option:hover,
+.agent-picker-option.active {
+  background: var(--accent-dim);
+}
+
+.agent-picker-option-meta {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.agent-picker-empty {
+  padding: 8px 10px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .chips {

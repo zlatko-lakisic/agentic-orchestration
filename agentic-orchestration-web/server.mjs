@@ -622,7 +622,29 @@ function resolvePythonExecutable() {
 let PYTHON = resolvePythonExecutable();
 const HOST = process.env.AGENTIC_WEB_HOST || "127.0.0.1";
 const PORT = Number(process.env.AGENTIC_WEB_PORT || "3847");
-const AGENT_PROVIDERS_DIR = path.join(TOOL_ROOT, "config", "agent_providers");
+/**
+ * UI agent dropdown catalog. Honor `AGENTIC_AGENT_PROVIDERS_CATALOG` so the
+ * Chat "Select agent provider" list matches what the orchestrator actually
+ * plans against (e.g. Jetson swaps the base catalog for `config/agent_providers_jetson`).
+ * Resolve relative paths against TOOL_ROOT to match `main.py` semantics; fall
+ * back to the bundled full catalog if unset or not a directory.
+ */
+function resolveAgentProvidersDir() {
+  const fallback = path.join(TOOL_ROOT, "config", "agent_providers");
+  const configured = String(process.env.AGENTIC_AGENT_PROVIDERS_CATALOG || "").trim();
+  if (!configured) return fallback;
+  const resolved = path.isAbsolute(configured) ? configured : path.join(TOOL_ROOT, configured);
+  try {
+    if (fs.statSync(resolved).isDirectory()) return resolved;
+  } catch {
+    // fall through to warning + fallback
+  }
+  console.warn(
+    `[web] AGENTIC_AGENT_PROVIDERS_CATALOG=${configured} is not a directory; using ${fallback}`,
+  );
+  return fallback;
+}
+const AGENT_PROVIDERS_DIR = resolveAgentProvidersDir();
 const TOOL_REQUIREMENTS = path.join(TOOL_ROOT, "requirements.txt");
 
 /** Identifies this process in /api/ping (proves curl hit this server after restart). */
