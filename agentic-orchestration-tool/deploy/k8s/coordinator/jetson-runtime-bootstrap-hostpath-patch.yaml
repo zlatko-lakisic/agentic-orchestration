@@ -1,5 +1,5 @@
-# Mount git-synced runtime_bootstrap.py (ConfigMap hotfix is at the 1MiB limit).
-# After git pull, pods see the new ensure_planner_runtime_if_ollama without an image rebuild.
+# Mount git-synced orchestration modules that no longer fit in the 1MiB ConfigMap hotfix.
+# After git pull, pods see these without an image rebuild.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,13 +9,19 @@ spec:
   template:
     spec:
       containers:
-        - name: web
+        - name: coordinator
           volumeMounts:
-            - name: jetson-runtime-bootstrap
+            - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/runtime_bootstrap.py
               subPath: runtime_bootstrap.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/ollama_catalog_filter.py
+              subPath: ollama_catalog_filter.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/host_metrics.py
+              subPath: host_metrics.py
       volumes:
-        - name: jetson-runtime-bootstrap
+        - name: jetson-orch-hostpath
           hostPath:
             path: /var/projects/agentic-orchestration/agentic-orchestration-tool/orchestration
             type: Directory

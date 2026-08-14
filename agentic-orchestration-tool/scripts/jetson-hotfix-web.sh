@@ -70,7 +70,6 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
   --from-file=ollama_runtime.py="${ORCH_ROOT}/ollama_runtime.py" \
   --from-file=ollama_serve_lifecycle.py="${ORCH_ROOT}/ollama_serve_lifecycle.py" \
-  --from-file=ollama_catalog_filter.py="${ORCH_ROOT}/ollama_catalog_filter.py" \
   --from-file=session_overlay.py="${ORCH_ROOT}/session_overlay.py" \
   --from-file=session_overlay_runtime.py="${ORCH_ROOT}/session_overlay_runtime.py" \
   --from-file=mcp_tunnel.py="${ORCH_ROOT}/mcp_tunnel.py" \
@@ -101,7 +100,6 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=user_context.py="${ORCH_ROOT}/user_context.py" \
   --from-file=dynamic_run.py="${ORCH_ROOT}/dynamic_run.py" \
   --from-file=direct_agent.py="${ORCH_ROOT}/direct_agent.py" \
-  --from-file=host_metrics.py="${ORCH_ROOT}/host_metrics.py" \
   --from-file=deal_auth.py="${ORCH_ROOT}/deal_auth.py" \
   --from-file=hardware_profile.py="${ORCH_ROOT}/hardware_profile.py" \
   --from-file=learning_store.py="${ORCH_ROOT}/learning_store.py" \

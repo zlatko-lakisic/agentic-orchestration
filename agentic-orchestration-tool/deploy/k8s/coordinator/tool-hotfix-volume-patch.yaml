@@ -18,9 +18,6 @@ spec:
               mountPath: /app/tool/orchestration/ollama_keepalive.py
               subPath: ollama_keepalive.py
             - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/ollama_catalog_filter.py
-              subPath: ollama_catalog_filter.py
-            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/ollama_runtime.py
               subPath: ollama_runtime.py
             - name: tool-hotfix-orchestration
@@ -209,9 +206,6 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/direct_agent.py
               subPath: direct_agent.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/host_metrics.py
-              subPath: host_metrics.py
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/deal_auth.py
               subPath: deal_auth.py
