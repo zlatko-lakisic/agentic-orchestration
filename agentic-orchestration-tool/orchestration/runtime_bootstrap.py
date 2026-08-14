@@ -245,8 +245,16 @@ def ensure_ollama_for_agent(
 
 
 def ensure_planner_runtime_if_ollama() -> None:
-    """If AGENTIC_PLANNER_MODEL is an Ollama model, ensure install/serve/pull."""
+    """If AGENTIC_PLANNER_MODEL is an Ollama model, ensure install/serve/pull.
+
+    Under ``external`` / ``managed_k8s`` ownership, skip host-binary ensure entirely —
+    the shared API (``OLLAMA_API_BASE``) is already the runtime.
+    """
     if not auto_ensure_runtime_enabled():
+        return
+    from orchestration.ollama_ownership import should_spawn_ollama_process
+
+    if not should_spawn_ollama_process(selfcontained=True):
         return
     raw = os.getenv("AGENTIC_PLANNER_MODEL", "").strip()
     if not raw:
@@ -256,7 +264,9 @@ def ensure_planner_runtime_if_ollama() -> None:
     if not (low.startswith("ollama/") or provider == "ollama"):
         return
     model = raw.removeprefix("ollama/").strip() or "llama3.2"
-    host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    from agent_providers.ollama_provider import litellm_api_base_for_ollama
+
+    host = litellm_api_base_for_ollama()
     ensure_ollama_for_agent(model=model, host=host, selfcontained=True)
 
 

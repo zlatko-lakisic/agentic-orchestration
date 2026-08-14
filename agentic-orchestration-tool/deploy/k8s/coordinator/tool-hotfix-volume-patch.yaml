@@ -21,6 +21,9 @@ spec:
               mountPath: /app/tool/orchestration/ollama_catalog_filter.py
               subPath: ollama_catalog_filter.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/runtime_bootstrap.py
+              subPath: runtime_bootstrap.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/ollama_runtime.py
               subPath: ollama_runtime.py
             - name: tool-hotfix-orchestration

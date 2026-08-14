@@ -71,6 +71,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=ollama_runtime.py="${ORCH_ROOT}/ollama_runtime.py" \
   --from-file=ollama_serve_lifecycle.py="${ORCH_ROOT}/ollama_serve_lifecycle.py" \
   --from-file=ollama_catalog_filter.py="${ORCH_ROOT}/ollama_catalog_filter.py" \
+  --from-file=runtime_bootstrap.py="${ORCH_ROOT}/runtime_bootstrap.py" \
   --from-file=session_overlay.py="${ORCH_ROOT}/session_overlay.py" \
   --from-file=session_overlay_runtime.py="${ORCH_ROOT}/session_overlay_runtime.py" \
   --from-file=mcp_tunnel.py="${ORCH_ROOT}/mcp_tunnel.py" \

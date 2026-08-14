@@ -1517,24 +1517,60 @@ def build_dynamic_workflow_config(
                 f"(architecture/min_vram_gb/heuristic): {', '.join(show)}{suffix}"
             )
         print(line, file=sys.stderr)
+
+    before_pull = len(entries)
+    entries = filter_catalog_by_pulled_ollama_models(
+        entries,
+        verbose=not quiet,
+        log_prefix="(dynamic) catalog",
+    )
+    if not entries:
+        raise RuntimeError(
+            "No agent providers left after filtering to Ollama models present at "
+            f"{litellm_api_base_for_ollama()}. Pull the model (ollama pull …), clear "
+            "chat agent selection chips so env defaults apply, or disable with "
+            "AGENTIC_DISABLE_OLLAMA_PULL_FILTER=1."
+        )
+    if not quiet and before_pull != len(entries):
+        print(
+            f"(dynamic) catalog: kept {len(entries)} provider(s) with pulled Ollama "
+            f"models (dropped {before_pull - len(entries)} unpulled)",
+            file=sys.stderr,
+        )
+
     allowed_ids = [str(x).strip() for x in (allowed_agent_provider_ids or []) if str(x).strip()]
     match_prompt = user_prompt_for_goal_matching(user_prompt)
+    effective_allowlist_applied = False
     if allowed_ids:
-        from orchestration.agent_allowlist import filter_entries_by_allowlist
+        from orchestration.agent_allowlist import (
+            filter_entries_by_allowlist,
+            partition_allowlist,
+        )
 
-        entries = filter_entries_by_allowlist(entries, allowed_ids)
-        if not entries:
-            raise RuntimeError(
-                "No agent providers left after applying explicit agent selection. "
-                "The selected IDs are either unknown or were removed by credential/hardware filtering."
-            )
-        if not quiet:
+        survivors, dropped = partition_allowlist(entries, allowed_ids)
+        if survivors:
+            entries = filter_entries_by_allowlist(entries, survivors)
+            effective_allowlist_applied = True
+            if not quiet:
+                print(
+                    f"(dynamic) agent selection: restricting planner catalog to "
+                    f"{sorted(set(survivors))!r} (client.* overlays always kept)",
+                    file=sys.stderr,
+                )
+                if dropped:
+                    print(
+                        f"(dynamic) agent selection: ignored unavailable selection "
+                        f"{sorted(set(dropped))!r}",
+                        file=sys.stderr,
+                    )
+        elif not quiet:
             print(
-                f"(dynamic) agent selection: restricting planner catalog to {sorted(set(allowed_ids))!r} "
-                "(client.* overlays always kept)",
+                f"(dynamic) agent selection: none of {sorted(set(allowed_ids))!r} "
+                "are available on this host; ignoring selection and using full catalog",
                 file=sys.stderr,
             )
-    else:
+
+    if not effective_allowlist_applied:
         entries = suppress_general_providers_when_domains_align(
             entries,
             match_prompt,
@@ -1557,26 +1593,6 @@ def build_dynamic_workflow_config(
                 f"provider(s) (dropped {before - len(entries)} cloud)",
                 file=sys.stderr,
             )
-
-    before_pull = len(entries)
-    entries = filter_catalog_by_pulled_ollama_models(
-        entries,
-        verbose=not quiet,
-        log_prefix="(dynamic) catalog",
-    )
-    if not entries:
-        raise RuntimeError(
-            "No agent providers left after filtering to Ollama models present at "
-            f"{litellm_api_base_for_ollama()}. Pull the model (ollama pull …), clear "
-            "chat agent selection chips so env defaults apply, or disable with "
-            "AGENTIC_DISABLE_OLLAMA_PULL_FILTER=1."
-        )
-    if not quiet and before_pull != len(entries):
-        print(
-            f"(dynamic) catalog: kept {len(entries)} provider(s) with pulled Ollama "
-            f"models (dropped {before_pull - len(entries)} unpulled)",
-            file=sys.stderr,
-        )
 
     limit = max_steps
     if limit is None:

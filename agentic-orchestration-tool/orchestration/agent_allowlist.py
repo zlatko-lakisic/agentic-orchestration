@@ -62,6 +62,34 @@ def resolve_allowed_agent_provider_ids(
     return intersect_allowlists(request_ids, overlay_ids, app_ids)
 
 
+def partition_allowlist(
+    entries: list[dict[str, Any]],
+    allowed_ids: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """
+    Split requested agent ids into those present in ``entries`` vs missing.
+
+    Returns ``(survivors, dropped)`` preserving the order of ``allowed_ids``.
+    Empty / None ``allowed_ids`` yields ``([], [])``.
+    """
+    cleaned = _clean_ids(allowed_ids)
+    if not cleaned:
+        return [], []
+    present = {
+        str(entry.get("id", "")).strip()
+        for entry in entries
+        if str(entry.get("id", "")).strip()
+    }
+    survivors: list[str] = []
+    dropped: list[str] = []
+    for pid in cleaned:
+        if pid in present:
+            survivors.append(pid)
+        else:
+            dropped.append(pid)
+    return survivors, dropped
+
+
 def filter_entries_by_allowlist(
     entries: list[dict[str, Any]],
     allowed_ids: list[str] | None,
