@@ -1,0 +1,20 @@
+# Mount git-synced runtime_bootstrap.py (ConfigMap hotfix is at the 1MiB limit).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-warm-pool
+  namespace: agentic-orchestration
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          volumeMounts:
+            - name: jetson-runtime-bootstrap
+              mountPath: /app/orchestration/runtime_bootstrap.py
+              subPath: runtime_bootstrap.py
+      volumes:
+        - name: jetson-runtime-bootstrap
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/orchestration
+            type: Directory
