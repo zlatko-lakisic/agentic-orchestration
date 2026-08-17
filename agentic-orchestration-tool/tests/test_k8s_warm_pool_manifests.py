@@ -25,15 +25,22 @@ def test_warm_pool_bootstraps_fastapi_before_worker_loop() -> None:
     assert "pip install" in script
     assert "--warm-pool-worker" in script
     assert container["command"] == ["/bin/bash", "-c"]
+    assert "command -v python" in script
+    env = {e["name"]: e["value"] for e in container.get("env") or []}
+    assert env.get("AGENTIC_PYTHON") == "python"
 
 
 @pytest.mark.unit
 def test_warm_pool_fastapi_bootstrap_patch_matches_manifest() -> None:
-    """jetson-sync-warm-pool.sh patches command/args only — must stay in sync with warm-pool.yaml."""
+    """jetson-sync-warm-pool.sh patches command/args/env — must stay in sync with warm-pool.yaml."""
     base = yaml.safe_load(_WARM_POOL.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
     patch = yaml.safe_load(_BOOTSTRAP_PATCH.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
     assert patch["command"] == base["command"]
     assert patch["args"] == base["args"]
+    base_py = {e["name"]: e["value"] for e in base.get("env") or []}
+    patch_py = {e["name"]: e["value"] for e in patch.get("env") or []}
+    assert patch_py.get("AGENTIC_PYTHON") == "python"
+    assert base_py.get("AGENTIC_PYTHON") == "python"
 
 
 @pytest.mark.unit

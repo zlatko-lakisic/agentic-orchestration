@@ -9,9 +9,21 @@ spec:
           args:
             - |
               set -euo pipefail
-              PY="${AGENTIC_PYTHON:-python}"
+              # Secret may set AGENTIC_PYTHON to coordinator's host venv (/app/tool/.venv)
+              # which warm-pool worker pods do not mount — fall back to image python.
+              PY="${AGENTIC_PYTHON:-}"
+              if [[ -z "${PY}" || ! -x "${PY}" ]]; then
+                if command -v python >/dev/null 2>&1; then PY="$(command -v python)"
+                elif command -v python3 >/dev/null 2>&1; then PY="$(command -v python3)"
+                else PY="python"
+                fi
+              fi
               if ! "${PY}" -c "import fastapi" >/dev/null 2>&1; then
                 echo "Installing fastapi for litellm MCP handler ..."
                 "${PY}" -m pip install -q "fastapi>=0.115.0,<1"
               fi
               exec "${PY}" main.py --warm-pool-worker
+          env:
+            # Override secret AGENTIC_PYTHON (Ada coordinator venv path) for worker image.
+            - name: AGENTIC_PYTHON
+              value: python

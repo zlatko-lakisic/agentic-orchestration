@@ -86,6 +86,11 @@ import {
   stopAdminFeedsPush,
   updateAdminFeedsParams,
 } from "./lib/admin-live-feeds.mjs";
+import {
+  applyIrrigationMaxTokens,
+  probeOllamaChatCompletionsHealth,
+} from "./lib/irrigation-chat.mjs";
+import { ollamaBaseUrl } from "./lib/admin-topology-probes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -537,29 +542,34 @@ function installApiUsageRecorder(req, res, pathLabel) {
   res.__agenticUsageInstalled = true;
   const started = Date.now();
   let recorded = false;
+  const recordOnce = (status) => {
+    if (recorded) return;
+    recorded = true;
+    try {
+      recordUsage(TOOL_ROOT, {
+        tokenId: req.agenticAuth?.tokenId ?? null,
+        appId: req.agenticAuth?.appId ?? "",
+        ip: clientIp(req),
+        path: pathLabel,
+        status,
+        latencyMs: Date.now() - started,
+        promptChars:
+          typeof req.agenticAuthPromptChars === "number" ? req.agenticAuthPromptChars : null,
+        runId: req.agenticRunId != null ? String(req.agenticRunId) : null,
+      });
+    } catch (err) {
+      console.error("[agentic api-tokens] usage record failed:", err?.message || err);
+    }
+  };
   const origWriteHead = res.writeHead.bind(res);
   res.writeHead = function agenticUsageWriteHead(...args) {
-    if (!recorded) {
-      recorded = true;
-      const status = typeof args[0] === "number" ? args[0] : 200;
-      try {
-        recordUsage(TOOL_ROOT, {
-          tokenId: req.agenticAuth?.tokenId ?? null,
-          appId: req.agenticAuth?.appId ?? "",
-          ip: clientIp(req),
-          path: pathLabel,
-          status,
-          latencyMs: Date.now() - started,
-          promptChars:
-            typeof req.agenticAuthPromptChars === "number" ? req.agenticAuthPromptChars : null,
-          runId: req.agenticRunId != null ? String(req.agenticRunId) : null,
-        });
-      } catch (err) {
-        console.error("[agentic api-tokens] usage record failed:", err?.message || err);
-      }
-    }
+    const status = typeof args[0] === "number" ? args[0] : 200;
+    recordOnce(status);
     return origWriteHead(...args);
   };
+  res.on("finish", () => {
+    recordOnce(typeof res.statusCode === "number" ? res.statusCode : 200);
+  });
 }
 
 /** Match `orchestration/example_overlays.py` (no manual .env paths for vertical roots). */
@@ -1033,6 +1043,15 @@ function isApiPing(req) {
   }
   const pl = getRequestPathname(req).toLowerCase();
   return pl === "/api/ping" || pl.endsWith("/api/ping");
+}
+
+function isChatCompletionsHealth(req) {
+  if (String(req.method || "GET").toUpperCase() !== "GET") return false;
+  const pl = getRequestPathname(req).toLowerCase();
+  return (
+    pl === "/api/v1/health/chat-completions" ||
+    pl.endsWith("/api/v1/health/chat-completions")
+  );
 }
 
 function isApiSession(req) {
@@ -2480,6 +2499,28 @@ function handleHttp(req, res) {
         instance: WEB_INSTANCE_ID,
       }),
     );
+    return;
+  }
+  if (isChatCompletionsHealth(req)) {
+    probeOllamaChatCompletionsHealth(ollamaBaseUrl)
+      .then((body) => {
+        res.writeHead(body.ok ? 200 : 503, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+        });
+        res.end(JSON.stringify(body));
+      })
+      .catch((err) => {
+        res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            ollama: "unreachable",
+            checkedAt: new Date().toISOString(),
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      });
     return;
   }
   if (isApiSession(req)) {

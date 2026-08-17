@@ -4,19 +4,29 @@ from __future__ import annotations
 
 import re
 
-_MINUTES_LINE_RE = re.compile(r"(?im)^\s*MINUTES:\s*(\d+)\s*$")
+# Models routinely emphasise the final answer ("**MINUTES: 20**", "**MINUTES:** 12"),
+# so decoration is stripped before matching.
+_DECORATION_RE = re.compile(r"[*_`]+")
+_LEADING_MARKUP_RE = re.compile(r"^[#>\s]+")
+_MINUTES_RE = re.compile(r"(?i)^MINUTES\s*:\s*(\d{1,4})")
+
+
+def _normalize_line(line: str) -> str:
+    return _DECORATION_RE.sub("", _LEADING_MARKUP_RE.sub("", line)).strip()
 
 
 def extract_irrigation_minutes(text: str) -> int | None:
     """Return the last parseable ``MINUTES: N`` integer (0-25) or None."""
-    found: int | None = None
-    for m in _MINUTES_LINE_RE.finditer(str(text or "")):
+    raw = str(text or "").replace("```json", "").replace("```", "").strip()
+    for line in reversed(raw.splitlines()):
+        m = _MINUTES_RE.match(_normalize_line(line))
+        if not m:
+            continue
         try:
-            n = int(m.group(1))
+            return max(0, min(25, int(m.group(1))))
         except ValueError:
             continue
-        found = max(0, min(25, n))
-    return found
+    return None
 
 
 def has_irrigation_minutes_line(text: str) -> bool:

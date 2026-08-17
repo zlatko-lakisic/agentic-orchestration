@@ -11,10 +11,12 @@ import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
 LLM_USAGE_DIR_NAME = "__orchestrator_llm_usage__"
+API_TOKENS_DIR_NAME = "__orchestrator_api_tokens__"
 
 _cv_tool_root: ContextVar[Path | None] = ContextVar("llm_usage_tool_root", default=None)
 _cv_run_id: ContextVar[str] = ContextVar("llm_usage_run_id", default="")
@@ -32,6 +34,57 @@ def llm_usage_dir(tool_root: Path) -> Path:
 
 def llm_usage_path(tool_root: Path) -> Path:
     return llm_usage_dir(tool_root) / "usage.jsonl"
+
+
+def api_tokens_usage_path(tool_root: Path) -> Path:
+    """Same ledger path as ``recordUsage`` in agentic-orchestration-web/lib/api-tokens.mjs."""
+    import os
+
+    override = os.getenv("AGENTIC_API_TOKENS_DIR", "").strip()
+    if override:
+        root = Path(override)
+    else:
+        root = tool_root / API_TOKENS_DIR_NAME
+    return (root.resolve() / "usage.jsonl")
+
+
+def _should_mirror_api_token_usage(app_id: str, user_name: str, user_id: str) -> bool:
+    aid = str(app_id or "").strip().lower()
+    if aid == "home-assistant":
+        return True
+    if aid == "agentic-watering":
+        return True
+    combined = f"{user_name} {user_id}".lower()
+    return "watering" in combined or "irrigation" in combined
+
+
+def _mirror_api_token_usage(
+    tool_root: Path,
+    *,
+    app_id: str,
+    token_id: str,
+    client_ip: str,
+    run_id: str,
+    latency_ms: float | None,
+    ok: bool,
+) -> None:
+    """Append a chat/completions-shaped row for Reach/orchestrate watering calls."""
+    path = api_tokens_usage_path(tool_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "tokenId": token_id or None,
+        "appId": app_id or "home-assistant",
+        "ip": client_ip or "",
+        "path": "/v1/chat/completions",
+        "status": 200 if ok else 502,
+        "latencyMs": round(latency_ms) if latency_ms is not None else None,
+        "promptChars": None,
+        "runId": run_id or None,
+        "source": "llm_usage_mirror",
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def bind_usage_context(
@@ -346,6 +399,25 @@ def record_llm_usage(
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+        app_id = str(ident.get("appId") or "")
+        if _should_mirror_api_token_usage(
+            app_id,
+            str(ident.get("userName") or ""),
+            str(ident.get("userId") or ""),
+        ):
+            try:
+                _mirror_api_token_usage(
+                    root,
+                    app_id=app_id or "home-assistant",
+                    token_id=str(ident.get("tokenId") or ""),
+                    client_ip=str(ident.get("clientIp") or ""),
+                    run_id=str(ident.get("runId") or rid or ""),
+                    latency_ms=latency_ms,
+                    ok=ok,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         if rid:
             from orchestration.run_trace import append_run_event
