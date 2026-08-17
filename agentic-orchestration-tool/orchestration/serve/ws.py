@@ -24,6 +24,12 @@ When ``AGENTIC_SERVE_STREAM_STDOUT=1``, the final answer may arrive as multiple
 ``stream: "stdout"`` chunks. Clients may send ``cancel`` with ``questionId`` to
 stop one in-flight run without closing the socket.
 
+While a run executes, ``status`` keepalives repeat the current phase with the
+elapsed time every ``AGENTIC_SERVE_HEARTBEAT_SECONDS`` seconds (default 10, ``0``
+disables) and carry ``heartbeat: true`` plus ``elapsedMs``. Silent stretches — a
+slow planner or model call emits no progress lines — would otherwise look like a
+dead connection and trip client-side idle timeouts.
+
 One deliberate extension: a ``question_id`` on ``chat`` / ``direct_agent`` opts into
 **concurrent** runs, and every ``chunk`` / ``status`` / ``run_end`` carries it back so a client can
 demux interleaved answers. Untagged messages keep the Node behavior — one run per
@@ -61,6 +67,9 @@ from orchestration.user_context import Identity, IdentityRequiredError, resolve_
 WS_CLOSE_POLICY_VIOLATION = 1008
 
 MAX_CONCURRENT_RUNS_DEFAULT = 8
+
+#: Seconds between keepalive ``status`` frames while a run is executing.
+HEARTBEAT_SECONDS_DEFAULT = 10.0
 
 
 def client_ip_from_websocket(websocket: WebSocket) -> str:
@@ -112,6 +121,33 @@ def _stream_thoughts_enabled() -> bool:
     return _truthy_env("AGENTIC_SERVE_STREAM_THOUGHTS")
 
 
+def heartbeat_seconds() -> float:
+    """Interval for keepalive ``status`` frames while a run executes (0 disables).
+
+    Long steps (planning, a slow model call) produce no progress lines, so
+    clients would see silence and trip their own idle timeouts.
+    """
+    raw = str(os.environ.get("AGENTIC_SERVE_HEARTBEAT_SECONDS") or "").strip()
+    try:
+        value = float(raw) if raw else HEARTBEAT_SECONDS_DEFAULT
+    except ValueError:
+        value = HEARTBEAT_SECONDS_DEFAULT
+    if value <= 0:
+        return 0.0
+    return max(1.0, min(300.0, value))
+
+
+def _humanize_elapsed(seconds: float) -> str:
+    total = max(0, int(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m"
+
+
 def _reach_images(message: dict[str, Any]) -> list[Any]:
     """Decode optional ``images`` on ``chat`` / ``direct_agent`` (empty = text-only)."""
     from orchestration.reach_multimodal import parse_reach_images
@@ -145,6 +181,9 @@ class WsConnection:
         self._runs_by_question: dict[str, asyncio.Task[None]] = {}
         self._metrics_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Latest phase/message so heartbeats repeat what the run is actually doing.
+        self._last_phase: str | None = None
+        self._last_message: str | None = None
 
     # ---- transport -------------------------------------------------------
 
@@ -211,6 +250,7 @@ class WsConnection:
             question_id=tag.get("question_id"),
             run_id=tag.get("run_id"),
         )
+        self._remember_status(event)
         self.send_threadsafe(event)
         if also_stderr:
             self.send_threadsafe(
@@ -221,6 +261,14 @@ class WsConnection:
                     **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
                 }
             )
+
+    def _remember_status(self, event: dict[str, Any]) -> None:
+        phase = str(event.get("phase") or "").strip()
+        message = str(event.get("message") or "").strip()
+        if phase:
+            self._last_phase = phase
+        if message:
+            self._last_message = message
 
     def _progress_to_status(self, line: str, tag: dict[str, Any]) -> None:
         """Map a legacy progress line to status + keep stderr chunk for older clients."""
@@ -270,7 +318,31 @@ class WsConnection:
             question_id=tag.get("question_id"),
             run_id=tag.get("run_id"),
         )
+        self._remember_status(event)
         self.send_threadsafe(event)
+
+    async def _heartbeat(self, tag: dict[str, Any], started: float) -> None:
+        """Emit ``status`` keepalives until cancelled so clients see liveness."""
+        from orchestration.run_status import PHASE_INFO, build_status_event
+
+        interval = heartbeat_seconds()
+        if interval <= 0:
+            return
+        while True:
+            await asyncio.sleep(interval)
+            elapsed = time.monotonic() - started
+            phase = self._last_phase or PHASE_INFO
+            message = self._last_message or "Working…"
+            await self.send(
+                build_status_event(
+                    phase=phase,
+                    processing=True,
+                    message=f"{message} ({_humanize_elapsed(elapsed)})",
+                    question_id=tag.get("question_id"),
+                    run_id=tag.get("run_id"),
+                    extra={"heartbeat": True, "elapsedMs": round(elapsed * 1000, 1)},
+                )
+            )
 
     async def _send_stdout_answer(self, answer: str, tag: dict[str, Any]) -> None:
         """Send final answer as one chunk, or many when STREAM_STDOUT is enabled."""
@@ -836,6 +908,8 @@ class WsConnection:
                     **tag,
                 }
             )
+            self._last_phase = "starting"
+            self._last_message = "Starting your request…"
             await self.send(
                 {
                     "type": "status",
@@ -845,9 +919,15 @@ class WsConnection:
                     **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
                 }
             )
-            answer = await asyncio.to_thread(
-                self._execute, message, kind, text, tag, run_id, images or []
-            )
+            heartbeat = asyncio.create_task(self._heartbeat(tag, started))
+            try:
+                answer = await asyncio.to_thread(
+                    self._execute, message, kind, text, tag, run_id, images or []
+                )
+            finally:
+                heartbeat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat
             self._emit_status(
                 phase="preparing_response",
                 processing=True,

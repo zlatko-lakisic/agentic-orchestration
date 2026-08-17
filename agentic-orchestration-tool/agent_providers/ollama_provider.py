@@ -318,8 +318,24 @@ def install_ollama() -> None:
 
 
 def start_ollama_server(host: str) -> None:
-    listen = ollama_listen_addr(host)
-    os.environ["OLLAMA_HOST"] = host
+    from orchestration.ollama_resource_manager import (
+        broker_listen_port,
+        resolve_upstream_base,
+        resource_sharing_enabled,
+    )
+
+    public_host = normalize_ollama_host(host)
+    sharing = resource_sharing_enabled()
+    if sharing:
+        # Daemon binds upstream; broker listens on the public Ollama API port.
+        upstream = resolve_upstream_base()
+        daemon_host = normalize_ollama_host(upstream)
+        listen = ollama_listen_addr(daemon_host)
+    else:
+        daemon_host = public_host
+        listen = ollama_listen_addr(public_host)
+
+    os.environ["OLLAMA_HOST"] = public_host if sharing else daemon_host
 
     env = os.environ.copy()
     env["OLLAMA_HOST"] = listen
@@ -334,6 +350,10 @@ def start_ollama_server(host: str) -> None:
         or "2"
     )
     env["OLLAMA_NUM_PARALLEL"] = num_parallel
+    # Broker owns idle unload when sharing — keep daemon keep_alive short.
+    if sharing and not os.getenv("OLLAMA_KEEP_ALIVE", "").strip():
+        idle = os.getenv("AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS", "120").strip() or "120"
+        env["OLLAMA_KEEP_ALIVE"] = idle
 
     # Background daemon: do not inherit logs (GPU discovery, GIN, etc.). Pull shows progress.
     # Windows: Job Object kill-on-close so force-killing the sidecar also reaps Ollama runners.
@@ -341,21 +361,56 @@ def start_ollama_server(host: str) -> None:
     proc, job = spawn_ollama_serve(argv=["ollama", "serve"], env=env)
     from urllib.parse import urlparse
 
-    parsed = urlparse(host if "://" in host else f"http://{host}")
+    parsed = urlparse(daemon_host if "://" in daemon_host else f"http://{daemon_host}")
     port = parsed.port or 11434
-    _workflow_ollama_register_serve(host, proc, job=job, port=port)
+    _workflow_ollama_register_serve(daemon_host, proc, job=job, port=port)
 
     timeout_seconds = 30
     start = time.time()
     while time.time() - start < timeout_seconds:
-        if is_ollama_healthy(host):
-            return
+        if is_ollama_healthy(daemon_host):
+            break
         time.sleep(1)
+    else:
+        raise RuntimeError(
+            "Ollama server did not become ready in time. "
+            "Start it manually with 'ollama serve' and retry."
+        )
 
-    raise RuntimeError(
-        "Ollama server did not become ready in time. "
-        "Start it manually with 'ollama serve' and retry."
-    )
+    if sharing:
+        _start_resource_broker_process(public_host=public_host, upstream=daemon_host)
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            if is_ollama_healthy(public_host):
+                os.environ["OLLAMA_API_BASE"] = public_host
+                return
+            time.sleep(0.5)
+        raise RuntimeError(
+            f"Ollama resource broker did not become ready at {public_host}. "
+            "Check AGENTIC_OLLAMA_UPSTREAM / AGENTIC_OLLAMA_BROKER_PORT."
+        )
+
+
+def _start_resource_broker_process(*, public_host: str, upstream: str) -> None:
+    """Spawn ``python -m orchestration.ollama_resource_broker`` in front of the daemon."""
+    from orchestration.ollama_serve_lifecycle import register_broker, spawn_broker_process
+
+    parsed_pub = urlparse(public_host if "://" in public_host else f"http://{public_host}")
+    listen_host = parsed_pub.hostname or "127.0.0.1"
+    # Bind loopback when clients use 127.0.0.1; otherwise honor broker host env.
+    from orchestration.ollama_resource_manager import broker_listen_host, broker_listen_port
+
+    bind_host = listen_host if listen_host not in ("0.0.0.0",) else broker_listen_host()
+    bind_port = parsed_pub.port or broker_listen_port()
+
+    env = os.environ.copy()
+    env["AGENTIC_OLLAMA_RESOURCE_SHARING"] = "1"
+    env["AGENTIC_OLLAMA_UPSTREAM"] = normalize_ollama_host(upstream)
+    env["AGENTIC_OLLAMA_BROKER_HOST"] = bind_host
+    env["AGENTIC_OLLAMA_BROKER_PORT"] = str(bind_port)
+    proc = spawn_broker_process(env=env)
+    register_broker(public_host, proc)
+
 
 
 def _iter_ollama_pull_ndjson(resp: Any) -> Iterator[dict[str, Any]]:

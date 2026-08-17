@@ -28,6 +28,16 @@ def _env_truthy(name: str, *, default: bool = True) -> bool:
 
 
 def ollama_keepalive_enabled() -> bool:
+    """Keepalive pings are off when resource sharing owns residency (idle unload)."""
+    try:
+        from orchestration.ollama_resource_manager import resource_sharing_enabled
+
+        if resource_sharing_enabled():
+            # Explicit opt-in still allowed for warm-path debugging.
+            if not _env_truthy("AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING", default=False):
+                return False
+    except Exception:  # noqa: BLE001
+        pass
     return _env_truthy("AGENTIC_OLLAMA_KEEPALIVE", default=True)
 
 

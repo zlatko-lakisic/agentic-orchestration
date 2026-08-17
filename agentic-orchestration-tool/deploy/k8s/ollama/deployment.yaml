@@ -3,6 +3,9 @@
 # Jetson: jetson-enable-ollama.sh uses AGENTIC_OLLAMA_MODELS_HOSTPATH
 # (default /mnt/nvme/ollama/models; legacy NFS is fallback only) via nsenter.
 #
+# Public API is the resource-broker sidecar on :11434 (VRAM-aware FIFO + idle
+# unload). The ollama daemon listens on loopback :11435 inside the pod.
+#
 # Ada / x86 GPU: k3s may advertise RuntimeClass "nvidia" without a working
 # containerd handler. Mount NVIDIA devices + host driver libs, then symlink
 # libcuda into standard paths before `ollama serve` so runners use the GPU.
@@ -57,13 +60,15 @@ spec:
               echo "GPU probe:"; nvidia-smi -L 2>&1 || true
               exec ollama serve
           ports:
-            - name: http
-              containerPort: 11434
+            - name: daemon
+              containerPort: 11435
           env:
+            # Daemon is pod-local; clients hit the broker on :11434.
             - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
+              value: "127.0.0.1:11435"
+            # Broker owns residency; keep daemon idle unload short as a backstop.
             - name: OLLAMA_KEEP_ALIVE
-              value: "-1"
+              value: "120"
             # Cap default context so large-context models do not OOM the host.
             # Override via AGENTIC_OLLAMA_CONTEXT_LENGTH before applying this manifest.
             - name: OLLAMA_CONTEXT_LENGTH
@@ -102,7 +107,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /api/tags
-              port: http
+              port: daemon
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
@@ -110,7 +115,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/tags
-              port: http
+              port: daemon
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -121,6 +126,52 @@ spec:
               memory: 1Gi
             limits:
               memory: 16Gi
+        - name: resource-broker
+          image: agentic-orchestrator-coordinator:local
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "orchestration.ollama_resource_broker"]
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: AGENTIC_OLLAMA_RESOURCE_SHARING
+              value: "1"
+            - name: AGENTIC_OLLAMA_UPSTREAM
+              value: "http://127.0.0.1:11435"
+            - name: AGENTIC_OLLAMA_BROKER_HOST
+              value: "0.0.0.0"
+            - name: AGENTIC_OLLAMA_BROKER_PORT
+              value: "11434"
+            - name: AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS
+              value: "120"
+            - name: AGENTIC_OLLAMA_QUEUE_WAIT_SECONDS
+              value: "600"
+            - name: AGENTIC_OLLAMA_QUEUE_MAX
+              value: "32"
+            - name: AGENTIC_RESIDENT_HEADROOM_GB
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              memory: 512Mi
       volumes:
         - name: ollama-home
           hostPath:

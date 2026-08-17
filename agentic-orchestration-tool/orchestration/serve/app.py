@@ -179,6 +179,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         warm = dict(app.state.warm or {})
         ka = keepalive_status()
         hw = await run_in_threadpool(hardware_snapshot)
+        sharing = await run_in_threadpool(_resource_sharing_health)
         payload: dict[str, Any] = {
             "ok": True,
             "version": engine_version(),
@@ -198,6 +199,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     or os.getenv("OLLAMA_NUM_PARALLEL", "").strip()
                     or None
                 ),
+                "resourceSharing": sharing,
             },
         }
         mtls = mtls_hello_payload(root)
@@ -206,6 +208,39 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         elif ca_exists(root):
             payload["mtls"] = {"enroll": True, "required": mtls_required()}
         return payload
+
+    def _resource_sharing_health() -> dict[str, Any]:
+        from orchestration.ollama_resource_manager import resource_sharing_enabled
+
+        if not resource_sharing_enabled():
+            return {"enabled": False}
+        # Prefer live broker status when OLLAMA_API_BASE is the broker.
+        base = (
+            os.getenv("OLLAMA_API_BASE", "").strip()
+            or os.getenv("OLLAMA_HOST", "").strip()
+            or ""
+        )
+        if not base:
+            return {"enabled": True, "error": "OLLAMA_API_BASE not set"}
+        try:
+            import httpx
+
+            url = base.rstrip("/")
+            if not url.startswith("http"):
+                url = f"http://{url}"
+            res = httpx.get(f"{url}/api/agentic/resource-status", timeout=2.0)
+            if res.is_success:
+                data = res.json()
+                if isinstance(data, dict):
+                    data.setdefault("enabled", True)
+                    return data
+            return {
+                "enabled": True,
+                "error": f"resource-status HTTP {res.status_code}",
+                "base": url,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"enabled": True, "error": str(exc)}
 
     @app.get("/api/ping")
     async def api_ping() -> JSONResponse:

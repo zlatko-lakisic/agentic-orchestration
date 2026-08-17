@@ -10,6 +10,11 @@ function envTruthy(name, defaultTruthy = true) {
 }
 
 export function ollamaKeepAliveEnabled() {
+  // Resource-sharing broker owns idle unload; forever-keepalive fights that policy.
+  const sharing = envTruthy("AGENTIC_OLLAMA_RESOURCE_SHARING", false);
+  if (sharing && !envTruthy("AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING", false)) {
+    return false;
+  }
   return envTruthy("AGENTIC_OLLAMA_KEEPALIVE", true);
 }
 

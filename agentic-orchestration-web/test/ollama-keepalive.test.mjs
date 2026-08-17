@@ -47,9 +47,11 @@ test("pingOllamaKeepAlive posts generate with keep_alive=-1", async () => {
   const prevModel = process.env.AGENTIC_PLANNER_MODEL;
   const prevKeep = process.env.AGENTIC_OLLAMA_KEEPALIVE;
   const prevBase = process.env.OLLAMA_API_BASE;
+  const prevShare = process.env.AGENTIC_OLLAMA_RESOURCE_SHARING;
   process.env.AGENTIC_PLANNER_MODEL = "ollama/llama3.2:1b";
   process.env.AGENTIC_OLLAMA_KEEPALIVE = "1";
   process.env.OLLAMA_API_BASE = "http://127.0.0.1:11434";
+  delete process.env.AGENTIC_OLLAMA_RESOURCE_SHARING;
 
   const calls = [];
   const origFetch = globalThis.fetch;
@@ -84,6 +86,28 @@ test("pingOllamaKeepAlive posts generate with keep_alive=-1", async () => {
     else process.env.AGENTIC_OLLAMA_KEEPALIVE = prevKeep;
     if (prevBase == null) delete process.env.OLLAMA_API_BASE;
     else process.env.OLLAMA_API_BASE = prevBase;
+    if (prevShare == null) delete process.env.AGENTIC_OLLAMA_RESOURCE_SHARING;
+    else process.env.AGENTIC_OLLAMA_RESOURCE_SHARING = prevShare;
+  }
+});
+
+test("ollamaKeepAliveEnabled false when resource sharing is on", async () => {
+  const prevShare = process.env.AGENTIC_OLLAMA_RESOURCE_SHARING;
+  const prevKeep = process.env.AGENTIC_OLLAMA_KEEPALIVE;
+  const prevWith = process.env.AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING;
+  process.env.AGENTIC_OLLAMA_RESOURCE_SHARING = "1";
+  process.env.AGENTIC_OLLAMA_KEEPALIVE = "1";
+  delete process.env.AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING;
+  try {
+    const mod = await import(`${libUrl.href}?t=${Date.now()}-share`);
+    assert.equal(mod.ollamaKeepAliveEnabled(), false);
+  } finally {
+    if (prevShare == null) delete process.env.AGENTIC_OLLAMA_RESOURCE_SHARING;
+    else process.env.AGENTIC_OLLAMA_RESOURCE_SHARING = prevShare;
+    if (prevKeep == null) delete process.env.AGENTIC_OLLAMA_KEEPALIVE;
+    else process.env.AGENTIC_OLLAMA_KEEPALIVE = prevKeep;
+    if (prevWith == null) delete process.env.AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING;
+    else process.env.AGENTIC_OLLAMA_KEEPALIVE_WITH_SHARING = prevWith;
   }
 });
 

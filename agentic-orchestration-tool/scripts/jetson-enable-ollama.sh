@@ -74,10 +74,11 @@ if [[ "${ARCH}" == "aarch64" || "${ARCH}" == "arm64" ]] && [[ "${AGENTIC_OLLAMA_
   OLLAMA_BIN="${AGENTIC_OLLAMA_HOST_BIN:-/usr/local/bin/ollama}"
   OLLAMA_HOME_HOST="${AGENTIC_OLLAMA_HOST_HOME:-/usr/share/ollama}"
   OLLAMA_CTX_LEN="${AGENTIC_OLLAMA_CONTEXT_LENGTH:-16384}"
-  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" "${OLLAMA_CTX_LEN}" <<'PY'
+  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" "${OLLAMA_CTX_LEN}" "${AGENTIC_OLLAMA_BROKER_IMAGE:-agentic-orchestrator-coordinator:local}" <<'PY'
 import sys
-out, ns, obin, ohome, models, ctx_len = sys.argv[1:7]
+out, ns, obin, ohome, models, ctx_len, broker_image = sys.argv[1:8]
 # Host-binary: busybox + nsenter runs host ollama with models via host mount namespace.
+# Broker sidecar owns :11434; daemon listens on :11435.
 doc = f"""apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -122,8 +123,8 @@ spec:
             - -c
             - |
               set -eu
-              export OLLAMA_HOST=0.0.0.0:11434
-              export OLLAMA_KEEP_ALIVE=-1
+              export OLLAMA_HOST=127.0.0.1:11435
+              export OLLAMA_KEEP_ALIVE=120
               # Cap default context so 128k models (e.g. granite-code) do not
               # allocate a ~40 GiB KV cache on Jetson unified memory.
               export OLLAMA_CONTEXT_LENGTH={ctx_len}
@@ -135,12 +136,12 @@ spec:
               fi
               exec {obin} serve
           ports:
-            - name: http
-              containerPort: 11434
+            - name: daemon
+              containerPort: 11435
           readinessProbe:
             httpGet:
               path: /api/tags
-              port: http
+              port: daemon
               host: 127.0.0.1
             initialDelaySeconds: 3
             periodSeconds: 5
@@ -149,7 +150,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/tags
-              port: http
+              port: daemon
               host: 127.0.0.1
             initialDelaySeconds: 15
             periodSeconds: 20
@@ -159,15 +160,62 @@ spec:
             requests:
               cpu: "100m"
               memory: 256Mi
+        - name: resource-broker
+          image: {broker_image}
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "orchestration.ollama_resource_broker"]
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: AGENTIC_OLLAMA_RESOURCE_SHARING
+              value: "1"
+            - name: AGENTIC_OLLAMA_UPSTREAM
+              value: "http://127.0.0.1:11435"
+            - name: AGENTIC_OLLAMA_BROKER_HOST
+              value: "0.0.0.0"
+            - name: AGENTIC_OLLAMA_BROKER_PORT
+              value: "11434"
+            - name: AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS
+              value: "120"
+            - name: AGENTIC_ASSUME_VRAM_GB
+              value: "48"
+            - name: AGENTIC_RESIDENT_HEADROOM_GB
+              value: "2"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              host: 127.0.0.1
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              host: 127.0.0.1
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              memory: 512Mi
 """
 open(out, "w", encoding="utf-8").write(doc)
-print(f"mode=host-binary bin={obin} home={ohome} models={models}")
+print(f"mode=host-binary bin={obin} home={ohome} models={models} broker={broker_image}")
 PY
 else
   IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:latest}"
-  python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" <<'PY'
+  BROKER_IMAGE="${AGENTIC_OLLAMA_BROKER_IMAGE:-agentic-orchestrator-coordinator:local}"
+  python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" "${BROKER_IMAGE}" <<'PY'
 import sys
-src, dst, image, home, models_data, runtime_class = sys.argv[1:7]
+src, dst, image, home, models_data, runtime_class, broker_image = sys.argv[1:8]
 text = open(src, encoding="utf-8").read()
 import re
 text2, n = re.subn(
@@ -179,6 +227,15 @@ text2, n = re.subn(
 if n != 1:
     raise SystemExit(f"expected one ollama image: line in {src}")
 text = text2
+text3, n2 = re.subn(
+    r"(?m)^(\s*image:\s*)agentic-orchestrator-coordinator:\S+",
+    rf"\1{broker_image}",
+    text,
+    count=1,
+)
+if n2 != 1:
+    raise SystemExit(f"expected one broker image line in {src}")
+text = text3
 text = text.replace(
     "path: /var/projects/agentic-orchestration/var/ollama-models",
     f"path: {home}",
@@ -222,7 +279,7 @@ if models_data:
         raise SystemExit("volumes section not found")
     text = text[:idx] + vol
 open(dst, "w", encoding="utf-8").write(text)
-print(f"mode=image image={image} home={home} models_data={models_data or '-'} runtimeClass={runtime_class or '-'}")
+print(f"mode=image image={image} broker={broker_image} home={home} models_data={models_data or '-'} runtimeClass={runtime_class or '-'}")
 PY
 fi
 
@@ -243,6 +300,9 @@ if [[ -f "${ENV_FILE}" ]]; then
   fi
   if ! grep -qE '^[[:space:]]*AGENTIC_OLLAMA_MODE=' "${ENV_FILE}" 2>/dev/null; then
     echo "AGENTIC_OLLAMA_MODE=managed_k8s" >>"${ENV_FILE}"
+  fi
+  if ! grep -qE '^[[:space:]]*AGENTIC_OLLAMA_RESOURCE_SHARING=' "${ENV_FILE}" 2>/dev/null; then
+    echo "AGENTIC_OLLAMA_RESOURCE_SHARING=1" >>"${ENV_FILE}"
   fi
   bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh" || true
 fi

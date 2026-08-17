@@ -84,6 +84,31 @@ const KEY_META = {
     tier: TIER_RESTART,
     label: "Keepalive interval (ms)",
   },
+  AGENTIC_OLLAMA_RESOURCE_SHARING: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Ollama resource sharing (VRAM broker)",
+  },
+  AGENTIC_OLLAMA_UPSTREAM: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Ollama daemon upstream (behind broker)",
+  },
+  AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Idle model unload (seconds)",
+  },
+  AGENTIC_OLLAMA_QUEUE_WAIT_SECONDS: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Resource queue wait (seconds)",
+  },
+  AGENTIC_OLLAMA_QUEUE_MAX: {
+    group: "models",
+    tier: TIER_RESTART,
+    label: "Resource queue max depth",
+  },
   AGENTIC_OLLAMA_NUM_PARALLEL: { group: "models", tier: TIER_RESTART, label: "Ollama parallel slots" },
   AGENTIC_AUTO_ENSURE_RUNTIME: { group: "models", tier: TIER_RESTART, label: "Auto-ensure runtime" },
   AGENTIC_AUTO_ENSURE_OLLAMA_IN_K8S: {

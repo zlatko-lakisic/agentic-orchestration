@@ -211,6 +211,32 @@ export async function probeOllama(fetchJson) {
   const result = await probeFirstHttpOk(fetchJson, bases, "/api/tags");
   const models = Array.isArray(result.json?.models) ? result.json.models.length : null;
   const used = result.ok ? result.base : base;
+
+  /** @type {Record<string, unknown>|null} */
+  let resourceSharing = null;
+  if (result.ok && used) {
+    const rs = await probeHttpOk(
+      fetchJson,
+      `${used}/api/agentic/resource-status`,
+      2000,
+      false,
+    );
+    if (rs.ok && rs.json && typeof rs.json === "object") {
+      resourceSharing = rs.json;
+    }
+  }
+
+  let reason = result.ok
+    ? models != null
+      ? `${models} model${models === 1 ? "" : "s"} via ${used}`
+      : `reachable ${used}`
+    : result.error || `HTTP ${result.status || "down"} at ${bases.join(" | ")}/api/tags`;
+  if (resourceSharing && resourceSharing.enabled) {
+    const q = Number(resourceSharing.queueDepth || 0);
+    const loaded = Array.isArray(resourceSharing.loaded) ? resourceSharing.loaded.length : 0;
+    reason = `${reason}; sharing: ${loaded} loaded, queue ${q}`;
+  }
+
   return {
     configured: true,
     skipped: false,
@@ -220,11 +246,8 @@ export async function probeOllama(fetchJson) {
     latencyMs: result.latencyMs,
     base: used,
     modelCount: models,
-    reason: result.ok
-      ? models != null
-        ? `${models} model${models === 1 ? "" : "s"} via ${used}`
-        : `reachable ${used}`
-      : result.error || `HTTP ${result.status || "down"} at ${bases.join(" | ")}/api/tags`,
+    resourceSharing,
+    reason,
   };
 }
 

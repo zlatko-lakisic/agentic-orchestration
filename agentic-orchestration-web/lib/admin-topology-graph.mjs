@@ -1546,6 +1546,7 @@ export async function buildTopologyGraph(ctx) {
             role: "model-runtime",
             base: ollamaProbe.base || null,
             latencyMs: ollamaProbe.latencyMs,
+            resourceSharing: ollamaProbe.resourceSharing || null,
           }
         : { reachable: false, role: "model-runtime", note: "not configured" },
       speech: speechOn

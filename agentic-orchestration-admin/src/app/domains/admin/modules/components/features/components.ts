@@ -46,7 +46,7 @@ const CATALOG: Array<{
     id: 'ollama',
     label: 'Ollama',
     kind: 'model',
-    notes: 'Local model runtime; keepalive models are resident on this host.',
+    notes: 'Local model runtime; resource-sharing broker unloads idle models and queues VRAM contention.',
   },
   {
     id: 'mcp',

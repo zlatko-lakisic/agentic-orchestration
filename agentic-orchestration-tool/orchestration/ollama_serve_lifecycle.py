@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 _serve_entries: dict[str, "_ServeEntry"] = {}
+_broker_entries: dict[str, subprocess.Popen] = {}
 _shutdown_hooks_installed = False
 
 
@@ -91,6 +92,10 @@ def stop_serve(host: str) -> None:
 
 def stop_all_serves() -> None:
     """Terminate every ``ollama serve`` this process started (and their descendants)."""
+    for key in list(_broker_entries.keys()):
+        proc = _broker_entries.pop(key, None)
+        if proc is not None:
+            _stop_proc(proc)
     for key in list(_serve_entries.keys()):
         entry = _serve_entries.pop(key, None)
         if entry is not None:
@@ -103,6 +108,51 @@ def stop_all_serves() -> None:
         pass
 
 
+def register_broker(host: str, proc: subprocess.Popen) -> None:
+    """Track an AO-spawned resource broker process for shutdown."""
+    key = serve_key(host)
+    prev = _broker_entries.pop(key, None)
+    if prev is not None:
+        _stop_proc(prev)
+    _broker_entries[key] = proc
+    ensure_shutdown_hooks()
+
+
+def spawn_broker_process(*, env: dict[str, str]) -> subprocess.Popen:
+    """Start ``python -m orchestration.ollama_resource_broker``."""
+    argv = [sys.executable, "-m", "orchestration.ollama_resource_broker"]
+    if sys.platform == "win32":
+        return subprocess.Popen(
+            argv,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    return subprocess.Popen(
+        argv,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _stop_proc(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+    except OSError:
+        return
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
 def registered_hosts() -> list[str]:
     """Hosts currently tracked (tests / diagnostics)."""
     return list(_serve_entries.keys())
@@ -113,6 +163,7 @@ def clear_registry() -> None:
     for entry in _serve_entries.values():
         _windows_close_job(entry.job, terminate=False)
     _serve_entries.clear()
+    _broker_entries.clear()
 
 
 def spawn_ollama_serve(*, argv: list[str], env: dict[str, str]) -> tuple[subprocess.Popen, Any]:
