@@ -30,6 +30,13 @@ import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/t
 
 const GIB = 1024 ** 3;
 
+/** One palette for every chart in the card: memory reads blue, VRAM green. */
+const RAM_COLOR = '#60a5fa';
+const VRAM_COLOR = '#34d399';
+/** Matches the area charts' grid stroke so tracks and gridlines agree. */
+const TRACK_COLOR = 'rgba(148, 163, 184, 0.2)';
+const AXIS_TEXT = 'var(--mat-sys-on-surface)';
+
 /**
  * Full host utilization card — CPU/mem + GPU/VRAM area charts.
  * Used on Overview and in the toolbar modal on other admin pages.
@@ -185,25 +192,49 @@ const GIB = 1024 ** 3;
         <div class="flex min-w-0 flex-col">
           <div class="flex flex-wrap items-end gap-x-6 gap-y-2 px-3 pt-2">
             <div>
-              <div class="text-sm font-medium text-neutral-500">AO RAM</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ aoRamLabel() }}
+              <div
+                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+              >
+                <span
+                  class="inline-block size-2 rounded-full"
+                  [style.background-color]="gaugeColors[0]"
+                ></span>
+                AO RAM
               </div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoRamGib() ?? '—'
+                }}@if (aoRamGib() != null) {
+                  <span class="text-lg text-neutral-500">GiB</span>
+                }
+              </div>
+              <div class="text-xs text-neutral-500">{{ aoRamShare() }}</div>
             </div>
             <div>
-              <div class="text-sm font-medium text-neutral-500">AO VRAM</div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ aoVramLabel() }}
+              <div
+                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+              >
+                <span
+                  class="inline-block size-2 rounded-full"
+                  [style.background-color]="gaugeColors[1]"
+                ></span>
+                AO VRAM
               </div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoVramGib() ?? '—'
+                }}@if (aoVramGib() != null) {
+                  <span class="text-lg text-neutral-500">GiB</span>
+                }
+              </div>
+              <div class="text-xs text-neutral-500">{{ aoVramShare() }}</div>
             </div>
           </div>
           <apx-chart
-            class="h-64 w-full"
+            class="h-48 w-full"
             [chart]="gaugeChart.chart"
             [colors]="gaugeColors"
             [labels]="gaugeLabels"
             [legend]="gaugeChart.legend"
-            [plotOptions]="gaugeChart.plotOptions"
+            [plotOptions]="gaugePlotOptions()"
             [series]="aoGaugeSeries()"
           />
         </div>
@@ -224,6 +255,7 @@ const GIB = 1024 ** 3;
               [series]="aoBreakdownSeries()"
               [tooltip]="breakdownTooltip()"
               [xaxis]="aoBreakdownXaxis()"
+              [yaxis]="breakdownYaxis"
             />
           } @else {
             <div
@@ -326,6 +358,33 @@ export class HostUtilization implements OnInit, OnDestroy {
     ];
   });
 
+  /**
+   * The centre of the dial reports the RAM share, the one figure that has a
+   * single meaning for the whole host; hovering a ring still shows that ring.
+   */
+  readonly gaugePlotOptions = computed((): ApexPlotOptions => {
+    const ram = this.aoResources()?.ao?.ramPercentOfHost;
+    return {
+      radialBar: {
+        hollow: { size: '56%' },
+        track: { background: TRACK_COLOR },
+        dataLabels: {
+          name: { fontSize: '12px', offsetY: -2 },
+          value: {
+            fontSize: '22px',
+            offsetY: 4,
+            formatter: (v: number) => `${Math.round(Number(v))}%`,
+          },
+          total: {
+            show: true,
+            label: 'RAM of host',
+            formatter: () => (ram == null ? '—' : `${Math.round(ram)}%`),
+          },
+        },
+      },
+    };
+  });
+
   readonly aoBreakdownSeries = computed((): ApexAxisChartSeries => {
     const rows = this.aoBreakdown();
     return [
@@ -339,14 +398,22 @@ export class HostUtilization implements OnInit, OnDestroy {
       categories: this.aoBreakdown().map((r) => this.rowLabel(r)),
       labels: {
         formatter: (v: string) => `${Number(v).toFixed(1)}`,
-        style: { colors: 'var(--mat-sys-on-surface)' },
+        style: { colors: AXIS_TEXT },
       },
       title: {
         text: 'GiB',
-        style: { color: 'var(--mat-sys-on-surface)', fontSize: '11px' },
+        style: { color: AXIS_TEXT, fontSize: '11px' },
       },
     })
   );
+
+  /** Apex defaults category labels to a near-black fill and clips them at 160px. */
+  readonly breakdownYaxis: ApexYAxis = {
+    labels: {
+      maxWidth: 260,
+      style: { colors: AXIS_TEXT, fontSize: '12px' },
+    },
+  };
 
   /** Grow the plot with the row count so labels never collide. */
   readonly breakdownChartOptions = computed(
@@ -368,23 +435,23 @@ export class HostUtilization implements OnInit, OnDestroy {
     })
   );
 
-  readonly aoRamLabel = computed(() => {
-    const ao = this.aoResources()?.ao;
-    if (!ao?.ramBytes) return '—';
-    const pct = ao.ramPercentOfHost;
-    return pct == null
-      ? `${toGib(ao.ramBytes).toFixed(1)} GiB`
-      : `${toGib(ao.ramBytes).toFixed(1)} GiB · ${pct}%`;
+  readonly aoRamGib = computed(() => {
+    const bytes = this.aoResources()?.ao?.ramBytes;
+    return bytes ? toGib(bytes).toFixed(1) : null;
   });
 
-  readonly aoVramLabel = computed(() => {
-    const ao = this.aoResources()?.ao;
-    if (!ao?.vramBytes) return '—';
-    const pct = ao.vramPercentOfTotal;
-    return pct == null
-      ? `${toGib(ao.vramBytes).toFixed(1)} GiB`
-      : `${toGib(ao.vramBytes).toFixed(1)} GiB · ${pct}%`;
+  readonly aoVramGib = computed(() => {
+    const bytes = this.aoResources()?.ao?.vramBytes;
+    return bytes ? toGib(bytes).toFixed(1) : null;
   });
+
+  readonly aoRamShare = computed(() =>
+    shareLabel(this.aoResources()?.ao?.ramPercentOfHost, 'of host RAM')
+  );
+
+  readonly aoVramShare = computed(() =>
+    shareLabel(this.aoResources()?.ao?.vramPercentOfTotal, 'of total VRAM')
+  );
 
   readonly aoFootprintCaption = computed(() => {
     const data = this.aoResources();
@@ -411,7 +478,10 @@ export class HostUtilization implements OnInit, OnDestroy {
   private rowLabel(row: AoResourceRow): string {
     if (row.kind !== 'model') return row.label;
     const agents = row.agents || [];
-    return agents.length ? `${row.label} (${agents.join(', ')})` : row.label;
+    if (!agents.length) return row.label;
+    /** Only the first agent fits on an axis; the rest become a count. */
+    const extra = agents.length > 1 ? ` +${agents.length - 1}` : '';
+    return `${row.label} (${agents[0]}${extra})`;
   }
 
   readonly cpuMemSeries = computed((): ApexAxisChartSeries => {
@@ -468,8 +538,8 @@ export class HostUtilization implements OnInit, OnDestroy {
     ];
   });
 
-  readonly cpuMemChartColors = ['#f59e0b', '#60a5fa', '#f87171'];
-  readonly gpuVramChartColors = ['#c084fc', '#34d399', '#f87171'];
+  readonly cpuMemChartColors = ['#f59e0b', RAM_COLOR, '#f87171'];
+  readonly gpuVramChartColors = ['#c084fc', VRAM_COLOR, '#f87171'];
 
   readonly cpuThermalRange = computed(() => {
     const scope = String(this.live.metrics()?.scope || '');
@@ -628,7 +698,7 @@ export class HostUtilization implements OnInit, OnDestroy {
       },
     } as ApexFill,
     grid: {
-      borderColor: 'rgba(148, 163, 184, 0.2)',
+      borderColor: TRACK_COLOR,
       strokeDashArray: 3,
       padding: { left: 8, right: 8 },
     } as ApexGrid,
@@ -649,7 +719,7 @@ export class HostUtilization implements OnInit, OnDestroy {
     } as ApexXAxis,
   };
 
-  readonly gaugeColors = ['#60a5fa', '#34d399'];
+  readonly gaugeColors = [RAM_COLOR, VRAM_COLOR];
   readonly gaugeLabels = ['RAM', 'VRAM'];
 
   protected gaugeChart = {
@@ -661,31 +731,11 @@ export class HostUtilization implements OnInit, OnDestroy {
       type: 'radialBar',
       toolbar: { show: false },
     } as ApexChart,
-    legend: {
-      show: true,
-      position: 'bottom',
-    } as ApexLegend,
-    plotOptions: {
-      radialBar: {
-        hollow: { size: '48%' },
-        track: { background: 'rgba(148, 163, 184, 0.2)' },
-        dataLabels: {
-          name: { fontSize: '13px' },
-          value: {
-            fontSize: '20px',
-            formatter: (v: number) => `${Math.round(Number(v))}%`,
-          },
-          total: {
-            show: true,
-            label: 'of host',
-            formatter: () => 'AO share',
-          },
-        },
-      },
-    } as ApexPlotOptions,
+    /** The stat blocks above carry the colour key, so no second legend here. */
+    legend: { show: false } as ApexLegend,
   };
 
-  readonly breakdownColors = ['#60a5fa', '#34d399'];
+  readonly breakdownColors = [RAM_COLOR, VRAM_COLOR];
 
   protected breakdownChart = {
     chart: {
@@ -735,4 +785,10 @@ function toGib(bytes: number | null | undefined): number {
   const n = Number(bytes);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round((n / GIB) * 100) / 100;
+}
+
+function shareLabel(pct: number | null | undefined, suffix: string): string {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return '—';
+  return `${n}% ${suffix}`;
 }
