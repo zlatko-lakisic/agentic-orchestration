@@ -304,7 +304,7 @@ else:
     if start < 0 or end < 0:
         raise SystemExit(f"resource-broker sentinels not found in {src}")
     text = text[:start] + text[end + len("        # END resource-broker\n") :]
-    text = text.replace('value: "127.0.0.1:11435"', 'value: "0.0.0.0:11434"', 1)
+    text = text.replace('value: "0.0.0.0:11435"', 'value: "0.0.0.0:11434"', 1)
     text = text.replace("containerPort: 11435", "containerPort: 11434", 1)
 text = text.replace(
     "path: /var/projects/agentic-orchestration/var/ollama-models",

@@ -63,9 +63,11 @@ spec:
             - name: daemon
               containerPort: 11435
           env:
-            # Daemon is pod-local; clients hit the broker on :11434.
+            # Daemon is pod-local; clients hit the broker on :11434. Bind the
+            # pod interface (not loopback) so kubelet can probe it — only
+            # :11434 is published, so :11435 stays unreachable from outside.
             - name: OLLAMA_HOST
-              value: "127.0.0.1:11435"
+              value: "0.0.0.0:11435"
             # Broker owns residency; keep daemon idle unload short as a backstop.
             - name: OLLAMA_KEEP_ALIVE
               value: "120"
@@ -104,14 +106,13 @@ spec:
             - name: host-nvidia-bin
               mountPath: /host-nvidia-bin
               readOnly: true
-          # OLLAMA_HOST binds loopback only, so probes must use host 127.0.0.1;
-          # kubelet otherwise dials the pod IP, fails, and liveness restarts the
-          # daemon every few minutes.
+          # Probe the pod IP (no host override): kubelet dials from the node, so
+          # host: 127.0.0.1 would hit the node's loopback and liveness would
+          # restart the daemon every few minutes.
           readinessProbe:
             httpGet:
               path: /api/tags
               port: daemon
-              host: 127.0.0.1
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
@@ -120,7 +121,6 @@ spec:
             httpGet:
               path: /api/tags
               port: daemon
-              host: 127.0.0.1
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5

@@ -29,7 +29,7 @@ def test_ollama_deployment_caps_context_length() -> None:
     containers = doc["spec"]["template"]["spec"]["containers"]
     ollama = next(c for c in containers if c["name"] == "ollama")
     env = {e["name"]: e.get("value") for e in ollama["env"]}
-    assert env["OLLAMA_HOST"] == "127.0.0.1:11435"
+    assert env["OLLAMA_HOST"] == "0.0.0.0:11435"
     assert env["OLLAMA_KEEP_ALIVE"] == "120"
     assert env["OLLAMA_CONTEXT_LENGTH"] == "16384"
 
@@ -52,15 +52,20 @@ def test_ollama_deployment_has_resource_broker_sidecar() -> None:
 
 
 @pytest.mark.unit
-def test_loopback_daemon_probes_target_loopback() -> None:
-    """The daemon binds 127.0.0.1, so probing the pod IP would restart it."""
+def test_probe_target_matches_daemon_bind_address() -> None:
+    """kubelet probes from the node: a `host` override only works on hostNetwork.
+
+    In this pod (no hostNetwork) the daemon must bind the pod interface and the
+    probe must omit `host`, or liveness kills the daemon every few minutes.
+    """
     doc = _load_yaml("deployment.yaml")
-    containers = doc["spec"]["template"]["spec"]["containers"]
-    ollama = next(c for c in containers if c["name"] == "ollama")
+    spec = doc["spec"]["template"]["spec"]
+    assert not spec.get("hostNetwork")
+    ollama = next(c for c in spec["containers"] if c["name"] == "ollama")
     env = {e["name"]: e.get("value") for e in ollama["env"]}
-    assert env["OLLAMA_HOST"].startswith("127.0.0.1")
+    assert env["OLLAMA_HOST"].startswith("0.0.0.0")
     for probe in ("readinessProbe", "livenessProbe"):
-        assert ollama[probe]["httpGet"]["host"] == "127.0.0.1", probe
+        assert "host" not in ollama[probe]["httpGet"], probe
 
 
 @pytest.mark.unit
@@ -190,6 +195,18 @@ def test_render_broker_image_env_override_wins() -> None:
         if c["name"] == "resource-broker"
     )
     assert broker["image"] == "example/broker:custom"
+
+
+@pytest.mark.unit
+def test_render_host_network_daemon_probes_loopback() -> None:
+    """Jetson shares the node netns, so loopback bind + loopback probe agree."""
+    doc = _render({}, arch_aarch64=True)
+    spec = doc["spec"]["template"]["spec"]
+    assert spec["hostNetwork"] is True
+    ollama = next(c for c in spec["containers"] if c["name"] == "ollama")
+    assert "OLLAMA_HOST=127.0.0.1:11435" in "".join(ollama["args"])
+    for probe in ("readinessProbe", "livenessProbe"):
+        assert ollama[probe]["httpGet"]["host"] == "127.0.0.1", probe
 
 
 @pytest.mark.unit
