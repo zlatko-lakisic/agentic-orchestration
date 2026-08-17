@@ -122,6 +122,11 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/ao-metrics.mjs
               subPath: ao-metrics.mjs
+            # admin-api.mjs imports this at module load: without it the hotfixed
+            # web server cannot start.
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/ao-resource-usage.mjs
+              subPath: ao-resource-usage.mjs
       volumes:
         - name: web-hotfix-public
           configMap:

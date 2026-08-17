@@ -23,6 +23,14 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/host_metrics.py
               subPath: host_metrics.py
+            # Imported unguarded by ollama_provider / serve.app; too large to add
+            # to the orchestration ConfigMap, which is at the 1 MiB limit.
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/ollama_resource_manager.py
+              subPath: ollama_resource_manager.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/reach_multimodal.py
+              subPath: reach_multimodal.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

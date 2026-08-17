@@ -19,6 +19,10 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/orchestration/ollama_catalog_filter.py
               subPath: ollama_catalog_filter.py
+            # ollama_provider.start_ollama_server imports this unguarded.
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/ollama_resource_manager.py
+              subPath: ollama_resource_manager.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:
