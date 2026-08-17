@@ -1158,12 +1158,26 @@ class WsConnection:
         agent_provider_id = str(
             message.get("agent_provider_id") or message.get("agentProviderId") or ""
         ).strip()
-        if not agent_provider_id:
-            selected = message.get("selectedAgentProviderIds")
-            if selected is None:
-                selected = message.get("selected_agent_provider_ids")
-            if isinstance(selected, list) and selected:
-                agent_provider_id = str(selected[0] or "").strip()
+        selected = message.get("selectedAgentProviderIds")
+        if selected is None:
+            selected = message.get("selected_agent_provider_ids")
+        selected_ids: list[str] = []
+        if isinstance(selected, list):
+            selected_ids = [str(x).strip() for x in selected if str(x or "").strip()]
+        if not agent_provider_id and selected_ids:
+            agent_provider_id = selected_ids[0]
+        if agent_provider_id and agent_provider_id not in selected_ids:
+            selected_ids = [agent_provider_id, *selected_ids]
+
+        allowed_ids: list[str] | None = None
+        try:
+            from orchestration.session_overlay import get_current_overlay
+
+            overlay = get_current_overlay()
+            if overlay is not None and overlay.allowed_agent_provider_ids:
+                allowed_ids = list(overlay.allowed_agent_provider_ids)
+        except Exception:  # noqa: BLE001
+            allowed_ids = None
 
         emit_log(
             f"engine {kind} multimodal start images={len(images)}",
@@ -1183,6 +1197,7 @@ class WsConnection:
                 detail={
                     "mode": "multimodal",
                     "agent_provider_id": agent_provider_id or None,
+                    "selected_agent_provider_ids": selected_ids or None,
                     "images": len(images),
                 },
             )
@@ -1193,6 +1208,8 @@ class WsConnection:
             text=text,
             images=images,
             agent_provider_id=agent_provider_id,
+            agent_provider_ids=selected_ids or None,
+            allowed_agent_provider_ids=allowed_ids,
             tool_root=self.tool_root,
             on_progress=lambda line: self._progress_to_status(line, tag),
         )

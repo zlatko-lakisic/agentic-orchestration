@@ -53,10 +53,18 @@ _VISION_NAME_TOKENS = (
 #: ``vl`` / ``vlm`` as a model-name segment: qwen2.5vl, qwen2-vl, glm-4v-vlm.
 _VISION_NAME_RE = re.compile(r"(?<![a-z])vlm?(?![a-z])", re.IGNORECASE)
 
+#: Gemma 3/4 are multimodal; Gemma 3n is text-only (Continue ``autodetect``).
+_GEMMA_VISION_RE = re.compile(r"\bgemma-?[34](?!n)", re.IGNORECASE)
+
+#: Qwen 3.5 Jetson catalog tags are multimodal (``qwen3.5:9b``, etc.).
+_QWEN35_VISION_RE = re.compile(r"\bqwen3\.5\b", re.IGNORECASE)
+
 _OPENAI_VISION_RE = re.compile(
     r"^(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|chatgpt-|o1$|o1-|o3$|o3-|o4$|o4-)",
     re.IGNORECASE,
 )
+
+_CLOUD_AGENT_TYPES = frozenset({"openai", "anthropic", "azure", "bedrock", "groq"})
 
 
 class ReachImageError(ValueError):
@@ -215,6 +223,10 @@ def model_supports_images(model: str) -> bool:
     bare = raw.split("/", 1)[1] if "/" in raw else raw
     if _OPENAI_VISION_RE.match(bare):
         return True
+    if _GEMMA_VISION_RE.search(bare) or _GEMMA_VISION_RE.search(raw):
+        return True
+    if _QWEN35_VISION_RE.search(bare) or _QWEN35_VISION_RE.search(raw):
+        return True
     if any(token in raw for token in _VISION_NAME_TOKENS):
         return True
     return bool(_VISION_NAME_RE.search(raw))
@@ -239,28 +251,129 @@ def _normalize_litellm_model(model: str) -> str:
     return f"ollama/{raw}"
 
 
+def _clean_provider_ids(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.split(",")]
+        return [p for p in parts if p]
+    if not isinstance(raw, (list, tuple, set)):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        pid = str(item or "").strip()
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+    return out
+
+
+def _entry_looks_cloud(entry: dict[str, Any] | None) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    typ = str(entry.get("type") or "").strip().lower()
+    if typ in _CLOUD_AGENT_TYPES:
+        return True
+    model = str(entry.get("model") or "").strip().lower()
+    if not model:
+        return False
+    bare = model.split("/", 1)[1] if "/" in model else model
+    if model.startswith(("openai/", "azure/", "anthropic/")):
+        return True
+    return bool(_OPENAI_VISION_RE.match(bare))
+
+
+def _id_looks_cloud(provider_id: str) -> bool:
+    pid = str(provider_id or "").strip().lower()
+    return pid.startswith(("openai", "gpt_", "gpt-", "anthropic", "azure"))
+
+
+def allowlist_permits_openai_fallback(
+    allowed_agent_provider_ids: list[str] | None,
+    *,
+    tool_root: Path | None = None,
+) -> bool:
+    """True when unrestricted, or when the allowlist includes a cloud vision agent."""
+    cleaned = _clean_provider_ids(allowed_agent_provider_ids)
+    if not cleaned:
+        return True
+    for pid in cleaned:
+        if _id_looks_cloud(pid):
+            return True
+        entry = load_vision_agent_entry(agent_provider_id=pid, tool_root=tool_root)
+        if _entry_looks_cloud(entry):
+            return True
+    return False
+
+
+def pick_vision_agent_entry(
+    agent_provider_ids: Any,
+    *,
+    tool_root: Path | None = None,
+) -> dict[str, Any] | None:
+    """Walk selected ids; prefer the first entry whose model is vision-capable.
+
+    Overlay agents often carry system prompts without a ``model`` field — keep the
+    first hit for prompt shaping when no later id has a usable VLM.
+    """
+    ids = _clean_provider_ids(agent_provider_ids)
+    fallback: dict[str, Any] | None = None
+    for pid in ids:
+        entry = load_vision_agent_entry(agent_provider_id=pid, tool_root=tool_root)
+        if not isinstance(entry, dict):
+            continue
+        if fallback is None:
+            fallback = entry
+        model = str(entry.get("model") or "").strip()
+        if model and model_supports_images(model):
+            return entry
+    return fallback
+
+
 def resolve_vision_model(
     *,
     model_hint: str = "",
     agent_entry: dict[str, Any] | None = None,
+    allowed_agent_provider_ids: list[str] | None = None,
+    tool_root: Path | None = None,
 ) -> str:
     """Pick a vision-capable model, or raise ``VisionModelUnavailableError``.
 
     Only vision-capable candidates are honored — a text-only fallback would answer
     a camera prompt without ever seeing the stills.
+
+    When a session allowlist is set and contains only local agents, the OpenAI
+    key fallback is refused so Comstar Vision cannot silently leave the edge.
     """
+    allowlist_models: list[str] = []
+    for pid in _clean_provider_ids(allowed_agent_provider_ids):
+        entry = load_vision_agent_entry(agent_provider_id=pid, tool_root=tool_root)
+        if isinstance(entry, dict):
+            model = str(entry.get("model") or "").strip()
+            if model:
+                allowlist_models.append(model)
+
     candidates: list[str] = [
         model_hint,
         os.getenv("AGENTIC_REACH_VISION_MODEL", ""),
         str((agent_entry or {}).get("model") or ""),
+        *allowlist_models,
         os.getenv("AGENTIC_MEDIA_VISION_MODEL", ""),
         os.getenv("AGENTIC_VIDEO_VISION_MODEL", ""),
     ]
+    seen: set[str] = set()
     for candidate in candidates:
         clean = str(candidate or "").strip()
-        if clean and model_supports_images(clean):
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        if model_supports_images(clean):
             return _normalize_litellm_model(clean)
-    if os.getenv("OPENAI_API_KEY", "").strip():
+    if os.getenv("OPENAI_API_KEY", "").strip() and allowlist_permits_openai_fallback(
+        allowed_agent_provider_ids, tool_root=tool_root
+    ):
         return "openai/gpt-4o-mini"
     raise VisionModelUnavailableError(
         "this request includes images but no vision-capable model is configured; "
@@ -385,6 +498,8 @@ def run_reach_multimodal(
     text: str,
     images: list[ReachImage],
     agent_provider_id: str = "",
+    agent_provider_ids: list[str] | None = None,
+    allowed_agent_provider_ids: list[str] | None = None,
     tool_root: Path | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> str:
@@ -403,8 +518,32 @@ def run_reach_multimodal(
     if not prompt:
         prompt = "Describe what is visible in these images."
 
-    entry = load_vision_agent_entry(agent_provider_id=agent_provider_id, tool_root=tool_root)
-    model = resolve_vision_model(model_hint=model_hint, agent_entry=entry)
+    selected_ids = _clean_provider_ids(agent_provider_ids)
+    if not selected_ids and str(agent_provider_id or "").strip():
+        selected_ids = [str(agent_provider_id).strip()]
+
+    allowlist = _clean_provider_ids(allowed_agent_provider_ids)
+    if not allowlist:
+        try:
+            from orchestration.session_overlay import get_current_overlay
+
+            overlay = get_current_overlay()
+            if overlay is not None:
+                allowlist = _clean_provider_ids(overlay.allowed_agent_provider_ids)
+        except Exception:  # noqa: BLE001
+            allowlist = []
+
+    entry = pick_vision_agent_entry(selected_ids, tool_root=tool_root)
+    if entry is None and str(agent_provider_id or "").strip():
+        entry = load_vision_agent_entry(
+            agent_provider_id=str(agent_provider_id).strip(), tool_root=tool_root
+        )
+    model = resolve_vision_model(
+        model_hint=model_hint,
+        agent_entry=entry,
+        allowed_agent_provider_ids=allowlist or None,
+        tool_root=tool_root,
+    )
     progress(f"vision model={model} images={len(images)}")
 
     try:

@@ -126,6 +126,12 @@ def test_total_budget_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
         "moondream",
         "granite3.2-vision",
         "ollama/llama3.2-vision:11b",
+        "gemma4:12b",
+        "ollama/gemma4:26b",
+        "gemma3:12b",
+        "ollama/gemma4:e2b",
+        "qwen3.5:9b",
+        "ollama/qwen3.5:4b",
     ],
 )
 def test_vision_models_are_recognized(model: str) -> None:
@@ -134,7 +140,16 @@ def test_vision_models_are_recognized(model: str) -> None:
 
 @pytest.mark.parametrize(
     "model",
-    ["qwen2.5:14b-instruct", "llama3.2:3b", "mistral-nemo", "granite-code", "", "gpt-3.5-turbo"],
+    [
+        "qwen2.5:14b-instruct",
+        "llama3.2:3b",
+        "mistral-nemo",
+        "granite-code",
+        "",
+        "gpt-3.5-turbo",
+        "gemma3n:e2b",
+        "ollama/gemma3n:latest",
+    ],
 )
 def test_text_only_models_are_refused(model: str) -> None:
     assert model_supports_images(model) is False
@@ -164,6 +179,80 @@ def test_resolve_skips_text_only_overlay_model(monkeypatch: pytest.MonkeyPatch) 
 def test_resolve_falls_back_to_openai_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     assert resolve_vision_model() == "openai/gpt-4o-mini"
+
+
+def test_resolve_uses_gemma4_agent_over_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    entry = {"id": "ollama_gemma4_12b", "type": "ollama", "model": "gemma4:12b"}
+    assert resolve_vision_model(agent_entry=entry) == "ollama/gemma4:12b"
+
+
+def test_resolve_honors_gemma4_model_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    assert (
+        resolve_vision_model(model_hint="ollama/gemma4:12b") == "ollama/gemma4:12b"
+    )
+
+
+def test_resolve_skips_openai_fallback_for_local_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    with pytest.raises(VisionModelUnavailableError) as exc:
+        resolve_vision_model(
+            allowed_agent_provider_ids=["ollama_gemma4_12b", "client.vision_scene_analyzer"]
+        )
+    assert exc.value.code == "vision_unavailable"
+
+
+def test_resolve_uses_allowlisted_catalog_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """When the selected overlay agent has no model, walk the allowlist for a VLM."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    catalog = tmp_path / "agents"
+    catalog.mkdir()
+    (catalog / "ollama_gemma4_12b.yaml").write_text(
+        "id: ollama_gemma4_12b\ntype: ollama\nmodel: gemma4:12b\n"
+        "role: V\ngoal: G\nbackstory: B\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    assert (
+        resolve_vision_model(
+            agent_entry={"id": "client.vision_scene_analyzer", "type": "ollama"},
+            allowed_agent_provider_ids=["client.vision_scene_analyzer", "ollama_gemma4_12b"],
+            tool_root=tmp_path,
+        )
+        == "ollama/gemma4:12b"
+    )
+
+
+def test_pick_vision_agent_skips_model_less_overlay(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestration import reach_multimodal as rm
+
+    def fake_load(*, agent_provider_id: str, tool_root=None):
+        if agent_provider_id == "client.vision_scene_analyzer":
+            return {
+                "id": "client.vision_scene_analyzer",
+                "type": "ollama",
+                "system_prompt": "Be terse.",
+            }
+        if agent_provider_id == "ollama_gemma4_12b":
+            return {
+                "id": "ollama_gemma4_12b",
+                "type": "ollama",
+                "model": "gemma4:12b",
+            }
+        return None
+
+    monkeypatch.setattr(rm, "load_vision_agent_entry", fake_load)
+    entry = rm.pick_vision_agent_entry(
+        ["client.vision_scene_analyzer", "ollama_gemma4_12b"]
+    )
+    assert entry is not None
+    assert entry["id"] == "ollama_gemma4_12b"
+    assert entry["model"] == "gemma4:12b"
 
 
 def test_resolve_fails_closed_without_any_vision_model() -> None:

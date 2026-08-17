@@ -78,6 +78,10 @@ export function modelSupportsImages(model) {
   if (!m) return false;
   const bare = m.includes("/") ? m.slice(m.indexOf("/") + 1) : m;
   if (/^(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|chatgpt-|o1\b|o3\b|o4\b)/.test(bare)) return true;
+  // Gemma 3/4 are multimodal; Gemma 3n is text-only (Continue autodetect).
+  if (/\bgemma-?[34](?!n)/.test(bare) || /\bgemma-?[34](?!n)/.test(m)) return true;
+  // Jetson catalog Qwen 3.5 tags are multimodal.
+  if (/\bqwen3\.5\b/.test(bare) || /\bqwen3\.5\b/.test(m)) return true;
   if (/(vision|llava|bakllava|moondream|pixtral|minicpm-v|internvl|cogvlm|idefics)/.test(m)) {
     return true;
   }

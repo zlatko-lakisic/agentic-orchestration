@@ -48,8 +48,12 @@ test("modelSupportsImages gates text-only models out of image requests", () => {
   assert.equal(modelSupportsImages("openai/gpt-4.1"), true);
   assert.equal(modelSupportsImages("llava:13b"), true);
   assert.equal(modelSupportsImages("qwen2.5vl:latest"), true);
+  assert.equal(modelSupportsImages("gemma4:12b"), true);
+  assert.equal(modelSupportsImages("ollama/gemma4:26b"), true);
+  assert.equal(modelSupportsImages("qwen3.5:9b"), true);
   assert.equal(modelSupportsImages("qwen2.5:14b-instruct"), false);
   assert.equal(modelSupportsImages("llama3.2:3b"), false);
+  assert.equal(modelSupportsImages("gemma3n:e2b"), false);
   assert.equal(modelSupportsImages(""), false);
 });
 
