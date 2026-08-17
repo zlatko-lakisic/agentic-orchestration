@@ -60,7 +60,8 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=admin-topology-ws.mjs="${WEB_ROOT}/lib/admin-topology-ws.mjs" \
   --from-file=admin-topology-metrics.mjs="${WEB_ROOT}/lib/admin-topology-metrics.mjs" \
   --from-file=ao-metrics.mjs="${WEB_ROOT}/lib/ao-metrics.mjs" \
-  --from-file=ao-resource-usage.mjs="${WEB_ROOT}/lib/ao-resource-usage.mjs"
+  --from-file=ao-resource-usage.mjs="${WEB_ROOT}/lib/ao-resource-usage.mjs" \
+  --from-file=irrigation-chat.mjs="${WEB_ROOT}/lib/irrigation-chat.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"

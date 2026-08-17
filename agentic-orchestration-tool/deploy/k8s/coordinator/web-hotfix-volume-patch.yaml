@@ -127,6 +127,9 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/ao-resource-usage.mjs
               subPath: ao-resource-usage.mjs
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/irrigation-chat.mjs
+              subPath: irrigation-chat.mjs
       volumes:
         - name: web-hotfix-public
           configMap:
