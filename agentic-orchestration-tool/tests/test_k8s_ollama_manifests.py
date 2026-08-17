@@ -81,18 +81,17 @@ def test_broker_runs_current_orchestration_source() -> None:
     assert volumes["orchestration-src"]["hostPath"]["path"].endswith(
         "agentic-orchestration-tool/orchestration"
     )
-    assert "orchestration.ollama_resource_broker" in _startup_text(broker)
+    assert "orchestration.ollama_resource_broker" in _shell_script(broker)
+
+
+def _shell_script(container: dict) -> str:
+    """The startup script, wherever the container shape keeps it."""
+    return "".join([*container.get("command", []), *container.get("args", [])])
 
 
 def _startup_text(container: dict) -> str:
-    """Everything that decides how the process starts, across container shapes."""
-    return "".join(
-        [
-            *container.get("command", []),
-            *container.get("args", []),
-            yaml.safe_dump(container.get("env", [])),
-        ]
-    )
+    """Everything that decides how the process starts, script plus environment."""
+    return _shell_script(container) + yaml.safe_dump(container.get("env", []))
 
 
 def _working_bash() -> str | None:
@@ -262,7 +261,7 @@ def test_render_broker_bootstraps_fastapi() -> None:
             for c in doc["spec"]["template"]["spec"]["containers"]
             if c["name"] == "resource-broker"
         )
-        script = _startup_text(broker)
+        script = _shell_script(broker)
         assert re.search(r"import fastapi", script)
         assert "pip install" in script
-        assert script.rstrip().endswith("python -m orchestration.ollama_resource_broker")
+        assert script.rstrip().endswith("exec python -m orchestration.ollama_resource_broker")
