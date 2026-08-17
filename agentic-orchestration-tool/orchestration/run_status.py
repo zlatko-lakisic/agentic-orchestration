@@ -239,6 +239,9 @@ def map_progress_line(line: str) -> dict[str, Any] | None:
 
 
 def error_code_for_exception(exc: BaseException) -> str:
+    explicit = getattr(exc, "code", "")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
     name = exc.__class__.__name__
     mapping = {
         "DirectAgentFormatError": "direct_agent_format",

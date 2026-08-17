@@ -34,6 +34,8 @@ import {
   ollamaProxyMaxConcurrent,
   ollamaProxyFallbackModel,
   isOllamaModelNotFound,
+  messagesHaveImageParts,
+  modelSupportsImages,
 } from "./lib/chat-completions-backend.mjs";
 import {
   handleAdminApi,
@@ -1526,6 +1528,24 @@ function resolveChatCompletionsUpstream(kind) {
  */
 async function proxyOpenAiCompatibleUpstream(req, res, opts) {
   const { cors, payload, pathSuffix, kind, pathLabel } = opts;
+  const hasImages =
+    messagesHaveImageParts(payload.messages) || messagesHaveImageParts(payload.input);
+  if (hasImages && !modelSupportsImages(payload.model)) {
+    // Never let a text-only model answer an image prompt: it would describe a scene
+    // it never saw (HA camera automations act on that answer).
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: `Model '${String(payload.model || "").trim()}' does not accept image input. Use a vision model (e.g. gpt-4o-mini, llava, qwen2.5vl).`,
+          type: "invalid_request_error",
+          param: "model",
+          code: "model_not_multimodal",
+        },
+      }),
+    );
+    return;
+  }
   const upstreamCfg = resolveChatCompletionsUpstream(kind);
   if (kind === "openai" && !upstreamCfg.apiKey) {
     res.writeHead(503, { "Content-Type": "application/json; charset=utf-8", ...cors });
@@ -1549,7 +1569,8 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
   }
   const url = `${upstreamCfg.base.replace(/\/+$/, "")}/${pathSuffix}`;
   const requestedModel = typeof forwardPayload.model === "string" ? forwardPayload.model : "";
-  const fallbackModel = kind === "ollama" ? ollamaProxyFallbackModel() : "";
+  // The 404 fallback swaps in a text instruct model, which cannot see the images.
+  const fallbackModel = kind === "ollama" && !hasImages ? ollamaProxyFallbackModel() : "";
 
   if (orchestrationRequestLogEnabled()) {
     console.error(

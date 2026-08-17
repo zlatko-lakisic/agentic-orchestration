@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from orchestration.session_overlay_runtime import (
+    coerce_overlay_agent_type,
     collect_overlay_ollama_models,
     ensure_session_overlay_ollama_models,
     resolve_overlay_ollama_host,
@@ -12,6 +13,29 @@ from orchestration.session_overlay_runtime import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_openai_model_under_type_ollama_is_corrected() -> None:
+    entry = coerce_overlay_agent_type(
+        {"id": "client.vision", "type": "ollama", "model": "gpt-4o-mini", "ollama_host": "workflow"}
+    )
+    assert entry["type"] == "openai"
+    assert "ollama_host" not in entry
+
+
+def test_real_ollama_models_keep_their_type() -> None:
+    entry = coerce_overlay_agent_type({"type": "ollama", "model": "qwen2.5:7b"})
+    assert entry["type"] == "ollama"
+
+
+def test_coerced_agents_are_not_queued_for_an_ollama_pull() -> None:
+    pairs = collect_overlay_ollama_models(
+        [
+            {"id": "client.vision", "type": "ollama", "model": "gpt-4o-mini"},
+            {"id": "client.text", "type": "ollama", "model": "qwen2.5:7b"},
+        ]
+    )
+    assert [model for model, _host in pairs] == ["qwen2.5:7b"]
 
 
 def test_resolve_overlay_ollama_host_from_api_base_when_omitted(

@@ -9,6 +9,7 @@ binaries inside the engine pod for these agents.
 from __future__ import annotations
 
 import os
+import re
 import threading
 from typing import Any, Callable
 
@@ -45,13 +46,36 @@ def resolve_overlay_ollama_host(entry: dict[str, Any] | None = None) -> str:
     return litellm_api_base_for_ollama()
 
 
+def looks_like_openai_cloud_model(model: str) -> bool:
+    """True for OpenAI-hosted model ids that Ollama can never serve."""
+    raw = str(model or "").strip().lower()
+    if not raw:
+        return False
+    bare = raw.removeprefix("openai/")
+    return bool(re.match(r"^(gpt-|chatgpt-|o1\b|o3\b|o4\b)", bare))
+
+
+def coerce_overlay_agent_type(entry: dict[str, Any]) -> dict[str, Any]:
+    """Fix ``type: ollama`` entries whose ``model`` is an OpenAI cloud id.
+
+    Reach clients ship agent YAML by hand; a mismatch here would otherwise make the
+    engine try to ``ollama pull gpt-4o-mini`` forever.
+    """
+    data = dict(entry)
+    ptype = str(data.get("type") or data.get("provider_type") or "").strip().lower()
+    if ptype == "ollama" and looks_like_openai_cloud_model(data.get("model", "")):
+        data["type"] = "openai"
+        data.pop("ollama_host", None)
+    return data
+
+
 def rewrite_overlay_ollama_hosts(agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fill/normalize ``ollama_host`` on ollama agents so later runs hit the engine API base."""
     out: list[dict[str, Any]] = []
     for entry in agents:
         if not isinstance(entry, dict):
             continue
-        data = dict(entry)
+        data = coerce_overlay_agent_type(entry)
         ptype = str(data.get("type") or data.get("provider_type") or "").strip().lower()
         if ptype == "ollama":
             data["ollama_host"] = resolve_overlay_ollama_host(data)
@@ -63,9 +87,10 @@ def collect_overlay_ollama_models(agents: list[dict[str, Any]]) -> list[tuple[st
     """Unique ``(model, host)`` pairs for ollama agents (order-preserving)."""
     seen: set[tuple[str, str]] = set()
     pairs: list[tuple[str, str]] = []
-    for entry in agents:
-        if not isinstance(entry, dict):
+    for raw_entry in agents:
+        if not isinstance(raw_entry, dict):
             continue
+        entry = coerce_overlay_agent_type(raw_entry)
         ptype = str(entry.get("type") or entry.get("provider_type") or "").strip().lower()
         if ptype != "ollama":
             continue
@@ -116,6 +141,7 @@ def ensure_client_agent_ollama_runtime(
     pid = str(entry.get("id") or "").strip()
     if not pid.startswith("client."):
         return
+    entry = coerce_overlay_agent_type(entry)
     ptype = str(entry.get("type") or entry.get("provider_type") or "").strip().lower()
     if ptype != "ollama":
         return

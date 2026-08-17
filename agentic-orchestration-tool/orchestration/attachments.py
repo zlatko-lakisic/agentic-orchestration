@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.video_frames import extract_video_frames
-from orchestration.video_vision_synopsis import summarize_video_frames_litellm
 from orchestration.cloud_anonymize import anonymize_cloud_enabled, redact_for_cloud
 
 
@@ -309,6 +308,10 @@ def build_attachment_block(
                     file=sys.stderr,
                 )
             else:
+                # Imported here: it pulls the CrewAI provider stack, which text-only
+                # callers of this module (prose sanitize) should not need.
+                from orchestration.video_vision_synopsis import summarize_video_frames_litellm
+
                 synopsis = summarize_video_frames_litellm(
                     video_frames,
                     user_goal_hint=goal_hint,

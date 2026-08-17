@@ -24,6 +24,12 @@ One deliberate extension: a ``question_id`` on ``chat`` / ``direct_agent`` opts 
 demux interleaved answers. Untagged messages keep the Node behavior — one run per
 connection, guarded by a busy lock.
 
+``chat`` / ``direct_agent`` also accept optional ordered
+``images: [{mimeType, dataBase64, name?}]``. Omitted or empty keeps the text-only
+behavior; non-empty runs a single vision completion instead of the planner / crew
+(see ``orchestration.reach_multimodal``) and fails with ``vision_unavailable`` rather
+than answering a camera prompt from a text-only model.
+
 Optional session overlays (``AGENTIC_SERVE_SESSION_OVERLAY=1``) and MCP tunnels
 (``AGENTIC_SERVE_MCP_TUNNEL=1``) are advertised on ``hello`` when enabled.
 Optional speech sidecars (``AGENTIC_SPEECH_ENABLED=1``) add a ``speech`` object
@@ -81,6 +87,13 @@ def _question_id(message: dict[str, Any]) -> str | None:
     raw = message.get("question_id") or message.get("questionId")
     text = str(raw or "").strip()
     return text[:128] or None
+
+
+def _reach_images(message: dict[str, Any]) -> list[Any]:
+    """Decode optional ``images`` on ``chat`` / ``direct_agent`` (empty = text-only)."""
+    from orchestration.reach_multimodal import parse_reach_images
+
+    return parse_reach_images(message.get("images"))
 
 
 def _mcp_provider_ids(message: dict[str, Any]) -> list[str] | None:
@@ -583,6 +596,15 @@ class WsConnection:
                 code="invalid_request",
             )
             return
+        try:
+            images = _reach_images(message)
+        except ValueError as exc:
+            await self.send_error(
+                str(exc),
+                question_id=question_id,
+                code=getattr(exc, "code", "invalid_images"),
+            )
+            return
         if question_id is None and self._busy:
             await self.send_error(
                 "A run is already in progress for this connection.",
@@ -600,7 +622,7 @@ class WsConnection:
             return
         if question_id is None:
             self._busy = True
-        task = asyncio.create_task(self._run(message, kind, text, question_id))
+        task = asyncio.create_task(self._run(message, kind, text, question_id, images))
         self._runs.add(task)
         task.add_done_callback(self._runs.discard)
 
@@ -610,6 +632,7 @@ class WsConnection:
         kind: str,
         text: str,
         question_id: str | None,
+        images: list[Any] | None = None,
     ) -> None:
         from orchestration.direct_agent import DirectAgentEmptyAnswerError, DirectAgentFormatError
         from orchestration.metrics import record_run_end
@@ -719,7 +742,9 @@ class WsConnection:
                     **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
                 }
             )
-            answer = await asyncio.to_thread(self._execute, message, kind, text, tag, run_id)
+            answer = await asyncio.to_thread(
+                self._execute, message, kind, text, tag, run_id, images or []
+            )
             self._emit_status(
                 phase="preparing_response",
                 processing=True,
@@ -893,6 +918,7 @@ class WsConnection:
         text: str,
         tag: dict[str, Any],
         run_id: str,
+        images: list[Any] | None = None,
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
         from orchestration.llm_usage import bind_usage_context, reset_usage_context
@@ -950,7 +976,9 @@ class WsConnection:
                 session_id=session_slug or (self.identity.session_id if self.identity else ""),
                 connection_id=self.connection_id,
             ):
-                return self._execute_inner(message, kind, text, tag, user_id, session_slug, run_id)
+                return self._execute_inner(
+                    message, kind, text, tag, user_id, session_slug, run_id, images or []
+                )
         finally:
             reset_usage_context(usage_tokens)
             for key, old in prev_env.items():
@@ -960,6 +988,80 @@ class WsConnection:
                     os.environ[key] = old
 
     def _execute_inner(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        user_id: str | None,
+        session_slug: str,
+        run_id: str,
+        images: list[Any] | None = None,
+    ) -> str:
+        if images:
+            return self._execute_multimodal(message, kind, text, tag, run_id, images)
+        return self._execute_text(message, kind, text, tag, user_id, session_slug, run_id)
+
+    def _execute_multimodal(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        run_id: str,
+        images: list[Any],
+    ) -> str:
+        """Vision turn: one VLM completion, no planner and no tools.
+
+        The consumers that send images (HA camera stills) require plain text and
+        forbid tool/MCP JSON, and the crew path cannot pass pixels to a model.
+        """
+        from orchestration.reach_multimodal import run_reach_multimodal
+        from orchestration.structured_logging import emit_log
+
+        agent_provider_id = str(
+            message.get("agent_provider_id") or message.get("agentProviderId") or ""
+        ).strip()
+        if not agent_provider_id:
+            selected = message.get("selectedAgentProviderIds")
+            if selected is None:
+                selected = message.get("selected_agent_provider_ids")
+            if isinstance(selected, list) and selected:
+                agent_provider_id = str(selected[0] or "").strip()
+
+        emit_log(
+            f"engine {kind} multimodal start images={len(images)}",
+            run_id=run_id,
+            component="engine",
+            extra={"question_id": tag["question_id"]} if tag.get("question_id") else None,
+        )
+        try:
+            from orchestration.run_trace import append_run_event
+
+            append_run_event(
+                self.tool_root,
+                run_id,
+                "agent_start",
+                actor="engine",
+                message=agent_provider_id or "vision",
+                detail={
+                    "mode": "multimodal",
+                    "agent_provider_id": agent_provider_id or None,
+                    "images": len(images),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+        return run_reach_multimodal(
+            text=text,
+            images=images,
+            agent_provider_id=agent_provider_id,
+            tool_root=self.tool_root,
+            on_progress=lambda line: self._progress_to_status(line, tag),
+        )
+
+    def _execute_text(
         self,
         message: dict[str, Any],
         kind: str,

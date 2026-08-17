@@ -12,7 +12,46 @@ import {
   ollamaProxyMaxConcurrent,
   ollamaProxyFallbackModel,
   isOllamaModelNotFound,
+  messagesHaveImageParts,
+  modelSupportsImages,
 } from "../lib/chat-completions-backend.mjs";
+
+test("messagesHaveImageParts detects chat and responses image parts", () => {
+  assert.equal(
+    messagesHaveImageParts([
+      { role: "user", content: [{ type: "text", text: "what is this" }] },
+    ]),
+    false,
+  );
+  assert.equal(
+    messagesHaveImageParts([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this" },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,AAAA" } },
+        ],
+      },
+    ]),
+    true,
+  );
+  assert.equal(
+    messagesHaveImageParts([{ role: "user", content: [{ type: "input_image" }] }]),
+    true,
+  );
+  assert.equal(messagesHaveImageParts([{ role: "user", content: "plain string" }]), false);
+  assert.equal(messagesHaveImageParts(undefined), false);
+});
+
+test("modelSupportsImages gates text-only models out of image requests", () => {
+  assert.equal(modelSupportsImages("gpt-4o-mini"), true);
+  assert.equal(modelSupportsImages("openai/gpt-4.1"), true);
+  assert.equal(modelSupportsImages("llava:13b"), true);
+  assert.equal(modelSupportsImages("qwen2.5vl:latest"), true);
+  assert.equal(modelSupportsImages("qwen2.5:14b-instruct"), false);
+  assert.equal(modelSupportsImages("llama3.2:3b"), false);
+  assert.equal(modelSupportsImages(""), false);
+});
 
 test("looksLikeOpenAiCloudModel matches gpt / o-series", () => {
   assert.equal(looksLikeOpenAiCloudModel("gpt-4o-mini"), true);

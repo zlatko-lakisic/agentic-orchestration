@@ -523,6 +523,186 @@ def test_ws_run_failure_emits_error_then_run_end(
         assert frames[-1]["ok"] is False
 
 
+def _reach_image(name: str = "gate_1.jpg") -> dict[str, Any]:
+    import base64
+
+    return {
+        "mimeType": "image/jpeg",
+        "dataBase64": base64.standard_b64encode(b"\xff\xd8\xff\xe0stub").decode("ascii"),
+        "name": name,
+    }
+
+
+def test_ws_chat_with_images_uses_the_vision_path_not_the_planner(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.dynamic_run as dynamic_run
+    import orchestration.reach_multimodal as reach_multimodal
+
+    def planner_should_not_run(**_kw):
+        raise AssertionError("multimodal turns must not reach the dynamic planner")
+
+    captured: dict[str, Any] = {}
+
+    def fake_vision(*, text, images, agent_provider_id="", **_kw):
+        captured["text"] = text
+        captured["count"] = len(images)
+        captured["agent"] = agent_provider_id
+        return "PERSON\nSomeone at the gate.\nPerson at gate"
+
+    monkeypatch.setattr(dynamic_run, "run_dynamic_goal", planner_should_not_run)
+    monkeypatch.setattr(reach_multimodal, "run_reach_multimodal", fake_vision)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "chat",
+                "text": "classify these stills",
+                "selectedAgentProviderIds": ["client.vision_scene_analyzer"],
+                "images": [_reach_image("one.jpg"), _reach_image("two.jpg")],
+            }
+        )
+        stdout: list[str] = []
+        while True:
+            frame = ws.receive_json()
+            if frame["type"] == "chunk" and frame.get("stream") == "stdout":
+                stdout.append(frame["text"])
+            if frame["type"] == "run_end":
+                assert frame["ok"] is True
+                break
+    assert captured == {
+        "text": "classify these stills",
+        "count": 2,
+        "agent": "client.vision_scene_analyzer",
+    }
+    assert stdout[0].splitlines()[0] == "PERSON"
+
+
+def test_ws_chat_without_images_still_uses_the_planner(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.dynamic_run as dynamic_run
+
+    monkeypatch.setattr(dynamic_run, "run_dynamic_goal", lambda **_kw: "text answer")
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat", "text": "why is the sky blue", "images": []})
+        stdout: list[str] = []
+        while True:
+            frame = ws.receive_json()
+            if frame["type"] == "chunk" and frame.get("stream") == "stdout":
+                stdout.append(frame["text"])
+            if frame["type"] == "run_end":
+                assert frame["ok"] is True
+                break
+    assert stdout == ["text answer"]
+
+
+def test_ws_rejects_malformed_images_before_starting_a_run(client: TestClient) -> None:
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "chat",
+                "text": "classify",
+                "images": [{"mimeType": "application/pdf", "dataBase64": "AAAA"}],
+            }
+        )
+        frame = ws.receive_json()
+        assert frame["type"] == "error"
+        assert frame["code"] == "invalid_images"
+
+
+def test_ws_rejects_oversized_images(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_MAX_IMAGES", "1")
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "chat",
+                "text": "classify",
+                "images": [_reach_image("a.jpg"), _reach_image("b.jpg")],
+            }
+        )
+        frame = ws.receive_json()
+        assert frame["type"] == "error"
+        assert frame["code"] == "payload_too_large"
+
+
+def test_ws_images_without_a_vision_model_fail_closed(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.dynamic_run as dynamic_run
+
+    def planner_should_not_run(**_kw):
+        raise AssertionError("multimodal turns must not fall back to a text model")
+
+    monkeypatch.setattr(dynamic_run, "run_dynamic_goal", planner_should_not_run)
+    for key in (
+        "AGENTIC_REACH_VISION_MODEL",
+        "AGENTIC_MEDIA_VISION_MODEL",
+        "AGENTIC_VIDEO_VISION_MODEL",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat", "text": "classify", "images": [_reach_image()]})
+        frames = []
+        while True:
+            frame = ws.receive_json()
+            frames.append(frame)
+            if frame["type"] == "run_end":
+                break
+        assert frames[-1]["ok"] is False
+        assert frames[-1]["code"] == "vision_unavailable"
+        assert any(f["type"] == "error" and f.get("code") == "vision_unavailable" for f in frames)
+
+
+def test_ws_direct_agent_with_images_uses_the_vision_path(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestration.direct_agent as direct_agent
+    import orchestration.reach_multimodal as reach_multimodal
+
+    def crew_should_not_run(**_kw):
+        raise AssertionError("multimodal direct_agent must not run the crew")
+
+    captured: dict[str, Any] = {}
+
+    def fake_vision(*, text, images, agent_provider_id="", **_kw):
+        captured["agent"] = agent_provider_id
+        captured["count"] = len(images)
+        return "CLEAR\nNothing visible.\nAll clear"
+
+    monkeypatch.setattr(direct_agent, "run_direct_agent", crew_should_not_run)
+    monkeypatch.setattr(reach_multimodal, "run_reach_multimodal", fake_vision)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "direct_agent",
+                "agentProviderId": "client.vision_scene_analyzer",
+                "text": "classify",
+                "images": [_reach_image()],
+            }
+        )
+        while True:
+            frame = ws.receive_json()
+            if frame["type"] == "run_end":
+                assert frame["ok"] is True
+                break
+    assert captured == {"agent": "client.vision_scene_analyzer", "count": 1}
+
+
 def test_ws_closes_when_identity_required(
     kb_root: Path,
     monkeypatch: pytest.MonkeyPatch,

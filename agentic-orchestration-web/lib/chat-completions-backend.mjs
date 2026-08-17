@@ -47,6 +47,45 @@ export function looksLikeOllamaModel(model) {
 }
 
 /**
+ * True when the body carries image parts (chat `image_url` or Responses `input_image`).
+ * @param {unknown} messages
+ * @returns {boolean}
+ */
+export function messagesHaveImageParts(messages) {
+  if (!Array.isArray(messages)) return false;
+  for (const message of messages) {
+    const content = message && typeof message === "object" ? message.content : null;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const t = String(part.type || "");
+      if (t === "image_url" || t === "input_image") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Best-effort image-input capability by model id. Unknown models are treated as
+ * text-only so an image request fails loudly instead of being answered blind.
+ * @param {string} model
+ * @returns {boolean}
+ */
+export function modelSupportsImages(model) {
+  const m = String(model || "")
+    .trim()
+    .toLowerCase();
+  if (!m) return false;
+  const bare = m.includes("/") ? m.slice(m.indexOf("/") + 1) : m;
+  if (/^(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|chatgpt-|o1\b|o3\b|o4\b)/.test(bare)) return true;
+  if (/(vision|llava|bakllava|moondream|pixtral|minicpm-v|internvl|cogvlm|idefics)/.test(m)) {
+    return true;
+  }
+  // `vl` / `vlm` as a name segment: qwen2.5vl, qwen2-vl, glm-4v-vlm.
+  return /(?<![a-z])vlm?(?![a-z])/.test(m);
+}
+
+/**
  * Strip LiteLLM-style ollama/ prefix for Ollama's native OpenAI-compat API.
  * @param {string} model
  * @returns {string}
