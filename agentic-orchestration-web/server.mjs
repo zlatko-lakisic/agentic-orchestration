@@ -1818,6 +1818,8 @@ async function handleOpenAiChatCompletions(req, res) {
     return;
   }
 
+  payload = applyIrrigationMaxTokens(payload);
+
   const agentic = applyAppPrefsToAgentic(
     normalizeAgenticExtension(payload.agentic),
     req.agenticAuth?.prefs,
