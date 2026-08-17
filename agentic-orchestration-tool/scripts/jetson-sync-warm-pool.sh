@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# Re-apply warm-pool Deployment (fastapi bootstrap + worker entrypoint) and roll pods.
-# Routine deploys patch volumes via jetson-hotfix-web.sh but never re-applied the
-# base manifest — stale worker pods keep running without the litellm MCP fastapi dep.
+# Apply warm-pool fastapi bootstrap (litellm MCP) without replacing Jetson volume patches.
+# Full `kubectl apply -f warm-pool.yaml` wipes hotfix hostPath/ConfigMap mounts from
+# jetson-hotfix-web.sh and leaves new pods CrashLooping — use patch-only here.
 #
 # Run on Jetson after git pull:
 #   bash agentic-orchestration-tool/scripts/jetson-sync-warm-pool.sh
+#
+# If a prior apply already broke the rollout, this script re-applies warm-pool patches first.
 set -eu
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-WARM_YAML="${TOOL_ROOT}/deploy/k8s/warm-pool.yaml"
-if [[ ! -f "${WARM_YAML}" ]]; then
-  echo "error: missing ${WARM_YAML}" >&2
+BOOTSTRAP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-fastapi-bootstrap-patch.yaml"
+if [[ ! -f "${BOOTSTRAP_PATCH}" ]]; then
+  echo "error: missing ${BOOTSTRAP_PATCH}" >&2
+  exit 1
+fi
+
+if ! kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
+  echo "error: agentic-warm-pool deployment not found in ${NS}" >&2
   exit 1
 fi
 
@@ -34,34 +41,64 @@ else
   echo "=== warm-pool worker image: ${WORKER_IMAGE} ==="
 fi
 
-TMP_WARM="$(mktemp)"
-trap 'rm -f "${TMP_WARM}"' EXIT
-python3 - "${WARM_YAML}" "${TMP_WARM}" "${WORKER_IMAGE}" <<'PY'
-import sys
-src, dst, image = sys.argv[1], sys.argv[2], sys.argv[3]
-text = open(src, encoding="utf-8").read()
-old = "image: agentic-orchestrator-worker:local"
-new = f"image: {image}"
-if old not in text:
-    raise SystemExit(f"expected {old!r} in {src}")
-open(dst, "w", encoding="utf-8").write(text.replace(old, new, 1))
-PY
+_reapply_warm_pool_patches() {
+  local patch
+  for patch in \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
+  do
+    if [[ -f "${patch}" ]]; then
+      echo "=== warm-pool patch $(basename "${patch}") ==="
+      kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${patch}"
+    fi
+  done
+}
 
-echo "=== apply agentic-warm-pool Deployment ==="
-kubectl apply -f "${TMP_WARM}"
+echo "=== re-apply Jetson warm-pool volume patches (safe after prior full apply) ==="
+_reapply_warm_pool_patches
 
-if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
-  echo "=== rollout restart agentic-warm-pool ==="
-  kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
-  kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
+echo "=== patch fastapi bootstrap command ==="
+kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${BOOTSTRAP_PATCH}"
 
-  WP="$(kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-warm-pool \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  if [[ -n "${WP}" ]]; then
-    echo "=== warm-pool fastapi probe (${WP}) ==="
-    kubectl exec -n "${NS}" "${WP}" -- python -c "import fastapi; print('fastapi_ok', fastapi.__version__)" \
-      || echo "warning: fastapi still missing in warm-pool pod" >&2
-  fi
+CURRENT_IMAGE="$(
+  kubectl get deployment agentic-warm-pool -n "${NS}" \
+    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
+)"
+if [[ "${CURRENT_IMAGE}" != "${WORKER_IMAGE}" ]]; then
+  echo "=== set warm-pool image ${WORKER_IMAGE} ==="
+  kubectl set image deployment/agentic-warm-pool -n "${NS}" "worker=${WORKER_IMAGE}"
+fi
+
+echo "=== rollout restart agentic-warm-pool ==="
+kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
+
+# Unstick RollingUpdate when an old RS pod blocks the second replica (resource pressure).
+_stuck="$(
+  kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-warm-pool \
+    --no-headers 2>/dev/null | awk '$3 ~ /CrashLoopBackOff|Error|ImagePullBackOff|CreateContainerConfigError/ {print $1}' | head -1
+)"
+if [[ -n "${_stuck}" ]]; then
+  echo "warning: warm-pool pod ${_stuck} not healthy — describe:" >&2
+  kubectl describe pod -n "${NS}" "${_stuck}" 2>&1 | tail -20 >&2 || true
+fi
+
+kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
+
+WP="$(
+  kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-warm-pool \
+    --field-selector=status.phase=Running \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
+)"
+if [[ -n "${WP}" ]]; then
+  echo "=== warm-pool fastapi probe (${WP}) ==="
+  kubectl exec -n "${NS}" "${WP}" -- python -c "import fastapi; print('fastapi_ok', fastapi.__version__)" \
+    || echo "warning: fastapi still missing in warm-pool pod" >&2
 else
-  echo "warning: agentic-warm-pool deployment not found" >&2
+  echo "warning: no Running warm-pool pod for fastapi probe" >&2
 fi

@@ -1,0 +1,17 @@
+# Patch-only: install fastapi at startup when the worker image predates the litellm
+# MCP dependency. Does not touch volumeMounts — safe after jetson-hotfix-web patches.
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              PY="${AGENTIC_PYTHON:-python}"
+              if ! "${PY}" -c "import fastapi" >/dev/null 2>&1; then
+                echo "Installing fastapi for litellm MCP handler ..."
+                "${PY}" -m pip install -q "fastapi>=0.115.0,<1"
+              fi
+              exec "${PY}" main.py --warm-pool-worker

@@ -6,6 +6,12 @@ import pytest
 import yaml
 
 _WARM_POOL = Path(__file__).resolve().parents[1] / "deploy" / "k8s" / "warm-pool.yaml"
+_BOOTSTRAP_PATCH = (
+    Path(__file__).resolve().parents[1]
+    / "deploy"
+    / "k8s"
+    / "warm-pool-fastapi-bootstrap-patch.yaml"
+)
 
 
 @pytest.mark.unit
@@ -19,3 +25,12 @@ def test_warm_pool_bootstraps_fastapi_before_worker_loop() -> None:
     assert "pip install" in script
     assert "--warm-pool-worker" in script
     assert container["command"] == ["/bin/bash", "-c"]
+
+
+@pytest.mark.unit
+def test_warm_pool_fastapi_bootstrap_patch_matches_manifest() -> None:
+    """jetson-sync-warm-pool.sh patches command/args only — must stay in sync with warm-pool.yaml."""
+    base = yaml.safe_load(_WARM_POOL.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
+    patch = yaml.safe_load(_BOOTSTRAP_PATCH.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
+    assert patch["command"] == base["command"]
+    assert patch["args"] == base["args"]
