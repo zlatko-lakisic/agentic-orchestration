@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "../agentic-orchestration-reach"
+		},
+		{
+			"path": "../continue-comstar"
 		}
 	],
 	"settings": {}
