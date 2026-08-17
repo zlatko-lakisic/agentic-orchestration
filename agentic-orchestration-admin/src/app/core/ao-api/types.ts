@@ -522,6 +522,47 @@ export interface HostMetrics {
   jetson?: unknown;
 }
 
+export interface AoResourceRow {
+  id: string;
+  label: string;
+  kind: 'application' | 'model';
+  ramBytes: number;
+  vramBytes: number;
+  processes?: number;
+  agents?: string[];
+  active?: boolean;
+  expiresAt?: string | null;
+}
+
+/** AO's own RAM/VRAM footprint, split by application and resident Ollama model. */
+export interface AoResources {
+  ts?: string;
+  scope?: string;
+  sources?: {
+    ram?: string;
+    models?: string;
+    reason?: string;
+  };
+  host?: {
+    ramTotalBytes?: number | null;
+    ramUsedBytes?: number | null;
+    vramTotalGb?: number | null;
+    vramUsedGb?: number | null;
+  };
+  ao?: {
+    ramBytes?: number;
+    ramPercentOfHost?: number | null;
+    ramPercentOfUsed?: number | null;
+    vramBytes?: number;
+    vramGb?: number;
+    vramPercentOfTotal?: number | null;
+    processes?: number;
+    models?: number;
+  };
+  applications?: AoResourceRow[];
+  models?: AoResourceRow[];
+}
+
 export interface AgentProvider {
   id: string;
   type?: string;

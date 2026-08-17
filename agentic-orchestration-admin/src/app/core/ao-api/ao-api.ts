@@ -4,6 +4,7 @@ import { Observable, catchError, map, of } from 'rxjs';
 import {
   AccessPosture,
   AgentProvider,
+  AoResources,
   ApiAccessToken,
   ApiAccessTokenUsage,
   AppPlanningPrefs,
@@ -93,6 +94,10 @@ export class AoApi {
 
   hostMetrics() {
     return this.get<HostMetrics>('/api/host-metrics');
+  }
+
+  aoResources() {
+    return this.get<AoResources>('/api/v1/admin/ao-resources');
   }
 
   agentProviders() {

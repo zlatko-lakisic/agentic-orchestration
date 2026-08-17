@@ -30,6 +30,9 @@ import {
   revokeToken,
 } from "./api-tokens.mjs";
 import { getAppPrefs, listAppPrefs, setAppPrefs } from "./app-prefs.mjs";
+import { ollamaBaseUrl } from "./admin-topology-probes.mjs";
+import { sampleAoResources } from "./ao-resource-usage.mjs";
+import { sampleMemoryAndGpu } from "../host-metrics.mjs";
 
 // Path-like TLS keys are not secrets — operators need to see the path + existence.
 const SECRET_KEY_RE =
@@ -3118,6 +3121,39 @@ function buildSupportBundle({ toolRoot, webRoot, webInstanceId, webPid }) {
   };
 }
 
+/** Agent catalog is read from disk; cache the model map so a 4s feed does not rescan YAML. */
+let _agentModelCache = { at: 0, toolRoot: "", agents: [] };
+const AGENT_MODEL_CACHE_MS = 30000;
+
+function agentModelEntries(toolRoot) {
+  const now = Date.now();
+  if (
+    _agentModelCache.toolRoot === toolRoot &&
+    now - _agentModelCache.at < AGENT_MODEL_CACHE_MS
+  ) {
+    return _agentModelCache.agents;
+  }
+  let agents = [];
+  try {
+    const catalog = buildCatalogs("agents", { toolRoot });
+    agents = (catalog?.entries || []).map((e) => ({ id: e.id, model: e.model }));
+  } catch {
+    agents = [];
+  }
+  _agentModelCache = { at: now, toolRoot, agents };
+  return agents;
+}
+
+/** AO RAM/VRAM footprint split by application and resident Ollama model. */
+async function buildAoResources(ctx) {
+  return sampleAoResources({
+    ollamaBase: ollamaBaseUrl(),
+    fetchJson,
+    sampleHost: sampleMemoryAndGpu,
+    agents: agentModelEntries(ctx?.toolRoot || ""),
+  });
+}
+
 function matchAdminRoute(pathname) {
   const p = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   if (p === "/api/v1/admin/config/effective") return { name: "config_effective" };
@@ -3137,6 +3173,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/runs") return { name: "runs_list" };
   if (p === "/api/v1/admin/traces") return { name: "traces_list" };
   if (p === "/api/v1/admin/llm-usage") return { name: "llm_usage" };
+  if (p === "/api/v1/admin/ao-resources") return { name: "ao_resources" };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)\/trace$/);
   if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/traces\/([^/]+)$/);
@@ -3597,6 +3634,10 @@ async function handleAdminApi(req, res, ctx) {
       );
       return true;
     }
+    if (route.name === "ao_resources") {
+      send(200, await buildAoResources(ctx));
+      return true;
+    }
     if (route.name === "runs_trace") {
       const url = new URL(req.url || "/", "http://localhost");
       const depth = url.searchParams.get("depth") || "all";
@@ -3689,6 +3730,7 @@ export {
   eventsToMermaid,
   modelCallChargeLabel,
   buildLlmUsagePayload,
+  buildAoResources,
   buildLlmSpendSeries,
   resolveSpendWindowHours,
   fetchJson,

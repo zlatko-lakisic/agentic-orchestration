@@ -386,6 +386,29 @@ export function mergeJetsonIntoMetrics(base, jtop) {
   return out;
 }
 
+/**
+ * Memory + GPU only, without touching the CPU delta state.
+ *
+ * `sampleCpuPercent()` is a delta against `_prevCpu`, so callers outside the ~2s
+ * push cadence (AO footprint feed) must not run it or the CPU series goes noisy.
+ * @returns {{ scope: string, memory: Record<string, number>, gpu: Record<string, unknown>|null }}
+ */
+export function sampleMemoryAndGpu() {
+  const nvidiaGpu = readNvidiaHostGpu();
+  const amdGpu = nvidiaGpu ? null : readAmdHostGpu();
+  const hostGpu = nvidiaGpu || amdGpu;
+  const jtop = readJetsonJtopSnapshot();
+  let gpu = hostGpu;
+  if (!gpu && jtop) {
+    gpu = mergeJetsonIntoMetrics({ gpu: null }, jtop).gpu || null;
+  }
+  return {
+    scope: metricsScope(Boolean(jtop), Boolean(hostGpu)),
+    memory: sampleMemory(),
+    gpu: gpu || null,
+  };
+}
+
 /** @returns {Promise<Record<string, unknown>>} */
 export async function sampleHostMetrics() {
   const cpuPercent = sampleCpuPercent();

@@ -9,6 +9,7 @@ import { listAppPrefs, getAppPrefs } from "./app-prefs.mjs";
 import { listTokens } from "./api-tokens.mjs";
 import {
   buildAccessPosture,
+  buildAoResources,
   buildControlStatus,
   buildEffectiveConfig,
   buildLlmUsagePayload,
@@ -50,6 +51,7 @@ const TOPIC_BUILDERS = {
       limit: Number(params?.limit) || 80,
     }),
   topology: async (ctx) => buildTopology(ctx),
+  ao_resources: async (ctx) => buildAoResources(ctx),
   fingerprint: async (ctx) => {
     const cfg = buildEffectiveConfig({
       toolRoot: ctx.toolRoot,

@@ -104,10 +104,14 @@ spec:
             - name: host-nvidia-bin
               mountPath: /host-nvidia-bin
               readOnly: true
+          # OLLAMA_HOST binds loopback only, so probes must use host 127.0.0.1;
+          # kubelet otherwise dials the pod IP, fails, and liveness restarts the
+          # daemon every few minutes.
           readinessProbe:
             httpGet:
               path: /api/tags
               port: daemon
+              host: 127.0.0.1
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
@@ -116,6 +120,7 @@ spec:
             httpGet:
               path: /api/tags
               port: daemon
+              host: 127.0.0.1
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -126,10 +131,27 @@ spec:
               memory: 1Gi
             limits:
               memory: 16Gi
+        # BEGIN resource-broker (jetson-enable-ollama.sh removes this container
+        # when AGENTIC_OLLAMA_RESOURCE_SHARING=0 and gives :11434 back to the daemon).
         - name: resource-broker
+          # Placeholder tag only: jetson-enable-ollama.sh rewrites this to the
+          # image the cluster's own coordinator runs. A dev-built :local tag is
+          # not pullable on Jetson / Ada and leaves the pod in ImagePullBackOff.
           image: agentic-orchestrator-coordinator:local
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "orchestration.ollama_resource_broker"]
+          workingDir: /app/tool
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # The broker + resource manager modules are newer than the pinned
+              # coordinator image, so orchestration/ is mounted from the git
+              # checkout; fastapi is only in requirements-serve.txt.
+              if ! python -c "import fastapi" >/dev/null 2>&1; then
+                echo "Installing fastapi for the Ollama resource broker ..."
+                pip install -q "fastapi>=0.115.0,<1"
+              fi
+              exec python -m orchestration.ollama_resource_broker
           ports:
             - name: http
               containerPort: 11434
@@ -166,13 +188,22 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 3
             failureThreshold: 6
+          volumeMounts:
+            - name: orchestration-src
+              mountPath: /app/tool/orchestration
+              readOnly: true
           resources:
             requests:
               cpu: "50m"
               memory: 128Mi
             limits:
               memory: 512Mi
+        # END resource-broker
       volumes:
+        - name: orchestration-src
+          hostPath:
+            path: /var/projects/agentic-orchestration/agentic-orchestration-tool/orchestration
+            type: Directory
         - name: ollama-home
           hostPath:
             path: /var/projects/agentic-orchestration/var/ollama-models

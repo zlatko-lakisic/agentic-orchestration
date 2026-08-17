@@ -57,6 +57,24 @@ if [[ -n "${MODELS_DATA}" && ! -d "${MODELS_DATA}" ]]; then
   MODELS_DATA=""
 fi
 
+# Broker image: the sidecar runs orchestration code, so reuse the image this
+# cluster's coordinator already runs (Jetson and Ada are on different tags).
+# A dev-built agentic-orchestrator-coordinator:local exists on no edge node and
+# leaves the pod in ImagePullBackOff, which takes :11434 down with it.
+BROKER_IMAGE="${AGENTIC_OLLAMA_BROKER_IMAGE:-}"
+if [[ -z "${BROKER_IMAGE}" ]]; then
+  BROKER_IMAGE="$(kubectl get deploy agentic-coordinator -n "${NS}" \
+    -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+fi
+BROKER_IMAGE="${BROKER_IMAGE:-agentic-orchestrator-coordinator:local}"
+
+# Set to 0 to run plain Ollama on :11434 with no broker (rollback / debugging).
+SHARING="${AGENTIC_OLLAMA_RESOURCE_SHARING:-1}"
+case "${SHARING}" in
+  0 | false | no | off) SHARING=0 ;;
+  *) SHARING=1 ;;
+esac
+
 RUNTIME_CLASS="${AGENTIC_OLLAMA_RUNTIME_CLASS:-}"
 # Default OFF: Ada's k3s advertises RuntimeClass nvidia but containerd often
 # lacks the handler ("RuntimeHandler nvidia not supported"). Image mode uses

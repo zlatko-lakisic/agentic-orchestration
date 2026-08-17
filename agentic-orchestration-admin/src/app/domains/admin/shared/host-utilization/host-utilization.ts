@@ -1,4 +1,10 @@
-import { Component, computed, inject } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+} from '@angular/core';
 import { MatCard } from '@angular/material/card';
 import { MatDivider } from '@angular/material/divider';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -9,15 +15,20 @@ import {
   ApexFill,
   ApexGrid,
   ApexLegend,
+  ApexNonAxisChartSeries,
+  ApexPlotOptions,
   ApexStroke,
   ApexTooltip,
   ApexXAxis,
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
+import { AoResources, AoResourceRow } from '@/app/core/ao-api/types';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
+
+const GIB = 1024 ** 3;
 
 /**
  * Full host utilization card — CPU/mem + GPU/VRAM area charts.
@@ -161,6 +172,71 @@ import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/t
 
       <mat-divider />
 
+      <div class="flex flex-col gap-y-1 px-5 pt-4 sm:flex-row sm:items-start">
+        <div class="min-w-0 flex-auto">
+          <div class="text-lg font-medium tracking-tight">AO footprint</div>
+          <div class="font-medium text-neutral-500">
+            {{ aoFootprintCaption() }}
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-1 grid grid-cols-1 gap-2 px-2 pb-2 xl:grid-cols-2">
+        <div class="flex min-w-0 flex-col">
+          <div class="flex flex-wrap items-end gap-x-6 gap-y-2 px-3 pt-2">
+            <div>
+              <div class="text-sm font-medium text-neutral-500">AO RAM</div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoRamLabel() }}
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-neutral-500">AO VRAM</div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoVramLabel() }}
+              </div>
+            </div>
+          </div>
+          <apx-chart
+            class="h-64 w-full"
+            [chart]="gaugeChart.chart"
+            [colors]="gaugeColors"
+            [labels]="gaugeLabels"
+            [legend]="gaugeChart.legend"
+            [plotOptions]="gaugeChart.plotOptions"
+            [series]="aoGaugeSeries()"
+          />
+        </div>
+
+        <div class="flex min-w-0 flex-col">
+          <div class="px-3 pt-2 text-sm font-medium text-neutral-500">
+            By application and model
+          </div>
+          @if (aoBreakdown().length) {
+            <apx-chart
+              class="w-full"
+              [chart]="breakdownChartOptions()"
+              [colors]="breakdownColors"
+              [dataLabels]="breakdownChart.dataLabels"
+              [grid]="utilChart.grid"
+              [legend]="breakdownChart.legend"
+              [plotOptions]="breakdownChart.plotOptions"
+              [series]="aoBreakdownSeries()"
+              [tooltip]="breakdownTooltip()"
+              [xaxis]="aoBreakdownXaxis()"
+            />
+          } @else {
+            <div
+              class="flex h-40 items-center justify-center px-3 text-sm text-neutral-500"
+            >
+              {{ aoEmptyReason() }}
+            </div>
+          }
+        </div>
+      </div>
+
+      <mat-divider />
+
       <div class="flex flex-wrap gap-x-8 gap-y-3 px-5 py-4 text-sm">
         <div>
           <div class="font-medium text-neutral-500">Load</div>
@@ -214,9 +290,129 @@ import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/t
     </mat-card>
   `,
 })
-export class HostUtilization {
+export class HostUtilization implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
   private theming = inject(Theming);
+
+  ngOnInit() {
+    this.live.acquire({ feeds: ['ao_resources'] });
+  }
+
+  ngOnDestroy() {
+    this.live.release();
+  }
+
+  readonly aoResources = computed(() =>
+    this.live.feedData<AoResources>('ao_resources')
+  );
+
+  /** Applications first (RAM heavy), then resident models (VRAM heavy). */
+  readonly aoBreakdown = computed((): AoResourceRow[] => {
+    const data = this.aoResources();
+    const apps = (data?.applications || []).filter(
+      (r) => r.ramBytes > 0 || r.vramBytes > 0
+    );
+    const models = (data?.models || []).filter(
+      (r) => r.ramBytes > 0 || r.vramBytes > 0
+    );
+    return [...apps, ...models];
+  });
+
+  readonly aoGaugeSeries = computed((): ApexNonAxisChartSeries => {
+    const ao = this.aoResources()?.ao;
+    return [
+      Math.min(100, Math.round(ao?.ramPercentOfHost ?? 0)),
+      Math.min(100, Math.round(ao?.vramPercentOfTotal ?? 0)),
+    ];
+  });
+
+  readonly aoBreakdownSeries = computed((): ApexAxisChartSeries => {
+    const rows = this.aoBreakdown();
+    return [
+      { name: 'RAM', data: rows.map((r) => toGib(r.ramBytes)) },
+      { name: 'VRAM', data: rows.map((r) => toGib(r.vramBytes)) },
+    ];
+  });
+
+  readonly aoBreakdownXaxis = computed(
+    (): ApexXAxis => ({
+      categories: this.aoBreakdown().map((r) => this.rowLabel(r)),
+      labels: {
+        formatter: (v: string) => `${Number(v).toFixed(1)}`,
+        style: { colors: 'var(--mat-sys-on-surface)' },
+      },
+      title: {
+        text: 'GiB',
+        style: { color: 'var(--mat-sys-on-surface)', fontSize: '11px' },
+      },
+    })
+  );
+
+  /** Grow the plot with the row count so labels never collide. */
+  readonly breakdownChartOptions = computed(
+    (): ApexChart => ({
+      ...this.breakdownChart.chart,
+      height: Math.max(180, 44 + this.aoBreakdown().length * 26),
+    })
+  );
+
+  readonly breakdownTooltip = computed(
+    (): ApexTooltip => ({
+      theme: this.theming.isDark() ? 'dark' : 'light',
+      y: {
+        formatter: (v: number) =>
+          v == null || Number.isNaN(Number(v))
+            ? '—'
+            : `${Number(v).toFixed(2)} GiB`,
+      },
+    })
+  );
+
+  readonly aoRamLabel = computed(() => {
+    const ao = this.aoResources()?.ao;
+    if (!ao?.ramBytes) return '—';
+    const pct = ao.ramPercentOfHost;
+    return pct == null
+      ? `${toGib(ao.ramBytes).toFixed(1)} GiB`
+      : `${toGib(ao.ramBytes).toFixed(1)} GiB · ${pct}%`;
+  });
+
+  readonly aoVramLabel = computed(() => {
+    const ao = this.aoResources()?.ao;
+    if (!ao?.vramBytes) return '—';
+    const pct = ao.vramPercentOfTotal;
+    return pct == null
+      ? `${toGib(ao.vramBytes).toFixed(1)} GiB`
+      : `${toGib(ao.vramBytes).toFixed(1)} GiB · ${pct}%`;
+  });
+
+  readonly aoFootprintCaption = computed(() => {
+    const data = this.aoResources();
+    if (!data) return 'Waiting for the first sample…';
+    const ao = data.ao;
+    const parts = [
+      `${ao?.processes ?? 0} processes`,
+      `${ao?.models ?? 0} resident models`,
+    ];
+    const total = this.aoResources()?.host?.ramTotalBytes;
+    if (total) parts.push(`host RAM ${toGib(total).toFixed(1)} GiB`);
+    return parts.join(' · ');
+  });
+
+  readonly aoEmptyReason = computed(() => {
+    const data = this.aoResources();
+    if (!data) return 'Waiting for the first sample…';
+    return (
+      data.sources?.reason ||
+      'No AO processes or resident models visible from this process'
+    );
+  });
+
+  private rowLabel(row: AoResourceRow): string {
+    if (row.kind !== 'model') return row.label;
+    const agents = row.agents || [];
+    return agents.length ? `${row.label} (${agents.join(', ')})` : row.label;
+  }
 
   readonly cpuMemSeries = computed((): ApexAxisChartSeries => {
     const hist = this.live.history();
@@ -453,6 +649,69 @@ export class HostUtilization {
     } as ApexXAxis,
   };
 
+  readonly gaugeColors = ['#60a5fa', '#34d399'];
+  readonly gaugeLabels = ['RAM', 'VRAM'];
+
+  protected gaugeChart = {
+    chart: {
+      animations: { enabled: false },
+      fontFamily: 'inherit',
+      foreColor: 'inherit',
+      height: '100%',
+      type: 'radialBar',
+      toolbar: { show: false },
+    } as ApexChart,
+    legend: {
+      show: true,
+      position: 'bottom',
+    } as ApexLegend,
+    plotOptions: {
+      radialBar: {
+        hollow: { size: '48%' },
+        track: { background: 'rgba(148, 163, 184, 0.2)' },
+        dataLabels: {
+          name: { fontSize: '13px' },
+          value: {
+            fontSize: '20px',
+            formatter: (v: number) => `${Math.round(Number(v))}%`,
+          },
+          total: {
+            show: true,
+            label: 'of host',
+            formatter: () => 'AO share',
+          },
+        },
+      },
+    } as ApexPlotOptions,
+  };
+
+  readonly breakdownColors = ['#60a5fa', '#34d399'];
+
+  protected breakdownChart = {
+    chart: {
+      animations: { enabled: false },
+      fontFamily: 'inherit',
+      foreColor: 'inherit',
+      type: 'bar',
+      stacked: true,
+      toolbar: { show: false },
+      zoom: { enabled: false },
+    } as ApexChart,
+    dataLabels: { enabled: false } as ApexDataLabels,
+    legend: {
+      show: true,
+      position: 'top',
+      horizontalAlign: 'right',
+    } as ApexLegend,
+    plotOptions: {
+      bar: {
+        horizontal: true,
+        barHeight: '65%',
+        borderRadius: 2,
+      },
+    } as ApexPlotOptions,
+  };
+
   resourceBarColor(pct: number | null): 'primary' | 'warn' | 'error' {
     if (pct == null) return 'primary';
     if (pct >= 90) return 'error';
@@ -470,4 +729,10 @@ export class HostUtilization {
     if (h > 0) return `${h}h ${m}m`;
     return `${m}m`;
   }
+}
+
+function toGib(bytes: number | null | undefined): number {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round((n / GIB) * 100) / 100;
 }
