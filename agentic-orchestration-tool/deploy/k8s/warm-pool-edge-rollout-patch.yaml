@@ -1,0 +1,7 @@
+# Edge (Jetson / Ada / single-node): reliable warm-pool rollouts.
+# RollingUpdate with replicas=2 can stall at "1 out of 2" when CPU/RAM is tight
+# (old + new pods overlap). Recreate terminates all workers before starting new ones.
+spec:
+  progressDeadlineSeconds: 1200
+  strategy:
+    type: Recreate

@@ -66,6 +66,8 @@ _reapply_warm_pool_patches
 echo "=== patch fastapi bootstrap command ==="
 kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${BOOTSTRAP_PATCH}"
 
+PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-warm-pool-rollout.sh" apply
+
 CURRENT_IMAGE="$(
   kubectl get deployment agentic-warm-pool -n "${NS}" \
     -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
@@ -78,17 +80,7 @@ fi
 echo "=== rollout restart agentic-warm-pool ==="
 kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
 
-# Unstick RollingUpdate when an old RS pod blocks the second replica (resource pressure).
-_stuck="$(
-  kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-warm-pool \
-    --no-headers 2>/dev/null | awk '$3 ~ /CrashLoopBackOff|Error|ImagePullBackOff|CreateContainerConfigError/ {print $1}' | head -1
-)"
-if [[ -n "${_stuck}" ]]; then
-  echo "warning: warm-pool pod ${_stuck} not healthy — describe:" >&2
-  kubectl describe pod -n "${NS}" "${_stuck}" 2>&1 | tail -20 >&2 || true
-fi
-
-kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
+PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-warm-pool-rollout.sh" wait 600
 
 WP="$(
   kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-warm-pool \

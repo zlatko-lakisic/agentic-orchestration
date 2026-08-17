@@ -240,11 +240,13 @@ fi
 
 kubectl rollout restart deployment/agentic-coordinator -n "${NS}"
 if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
+  PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-warm-pool-rollout.sh" apply
   kubectl rollout restart deployment/agentic-warm-pool -n "${NS}"
 fi
 PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-coordinator-rollout.sh" wait 600
 if kubectl get deployment agentic-warm-pool -n "${NS}" >/dev/null 2>&1; then
-  kubectl rollout status deployment/agentic-warm-pool -n "${NS}" --timeout=600s
+  PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-warm-pool-rollout.sh" wait 600 \
+    || true
 fi
 
 PING_URL="http://127.0.0.1/api/host-metrics"

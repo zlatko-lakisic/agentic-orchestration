@@ -34,3 +34,11 @@ def test_warm_pool_fastapi_bootstrap_patch_matches_manifest() -> None:
     patch = yaml.safe_load(_BOOTSTRAP_PATCH.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
     assert patch["command"] == base["command"]
     assert patch["args"] == base["args"]
+
+
+@pytest.mark.unit
+def test_warm_pool_edge_rollout_uses_recreate() -> None:
+    path = Path(__file__).resolve().parents[1] / "deploy" / "k8s" / "warm-pool-edge-rollout-patch.yaml"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert doc["spec"]["strategy"]["type"] == "Recreate"
+    assert doc["spec"]["progressDeadlineSeconds"] >= 900
