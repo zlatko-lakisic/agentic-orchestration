@@ -6,7 +6,7 @@ frontends can migrate at no cost:
 
 ===============  ===========================================================
 Client → server  ``ping``, ``client_hello``, ``host_metrics_subscribe``,
-                 ``host_metrics_unsubscribe``, ``chat``, ``direct_agent``, ``rate``,
+                 ``host_metrics_unsubscribe``, ``chat``, ``direct_agent``, ``cancel``, ``rate``,
                  ``session_overlay_register``, ``session_overlay_clear``,
                  ``mcp_tunnel_response``
 Server → client  ``hello``, ``pong``, ``host_metrics``, ``preflight``,
@@ -17,7 +17,12 @@ Server → client  ``hello``, ``pong``, ``host_metrics``, ``preflight``,
 
 ``status`` frames carry ``processing``, ``phase``, and a user-friendly ``message``
 for Reach UIs (plus optional ``agentProviderId`` / ``step`` / ``code``). Legacy
-stderr ``chunk`` lines still stream for older clients.
+stderr ``chunk`` lines still stream for older clients. When
+``AGENTIC_SERVE_STREAM_THOUGHTS=1``, intermediate planner/agent text is also
+emitted as ``chunk`` with ``stream: "thought"`` (ignored by stdout concatenators).
+When ``AGENTIC_SERVE_STREAM_STDOUT=1``, the final answer may arrive as multiple
+``stream: "stdout"`` chunks. Clients may send ``cancel`` with ``questionId`` to
+stop one in-flight run without closing the socket.
 
 One deliberate extension: a ``question_id`` on ``chat`` / ``direct_agent`` opts into
 **concurrent** runs, and every ``chunk`` / ``status`` / ``run_end`` carries it back so a client can
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import time
 import uuid
 from pathlib import Path
@@ -89,6 +95,23 @@ def _question_id(message: dict[str, Any]) -> str | None:
     return text[:128] or None
 
 
+def _truthy_env(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _stream_stdout_enabled() -> bool:
+    return _truthy_env("AGENTIC_SERVE_STREAM_STDOUT")
+
+
+def _stream_thoughts_enabled() -> bool:
+    return _truthy_env("AGENTIC_SERVE_STREAM_THOUGHTS")
+
+
 def _reach_images(message: dict[str, Any]) -> list[Any]:
     """Decode optional ``images`` on ``chat`` / ``direct_agent`` (empty = text-only)."""
     from orchestration.reach_multimodal import parse_reach_images
@@ -119,6 +142,7 @@ class WsConnection:
         self._send_lock = asyncio.Lock()
         self._busy = False
         self._runs: set[asyncio.Task[None]] = set()
+        self._runs_by_question: dict[str, asyncio.Task[None]] = {}
         self._metrics_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -212,6 +236,27 @@ class WsConnection:
                 **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
             }
         )
+        # Intermediate thoughts for Continue (ignored by Reach stdout concatenators).
+        if _stream_thoughts_enabled() and text:
+            agent_id = None
+            phase = "progress"
+            if mapped:
+                agent_id = mapped.get("agentProviderId")
+                phase = str(mapped.get("phase") or phase)
+            if text.lower().startswith("plan:"):
+                phase = "planner"
+            # Skip tiny machine status lines; keep plan text and longer updates.
+            if phase == "planner" or len(text) >= 40 or ":" in text:
+                self.send_threadsafe(
+                    {
+                        "type": "chunk",
+                        "stream": "thought",
+                        "text": text if text.endswith("\n") else f"{text}\n",
+                        "agentId": agent_id,
+                        "phase": phase,
+                        **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                    }
+                )
         if not mapped:
             return
         event = build_status_event(
@@ -226,6 +271,29 @@ class WsConnection:
             run_id=tag.get("run_id"),
         )
         self.send_threadsafe(event)
+
+    async def _send_stdout_answer(self, answer: str, tag: dict[str, Any]) -> None:
+        """Send final answer as one chunk, or many when STREAM_STDOUT is enabled."""
+        text = str(answer or "")
+        if not text:
+            return
+        tag_fields = {k: tag[k] for k in ("run_id", "question_id") if k in tag}
+        if not _stream_stdout_enabled() or len(text) < 48:
+            await self.send({"type": "chunk", "stream": "stdout", "text": text, **tag_fields})
+            return
+        # Prefer real model streaming when backends support it; otherwise emit
+        # small incremental stdout chunks so Continue can type the answer out.
+        chunk_size = 24
+        for i in range(0, len(text), chunk_size):
+            await self.send(
+                {
+                    "type": "chunk",
+                    "stream": "stdout",
+                    "text": text[i : i + chunk_size],
+                    **tag_fields,
+                }
+            )
+            await asyncio.sleep(0)
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -347,6 +415,9 @@ class WsConnection:
             return
         if kind == "mcp_tunnel_response":
             await self.handle_mcp_tunnel_response(message)
+            return
+        if kind == "cancel":
+            await self.handle_cancel(message)
             return
         if kind in ("chat", "direct_agent"):
             await self.handle_run(message, kind)
@@ -527,6 +598,30 @@ class WsConnection:
                 "(or tunnel owned by another connection)"
             )
 
+    async def handle_cancel(self, message: dict[str, Any]) -> None:
+        """Cancel one in-flight run by questionId without closing the socket."""
+        question_id = _question_id(message)
+        if not question_id:
+            await self.send_error(
+                "cancel requires questionId",
+                code="invalid_request",
+            )
+            return
+        task = self._runs_by_question.get(question_id)
+        if task is None or task.done():
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "cancelled",
+                    "message": "No in-flight run for that questionId.",
+                    "code": "not_found",
+                    "question_id": question_id,
+                }
+            )
+            return
+        task.cancel()
+
     async def handle_rate(self, message: dict[str, Any]) -> None:
         from orchestration.learning_store import enqueue_user_rating
 
@@ -624,7 +719,15 @@ class WsConnection:
             self._busy = True
         task = asyncio.create_task(self._run(message, kind, text, question_id, images))
         self._runs.add(task)
-        task.add_done_callback(self._runs.discard)
+
+        def _done(t: asyncio.Task[None], *, qid: str | None = question_id) -> None:
+            self._runs.discard(t)
+            if qid and self._runs_by_question.get(qid) is t:
+                self._runs_by_question.pop(qid, None)
+
+        if question_id is not None:
+            self._runs_by_question[question_id] = task
+        task.add_done_callback(_done)
 
     async def _run(
         self,
@@ -752,7 +855,7 @@ class WsConnection:
                 message="Preparing the response…",
             )
             if answer:
-                await self.send({"type": "chunk", "stream": "stdout", "text": answer, **tag})
+                await self._send_stdout_answer(answer, tag)
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
                 {
@@ -792,7 +895,40 @@ class WsConnection:
             except Exception:  # noqa: BLE001
                 pass
         except asyncio.CancelledError:
-            raise
+            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "cancelled",
+                    "message": "Cancelled.",
+                    "code": "cancelled",
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
+            await self.send(
+                {
+                    "type": "run_end",
+                    "ok": False,
+                    "exitCode": 130,
+                    "error": "Cancelled.",
+                    "code": "cancelled",
+                    "elapsedMs": elapsed_ms,
+                    "processing": False,
+                    **tag,
+                }
+            )
+            emit_log(
+                f"engine {kind} cancelled",
+                run_id=run_id,
+                component="engine",
+                extra=log_extra,
+            )
+            try:
+                record_run_end(ok=False, elapsed_ms=elapsed_ms)
+            except Exception:  # noqa: BLE001
+                pass
+            return
         except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
             from orchestration.run_status import error_code_for_exception, friendly_error_message
 
