@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_API = Path("/mnt/nvme/projects/agentic-orchestration/var/agentic-api-tokens/usage.jsonl")
@@ -32,9 +32,12 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 def _iso_ts(raw: object) -> datetime:
     if isinstance(raw, (int, float)):
-        return datetime.fromtimestamp(float(raw))
+        return datetime.fromtimestamp(float(raw), tz=timezone.utc)
     text = str(raw or "").replace("Z", "+00:00")
-    return datetime.fromisoformat(text)
+    dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _normalize_api_rows(rows: list[dict]) -> list[dict]:
