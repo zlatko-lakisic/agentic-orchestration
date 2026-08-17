@@ -24,7 +24,18 @@ spec:
         - name: worker
           image: agentic-orchestrator-worker:local
           imagePullPolicy: IfNotPresent
-          command: ["python", "main.py", "--warm-pool-worker"]
+          # Bootstrap fastapi when the local worker image predates the litellm
+          # MCP → fastapi dependency (requirements.txt). Survives until the
+          # worker image is rebuilt with fastapi baked in.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              if ! python -c "import fastapi" >/dev/null 2>&1; then
+                echo "Installing fastapi for litellm MCP handler ..."
+                pip install -q "fastapi>=0.115.0,<1"
+              fi
+              exec python main.py --warm-pool-worker
           env:
             - name: AGENTIC_RUN_STORE_PATH
               value: /run/store

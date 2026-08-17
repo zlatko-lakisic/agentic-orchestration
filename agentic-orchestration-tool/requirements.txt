@@ -2,6 +2,9 @@ crewai==1.12.2
 # Intel macOS (x86_64): lancedb>=0.29 has no wheels — install with:
 #   pip install -r requirements.txt || pip install --no-deps 'crewai==1.12.2' && pip install 'mcp~=1.26.0'
 litellm
+# litellm's MCP handler imports litellm.proxy.litellm_pre_call_utils, which
+# requires fastapi (crew kickoff with MCP providers fails without it).
+fastapi>=0.115.0,<1
 python-dotenv
 pyyaml
 httpx
