@@ -89,8 +89,11 @@ WP="$(
 )"
 if [[ -n "${WP}" ]]; then
   echo "=== warm-pool fastapi probe (${WP}) ==="
-  kubectl exec -n "${NS}" "${WP}" -- python -c "import fastapi; print('fastapi_ok', fastapi.__version__)" \
-    || echo "warning: fastapi still missing in warm-pool pod" >&2
+  kubectl exec -n "${NS}" "${WP}" -- bash -c '
+    PY="${AGENTIC_PYTHON:-python}"
+    if [[ "${PY}" != */* ]] && command -v "${PY}" >/dev/null 2>&1; then PY="$(command -v "${PY}")"; fi
+    "${PY}" -c "import fastapi; print(\"fastapi_ok\", fastapi.__version__)"
+  ' || echo "warning: fastapi still missing in warm-pool pod" >&2
 else
   echo "warning: no Running warm-pool pod for fastapi probe" >&2
 fi

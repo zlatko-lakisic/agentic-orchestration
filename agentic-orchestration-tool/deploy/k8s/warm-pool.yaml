@@ -31,19 +31,29 @@ spec:
           args:
             - |
               set -euo pipefail
-              # Secret may set AGENTIC_PYTHON to coordinator's host venv (/app/tool/.venv)
-              # which warm-pool worker pods do not mount — fall back to image python.
-              PY="${AGENTIC_PYTHON:-}"
-              if [[ -z "${PY}" || ! -x "${PY}" ]]; then
-                if command -v python >/dev/null 2>&1; then PY="$(command -v python)"
-                elif command -v python3 >/dev/null 2>&1; then PY="$(command -v python3)"
-                else PY="python"
+              resolve_python() {
+                local candidate="${AGENTIC_PYTHON:-}"
+                if [[ -n "${candidate}" ]]; then
+                  if [[ "${candidate}" == */* ]]; then
+                    if [[ -x "${candidate}" ]]; then
+                      echo "${candidate}"
+                      return
+                    fi
+                  elif command -v "${candidate}" >/dev/null 2>&1; then
+                    command -v "${candidate}"
+                    return
+                  fi
+                fi
+                command -v python 2>/dev/null || command -v python3 2>/dev/null || echo python
+              }
+              PY="$(resolve_python)"
+              if ! "${PY}" -c "import fastapi" >/dev/null 2>&1; then
+                echo "Installing fastapi for litellm MCP handler (${PY}) ..."
+                if ! "${PY}" -m pip install --break-system-packages -q "fastapi>=0.115.0,<1" 2>/dev/null; then
+                  "${PY}" -m pip install -q "fastapi>=0.115.0,<1"
                 fi
               fi
-              if ! "${PY}" -c "import fastapi" >/dev/null 2>&1; then
-                echo "Installing fastapi for litellm MCP handler ..."
-                "${PY}" -m pip install -q "fastapi>=0.115.0,<1"
-              fi
+              "${PY}" -c "import fastapi; print('fastapi_ok', fastapi.__version__)"
               exec "${PY}" main.py --warm-pool-worker
           env:
             - name: AGENTIC_RUN_STORE_PATH

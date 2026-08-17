@@ -25,7 +25,8 @@ def test_warm_pool_bootstraps_fastapi_before_worker_loop() -> None:
     assert "pip install" in script
     assert "--warm-pool-worker" in script
     assert container["command"] == ["/bin/bash", "-c"]
-    assert "command -v python" in script
+    assert "resolve_python" in script
+    assert "fastapi_ok" in script
     env = {e["name"]: e["value"] for e in container.get("env") or []}
     assert env.get("AGENTIC_PYTHON") == "python"
 
