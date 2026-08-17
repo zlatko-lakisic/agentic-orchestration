@@ -10,6 +10,10 @@ spec:
             - |
               set -euo pipefail
               resolve_python() {
+                if [[ -x /app/tool/.venv/bin/python ]]; then
+                  echo /app/tool/.venv/bin/python
+                  return
+                fi
                 local candidate="${AGENTIC_PYTHON:-}"
                 if [[ -n "${candidate}" ]]; then
                   if [[ "${candidate}" == */* ]]; then
@@ -33,7 +37,3 @@ spec:
               fi
               "${PY}" -c "import fastapi; print('fastapi_ok', fastapi.__version__)"
               exec "${PY}" main.py --warm-pool-worker
-          env:
-            # Override secret AGENTIC_PYTHON (Ada coordinator venv path) for worker image.
-            - name: AGENTIC_PYTHON
-              value: python

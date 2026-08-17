@@ -32,6 +32,10 @@ spec:
             - |
               set -euo pipefail
               resolve_python() {
+                if [[ -x /app/tool/.venv/bin/python ]]; then
+                  echo /app/tool/.venv/bin/python
+                  return
+                fi
                 local candidate="${AGENTIC_PYTHON:-}"
                 if [[ -n "${candidate}" ]]; then
                   if [[ "${candidate}" == */* ]]; then
@@ -62,8 +66,6 @@ spec:
               value: /app
             - name: AGENTIC_LOG_FORMAT
               value: json
-            - name: AGENTIC_PYTHON
-              value: python
           envFrom:
             - secretRef:
                 name: agentic-orchestrator-env

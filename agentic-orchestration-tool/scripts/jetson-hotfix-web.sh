@@ -170,6 +170,7 @@ WARM_RAG_SOURCES_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hos
 WARM_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml"
 WARM_OPENCLAW_MCP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml"
 WARM_RUNTIME_BOOTSTRAP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml"
+WARM_TOOL_VENV_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml"
 WARM_RUN_TRACES_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml"
 WARM_LLM_USAGE_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
 
@@ -231,6 +232,9 @@ if [[ -f "${WARM_OPENCLAW_MCP_PATCH}" ]]; then
 fi
 if [[ -f "${WARM_RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUNTIME_BOOTSTRAP_PATCH}"
+fi
+if [[ -f "${WARM_TOOL_VENV_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_TOOL_VENV_PATCH}"
 fi
 if [[ -f "${WARM_RUN_TRACES_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUN_TRACES_PATCH}"

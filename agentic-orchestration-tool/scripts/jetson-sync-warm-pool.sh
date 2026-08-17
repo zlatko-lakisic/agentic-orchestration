@@ -50,6 +50,7 @@ _reapply_warm_pool_patches() {
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
   do
@@ -90,8 +91,10 @@ WP="$(
 if [[ -n "${WP}" ]]; then
   echo "=== warm-pool fastapi probe (${WP}) ==="
   kubectl exec -n "${NS}" "${WP}" -- bash -c '
-    PY="${AGENTIC_PYTHON:-python}"
-    if [[ "${PY}" != */* ]] && command -v "${PY}" >/dev/null 2>&1; then PY="$(command -v "${PY}")"; fi
+    if [[ -x /app/tool/.venv/bin/python ]]; then PY=/app/tool/.venv/bin/python
+    else PY="${AGENTIC_PYTHON:-python}"
+      if [[ "${PY}" != */* ]] && command -v "${PY}" >/dev/null 2>&1; then PY="$(command -v "${PY}")"; fi
+    fi
     "${PY}" -c "import fastapi; print(\"fastapi_ok\", fastapi.__version__)"
   ' || echo "warning: fastapi still missing in warm-pool pod" >&2
 else
