@@ -81,7 +81,18 @@ def test_broker_runs_current_orchestration_source() -> None:
     assert volumes["orchestration-src"]["hostPath"]["path"].endswith(
         "agentic-orchestration-tool/orchestration"
     )
-    assert "orchestration.ollama_resource_broker" in "".join(broker["args"])
+    assert "orchestration.ollama_resource_broker" in _startup_text(broker)
+
+
+def _startup_text(container: dict) -> str:
+    """Everything that decides how the process starts, across container shapes."""
+    return "".join(
+        [
+            *container.get("command", []),
+            *container.get("args", []),
+            yaml.safe_dump(container.get("env", [])),
+        ]
+    )
 
 
 def _working_bash() -> str | None:
@@ -204,7 +215,7 @@ def test_render_host_network_daemon_probes_loopback() -> None:
     spec = doc["spec"]["template"]["spec"]
     assert spec["hostNetwork"] is True
     ollama = next(c for c in spec["containers"] if c["name"] == "ollama")
-    assert "OLLAMA_HOST=127.0.0.1:11435" in "".join(ollama["args"])
+    assert "OLLAMA_HOST=127.0.0.1:11435" in _startup_text(ollama)
     for probe in ("readinessProbe", "livenessProbe"):
         assert ollama[probe]["httpGet"]["host"] == "127.0.0.1", probe
 
@@ -219,7 +230,8 @@ def test_render_without_sharing_serves_daemon_on_public_port(arch_aarch64: bool)
     assert names == ["ollama"]
     ollama = spec["containers"][0]
     assert ollama["ports"][0]["containerPort"] == 11434
-    listen = "".join(ollama.get("args", [])) + yaml.safe_dump(ollama.get("env", []))
+    # host-binary mode carries the startup script in command, image mode in env.
+    listen = _startup_text(ollama)
     assert "11434" in listen
     assert "11435" not in listen
 
@@ -250,7 +262,7 @@ def test_render_broker_bootstraps_fastapi() -> None:
             for c in doc["spec"]["template"]["spec"]["containers"]
             if c["name"] == "resource-broker"
         )
-        script = "".join(broker["args"])
+        script = _startup_text(broker)
         assert re.search(r"import fastapi", script)
         assert "pip install" in script
         assert script.rstrip().endswith("python -m orchestration.ollama_resource_broker")
