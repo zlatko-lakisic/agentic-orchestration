@@ -56,6 +56,9 @@ bash "${TOOL_ROOT}/scripts/install-host-gpu-metrics.sh" "${PROJECT_ROOT}" || tru
 bash "${TOOL_ROOT}/scripts/jetson-install-host-control.sh" "${PROJECT_ROOT}" || true
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
+# Warm-pool workers need the fastapi bootstrap command from warm-pool.yaml (litellm MCP).
+bash "${TOOL_ROOT}/scripts/jetson-sync-warm-pool.sh" "${PROJECT_ROOT}" || true
+
 # Engine mounts the tool hostPath; restart so updated Python modules (llm_usage, etc.) load.
 if kubectl get deployment agentic-engine -n "${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}" >/dev/null 2>&1; then
   echo "=== restart agentic-engine (reload hostPath Python) ==="
