@@ -6,7 +6,15 @@
 # a privileged pod nsenter's the host and runs /usr/local/bin/ollama serve against
 # local NVMe models (AGENTIC_OLLAMA_MODELS_HOSTPATH, default /mnt/nvme/ollama/models).
 #
+# Public API is the resource-broker sidecar on :11434 (the daemon stays on
+# loopback :11435). The sidecar reuses the image this cluster's coordinator runs
+# and the git checkout's orchestration/ tree.
+#
 #   bash agentic-orchestration-tool/scripts/jetson-enable-ollama.sh
+#
+# Env: AGENTIC_OLLAMA_RESOURCE_SHARING=0 → no broker, plain Ollama on :11434.
+#      AGENTIC_OLLAMA_BROKER_IMAGE=…     → override the sidecar image.
+#      AGENTIC_OLLAMA_DRY_RUN=1          → print the manifest, apply nothing.
 set -eu
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
@@ -92,11 +100,15 @@ if [[ "${ARCH}" == "aarch64" || "${ARCH}" == "arm64" ]] && [[ "${AGENTIC_OLLAMA_
   OLLAMA_BIN="${AGENTIC_OLLAMA_HOST_BIN:-/usr/local/bin/ollama}"
   OLLAMA_HOME_HOST="${AGENTIC_OLLAMA_HOST_HOME:-/usr/share/ollama}"
   OLLAMA_CTX_LEN="${AGENTIC_OLLAMA_CONTEXT_LENGTH:-16384}"
-  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" "${OLLAMA_CTX_LEN}" "${AGENTIC_OLLAMA_BROKER_IMAGE:-agentic-orchestrator-coordinator:local}" <<'PY'
+  python3 - "${TMP_DEPLOY}" "${NS}" "${OLLAMA_BIN}" "${OLLAMA_HOME_HOST}" "${MODELS_DATA}" "${OLLAMA_CTX_LEN}" "${BROKER_IMAGE}" "${SHARING}" "${TOOL_ROOT}" <<'PY'
 import sys
-out, ns, obin, ohome, models, ctx_len, broker_image = sys.argv[1:8]
+out, ns, obin, ohome, models, ctx_len, broker_image, sharing, tool_root = sys.argv[1:10]
+sharing = sharing == "1"
 # Host-binary: busybox + nsenter runs host ollama with models via host mount namespace.
-# Broker sidecar owns :11434; daemon listens on :11435.
+# With sharing on, the broker sidecar owns :11434 and the daemon stays on loopback
+# :11435; with sharing off the daemon takes :11434 so the Service still resolves.
+daemon_host = "127.0.0.1:11435" if sharing else "0.0.0.0:11434"
+daemon_port = 11435 if sharing else 11434
 doc = f"""apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -141,7 +153,7 @@ spec:
             - -c
             - |
               set -eu
-              export OLLAMA_HOST=127.0.0.1:11435
+              export OLLAMA_HOST={daemon_host}
               export OLLAMA_KEEP_ALIVE=120
               # Cap default context so 128k models (e.g. granite-code) do not
               # allocate a ~40 GiB KV cache on Jetson unified memory.
@@ -155,7 +167,7 @@ spec:
               exec {obin} serve
           ports:
             - name: daemon
-              containerPort: 11435
+              containerPort: {daemon_port}
           readinessProbe:
             httpGet:
               path: /api/tags
@@ -178,10 +190,24 @@ spec:
             requests:
               cpu: "100m"
               memory: 256Mi
-        - name: resource-broker
+"""
+
+broker = f"""        - name: resource-broker
           image: {broker_image}
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "orchestration.ollama_resource_broker"]
+          workingDir: /app/tool
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # orchestration/ is mounted from the git checkout because the
+              # broker modules are newer than the pinned coordinator image, and
+              # fastapi ships only in requirements-serve.txt.
+              if ! python -c "import fastapi" >/dev/null 2>&1; then
+                echo "Installing fastapi for the Ollama resource broker ..."
+                pip install -q "fastapi>=0.115.0,<1"
+              fi
+              exec python -m orchestration.ollama_resource_broker
           ports:
             - name: http
               containerPort: 11434
@@ -218,22 +244,37 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 3
             failureThreshold: 6
+          volumeMounts:
+            - name: orchestration-src
+              mountPath: /app/tool/orchestration
+              readOnly: true
           resources:
             requests:
               cpu: "50m"
               memory: 128Mi
             limits:
               memory: 512Mi
+      volumes:
+        - name: orchestration-src
+          hostPath:
+            path: {tool_root}/orchestration
+            type: Directory
 """
+
+if sharing:
+    doc += broker
 open(out, "w", encoding="utf-8").write(doc)
-print(f"mode=host-binary bin={obin} home={ohome} models={models} broker={broker_image}")
+print(
+    f"mode=host-binary bin={obin} home={ohome} models={models} "
+    f"sharing={'on' if sharing else 'off'} broker={broker_image if sharing else '-'}"
+)
 PY
 else
   IMAGE="${AGENTIC_OLLAMA_IMAGE:-ollama/ollama:latest}"
-  BROKER_IMAGE="${AGENTIC_OLLAMA_BROKER_IMAGE:-agentic-orchestrator-coordinator:local}"
-  python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" "${BROKER_IMAGE}" <<'PY'
+  python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${IMAGE}" "${MODELS_HOME}" "${MODELS_DATA}" "${RUNTIME_CLASS}" "${BROKER_IMAGE}" "${SHARING}" "${TOOL_ROOT}" <<'PY'
 import sys
-src, dst, image, home, models_data, runtime_class, broker_image = sys.argv[1:8]
+src, dst, image, home, models_data, runtime_class, broker_image, sharing, tool_root = sys.argv[1:10]
+sharing = sharing == "1"
 text = open(src, encoding="utf-8").read()
 import re
 text2, n = re.subn(
@@ -245,18 +286,34 @@ text2, n = re.subn(
 if n != 1:
     raise SystemExit(f"expected one ollama image: line in {src}")
 text = text2
-text3, n2 = re.subn(
-    r"(?m)^(\s*image:\s*)agentic-orchestrator-coordinator:\S+",
-    rf"\1{broker_image}",
-    text,
-    count=1,
-)
-if n2 != 1:
-    raise SystemExit(f"expected one broker image line in {src}")
-text = text3
+if sharing:
+    text3, n2 = re.subn(
+        r"(?m)^(\s*image:\s*)agentic-orchestrator-coordinator:\S+",
+        rf"\1{broker_image}",
+        text,
+        count=1,
+    )
+    if n2 != 1:
+        raise SystemExit(f"expected one broker image line in {src}")
+    text = text3
+else:
+    # Drop the sidecar and hand :11434 back to the daemon, so the Service keeps
+    # resolving even when the broker cannot run.
+    start = text.find("        # BEGIN resource-broker")
+    end = text.find("        # END resource-broker\n")
+    if start < 0 or end < 0:
+        raise SystemExit(f"resource-broker sentinels not found in {src}")
+    text = text[:start] + text[end + len("        # END resource-broker\n") :]
+    text = text.replace('value: "127.0.0.1:11435"', 'value: "0.0.0.0:11434"', 1)
+    text = text.replace("containerPort: 11435", "containerPort: 11434", 1)
 text = text.replace(
     "path: /var/projects/agentic-orchestration/var/ollama-models",
     f"path: {home}",
+    1,
+)
+text = text.replace(
+    "path: /var/projects/agentic-orchestration/agentic-orchestration-tool/orchestration",
+    f"path: {tool_root}/orchestration",
     1,
 )
 if runtime_class:
@@ -280,25 +337,37 @@ if models_data:
         mount,
         1,
     )
-    vol = (
-        "      volumes:\n"
+    # Insert after ollama-home rather than rewriting the volumes list, which
+    # would drop the NVIDIA device and orchestration-src volumes that other
+    # containers still mount.
+    home_vol = (
         "        - name: ollama-home\n"
         "          hostPath:\n"
         f"            path: {home}\n"
         "            type: DirectoryOrCreate\n"
+    )
+    if home_vol not in text:
+        raise SystemExit("ollama-home volume block not found")
+    models_vol = (
         "        - name: ollama-models-data\n"
         "          hostPath:\n"
         f"            path: {models_data}\n"
         "            type: Directory\n"
     )
-    marker = "      volumes:\n"
-    idx = text.rfind(marker)
-    if idx < 0:
-        raise SystemExit("volumes section not found")
-    text = text[:idx] + vol
+    text = text.replace(home_vol, home_vol + models_vol, 1)
 open(dst, "w", encoding="utf-8").write(text)
-print(f"mode=image image={image} broker={broker_image} home={home} models_data={models_data or '-'} runtimeClass={runtime_class or '-'}")
+print(
+    f"mode=image image={image} sharing={'on' if sharing else 'off'} "
+    f"broker={broker_image if sharing else '-'} home={home} "
+    f"models_data={models_data or '-'} runtimeClass={runtime_class or '-'}"
+)
 PY
+fi
+
+if [[ "${AGENTIC_OLLAMA_DRY_RUN:-0}" == "1" ]]; then
+  echo "=== rendered manifest (dry run; nothing applied) ==="
+  cat "${TMP_DEPLOY}"
+  exit 0
 fi
 
 echo "=== apply agentic-ollama ==="
@@ -309,7 +378,15 @@ if [[ "${AGENTIC_OLLAMA_NODEPORT:-1}" != "0" ]]; then
 fi
 
 echo "=== wait for agentic-ollama rollout ==="
-kubectl rollout status deployment/agentic-ollama -n "${NS}" --timeout=300s
+if ! kubectl rollout status deployment/agentic-ollama -n "${NS}" --timeout=300s; then
+  echo "--- rollout failed: pod / container detail ---" >&2
+  kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-ollama >&2 || true
+  kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-ollama \
+    -o 'jsonpath={range .items[*]}{range .status.containerStatuses[*]}{.name}{" ready="}{.ready}{" "}{.state}{"\n"}{end}{end}' >&2 || true
+  echo >&2
+  echo "hint: rerun with AGENTIC_OLLAMA_RESOURCE_SHARING=0 to serve plain Ollama on :11434" >&2
+  exit 1
+fi
 
 ENV_FILE="${TOOL_ROOT}/.env"
 if [[ -f "${ENV_FILE}" ]]; then
