@@ -3,6 +3,7 @@
 from orchestration.mcp_task_hints import (
     augment_task_description_for_mcps,
     augment_task_description_for_mcp_leak_retry,
+    is_filesystem_mcp_id,
     looks_like_mcp_tool_call_leak,
 )
 
@@ -57,3 +58,9 @@ def test_augment_task_description_for_mcp_leak_retry() -> None:
     assert "[agentic: MCP retry]" in out
     assert "tool-call syntax" in out.lower() or "tool-call stub" in out.lower()
     assert "Final Answer" in out
+
+
+def test_overlay_filesystem_mcp_gets_hint() -> None:
+    assert is_filesystem_mcp_id("client.filesystem_local")
+    out = augment_task_description_for_mcps("Read hello.txt", ["client.filesystem_local"])
+    assert "Filesystem tools" in out

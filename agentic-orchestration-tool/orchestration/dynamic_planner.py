@@ -1385,8 +1385,27 @@ def _prune_irrelevant_mcp_from_user_goal(
         return replace(cfg, mcp_providers=[], tasks=_tasks_without_mcp(cfg.tasks))
 
     suggested = set(suggest_mcp_ids_from_user_goal(match_prompt, mcp_catalog))
+
+    def _is_client_mcp(value: Any) -> bool:
+        return isinstance(value, str) and value.strip().startswith("client.")
+
     if not suggested:
-        # No MCP appears relevant by heuristic; drop planner-selected defaults.
+        # Packed overlay tools (client.*) are author-selected; keyword miss
+        # must not strip the COMSTAR filesystem tunnel.
+        kept_client = [x for x in cfg.mcp_providers if _is_client_mcp(x)]
+        dropped = [
+            x.strip()
+            for x in cfg.mcp_providers
+            if isinstance(x, str) and x.strip() and not x.strip().startswith("client.")
+        ]
+        if kept_client:
+            if dropped and not quiet:
+                print(
+                    f"(dynamic) mcp relevance: dropping stock {dropped!r}; "
+                    f"keeping overlay {kept_client!r} (no MCP keywords matched goal)",
+                    file=sys.stderr,
+                )
+            return replace(cfg, mcp_providers=kept_client)
         if not quiet:
             print(
                 f"(dynamic) mcp relevance: dropping default mcp_provider_ids {cfg.mcp_providers!r} "
@@ -1399,10 +1418,11 @@ def _prune_irrelevant_mcp_from_user_goal(
     dropped: list[Any] = []
     for x in cfg.mcp_providers:
         if isinstance(x, str) and x.strip():
-            if x.strip() in suggested:
-                kept.append(x.strip())
+            sid = x.strip()
+            if sid in suggested or sid.startswith("client."):
+                kept.append(sid)
             else:
-                dropped.append(x.strip())
+                dropped.append(sid)
         else:
             # Inline MCP configs are assumed intentional; keep them.
             kept.append(x)

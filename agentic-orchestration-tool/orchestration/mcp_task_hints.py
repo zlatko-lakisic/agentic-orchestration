@@ -15,6 +15,14 @@ _MEDIA_MCP_IDS = frozenset(
 
 FILESYSTEM_MCP_IDS = frozenset({"filesystem_local", "openclaw_filesystem"})
 
+
+def is_filesystem_mcp_id(mid: str) -> bool:
+    """True for host filesystem MCPs and packed overlay tunnels (``client.filesystem_local``)."""
+    sid = str(mid or "").strip()
+    if sid in FILESYSTEM_MCP_IDS or sid.startswith("openclaw_"):
+        return True
+    return sid.endswith(".filesystem_local") or sid.endswith(".openclaw_filesystem")
+
 _TOOL_LEAK_RE = re.compile(
     r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|"
     r"plant_knowledge_mcp|^\s*parameters:\s*\{|"
@@ -174,7 +182,7 @@ def augment_task_description_for_mcps(description: str, mcp_ids: list[str]) -> s
         blocks.append(_fetch_url_hint())
     if any(mid in _MEDIA_MCP_IDS for mid in mcp_ids):
         blocks.append(_media_understand_hint())
-    if any(mid in FILESYSTEM_MCP_IDS or mid.startswith("openclaw_") for mid in mcp_ids):
+    if any(is_filesystem_mcp_id(mid) for mid in mcp_ids):
         blocks.append(_filesystem_hint())
     if not blocks:
         return description

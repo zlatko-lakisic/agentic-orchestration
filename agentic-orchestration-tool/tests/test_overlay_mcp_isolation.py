@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
 from orchestration.dynamic_planner import (
+    _prune_irrelevant_mcp_from_user_goal,
     apply_overlay_client_tool_cap,
     filter_client_agent_tool_ids,
     restrict_catalog_for_overlay_session,
@@ -105,3 +106,32 @@ def test_apply_cap_on_review_plan() -> None:
     assert out.mcp_providers == ["client.filesystem_local"]
     assert out.tasks[0].skills == []
     assert out.skills == []
+
+
+def test_prune_keeps_overlay_filesystem_without_keywords() -> None:
+    cfg = WorkflowConfig(
+        name="dynamic-plan",
+        process="sequential",
+        topic="read hello.txt",
+        instance_key="k",
+        agent_providers=[{"id": "client.code_reviewer"}],
+        mcp_providers=["client.filesystem_local", "search_tavily"],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="client.code_reviewer",
+                description="read {{topic}}",
+                expected_output="text",
+                mcp_providers=["client.filesystem_local"],
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    out = _prune_irrelevant_mcp_from_user_goal(
+        cfg,
+        user_prompt="Use the filesystem tools to read hello.txt.",
+        mcp_catalog=[{"id": "client.filesystem_local", "tags": []}],
+        quiet=True,
+    )
+    assert out.mcp_providers == ["client.filesystem_local"]
