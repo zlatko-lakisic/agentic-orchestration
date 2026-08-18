@@ -259,6 +259,7 @@ def run_filesystem_list_summarize_step(
     """List the allowlisted workspace; optionally summarize, else return paths."""
     from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import crew_kickoff_context
     from orchestration.text_normalize import (
         looks_like_format_instruction_only,
@@ -289,7 +290,7 @@ def run_filesystem_list_summarize_step(
         for agent in built.crew.agents:
             disable_agent_tools_and_mcps(agent)
         with crew_kickoff_context(built):
-            workflow_result = built.crew.kickoff(inputs={"topic": user_question})
+            workflow_result = crew_kickoff(built.crew, inputs={"topic": user_question})
         raw = workflow_result_to_extractable_text(workflow_result)
         text = sanitize_user_facing_prose(raw)
         if (
@@ -312,6 +313,7 @@ def run_generic_mcp_leak_retry_kickoff(
 ) -> str | None:
     """One more kickoff with tools still attached and a leak-retry task hint."""
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
 
@@ -323,7 +325,7 @@ def run_generic_mcp_leak_retry_kickoff(
             "Never a tool-call stub or meta instruction."
         )
     with crew_kickoff_context(built):
-        workflow_result = built.crew.kickoff(inputs={"topic": topic})
+        workflow_result = crew_kickoff(built.crew, inputs={"topic": topic})
     raw = workflow_result_to_extractable_text(workflow_result)
     text = sanitize_user_facing_prose(raw)
     if text and not looks_like_unusable_crew_answer(raw) and not looks_like_unusable_crew_answer(

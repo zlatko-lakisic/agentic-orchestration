@@ -145,6 +145,7 @@ def run_ollama_fetch_summarize_step(
     """
     from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import crew_kickoff_context
     from orchestration.text_normalize import (
         looks_like_format_instruction_only,
@@ -171,7 +172,7 @@ def run_ollama_fetch_summarize_step(
         for agent in built.crew.agents:
             disable_agent_tools_and_mcps(agent)
         with crew_kickoff_context(built):
-            workflow_result = built.crew.kickoff(inputs={"topic": user_question})
+            workflow_result = crew_kickoff(built.crew, inputs={"topic": user_question})
         text = sanitize_user_facing_prose(workflow_result_to_extractable_text(workflow_result))
         if text and not looks_like_format_instruction_only(text):
             return text

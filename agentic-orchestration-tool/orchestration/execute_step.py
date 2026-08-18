@@ -37,6 +37,7 @@ from orchestration.mcp_tool_leak_recovery import (
 )
 from orchestration.simple_chat import strip_web_prose_delivery_suffix
 from orchestration.output_artifacts import workflow_result_to_extractable_text
+from orchestration.crewai_template import crew_kickoff
 from orchestration.runner import build_workflow, crew_kickoff_context
 from orchestration.text_normalize import sanitize_user_facing_prose
 from orchestration.worker_logging import worker_log_context
@@ -276,7 +277,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             else:
                 print("kickoff", file=sys.stderr)
                 with crew_kickoff_context(built):
-                    workflow_result = built.crew.kickoff(inputs={"topic": topic})
+                    workflow_result = crew_kickoff(built.crew, inputs={"topic": topic})
                 try:
                     from orchestration.llm_usage import record_crew_result_usage
 
@@ -348,7 +349,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     for agent in built.crew.agents:
                         disable_agent_tools_and_mcps(agent)
                     with crew_kickoff_context(built):
-                        workflow_result = built.crew.kickoff(inputs={"topic": user_q})
+                        workflow_result = crew_kickoff(built.crew, inputs={"topic": user_q})
                     try:
                         from orchestration.llm_usage import record_crew_result_usage
 

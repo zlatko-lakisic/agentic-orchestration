@@ -273,6 +273,7 @@ def _execute_member_turn(
 ) -> str:
     """Build and kick off the single-agent crew for one turn; returns the member's post."""
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import build_workflow, crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
 
@@ -327,7 +328,7 @@ def _execute_member_turn(
             enabled=message_tools,
         )
     with crew_kickoff_context(built):
-        result = built.crew.kickoff(inputs={"topic": goal})
+        result = crew_kickoff(built.crew, inputs={"topic": goal})
     return sanitize_user_facing_prose(workflow_result_to_extractable_text(result))
 
 

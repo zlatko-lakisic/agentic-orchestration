@@ -170,3 +170,29 @@ def test_crewai_backend_execute_built_mocked_kickoff(
     assert result.exit_code == 0
     assert result.result_text == "extractable crew output"
     kickoff.assert_called_once_with(inputs={"topic": "test"})
+
+
+@pytest.mark.unit
+@pytest.mark.backend_inprocess
+def test_crewai_backend_fills_braces_in_topic() -> None:
+    """Continue-style ``{workspaceName}`` in topic is identity-filled for CrewAI."""
+    from orchestration.backends.crewai import CrewAIExecutionBackend
+    from orchestration.runner import BuiltWorkflow
+
+    kickoff = MagicMock(return_value="ok")
+    built = BuiltWorkflow(
+        crew=MagicMock(verbose=True, kickoff=kickoff, tasks=[], agents=[]),
+        inputs={"topic": "workspace {workspaceName} and {notAVar} {\"a\": 1}"},
+        agent_providers={},
+        workflow_context={"workflow_name": "test"},
+    )
+    backend = CrewAIExecutionBackend()
+    result = backend.execute_built(
+        built,
+        options=RunOptions(quiet=True, emit_stdout_summary=False),
+    )
+    assert result.exit_code == 0
+    passed = kickoff.call_args.kwargs["inputs"]
+    assert "{workspaceName}" in passed["topic"]
+    assert passed["workspaceName"] == "{workspaceName}"
+    assert passed["notAVar"] == "{notAVar}"

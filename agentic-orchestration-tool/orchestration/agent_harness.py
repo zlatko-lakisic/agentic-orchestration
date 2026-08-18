@@ -275,6 +275,7 @@ def _run_smoke_kickoff(
             return None, msg
         return (result.result_text or "").strip() or None, None
 
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import build_workflow, crew_kickoff_context
 
     built = build_workflow(
@@ -285,7 +286,7 @@ def _run_smoke_kickoff(
         mcp_catalog_path=mcp_catalog_path,
     )
     with crew_kickoff_context(built):
-        workflow_result = built.crew.kickoff(inputs={"topic": config.topic})
+        workflow_result = crew_kickoff(built.crew, inputs={"topic": config.topic})
     text = workflow_result_to_extractable_text(workflow_result)
     return (text or "").strip() or None, None
 

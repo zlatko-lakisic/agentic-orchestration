@@ -15,6 +15,9 @@ except ImportError:
     _crewai = types.ModuleType("crewai")
     _crewai.Agent = MagicMock(name="Agent")  # type: ignore[attr-defined]
     _crewai.LLM = MagicMock(name="LLM")  # type: ignore[attr-defined]
+    _crewai.Crew = MagicMock(name="Crew")  # type: ignore[attr-defined]
+    _crewai.Process = MagicMock(name="Process")  # type: ignore[attr-defined]
+    _crewai.Task = MagicMock(name="Task")  # type: ignore[attr-defined]
     _crewai_llm = types.ModuleType("crewai.llm")
     _crewai_llm.LLM = MagicMock(name="LLM")  # type: ignore[attr-defined]
     _crewai_tools = types.ModuleType("crewai.tools")

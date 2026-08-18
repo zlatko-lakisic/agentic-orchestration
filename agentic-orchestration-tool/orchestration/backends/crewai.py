@@ -8,6 +8,7 @@ from typing import Any
 
 from orchestration.backends.base import RunOptions, WorkflowExecutionResult
 from orchestration.config_loader import WorkflowConfig
+from orchestration.crewai_template import crew_kickoff
 from orchestration.output_artifacts import workflow_result_display_text, workflow_result_to_extractable_text
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.run_store import new_run_id
@@ -131,12 +132,12 @@ class CrewAIExecutionBackend:
                         with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
                             _quiet_sink
                         ):
-                            return built.crew.kickoff(inputs=built.inputs)
+                            return crew_kickoff(built.crew, inputs=built.inputs)
                 if suppress_stderr_probe:
                     with open(os.devnull, "w", encoding="utf-8") as _dn:
                         with contextlib.redirect_stderr(_dn):
-                            return built.crew.kickoff(inputs=built.inputs)
-                return built.crew.kickoff(inputs=built.inputs)
+                            return crew_kickoff(built.crew, inputs=built.inputs)
+                return crew_kickoff(built.crew, inputs=built.inputs)
 
         def _try_provider_recovery(exc: BaseException) -> bool:
             recovered = False

@@ -599,6 +599,7 @@ def run_direct_agent(
         recover_after_mcp_tool_leak,
     )
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import build_workflow, crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
 
@@ -634,7 +635,7 @@ def run_direct_agent(
         progress(f"starting {pid}")
         with crew_kickoff_context(built):
             progress("generating")
-            result = built.crew.kickoff(inputs={"topic": text})
+            result = crew_kickoff(built.crew, inputs={"topic": text})
     try:
         from orchestration.llm_usage import record_crew_result_usage
 

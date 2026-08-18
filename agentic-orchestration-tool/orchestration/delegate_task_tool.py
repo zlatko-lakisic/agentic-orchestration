@@ -127,6 +127,7 @@ def run_inline_delegation(
     """Run one delegated task as a single-agent crew in this process."""
     from orchestration.config_loader import TaskDefinition, WorkflowConfig
     from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.crewai_template import crew_kickoff
     from orchestration.runner import build_workflow, crew_kickoff_context
     from orchestration.text_normalize import sanitize_user_facing_prose
 
@@ -162,7 +163,7 @@ def run_inline_delegation(
     if not quiet:
         print(f"(society) delegating to {provider_id}", file=sys.stderr)
     with crew_kickoff_context(built):
-        result = built.crew.kickoff(inputs={"topic": cfg.topic})
+        result = crew_kickoff(built.crew, inputs={"topic": cfg.topic})
     text = sanitize_user_facing_prose(workflow_result_to_extractable_text(result))
     cleaned = str(text or "").strip()
     if not cleaned:

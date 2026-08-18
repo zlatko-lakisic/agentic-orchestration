@@ -43,6 +43,10 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/run_status.py
               subPath: run_status.py
+            # execute_step / backends/crewai import this; ConfigMap hotfix is at 1 MiB.
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/crewai_template.py
+              subPath: crewai_template.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:
