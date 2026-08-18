@@ -31,6 +31,10 @@ def _stub_fetch_url_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     mod.partition_fetch_stdio_mcps = lambda mcps: (list(mcps) if mcps else [], [])  # type: ignore[attr-defined]
     mod.attach_fetch_url_tool_to_agents = lambda _agents: None  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "orchestration.fetch_url_tool", mod)
+    fs_mod = types.ModuleType("orchestration.filesystem_tunnel_tool")
+    fs_mod.partition_filesystem_tunnel_mcps = lambda mcps: (list(mcps) if mcps else [], [])  # type: ignore[attr-defined]
+    fs_mod.attach_filesystem_tunnel_tools_to_agents = lambda *_a, **_k: False  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "orchestration.filesystem_tunnel_tool", fs_mod)
 
 
 @pytest.mark.unit

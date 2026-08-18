@@ -898,6 +898,10 @@ class OllamaProvider(AgentProvider):
             attach_fetch_url_tool_to_agents,
             partition_fetch_stdio_mcps,
         )
+        from orchestration.filesystem_tunnel_tool import (
+            attach_filesystem_tunnel_tools_to_agents,
+            partition_filesystem_tunnel_mcps,
+        )
         from orchestration.mcp_stdio_hygiene import (
             drop_failed_stdio_mcps_on_agent,
             drop_stdio_mcps_that_fail_handshake,
@@ -911,6 +915,7 @@ class OllamaProvider(AgentProvider):
 
         mcps_list = list(mcps) if mcps else []
         other_mcps, fetch_stdio = partition_fetch_stdio_mcps(mcps_list)
+        other_mcps, filesystem_urls = partition_filesystem_tunnel_mcps(other_mcps)
         fetch_tool_needed = bool(fetch_stdio)
         other_mcps = drop_stdio_mcps_that_fail_handshake(prepare_stdio_mcps(other_mcps))
         effective_mcps = other_mcps or None
@@ -951,6 +956,8 @@ class OllamaProvider(AgentProvider):
         drop_failed_stdio_mcps_on_agent(agent)
         if fetch_tool_needed:
             attach_fetch_url_tool_to_agents([agent])
+        if filesystem_urls:
+            attach_filesystem_tunnel_tools_to_agents([agent], filesystem_urls)
         self._last_agent = agent
         return agent
 
