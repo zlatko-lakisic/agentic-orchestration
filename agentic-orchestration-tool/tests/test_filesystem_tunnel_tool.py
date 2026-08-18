@@ -121,3 +121,24 @@ def test_run_ollama_filesystem_tunnel_step_reports_truncation(monkeypatch) -> No
         filenames=["big.txt"],
     )
     assert "truncated" in out.lower()
+
+
+def test_run_ollama_filesystem_tunnel_step_names_add_bug(monkeypatch) -> None:
+    from orchestration.filesystem_tunnel_tool import run_ollama_filesystem_tunnel_step
+
+    def _fake_call(_url: str, name: str, arguments=None) -> str:
+        if name == "list_allowed_directories":
+            return "/tmp/ws"
+        return "def add(a, b):\n    return a - b\n"
+
+    monkeypatch.setattr(
+        "orchestration.filesystem_tunnel_tool.call_filesystem_mcp_tool",
+        _fake_call,
+    )
+    out = run_ollama_filesystem_tunnel_step(
+        built=None,
+        topic="Review buggy.py in this workspace. Name the bug in add().",
+        mcp_url="http://localhost:9/t/x/filesystem",
+        filenames=["buggy.py"],
+    )
+    assert "subtract" in out.lower()

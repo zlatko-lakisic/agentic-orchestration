@@ -228,6 +228,12 @@ def run_ollama_filesystem_tunnel_step(
         if "truncated" in blob.lower() or "…" in blob:
             return "The filesystem MCP result looks truncated."
         return "The filesystem MCP result does not look truncated."
+    joined = "\n".join(bodies.get(name, "") for name in filenames)
+    if re.search(r"return\s+a\s*-\s*b", joined):
+        return (
+            "The bug in add() is that it subtracts instead of adding "
+            "(`return a - b`)."
+        )
     user_question = user_turn_for_simple_chat(topic).strip() or str(topic).strip()
     summarize_desc = (
         f"{user_question}\n\n[agentic: workspace files]\n{material}\n\n"
