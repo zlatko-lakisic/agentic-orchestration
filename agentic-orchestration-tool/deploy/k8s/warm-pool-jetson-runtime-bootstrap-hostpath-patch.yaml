@@ -23,6 +23,12 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/orchestration/ollama_resource_manager.py
               subPath: ollama_resource_manager.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/mcp_stdio_hygiene.py
+              subPath: mcp_stdio_hygiene.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/mcp_stdio_jsonrpc_filter.py
+              subPath: mcp_stdio_jsonrpc_filter.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:
