@@ -15,6 +15,7 @@ from orchestration.k8s_mcp_compat import (
     pod_sidecar_mcp_ids_for_step,
     rewrite_spec_mcps_for_pod_sidecars,
     sidecar_containers_for_mcps,
+    spec_requires_engine_mcp_tunnel,
 )
 
 
@@ -179,6 +180,34 @@ def test_is_session_tunnel_mcp_entry() -> None:
             "id": "fetch_url",
             "streamable_http": {"url": "tunnel://session-mcp/fetch"},
         }
+    )
+
+
+@pytest.mark.unit
+def test_spec_requires_engine_mcp_tunnel() -> None:
+    assert spec_requires_engine_mcp_tunnel(
+        {
+            "mcp_providers": [
+                {
+                    "id": "client.filesystem_local",
+                    "streamable_http": {"url": "tunnel://session-mcp/filesystem"},
+                }
+            ]
+        }
+    )
+    assert spec_requires_engine_mcp_tunnel(
+        {
+            "mcp_providers": [
+                {
+                    "id": "client.filesystem_local",
+                    "url": "http://localhost:8766/t/abc/filesystem",
+                    "transport": "streamable-http",
+                }
+            ]
+        }
+    )
+    assert not spec_requires_engine_mcp_tunnel(
+        {"mcp_providers": [{"id": "fetch_url", "stdio": {"command": "uvx"}}]}
     )
 
 

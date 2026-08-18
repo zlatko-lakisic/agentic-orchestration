@@ -16,6 +16,7 @@ from orchestration.run_store import new_run_id, run_store_base_from_env, run_sto
 from orchestration.k8s_mcp_compat import (
     pod_sidecar_mcp_ids_for_step,
     rewrite_spec_mcps_for_pod_sidecars,
+    spec_requires_engine_mcp_tunnel,
 )
 from orchestration.step_coordinator import StepCoordinator
 from orchestration.step_recovery import make_step_recovery_callback
@@ -98,14 +99,29 @@ def run_config_via_kubernetes(
                 )
             except Exception:  # noqa: BLE001
                 pass
-            record, wait = runner.run_step_job(
-                run_id=run_id,
-                step_id=spec.step_id,
-                spec_container_path=container_spec,
-                agent_provider_id=provider_id,
-                sidecar_mcp_ids=sidecar_mcps,
-            )
-            k8s_jobs.append(_job_record_to_dict(record, wait))
+            wait: Any = None
+            if spec_requires_engine_mcp_tunnel(spec_dict) or any(
+                str(mid).startswith("client.") for mid in mcp_ids
+            ):
+                import sys
+
+                from orchestration.execute_step import execute_step_from_spec_file
+
+                print(
+                    "(k8s) session MCP tunnel: execute step in-process on engine "
+                    f"(localhost loopback; skip warm-pool) {spec.step_id}",
+                    file=sys.stderr,
+                )
+                execute_step_from_spec_file(spec_path)
+            else:
+                record, wait = runner.run_step_job(
+                    run_id=run_id,
+                    step_id=spec.step_id,
+                    spec_container_path=container_spec,
+                    agent_provider_id=provider_id,
+                    sidecar_mcp_ids=sidecar_mcps,
+                )
+                k8s_jobs.append(_job_record_to_dict(record, wait))
 
             saved = store.read_step_result(run_id, spec.step_id)
             if saved is not None:
@@ -130,7 +146,12 @@ def run_config_via_kubernetes(
                     pass
                 return saved
 
-            err = wait.message or "kubernetes job failed without result.json"
+            err = (getattr(wait, "message", None) if wait is not None else None) or (
+                "engine in-process step failed without result.json"
+                if spec_requires_engine_mcp_tunnel(spec_dict)
+                or any(str(mid).startswith("client.") for mid in mcp_ids)
+                else "kubernetes job failed without result.json"
+            )
             try:
                 from orchestration.run_trace import append_run_event
 

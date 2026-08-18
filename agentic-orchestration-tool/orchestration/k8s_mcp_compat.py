@@ -208,6 +208,25 @@ def is_session_tunnel_mcp_entry(entry: dict[str, Any]) -> bool:
     return url.startswith("tunnel://session-mcp/")
 
 
+def spec_requires_engine_mcp_tunnel(spec: dict[str, Any]) -> bool:
+    """True when a step must run in the engine process (tunnel loopback is localhost-only)."""
+    for entry in spec.get("mcp_providers") or []:
+        if not isinstance(entry, dict):
+            continue
+        if is_session_tunnel_mcp_entry(entry):
+            return True
+        pid = str(entry.get("id") or "").strip()
+        sh = entry.get("streamable_http")
+        url = str(sh.get("url") or "") if isinstance(sh, dict) else str(entry.get("url") or "")
+        if pid.startswith("client.") and (
+            url.startswith("tunnel://session-mcp/")
+            or "localhost" in url
+            or "/t/" in url
+        ):
+            return True
+    return False
+
+
 def is_session_overlay_mcp_entry(entry: dict[str, Any]) -> bool:
     """True for any Reach/session-overlay MCP (``client.*`` namespace).
 
