@@ -189,47 +189,45 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
       </div>
 
       <div class="mt-1 grid grid-cols-1 gap-2 px-2 pb-2 xl:grid-cols-2">
-        <div class="flex min-w-0 flex-col">
-          <div class="flex flex-wrap items-end gap-x-6 gap-y-2 px-3 pt-2">
-            <div>
-              <div
-                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
-              >
-                <span
-                  class="inline-block size-2 rounded-full"
-                  [style.background-color]="gaugeColors[0]"
-                ></span>
-                AO RAM
-              </div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ aoRamGib() ?? '—'
-                }}@if (aoRamGib() != null) {
-                  <span class="text-lg text-neutral-500">GiB</span>
-                }
-              </div>
-              <div class="text-xs text-neutral-500">{{ aoRamShare() }}</div>
+        <div class="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 px-3 pt-2">
+          <div>
+            <div
+              class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+            >
+              <span
+                class="inline-block size-2 rounded-full"
+                [style.background-color]="gaugeColors[0]"
+              ></span>
+              AO RAM
             </div>
-            <div>
-              <div
-                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
-              >
-                <span
-                  class="inline-block size-2 rounded-full"
-                  [style.background-color]="gaugeColors[1]"
-                ></span>
-                AO VRAM
-              </div>
-              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-                {{ aoVramGib() ?? '—'
-                }}@if (aoVramGib() != null) {
-                  <span class="text-lg text-neutral-500">GiB</span>
-                }
-              </div>
-              <div class="text-xs text-neutral-500">{{ aoVramShare() }}</div>
+            <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+              {{ aoRamGib() ?? '—'
+              }}@if (aoRamGib() != null) {
+                <span class="text-lg text-neutral-500">GiB</span>
+              }
             </div>
+            <div class="text-xs text-neutral-500">{{ aoRamShare() }}</div>
+          </div>
+          <div>
+            <div
+              class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+            >
+              <span
+                class="inline-block size-2 rounded-full"
+                [style.background-color]="gaugeColors[1]"
+              ></span>
+              AO VRAM
+            </div>
+            <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+              {{ aoVramGib() ?? '—'
+              }}@if (aoVramGib() != null) {
+                <span class="text-lg text-neutral-500">GiB</span>
+              }
+            </div>
+            <div class="text-xs text-neutral-500">{{ aoVramShare() }}</div>
           </div>
           <apx-chart
-            class="h-48 w-full"
+            class="h-40 w-40 shrink-0 sm:ml-auto"
             [chart]="gaugeChart.chart"
             [colors]="gaugeColors"
             [labels]="gaugeLabels"
@@ -364,20 +362,25 @@ export class HostUtilization implements OnInit, OnDestroy {
    */
   readonly gaugePlotOptions = computed((): ApexPlotOptions => {
     const ram = this.aoResources()?.ao?.ramPercentOfHost;
+    /** Apex paints SVG text with a hardcoded near-black fill unless set here. */
+    const label = '#737373';
+    const value = this.theming.isDark() ? '#ffffff' : '#0a0a0a';
     return {
       radialBar: {
         hollow: { size: '56%' },
         track: { background: TRACK_COLOR },
         dataLabels: {
-          name: { fontSize: '12px', offsetY: -2 },
+          name: { fontSize: '12px', offsetY: -2, color: label },
           value: {
             fontSize: '22px',
             offsetY: 4,
+            color: value,
             formatter: (v: number) => `${Math.round(Number(v))}%`,
           },
           total: {
             show: true,
             label: 'RAM of host',
+            color: label,
             formatter: () => (ram == null ? '—' : `${Math.round(ram)}%`),
           },
         },
@@ -726,7 +729,7 @@ export class HostUtilization implements OnInit, OnDestroy {
     chart: {
       animations: { enabled: false },
       fontFamily: 'inherit',
-      foreColor: 'inherit',
+      foreColor: AXIS_TEXT,
       height: '100%',
       type: 'radialBar',
       toolbar: { show: false },

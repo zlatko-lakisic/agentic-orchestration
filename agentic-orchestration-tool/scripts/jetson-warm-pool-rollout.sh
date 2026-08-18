@@ -62,9 +62,12 @@ _unblock_stale_replicasets() {
     [[ "${replicas}" -eq 0 ]] && continue
 
     local drop=0
+    if [[ "${rev}" == "<none>" || -z "${rev}" ]]; then
+      continue
+    fi
     if [[ -n "${desired_rev}" && "${rev}" != "${desired_rev}" ]]; then
       drop=1
-    elif [[ "${pending}" -gt 0 && "${running}" -gt 0 ]]; then
+    elif [[ "${pending}" -gt 0 && "${running}" -gt 0 && "${rev}" != "${desired_rev}" ]]; then
       drop=1
     elif [[ -n "${ready}" && "${ready}" != "${replicas}" && "${rev}" != "${desired_rev}" ]]; then
       drop=1

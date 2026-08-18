@@ -233,8 +233,12 @@ fi
 if [[ -f "${WARM_RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUNTIME_BOOTSTRAP_PATCH}"
 fi
-if [[ -f "${WARM_TOOL_VENV_PATCH}" ]]; then
+if [[ -f "${WARM_TOOL_VENV_PATCH}" && -x "${TOOL_ROOT}/.venv/bin/python" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_TOOL_VENV_PATCH}"
+fi
+BOOTSTRAP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-fastapi-bootstrap-patch.yaml"
+if [[ -f "${BOOTSTRAP_PATCH}" ]]; then
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${BOOTSTRAP_PATCH}"
 fi
 if [[ -f "${WARM_RUN_TRACES_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUN_TRACES_PATCH}"

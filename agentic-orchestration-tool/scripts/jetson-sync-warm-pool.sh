@@ -48,14 +48,6 @@ _tool_venv_ready() {
 
 _reapply_warm_pool_patches() {
   local patch venv_patch="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml"
-  if [[ -f "${venv_patch}" ]]; then
-    if _tool_venv_ready; then
-      echo "=== host tool .venv ok (fastapi present) ==="
-    elif [[ "${AGENTIC_ENSURE_TOOL_VENV:-1}" != "0" ]]; then
-      echo "=== ensuring host tool .venv (Ada / edge) ==="
-      bash "${TOOL_ROOT}/scripts/edge-ensure-tool-venv.sh" "${PROJECT_ROOT}"
-    fi
-  fi
 
   for patch in \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml" \
@@ -73,13 +65,13 @@ _reapply_warm_pool_patches() {
     fi
   done
 
-  if [[ -f "${venv_patch}" ]]; then
-    if _tool_venv_ready; then
-      echo "=== warm-pool patch $(basename "${venv_patch}") ==="
-      kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${venv_patch}"
-    else
-      echo "warning: skipping venv mount — no working ${TOOL_ROOT}/.venv (image python + pip bootstrap)" >&2
-    fi
+  # Optional PYTHONPATH fallback only. Never required — Jetson often has no host venv.
+  # Do not create .venv here (DirectoryOrCreate left an empty stub on Ada).
+  if [[ -f "${venv_patch}" ]] && _tool_venv_ready; then
+    echo "=== warm-pool patch $(basename "${venv_patch}") (optional site-packages) ==="
+    kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${venv_patch}"
+  else
+    echo "=== skip host .venv mount (image python + pip; fine on Jetson and Ada) ==="
   fi
 }
 
@@ -113,10 +105,7 @@ WP="$(
 if [[ -n "${WP}" ]]; then
   echo "=== warm-pool fastapi probe (${WP}) ==="
   kubectl exec -n "${NS}" "${WP}" -- bash -c '
-    if [[ -x /app/tool/.venv/bin/python ]]; then PY=/app/tool/.venv/bin/python
-    else PY="${AGENTIC_PYTHON:-python}"
-      if [[ "${PY}" != */* ]] && command -v "${PY}" >/dev/null 2>&1; then PY="$(command -v "${PY}")"; fi
-    fi
+    PY="$(command -v python || command -v python3 || echo python)"
     "${PY}" -c "import fastapi; print(\"fastapi_ok\", fastapi.__version__)"
   ' || echo "warning: fastapi still missing in warm-pool pod" >&2
 else

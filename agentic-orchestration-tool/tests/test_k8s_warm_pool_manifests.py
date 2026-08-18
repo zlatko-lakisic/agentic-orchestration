@@ -25,9 +25,11 @@ def test_warm_pool_bootstraps_fastapi_before_worker_loop() -> None:
     assert "pip install" in script
     assert "--warm-pool-worker" in script
     assert container["command"] == ["/bin/bash", "-c"]
-    assert "resolve_python" in script
     assert "fastapi_ok" in script
-    assert "/app/tool/.venv/bin/python" in script
+    assert "command -v python" in script
+    assert "ensure_fastapi" in script
+    env = {e["name"]: e["value"] for e in container.get("env") or []}
+    assert env.get("AGENTIC_PYTHON") == "python"
 
 
 @pytest.mark.unit
@@ -41,7 +43,7 @@ def test_warm_pool_tool_venv_hostpath_patch() -> None:
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     container = doc["spec"]["template"]["spec"]["containers"][0]
     env = {e["name"]: e["value"] for e in container.get("env") or []}
-    assert env["AGENTIC_PYTHON"] == "/app/tool/.venv/bin/python"
+    assert "AGENTIC_PYTHON" not in env
     mounts = {m["name"]: m["mountPath"] for m in container.get("volumeMounts") or []}
     assert mounts["jetson-tool-venv"] == "/app/tool/.venv"
     assert doc["spec"]["template"]["spec"]["volumes"][0]["hostPath"]["type"] == "Directory"
@@ -54,6 +56,8 @@ def test_warm_pool_fastapi_bootstrap_patch_matches_manifest() -> None:
     patch = yaml.safe_load(_BOOTSTRAP_PATCH.read_text(encoding="utf-8"))["spec"]["template"]["spec"]["containers"][0]
     assert patch["command"] == base["command"]
     assert patch["args"] == base["args"]
+    patch_env = {e["name"]: e["value"] for e in patch.get("env") or []}
+    assert patch_env.get("AGENTIC_PYTHON") == "python"
 
 
 @pytest.mark.unit

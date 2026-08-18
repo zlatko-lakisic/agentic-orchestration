@@ -1,6 +1,6 @@
-# Ada / edge: share the git-synced tool .venv (fastapi, crewai, MCP deps) with warm-pool workers.
-# Coordinator/engine use this venv via AGENTIC_PYTHON=/app/tool/.venv/bin/python in the Secret;
-# worker image python lacks those packages unless the venv is mounted.
+# Ada / edge: mount host tool .venv site-packages for PYTHONPATH (image python cannot
+# exec the venv interpreter — it points at host /usr/bin/python3.12).
+# AGENTIC_PYTHON stays "python" (worker image) via warm-pool-fastapi-bootstrap-patch.yaml.
 spec:
   template:
     spec:
@@ -10,9 +10,6 @@ spec:
             - name: jetson-tool-venv
               mountPath: /app/tool/.venv
               readOnly: true
-          env:
-            - name: AGENTIC_PYTHON
-              value: /app/tool/.venv/bin/python
       volumes:
         - name: jetson-tool-venv
           hostPath:
