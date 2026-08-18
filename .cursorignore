@@ -1,0 +1,14 @@
+# Runtime artifacts and secrets - do not index or send to the model.
+# Git already excludes these via .gitignore; this file also blocks Cursor access.
+
+.env
+.env.*
+!.env.example
+
+__output__/
+_web_uploads/
+__orchestrator_*/
+harness_runs/
+
+# Host-written models / metrics (Jetson, Ollama, jtop)
+/var/

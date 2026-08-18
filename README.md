@@ -107,10 +107,8 @@ agentic-orchestration/
 
 **Gitignored runtime data** (local only):
 
-- `__orchestrator_sessions__/` — planner history + crew excerpts per session
-- `__orchestrator_learning__/` — traces, stats, pending web ratings
-- `__orchestrator_kb__/` — knowledge base SQLite
-- `__output__/` — extracted artifacts from runs
+- `__orchestrator_*/` — sessions, learning, KB, run traces, LLM usage, API tokens, mTLS material, deals
+- `__output__/`, `_web_uploads/`, `harness_runs/` — extracted artifacts, uploads, harness JSON
 - `.env` files — never commit secrets
 
 ---

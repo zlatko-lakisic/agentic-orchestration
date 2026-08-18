@@ -93,7 +93,14 @@ Under `agentic-orchestration-tool/orchestration/`:
 | `__orchestrator_sessions__/` | Planner turns + excerpts per session slug. |
 | `__orchestrator_learning__/` | `stats.json`, `traces.jsonl`, `pending_ratings.jsonl`. |
 | `__orchestrator_kb__/` | `kb.sqlite3` (FTS index). |
+| `__orchestrator_run_traces__/` | Per-run request traces (`{run_id}.jsonl`). |
+| `__orchestrator_llm_usage__/` | Token usage ledger. |
+| `__orchestrator_api_tokens__/` | Minted API tokens and app prefs. |
+| `__orchestrator_mtls__/` | Local CA and client certs. |
+| `__orchestrator_deals__/` | Deal membership. |
 | `__output__/` | Extracted artifacts from runs. |
+| `_web_uploads/` | Web upload scratch. |
+| `harness_runs/` | Harness run JSON. |
 | `.env` | Secrets — never commit. |
 
 ## Extension points

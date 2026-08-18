@@ -14,12 +14,10 @@ env/
 .env.*
 !.env.example
 
-# Agentic tool: LLM-extracted file dumps
+# Agentic tool: local runtime data and secrets (never commit)
 __output__/
 _web_uploads/
-__orchestrator_sessions__/
-__orchestrator_learning__/
-__orchestrator_kb__/
+__orchestrator_*/
 harness_runs/
 
 # Local dev tools (not committed)
