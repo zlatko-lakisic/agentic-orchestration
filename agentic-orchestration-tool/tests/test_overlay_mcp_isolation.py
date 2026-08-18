@@ -135,3 +135,38 @@ def test_prune_keeps_overlay_filesystem_without_keywords() -> None:
         quiet=True,
     )
     assert out.mcp_providers == ["client.filesystem_local"]
+
+
+def test_apply_cap_fills_empty_task_from_overlay_agent_yaml() -> None:
+    cfg = WorkflowConfig(
+        name="dynamic-plan",
+        process="sequential",
+        topic="read hello.txt",
+        instance_key="k",
+        agent_providers=[
+            {
+                "id": "client.code_reviewer",
+                "mcp_providers": ["client.filesystem_local"],
+            }
+        ],
+        mcp_providers=[],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="client.code_reviewer",
+                description="read {{topic}}",
+                expected_output="text",
+                mcp_providers=[],
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    overlay = SimpleNamespace(allowed_mcp_provider_ids=[], allowed_skill_ids=[])
+    out = apply_overlay_client_tool_cap(
+        cfg,
+        agent_entries=list(cfg.agent_providers),
+        overlay=overlay,
+    )
+    assert out.tasks[0].mcp_providers == ["client.filesystem_local"]
+    assert out.mcp_providers == ["client.filesystem_local"]

@@ -943,7 +943,18 @@ def apply_overlay_client_tool_cap(
         entry = by_id.get(pid) or {}
         declared = _mcp_ids_from_agent_entry(entry) if entry.get("mcp_providers") is not None else None
         mcps = task.mcp_providers
-        if mcps is not None:
+        if pid.startswith("client.") and declared:
+            # Overlay YAML is the source of truth: if the planner omitted MCP ids,
+            # still attach packed tools (COMSTAR filesystem tunnel).
+            if not mcps:
+                mcps = list(declared)
+            mcps = filter_client_agent_tool_ids(
+                list(mcps),
+                agent_provider_id=pid,
+                overlay_pin=pin_mcp,
+                declared=declared,
+            )
+        elif mcps is not None:
             mcps = filter_client_agent_tool_ids(
                 list(mcps),
                 agent_provider_id=pid,
@@ -962,6 +973,14 @@ def apply_overlay_client_tool_cap(
     default_mcp = list(cfg.mcp_providers or [])
     default_skills = list(cfg.skills or [])
     if new_tasks and all(str(t.agent_provider_id or "").startswith("client.") for t in new_tasks):
+        declared_union: list[str] = []
+        for task in new_tasks:
+            for mid in task.mcp_providers or []:
+                sid = str(mid).strip()
+                if sid and sid not in declared_union:
+                    declared_union.append(sid)
+        if not default_mcp and declared_union:
+            default_mcp = list(declared_union)
         default_mcp = filter_client_agent_tool_ids(
             default_mcp,
             agent_provider_id="client._",
