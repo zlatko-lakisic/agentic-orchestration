@@ -76,6 +76,15 @@
         </div>
 
         <main class="chat-column">
+          <div class="bg-activity-banner" hidden>
+            <div class="bg-activity-copy">
+              <span class="bg-activity-message"></span>
+              <div class="bg-activity-bar-wrap" hidden>
+                <div class="bg-activity-bar"></div>
+              </div>
+            </div>
+            <button type="button" class="bg-activity-cancel" hidden>Cancel</button>
+          </div>
           <div
             id="chatPinned"
             class="run-status"
@@ -331,6 +340,15 @@
           </button>
         </div>
         <div class="host-metrics-body">
+          <div class="bg-activity-banner" hidden>
+            <div class="bg-activity-copy">
+              <span class="bg-activity-message"></span>
+              <div class="bg-activity-bar-wrap" hidden>
+                <div class="bg-activity-bar"></div>
+              </div>
+            </div>
+            <button type="button" class="bg-activity-cancel" hidden>Cancel</button>
+          </div>
           <div class="host-metrics-chart-wrap">
             <canvas id="hostMetricsChart" width="640" height="220" aria-label="CPU and memory history"></canvas>
             <div id="hostMetricsChartTooltip" class="host-metrics-chart-tooltip" hidden></div>

@@ -12,6 +12,7 @@ from typing import Any
 
 # Stable phase ids clients can switch on (forward-compatible: treat unknown as detail).
 PHASE_STARTING = "starting"
+PHASE_PREPARING = "preparing"
 PHASE_PLANNING = "planning"
 PHASE_PLANNED = "planned"
 PHASE_WARMING_AGENT = "warming_agent"
@@ -27,6 +28,7 @@ PHASE_INFO = "info"
 
 _FRIENDLY: dict[str, str] = {
     PHASE_STARTING: "Starting your request…",
+    PHASE_PREPARING: "Preparing session overlay…",
     PHASE_PLANNING: "Planning the best approach…",
     PHASE_PLANNED: "Plan ready — starting work…",
     PHASE_WARMING_AGENT: "Warming up the agent…",
@@ -121,13 +123,25 @@ _STEP_RE = re.compile(
 )
 _PROGRESS_PREFIX = re.compile(r"^\(progress\)\s*", re.I)
 _ENGINE_PREFIX = re.compile(r"^\(engine\)\s*", re.I)
+_OLLAMA_PULL_START = re.compile(r"^ollama pull:\s+starting\s+(\S+)", re.I)
+_OLLAMA_PULL_DONE = re.compile(r"^ollama pull:\s+complete\s+(\S+)", re.I)
+_OLLAMA_PULL_FAIL = re.compile(r"^ollama pull:\s+failed", re.I)
+_OLLAMA_MODEL_READY = re.compile(r"^ollama model ready:\s+(\S+)", re.I)
+_OLLAMA_MODEL_MISSING = re.compile(r"^ollama model missing:\s+([^;]+)", re.I)
+_PERCENT_RE = re.compile(r"(\d+)\s*%")
+_MCP_HANDSHAKE_FAIL = re.compile(
+    r"stdio MCP\s+(\S+)\s+failed handshake",
+    re.I,
+)
+_MCP_HANDSHAKE = re.compile(r"stdio MCP handshake:\s+(\S+)", re.I)
 
 
 def map_progress_line(line: str) -> dict[str, Any] | None:
     """
     Map a legacy progress string into structured status fields.
 
-    Returns keys: phase, message, detail?, agentProviderId?, step?, stepCount?
+    Returns keys: phase, message, detail?, agentProviderId?, step?, stepCount?,
+    percent?, model?
     or None when the line should stay stderr-only.
     """
     text = str(line or "").strip()
@@ -143,6 +157,101 @@ def map_progress_line(line: str) -> dict[str, Any] | None:
         return {"phase": PHASE_PLANNING, "message": default_message_for_phase(PHASE_PLANNING)}
     if low == "generating":
         return {"phase": PHASE_GENERATING, "message": default_message_for_phase(PHASE_GENERATING)}
+
+    pull_start = _OLLAMA_PULL_START.match(text)
+    if pull_start:
+        model = pull_start.group(1).strip()
+        return {
+            "phase": PHASE_PREPARING,
+            "message": f"Downloading {model}…",
+            "model": model,
+            "detail": text,
+        }
+    pull_done = _OLLAMA_PULL_DONE.match(text)
+    if pull_done:
+        model = pull_done.group(1).strip()
+        return {
+            "phase": PHASE_WARMING_AGENT,
+            "message": f"Downloaded {model}.",
+            "model": model,
+            "percent": 100,
+            "detail": text,
+        }
+    if _OLLAMA_PULL_FAIL.match(text):
+        return {
+            "phase": PHASE_ERROR,
+            "message": "Model download failed.",
+            "detail": text,
+        }
+    missing = _OLLAMA_MODEL_MISSING.match(text)
+    if missing:
+        model = missing.group(1).strip()
+        return {
+            "phase": PHASE_PREPARING,
+            "message": f"Downloading {model}…",
+            "model": model,
+            "detail": text,
+        }
+    ready = _OLLAMA_MODEL_READY.match(text)
+    if ready:
+        model = ready.group(1).strip()
+        return {
+            "phase": PHASE_WARMING_AGENT,
+            "message": f"{model} is ready.",
+            "model": model,
+            "detail": text,
+        }
+    if "ollama pull:" in low or ("pulling" in low and _PERCENT_RE.search(text)):
+        pct_m = _PERCENT_RE.search(text)
+        percent = int(pct_m.group(1)) if pct_m else None
+        model = ""
+        try:
+            from orchestration.background_activity import snapshot as _activity_snapshot
+
+            model = str(_activity_snapshot().get("model") or "").strip()
+        except Exception:  # noqa: BLE001
+            model = ""
+        if model and percent is not None:
+            msg = f"Downloading {model} — {percent}%"
+        elif model:
+            msg = f"Downloading {model}…"
+        elif percent is not None:
+            msg = f"Downloading model — {percent}%"
+        else:
+            msg = "Downloading model…"
+        out: dict[str, Any] = {
+            "phase": PHASE_PREPARING,
+            "message": msg,
+            "detail": text,
+        }
+        if percent is not None:
+            out["percent"] = percent
+        if model:
+            out["model"] = model
+        return out
+
+    mcp_fail = _MCP_HANDSHAKE_FAIL.search(text)
+    if mcp_fail:
+        label = mcp_fail.group(1).strip()
+        return {
+            "phase": PHASE_INFO,
+            "message": f"Connecting {label} tools… unavailable, continuing without them.",
+            "detail": text,
+        }
+    mcp_hs = _MCP_HANDSHAKE.search(text)
+    if mcp_hs:
+        label = mcp_hs.group(1).strip()
+        return {
+            "phase": PHASE_PREPARING,
+            "message": f"Connecting {label} tools…",
+            "detail": text,
+        }
+    if "failed handshake" in low:
+        return {
+            "phase": PHASE_INFO,
+            "message": "Connecting tools… some are unavailable.",
+            "detail": text,
+        }
 
     m = _ENSURE_RE.match(text)
     if m:
@@ -222,11 +331,16 @@ def map_progress_line(line: str) -> dict[str, Any] | None:
             "agentProviderId": agent,
         }
 
-    # Pull / download noise → warming
-    if any(k in low for k in ("pulling", "downloading", "ollama", "warming")):
+    if "warming" in low or "ensuring runtime" in low:
         return {
             "phase": PHASE_WARMING_AGENT,
-            "message": "Warming up models and tools…",
+            "message": default_message_for_phase(PHASE_WARMING_AGENT),
+            "detail": text,
+        }
+    if any(k in low for k in ("pulling", "downloading", "ollama")):
+        return {
+            "phase": PHASE_PREPARING,
+            "message": text if len(text) < 180 else (text[:177] + "…"),
             "detail": text,
         }
 

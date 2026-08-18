@@ -296,6 +296,23 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "count": len(sessions),
         }
 
+    @app.post("/api/v1/admin/background-activity/cancel")
+    async def api_cancel_background_activity() -> dict[str, Any]:
+        """Abort the in-flight Ollama pull / overlay prepare even if the Reach client is gone."""
+        from agent_providers.ollama_provider import cancel_active_ollama_pull
+        from orchestration.background_activity import clear_activity, snapshot
+
+        def _cancel() -> dict[str, Any]:
+            cancelled = cancel_active_ollama_pull(force=True)
+            clear_activity()
+            return {
+                "ok": True,
+                "cancelled": cancelled,
+                "backgroundActivity": snapshot(),
+            }
+
+        return await run_in_threadpool(_cancel)
+
     @app.get("/api/v1/admin/mtls/clients")
     async def api_mtls_clients() -> dict[str, Any]:
         """Issued / revoked mTLS client leaves for Admin Access."""

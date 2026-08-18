@@ -42,6 +42,11 @@ import { TopologyNode } from '../data/topology.types';
                     {{ memberNoun(group.ids.length) }}
                   </span>
                 </div>
+                @if (group.prepare?.message) {
+                  <div class="mt-1 truncate text-xs text-amber-700 dark:text-amber-300">
+                    {{ group.prepare.message }}
+                  </div>
+                }
                 <ul class="mt-1.5 space-y-0.5 font-mono text-xs text-neutral-600 dark:text-neutral-300">
                   @if (group.overlayIds?.length || group.allowedIds?.length) {
                     @if (group.overlayIds?.length) {

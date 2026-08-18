@@ -520,6 +520,17 @@ export interface HostMetrics {
     tempC?: number | null;
   } | null;
   jetson?: unknown;
+  backgroundActivity?: {
+    active?: boolean;
+    kind?: string | null;
+    message?: string;
+    percent?: number | null;
+    model?: string | null;
+    mcpId?: string | null;
+    appId?: string | null;
+    connectionId?: string | null;
+    startedAt?: string | null;
+  } | null;
 }
 
 export interface AoResourceRow {

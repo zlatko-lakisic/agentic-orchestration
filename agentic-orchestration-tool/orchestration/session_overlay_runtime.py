@@ -110,6 +110,8 @@ def ensure_session_overlay_ollama_models(
     agents: list[dict[str, Any]],
     *,
     on_progress: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    connection_id: str | None = None,
 ) -> None:
     """Pull missing models for overlay ollama agents against the resolved HTTP API base.
 
@@ -122,12 +124,20 @@ def ensure_session_overlay_ollama_models(
     if not pairs:
         return
 
-    from agent_providers.ollama_provider import ensure_ollama_model_on_api
+    from agent_providers.ollama_provider import OllamaPullCancelled, ensure_ollama_model_on_api
 
     log = on_progress or (lambda _m: None)
     with _pull_lock:
         for model, host in pairs:
-            ensure_ollama_model_on_api(model=model, host=host, on_progress=log)
+            if cancel_event is not None and cancel_event.is_set():
+                raise OllamaPullCancelled(model)
+            ensure_ollama_model_on_api(
+                model=model,
+                host=host,
+                on_progress=log,
+                cancel_event=cancel_event,
+                connection_id=connection_id,
+            )
 
 
 def ensure_client_agent_ollama_runtime(

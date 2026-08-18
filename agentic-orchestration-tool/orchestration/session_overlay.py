@@ -637,5 +637,21 @@ def list_active_overlays(*, now: float | None = None) -> list[dict[str, Any]]:
                     "byteSize": overlay.byte_size,
                 }
             )
+    try:
+        from orchestration.background_activity import snapshot as activity_snapshot
+
+        snap = activity_snapshot()
+        cid = str(snap.get("connectionId") or "")
+        if snap.get("active") and cid:
+            for row in out:
+                if str(row.get("connectionId") or "") == cid:
+                    row["prepare"] = {
+                        "phase": snap.get("kind"),
+                        "model": snap.get("model"),
+                        "percent": snap.get("percent"),
+                        "message": snap.get("message"),
+                    }
+    except Exception:  # noqa: BLE001
+        pass
     out.sort(key=lambda row: (row["appId"], row["userId"], row["sessionId"]))
     return out

@@ -377,6 +377,8 @@ def test_ws_untagged_chat_keeps_the_busy_lock(
         assert ws.receive_json()["type"] == "run_start"
         ws.send_json({"type": "chat", "text": "second"})
         busy = ws.receive_json()
+        while busy["type"] in ("status", "chunk"):
+            busy = ws.receive_json()
         assert busy["type"] == "error"
         assert "already in progress" in busy["message"]
         release.set()
@@ -770,6 +772,8 @@ def test_ws_session_overlay_register_ack_and_clear(
                 }
             )
             ack = ws.receive_json()
+            while ack["type"] in ("status", "chunk"):
+                ack = ws.receive_json()
             assert ack["type"] == "session_overlay_ack"
             assert ack["agentIds"] == ["client.kb_researcher"]
             overlay = get_overlay("ada", "sess-1")
@@ -884,10 +888,12 @@ def test_ws_session_overlay_register_ensures_ollama_model(
     reset_overlays_for_tests()
     seen: list[list] = []
 
-    def fake_ensure(agents, *, on_progress=None):
+    def fake_ensure(agents, *, on_progress=None, cancel_event=None, connection_id=None):
         seen.append(list(agents))
         if on_progress:
             on_progress("ollama model missing: qwen2.5:3b; pulling …")
+            on_progress("ollama pull: starting qwen2.5:3b")
+            on_progress("ollama pull: pulling abc  40%")
 
     monkeypatch.setattr(sor, "ensure_session_overlay_ollama_models", fake_ensure)
     headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-pull"}
@@ -919,6 +925,10 @@ def test_ws_session_overlay_register_ensures_ollama_model(
                     break
             assert frames[-1]["type"] == "session_overlay_ack"
             assert any(f.get("type") == "chunk" for f in frames)
+            assert any(
+                f.get("type") == "status" and "qwen2.5:3b" in str(f.get("message") or "")
+                for f in frames
+            )
             assert seen
             assert seen[0][0]["ollama_host"] == "http://host.k3s.internal:11434"
 

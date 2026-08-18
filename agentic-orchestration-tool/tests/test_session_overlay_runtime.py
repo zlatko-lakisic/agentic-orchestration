@@ -92,7 +92,7 @@ def test_ensure_missing_model_triggers_pull(
     monkeypatch.setattr(
         op,
         "pull_ollama_model",
-        lambda model, host: pulled.append((model, host)),
+        lambda model, host, **_k: pulled.append((model, host)),
     )
     # After pull, pretend tags now include the model.
     state = {"pulled": False}
@@ -102,7 +102,7 @@ def test_ensure_missing_model_triggers_pull(
             return True
         return state["pulled"] and model == "qwen2.5:3b"
 
-    def pull(model: str, host: str) -> None:
+    def pull(model: str, host: str, **_kwargs) -> None:
         pulled.append((model, host))
         state["pulled"] = True
 
@@ -148,7 +148,7 @@ def test_ensure_works_under_kubernetes_selfcontained_false(
     monkeypatch.setattr(op, "is_ollama_healthy", lambda _h: True)
     monkeypatch.setattr(op, "ollama_has_model", lambda _h, _m: False)
 
-    def pull(model: str, host: str) -> None:
+    def pull(model: str, host: str, **_kwargs) -> None:
         pulled.append(model)
         monkeypatch.setattr(op, "ollama_has_model", lambda _h, m: m == model)
 

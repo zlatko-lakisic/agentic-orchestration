@@ -42,6 +42,8 @@ import {
   matchAdminRoute,
   buildCatalogs,
   fetchJson,
+  fetchEngineBackgroundActivity,
+  cancelEngineBackgroundActivity,
 } from "./lib/admin-api.mjs";
 import {
   authenticateBearer,
@@ -695,6 +697,8 @@ async function pushHostMetricsOnce(ws) {
   if (ws.readyState !== 1) return;
   try {
     const metrics = await sampleHostMetrics();
+    const activity = await fetchEngineBackgroundActivity();
+    if (activity) metrics.backgroundActivity = activity;
     sendJson(ws, { type: "host_metrics", ...metrics });
   } catch {
     /* ignore sampler errors */
@@ -2539,7 +2543,9 @@ function handleHttp(req, res) {
   if (isApiHostMetrics(req)) {
     if (!applyWebUiAccessGate(req, res, { allowBootstrap: false })) return;
     sampleHostMetrics()
-      .then((metrics) => {
+      .then(async (metrics) => {
+        const activity = await fetchEngineBackgroundActivity();
+        if (activity) metrics.backgroundActivity = activity;
         res.writeHead(200, {
           "Content-Type": "application/json; charset=utf-8",
           "Cache-Control": "no-store",
@@ -3472,6 +3478,23 @@ wss.on("connection", (ws, req) => {
     }
     if (msg.type === "host_metrics_unsubscribe") {
       stopHostMetricsPush(ws);
+      return;
+    }
+    if (msg.type === "background_activity_cancel") {
+      void cancelEngineBackgroundActivity().then((result) => {
+        sendJson(ws, {
+          type: "status",
+          processing: false,
+          phase: result.ok === false ? "error" : "cancelled",
+          message:
+            result.ok === false
+              ? String(result.error || "Cancel failed")
+              : result.cancelled === false
+                ? "No background download to cancel."
+                : "Background work cancelled.",
+          code: result.ok === false ? "error" : "cancelled",
+        });
+      });
       return;
     }
     if (msg.type === "admin_logs_subscribe") {

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+import threading
 from typing import Any, Callable, Iterator, TextIO
 
 import platform
@@ -31,6 +32,121 @@ except ImportError:  # pragma: no cover
 
 # Skip redundant `ollama pull` when multiple providers share the same model and host.
 _ollama_pull_done: set[str] = set()
+
+_active_pull_lock = threading.Lock()
+_active_pull: dict[str, Any] | None = None
+
+
+class OllamaPullCancelled(RuntimeError):
+    """Raised when an in-flight ``ollama pull`` is aborted by the client or admin."""
+
+    code = "cancelled"
+
+    def __init__(self, model: str = "", message: str | None = None) -> None:
+        model_s = str(model or "").strip()
+        super().__init__(
+            message
+            or (
+                f"Download of {model_s} was cancelled."
+                if model_s
+                else "Model download was cancelled."
+            )
+        )
+        self.model = model_s
+
+
+def _register_active_pull(
+    *,
+    model: str,
+    host: str,
+    cancel_event: threading.Event,
+    closer: Callable[[], None] | None = None,
+    proc: Any = None,
+    connection_id: str | None = None,
+) -> None:
+    global _active_pull
+    with _active_pull_lock:
+        _active_pull = {
+            "model": model,
+            "host": host,
+            "event": cancel_event,
+            "closer": closer,
+            "proc": proc,
+            "connectionId": str(connection_id or "").strip() or None,
+        }
+
+
+def _set_active_pull_handle(*, closer: Callable[[], None] | None = None, proc: Any = None) -> None:
+    with _active_pull_lock:
+        if _active_pull is None:
+            return
+        if closer is not None:
+            _active_pull["closer"] = closer
+        if proc is not None:
+            _active_pull["proc"] = proc
+
+
+def _clear_active_pull() -> None:
+    global _active_pull
+    with _active_pull_lock:
+        _active_pull = None
+
+
+def active_ollama_pull() -> dict[str, Any] | None:
+    with _active_pull_lock:
+        if not _active_pull:
+            return None
+        return {
+            "model": _active_pull.get("model"),
+            "host": _active_pull.get("host"),
+            "connectionId": _active_pull.get("connectionId"),
+        }
+
+
+def cancel_active_ollama_pull(
+    *,
+    connection_id: str | None = None,
+    force: bool = False,
+) -> bool:
+    """Abort the in-flight HTTP/CLI pull. ``force`` ignores connection ownership."""
+    with _active_pull_lock:
+        state = _active_pull
+        if not state:
+            return False
+        owner = str(state.get("connectionId") or "")
+        cid = str(connection_id or "").strip()
+        if cid and owner and owner != cid and not force:
+            return False
+        event = state.get("event")
+        closer = state.get("closer")
+        proc = state.get("proc")
+    if isinstance(event, threading.Event):
+        event.set()
+    if callable(closer):
+        try:
+            closer()
+        except Exception:  # noqa: BLE001
+            pass
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
+def _pull_cancel_event(explicit: threading.Event | None) -> threading.Event:
+    if explicit is not None:
+        return explicit
+    with _active_pull_lock:
+        if _active_pull and isinstance(_active_pull.get("event"), threading.Event):
+            return _active_pull["event"]
+    return threading.Event()
+
+
+def _raise_if_pull_cancelled(event: threading.Event, model: str) -> None:
+    if event.is_set():
+        raise OllamaPullCancelled(model)
 
 # Set by runner.build_workflow when the CLI run is not --quiet (e.g. web "Show crew log").
 def _ollama_cli_inherit_stdio() -> bool:
@@ -67,6 +183,12 @@ def _emit_pull_progress_line(text: str) -> None:
     msg = str(text or "").strip()
     if not msg:
         return
+    try:
+        from orchestration.background_activity import observe_progress
+
+        observe_progress(msg)
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from orchestration.progress_sink import emit_progress
 
@@ -233,6 +355,8 @@ def ensure_ollama_model_on_api(
     model: str,
     host: str,
     on_progress: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    connection_id: str | None = None,
 ) -> None:
     """Ensure ``model`` exists on an already-running Ollama HTTP API (tags → pull).
 
@@ -256,7 +380,14 @@ def ensure_ollama_model_on_api(
         return
     log(f"ollama model missing: {model_clean}; pulling via {host_n} …")
     try:
-        pull_ollama_model(model_clean, host_n)
+        pull_ollama_model(
+            model_clean,
+            host_n,
+            cancel_event=cancel_event,
+            connection_id=connection_id,
+        )
+    except OllamaPullCancelled:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             f"model {model_clean!r} not available and pull failed: {exc}"
@@ -422,11 +553,18 @@ def _start_resource_broker_process(*, public_host: str, upstream: str) -> None:
 
 
 
-def _iter_ollama_pull_ndjson(resp: Any) -> Iterator[dict[str, Any]]:
+def _iter_ollama_pull_ndjson(
+    resp: Any,
+    *,
+    cancel_event: threading.Event | None = None,
+    model: str = "",
+) -> Iterator[dict[str, Any]]:
     while True:
+        _raise_if_pull_cancelled(cancel_event or threading.Event(), model)
         raw_b = resp.readline()
         if not raw_b:
             break
+        _raise_if_pull_cancelled(cancel_event or threading.Event(), model)
         line = raw_b.decode("utf-8", errors="replace").strip()
         if not line:
             continue
@@ -458,13 +596,59 @@ def _format_api_pull_progress_display_line(obj: dict[str, Any], *, model: str) -
     return None
 
 
-def _pull_ollama_model_via_http_api(model: str, host: str) -> None:
+def _consume_api_pull_stream(
+    resp: Any,
+    *,
+    model: str,
+    cancel_event: threading.Event,
+) -> None:
+    iterator = _iter_ollama_pull_ndjson(resp, cancel_event=cancel_event, model=model)
+    if not _ollama_cli_inherit_stdio():
+        if not _ollama_pull_progress_stderr_enabled():
+            for obj in iterator:
+                _format_api_pull_progress_display_line(obj, model=model)
+            return
+        _emit_pull_progress_line(f"ollama pull: starting {model}")
+        for obj in iterator:
+            pl = _format_api_pull_progress_display_line(obj, model=model)
+            if pl:
+                norm = _normalize_ollama_pull_display_line(pl + "\n")
+                if norm:
+                    _emit_pull_progress_line(f"ollama pull: {norm}")
+        _emit_pull_progress_line(f"ollama pull: complete {model}")
+        return
+
+    def progress_lines() -> Iterator[str]:
+        for obj in iterator:
+            pl = _format_api_pull_progress_display_line(obj, model=model)
+            if pl:
+                yield pl + "\n"
+
+    _rewrite_ollama_pull_to_single_line(progress_lines())  # type: ignore[arg-type]
+
+
+def _pull_ollama_model_via_http_api(
+    model: str,
+    host: str,
+    *,
+    cancel_event: threading.Event | None = None,
+    connection_id: str | None = None,
+) -> None:
     """Pull via POST /api/pull so the daemon at `host` downloads into its own model dir.
 
     That matches inference (same `OLLAMA_HOST`), whereas a local `ollama pull` subprocess
     can still interact with a different Ollama home (e.g. root `~/.ollama`) if another
     `ollama serve` is bound to the address or the CLI resolves storage differently.
+    Closing the HTTP stream (cancel) aborts the daemon-side transfer the same way
+    Ctrl+C aborts ``ollama pull``.
     """
+    event = _pull_cancel_event(cancel_event)
+    _register_active_pull(
+        model=model,
+        host=host,
+        cancel_event=event,
+        connection_id=connection_id,
+    )
     url = f"{host.rstrip('/')}/api/pull"
     body = json.dumps({"model": model, "stream": True}).encode("utf-8")
     req = urllib.request.Request(
@@ -473,32 +657,18 @@ def _pull_ollama_model_via_http_api(model: str, host: str) -> None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    resp = None
     try:
-        with urllib.request.urlopen(req, timeout=None) as resp:
-            if not _ollama_cli_inherit_stdio():
-                if not _ollama_pull_progress_stderr_enabled():
-                    for obj in _iter_ollama_pull_ndjson(resp):
-                        _format_api_pull_progress_display_line(obj, model=model)
-                    return
-
-                _emit_pull_progress_line(f"ollama pull: starting {model}")
-                for obj in _iter_ollama_pull_ndjson(resp):
-                    pl = _format_api_pull_progress_display_line(obj, model=model)
-                    if pl:
-                        norm = _normalize_ollama_pull_display_line(pl + "\n")
-                        if norm:
-                            _emit_pull_progress_line(f"ollama pull: {norm}")
-                _emit_pull_progress_line(f"ollama pull: complete {model}")
-                return
-
-            def progress_lines() -> Iterator[str]:
-                for obj in _iter_ollama_pull_ndjson(resp):
-                    pl = _format_api_pull_progress_display_line(obj, model=model)
-                    if pl:
-                        yield pl + "\n"
-
-            _rewrite_ollama_pull_to_single_line(progress_lines())  # type: ignore[arg-type]
+        _raise_if_pull_cancelled(event, model)
+        resp = urllib.request.urlopen(req, timeout=None)
+        _set_active_pull_handle(closer=resp.close)
+        _consume_api_pull_stream(resp, model=model, cancel_event=event)
+    except OllamaPullCancelled:
+        _emit_pull_progress_line(f"ollama pull: cancelled {model}")
+        raise
     except urllib.error.HTTPError as exc:
+        if event.is_set():
+            raise OllamaPullCancelled(model) from exc
         detail = ""
         try:
             detail = exc.read().decode("utf-8", errors="replace").strip()
@@ -509,105 +679,113 @@ def _pull_ollama_model_via_http_api(model: str, host: str) -> None:
             msg = f"{msg} {detail}"
         raise RuntimeError(msg) from exc
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        if event.is_set():
+            raise OllamaPullCancelled(model) from exc
         raise RuntimeError(
             f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
         ) from exc
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:  # noqa: BLE001
+                pass
+        _clear_active_pull()
 
 
-def pull_ollama_model(model: str, host: str) -> None:
+def pull_ollama_model(
+    model: str,
+    host: str,
+    *,
+    cancel_event: threading.Event | None = None,
+    connection_id: str | None = None,
+) -> None:
     cache_key = f"{host.rstrip('/')}\0{model}"
     if cache_key in _ollama_pull_done:
         return
 
     base = host.rstrip("/")
     if base.lower().startswith("http://") or base.lower().startswith("https://"):
-        _pull_ollama_model_via_http_api(model, base)
+        _pull_ollama_model_via_http_api(
+            model,
+            base,
+            cancel_event=cancel_event,
+            connection_id=connection_id,
+        )
         _ollama_pull_done.add(cache_key)
         return
 
     env = os.environ.copy()
     env["OLLAMA_HOST"] = host
+    event = _pull_cancel_event(cancel_event)
+    _register_active_pull(
+        model=model,
+        host=host,
+        cancel_event=event,
+        connection_id=connection_id,
+    )
 
-    if not _ollama_cli_inherit_stdio():
-        if not _ollama_pull_progress_stderr_enabled():
-            out, err = _ollama_subprocess_stdio()
-            try:
-                subprocess.run(
-                    ["ollama", "pull", model],
-                    env=env,
-                    check=True,
-                    stdout=out,
-                    stderr=err,
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(
-                    f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
-                ) from exc
-            _ollama_pull_done.add(cache_key)
-            return
-
-        _emit_pull_progress_line(f"ollama pull: starting {model}")
+    def _run_cli_pull(*, capture: bool) -> None:
         try:
             proc = subprocess.Popen(
                 ["ollama", "pull", model],
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE if capture else None,
+                stderr=subprocess.STDOUT if capture else None,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
             )
         except Exception as exc:  # noqa: BLE001
-            _emit_pull_progress_line(f"ollama pull: failed to start ({model})")
+            if capture:
+                _emit_pull_progress_line(f"ollama pull: failed to start ({model})")
             raise RuntimeError(
                 f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
             ) from exc
-
-        assert proc.stdout is not None
+        _set_active_pull_handle(closer=proc.terminate, proc=proc)
+        assert proc.stdout is not None or not capture
         try:
-            for raw in proc.stdout:
-                line = _normalize_ollama_pull_display_line(raw)
-                if line:
-                    _emit_pull_progress_line(f"ollama pull: {line}")
+            if capture:
+                _emit_pull_progress_line(f"ollama pull: starting {model}")
+                assert proc.stdout is not None
+                for raw in proc.stdout:
+                    _raise_if_pull_cancelled(event, model)
+                    line = _normalize_ollama_pull_display_line(raw)
+                    if line:
+                        _emit_pull_progress_line(f"ollama pull: {line}")
+            else:
+                while proc.poll() is None:
+                    _raise_if_pull_cancelled(event, model)
+                    time.sleep(0.2)
+        except OllamaPullCancelled:
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+            _emit_pull_progress_line(f"ollama pull: cancelled {model}")
+            raise
         finally:
             rc = proc.wait()
+        if event.is_set():
+            raise OllamaPullCancelled(model)
         if rc != 0:
-            _emit_pull_progress_line(f"ollama pull: failed ({model})")
+            if capture:
+                _emit_pull_progress_line(f"ollama pull: failed ({model})")
             raise RuntimeError(
                 f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
             )
-        _emit_pull_progress_line(f"ollama pull: complete {model}")
+        if capture:
+            _emit_pull_progress_line(f"ollama pull: complete {model}")
+
+    try:
+        if not _ollama_cli_inherit_stdio():
+            _run_cli_pull(capture=_ollama_pull_progress_stderr_enabled())
+        else:
+            _run_cli_pull(capture=True)
         _ollama_pull_done.add(cache_key)
-        return
-
-    try:
-        proc = subprocess.Popen(
-            ["ollama", "pull", model],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(
-            f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
-        ) from exc
-
-    assert proc.stdout is not None
-    try:
-        _rewrite_ollama_pull_to_single_line(proc.stdout)
     finally:
-        rc = proc.wait()
-    if rc != 0:
-        raise RuntimeError(
-            f"Failed to pull Ollama model '{model}'. Check model name and Ollama status."
-        )
-
-    _ollama_pull_done.add(cache_key)
+        _clear_active_pull()
 
 
 def ensure_ollama_runtime(*, model: str, host: str) -> None:

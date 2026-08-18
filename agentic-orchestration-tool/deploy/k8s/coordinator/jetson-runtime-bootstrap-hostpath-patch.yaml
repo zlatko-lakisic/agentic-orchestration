@@ -37,6 +37,12 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/mcp_stdio_jsonrpc_filter.py
               subPath: mcp_stdio_jsonrpc_filter.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/background_activity.py
+              subPath: background_activity.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/run_status.py
+              subPath: run_status.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

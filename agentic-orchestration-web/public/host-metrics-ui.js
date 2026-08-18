@@ -1,3 +1,5 @@
+import { getActiveWebSocket } from "./ws-singleton.js";
+
 const HISTORY_MAX = 90;
 const UI_UPDATE_MIN_MS = 1000;
 const COLORS = {
@@ -207,6 +209,50 @@ function drawLineChart(canvas, history, { width, height, pad = 12, showGrid = fa
   }
 }
 
+function cancelBackgroundActivity() {
+  const ws = getActiveWebSocket();
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    ws.send(JSON.stringify({ type: "background_activity_cancel" }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function bindBackgroundActivityCancel(root) {
+  root.querySelectorAll(".bg-activity-cancel").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelBackgroundActivity();
+    });
+  });
+}
+
+/** @param {Record<string, unknown> | null | undefined} activity */
+function renderBackgroundActivity(activity) {
+  const banners = document.querySelectorAll(".bg-activity-banner");
+  const active = Boolean(activity && activity.active);
+  const message = String(activity?.message || "").trim();
+  const kind = String(activity?.kind || "");
+  const percentRaw = Number(activity?.percent);
+  const hasPercent = Number.isFinite(percentRaw);
+  const canCancel = kind === "model_pull";
+  for (const banner of banners) {
+    banner.hidden = !active || !message;
+    const msgEl = banner.querySelector(".bg-activity-message");
+    if (msgEl) msgEl.textContent = message || "Working…";
+    const barWrap = banner.querySelector(".bg-activity-bar-wrap");
+    const bar = banner.querySelector(".bg-activity-bar");
+    if (barWrap) barWrap.hidden = !hasPercent;
+    if (bar && hasPercent) bar.style.width = `${Math.max(0, Math.min(100, percentRaw))}%`;
+    const cancelBtn = banner.querySelector(".bg-activity-cancel");
+    if (cancelBtn) cancelBtn.hidden = !canCancel;
+  }
+}
+
 /** @param {Record<string, unknown>} data */
 export function handleHostMetricsMessage(data) {
   if (!data || data.type !== "host_metrics") return;
@@ -260,6 +306,8 @@ export function initHostMetricsUi() {
   const jetsonPowerEl = document.getElementById("hostMetricsJetsonPower");
 
   if (!btn || !spark) return;
+
+  bindBackgroundActivityCancel(document);
 
   const history = [];
   let modalOpen = false;
@@ -496,6 +544,7 @@ export function initHostMetricsUi() {
   function applySample(sample) {
     lastSample = sample;
     pushHistory(sample);
+    renderBackgroundActivity(sample?.backgroundActivity);
     btn.classList.remove("stale");
     // Throttle paints so background tabs / 2s WS pushes do not thrash the GPU.
     const now = Date.now();

@@ -60,6 +60,13 @@ export interface TopologyAppMembers {
   overlayIds?: string[];
   /** Stock AO agent ids allowlisted via Reach ``allowedAgentProviderIds``. */
   allowedIds?: string[];
+  /** Overlay prepare / model pull in flight for this app's session. */
+  prepare?: {
+    phase?: string;
+    model?: string | null;
+    percent?: number | null;
+    message?: string;
+  };
 }
 
 export interface TopologyNode {

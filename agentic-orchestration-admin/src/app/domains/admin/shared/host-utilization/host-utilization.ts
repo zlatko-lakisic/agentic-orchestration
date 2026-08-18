@@ -4,6 +4,7 @@ import {
   OnInit,
   computed,
   inject,
+  signal,
 } from '@angular/core';
 import { MatCard } from '@angular/material/card';
 import { MatDivider } from '@angular/material/divider';
@@ -24,6 +25,7 @@ import {
   ChartComponent,
 } from 'ng-apexcharts';
 import { AoResources, AoResourceRow } from '@/app/core/ao-api/types';
+import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
@@ -60,6 +62,36 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
           </div>
         </div>
       </div>
+
+      @if (backgroundActivity()?.active) {
+        <div
+          class="mx-5 mt-3 flex items-center gap-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2"
+          role="status"
+        >
+          <div class="min-w-0 flex-auto">
+            <div class="truncate text-sm">
+              {{ backgroundActivity()?.message || 'Working…' }}
+            </div>
+            @if (backgroundActivity()?.percent != null) {
+              <mat-progress-bar
+                class="mt-2"
+                mode="determinate"
+                [value]="backgroundActivity()?.percent ?? 0"
+              />
+            }
+          </div>
+          @if (backgroundActivity()?.kind === 'model_pull') {
+            <button
+              type="button"
+              class="shrink-0 rounded-md border border-amber-500/60 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-400/20 dark:text-amber-200"
+              [disabled]="cancelling()"
+              (click)="cancelBackground()"
+            >
+              {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
+            </button>
+          }
+        </div>
+      }
 
       <div class="mt-2 grid grid-cols-1 gap-2 px-2 pb-2 xl:grid-cols-2">
         <div class="flex min-w-0 flex-col">
@@ -323,6 +355,11 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
 export class HostUtilization implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
   private theming = inject(Theming);
+  private api = inject(AoApi);
+  readonly cancelling = signal(false);
+  readonly backgroundActivity = computed(
+    () => this.live.metrics()?.backgroundActivity ?? null
+  );
 
   ngOnInit() {
     this.live.acquire({ feeds: ['ao_resources'] });
@@ -330,6 +367,15 @@ export class HostUtilization implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.live.release();
+  }
+
+  cancelBackground() {
+    if (this.cancelling()) return;
+    this.cancelling.set(true);
+    this.api.cancelBackgroundActivity().subscribe({
+      next: () => this.cancelling.set(false),
+      error: () => this.cancelling.set(false),
+    });
   }
 
   readonly aoResources = computed(() =>

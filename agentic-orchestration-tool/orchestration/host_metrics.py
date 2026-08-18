@@ -1559,4 +1559,10 @@ def sample_host_metrics() -> dict[str, Any]:
         "memory": sample_memory(),
         "gpu": _gpu_vram_block(),
     }
+    try:
+        from orchestration.background_activity import snapshot as activity_snapshot
+
+        base["backgroundActivity"] = activity_snapshot()
+    except Exception:  # noqa: BLE001
+        base["backgroundActivity"] = {"active": False}
     return merge_jetson_into_metrics(base, read_jetson_jtop_snapshot())

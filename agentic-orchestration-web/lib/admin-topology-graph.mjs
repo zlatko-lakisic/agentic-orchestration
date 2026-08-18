@@ -117,6 +117,9 @@ function groupSessionsByAppId(sessionList) {
     }
     const ip = String(s.clientIp || s.client_ip || "").trim();
     if (ip) g.clientIps.push(ip);
+    if (s.prepare && typeof s.prepare === "object" && s.prepare.message) {
+      g.prepare = s.prepare;
+    }
   }
   for (const g of byApp.values()) {
     g.agentIds = uniqueSorted(g.agentIds);
@@ -151,6 +154,7 @@ function appMembersFor(appGroups, field) {
       instanceCount: g.instanceCount || g.sessions?.length || 0,
       ids,
     };
+    if (g.prepare) row.prepare = g.prepare;
     if (field === "agents") {
       if (overlayIds.length) row.overlayIds = overlayIds;
       if (allowedIds.length) row.allowedIds = allowedIds;
@@ -453,7 +457,9 @@ export async function buildTopologyGraph(ctx) {
             band: "application",
             appGroup: "reach",
             label: g.appId,
-            sublabel: `${nInst} instance${nInst === 1 ? "" : "s"}${ipHint}`,
+            sublabel: g.prepare?.message
+              ? `${nInst} instance${nInst === 1 ? "" : "s"} · ${g.prepare.message}`
+              : `${nInst} instance${nInst === 1 ? "" : "s"}${ipHint}`,
             status: "healthy",
             instrumented: true,
             deployed: true,

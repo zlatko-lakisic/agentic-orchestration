@@ -1486,6 +1486,46 @@ async function resolveEngineBase() {
   };
 }
 
+let _engineActivityCache = { at: 0, value: null };
+
+async function fetchEngineBackgroundActivity() {
+  const now = Date.now();
+  if (now - _engineActivityCache.at < 1500) {
+    return _engineActivityCache.value;
+  }
+  const resolved = await resolveEngineBase();
+  if (!resolved.ok) {
+    _engineActivityCache = { at: now, value: null };
+    return null;
+  }
+  const result = await fetchJsonRequest(`${resolved.base}/api/host-metrics`, {
+    timeoutMs: 1200,
+    tlsInsecure: resolved.tlsInsecure,
+  });
+  const activity =
+    result.ok && result.json && typeof result.json.backgroundActivity === "object"
+      ? result.json.backgroundActivity
+      : null;
+  _engineActivityCache = { at: now, value: activity };
+  return activity;
+}
+
+async function cancelEngineBackgroundActivity() {
+  const resolved = await resolveEngineBase();
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.error || "engine unreachable" };
+  }
+  _engineActivityCache = { at: 0, value: null };
+  const result = await fetchJsonRequest(
+    `${resolved.base}/api/v1/admin/background-activity/cancel`,
+    { method: "POST", body: {}, timeoutMs: 4000, tlsInsecure: resolved.tlsInsecure },
+  );
+  if (!result.ok) {
+    return { ok: false, error: result.error || `HTTP ${result.status || "?"}` };
+  }
+  return result.json || { ok: true };
+}
+
 /**
  * Probe engine from the coordinator pod. Prefer in-cluster Service DNS /
  * host.k3s.internal — 127.0.0.1 is the web container, not the engine hostPort.
@@ -3198,6 +3238,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/mtls/enroll-tokens") return { name: "mtls_enroll_tokens" };
   if (p === "/api/v1/admin/control") return { name: "control" };
   if (p === "/api/v1/admin/control/restart") return { name: "control_restart" };
+  if (p === "/api/v1/admin/background-activity/cancel") return { name: "background_activity_cancel" };
   return null;
 }
 
@@ -3239,6 +3280,7 @@ function isTokenWriteRoute(route, method) {
   if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
   if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
   if (route.name === "control_restart" && method === "POST") return true;
+  if (route.name === "background_activity_cancel" && method === "POST") return true;
   return false;
 }
 
@@ -3703,6 +3745,10 @@ async function handleAdminApi(req, res, ctx) {
       }
       return true;
     }
+    if (route.name === "background_activity_cancel" && method === "POST") {
+      send(200, await cancelEngineBackgroundActivity());
+      return true;
+    }
   } catch (err) {
     send(500, { error: err instanceof Error ? err.message : "Admin API error" });
     return true;
@@ -3734,6 +3780,8 @@ export {
   buildLlmSpendSeries,
   resolveSpendWindowHours,
   fetchJson,
+  fetchEngineBackgroundActivity,
+  cancelEngineBackgroundActivity,
   isSecretKey,
   isInjectedK8sEnvKey,
   KEY_META,

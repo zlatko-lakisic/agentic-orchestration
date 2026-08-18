@@ -21,6 +21,29 @@ def test_map_progress_planning_and_agent() -> None:
     assert gen["phase"] == PHASE_GENERATING
 
 
+def test_map_progress_ollama_pull_includes_model_and_percent() -> None:
+    from orchestration.background_activity import reset_for_tests, observe_progress
+
+    reset_for_tests()
+    start = map_progress_line("ollama pull: starting qwen3.6:27b")
+    assert start["phase"] == "preparing"
+    assert "qwen3.6:27b" in start["message"]
+    observe_progress("ollama pull: starting qwen3.6:27b")
+    pct = map_progress_line("ollama pull: pulling 83c54730a5fe  84%")
+    assert pct["percent"] == 84
+    assert "84%" in pct["message"]
+    assert "qwen3.6:27b" in pct["message"]
+    done = map_progress_line("ollama pull: complete qwen3.6:27b")
+    assert done["percent"] == 100
+    reset_for_tests()
+
+
+def test_map_progress_mcp_handshake() -> None:
+    mapped = map_progress_line("stdio MCP handshake: filesystem_local")
+    assert mapped["phase"] == "preparing"
+    assert "filesystem_local" in mapped["message"]
+
+
 def test_map_progress_plan_and_exec() -> None:
     planned = map_progress_line("plan: Research irrigation options")
     assert planned["phase"] == "planned"

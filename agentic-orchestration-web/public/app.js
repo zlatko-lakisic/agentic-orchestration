@@ -1136,6 +1136,18 @@ if (globalThis.__agenticOrchestratorUiInit) {
         }
         return;
       }
+      if (data.type === "status") {
+        const msg = String(data.message || "").trim();
+        if (msg && runActive) {
+          setRunStatusText(msg);
+        } else if (msg && data.processing) {
+          showActivityBar();
+          if (activityLabel) activityLabel.textContent = msg;
+        } else if (msg && activityLabel && !activityBar?.hidden) {
+          activityLabel.textContent = msg;
+        }
+        return;
+      }
       if (data.type === "run_start") {
         stdoutBuf = "";
         stderrBuf = "";

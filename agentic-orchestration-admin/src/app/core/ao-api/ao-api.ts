@@ -307,6 +307,15 @@ export class AoApi {
   controlRestart(body: { target: string; confirm?: string }) {
     return this.post<ControlRestartResult>('/api/v1/admin/control/restart', body);
   }
+
+  cancelBackgroundActivity() {
+    return this.post<{
+      ok?: boolean;
+      cancelled?: boolean;
+      error?: string;
+      backgroundActivity?: HostMetrics['backgroundActivity'];
+    }>('/api/v1/admin/background-activity/cancel', {});
+  }
 }
 
 function normalizeEffective(raw: EffectiveConfigResponse): EffectiveConfigEntry[] {

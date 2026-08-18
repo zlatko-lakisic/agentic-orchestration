@@ -8,7 +8,7 @@ frontends can migrate at no cost:
 Client → server  ``ping``, ``client_hello``, ``host_metrics_subscribe``,
                  ``host_metrics_unsubscribe``, ``chat``, ``direct_agent``, ``cancel``, ``rate``,
                  ``session_overlay_register``, ``session_overlay_clear``,
-                 ``mcp_tunnel_response``
+                 ``mcp_tunnel_response``, ``background_activity_cancel``
 Server → client  ``hello``, ``pong``, ``host_metrics``, ``preflight``,
                  ``run_start``, ``status``, ``chunk``, ``run_end``, ``error``, ``rated``,
                  ``session_overlay_ack``, ``session_overlay_cleared``,
@@ -22,7 +22,10 @@ stderr ``chunk`` lines still stream for older clients. When
 emitted as ``chunk`` with ``stream: "thought"`` (ignored by stdout concatenators).
 When ``AGENTIC_SERVE_STREAM_STDOUT=1``, the final answer may arrive as multiple
 ``stream: "stdout"`` chunks. Clients may send ``cancel`` with ``questionId`` to
-stop one in-flight run without closing the socket.
+stop one in-flight run without closing the socket. ``cancel`` with
+``target: "overlay"`` / ``"background"`` (or no matching run while overlay
+prepare is in progress) aborts the in-flight Ollama pull. ``background_activity_cancel``
+does the same for dashboard / admin clients.
 
 While a run executes, ``status`` keepalives repeat the current phase with the
 elapsed time every ``AGENTIC_SERVE_HEARTBEAT_SECONDS`` seconds (default 10, ``0``
@@ -52,6 +55,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -184,6 +188,8 @@ class WsConnection:
         # Latest phase/message so heartbeats repeat what the run is actually doing.
         self._last_phase: str | None = None
         self._last_message: str | None = None
+        self._overlay_preparing = False
+        self._overlay_cancel = threading.Event()
 
     # ---- transport -------------------------------------------------------
 
@@ -272,10 +278,25 @@ class WsConnection:
 
     def _progress_to_status(self, line: str, tag: dict[str, Any]) -> None:
         """Map a legacy progress line to status + keep stderr chunk for older clients."""
+        from orchestration.background_activity import observe_progress, should_emit_status
         from orchestration.run_status import build_status_event, map_progress_line
 
         mapped = map_progress_line(line)
         text = str(line or "").strip()
+        try:
+            observe_progress(
+                text,
+                connection_id=self.connection_id,
+                app_id=str(tag.get("app_id") or "") or None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        message = str((mapped or {}).get("message") or text)
+        percent = (mapped or {}).get("percent")
+        if mapped and not should_emit_status(
+            message, percent=int(percent) if isinstance(percent, int) else None
+        ):
+            return
         self.send_threadsafe(
             {
                 "type": "chunk",
@@ -307,6 +328,11 @@ class WsConnection:
                 )
         if not mapped:
             return
+        extra: dict[str, Any] = {}
+        if mapped.get("percent") is not None:
+            extra["percent"] = mapped["percent"]
+        if mapped.get("model"):
+            extra["model"] = mapped["model"]
         event = build_status_event(
             phase=str(mapped.get("phase") or "info"),
             processing=True,
@@ -317,6 +343,7 @@ class WsConnection:
             step_count=mapped.get("stepCount"),
             question_id=tag.get("question_id"),
             run_id=tag.get("run_id"),
+            extra=extra or None,
         )
         self._remember_status(event)
         self.send_threadsafe(event)
@@ -446,6 +473,7 @@ class WsConnection:
 
         clear_overlay_for_connection(self.connection_id)
         unregister_connection_bridge(self.connection_id)
+        self._cancel_overlay_prepare(force_pull=False)
 
     # ---- dispatch --------------------------------------------------------
 
@@ -490,6 +518,9 @@ class WsConnection:
             return
         if kind == "cancel":
             await self.handle_cancel(message)
+            return
+        if kind == "background_activity_cancel":
+            await self.handle_background_activity_cancel()
             return
         if kind in ("chat", "direct_agent"):
             await self.handle_run(message, kind)
@@ -606,24 +637,59 @@ class WsConnection:
             return
 
         def progress(line: str) -> None:
-            self.send_threadsafe(
-                {"type": "chunk", "stream": "stderr", "text": f"(engine) {line}\n"}
-            )
+            self._progress_to_status(line, {})
 
+        self._overlay_cancel.clear()
+        self._overlay_preparing = True
+        from orchestration.background_activity import clear_activity, set_activity
+        from orchestration.progress_sink import progress_callback
+        from agent_providers.ollama_provider import OllamaPullCancelled
+
+        set_activity(
+            kind="overlay_prepare",
+            message="Preparing session overlay…",
+            connection_id=self.connection_id,
+            app_id=str(overlay.app_id or ""),
+        )
+        self._emit_status(
+            phase="preparing",
+            processing=True,
+            tag={},
+            message="Preparing session overlay…",
+        )
+        heartbeat = asyncio.create_task(self._heartbeat({}, time.monotonic()))
         try:
-            await asyncio.to_thread(
-                ensure_session_overlay_ollama_models,
-                overlay.agents,
-                on_progress=progress,
+            with progress_callback(progress):
+                await asyncio.to_thread(
+                    ensure_session_overlay_ollama_models,
+                    overlay.agents,
+                    on_progress=progress,
+                    cancel_event=self._overlay_cancel,
+                    connection_id=self.connection_id,
+                )
+        except OllamaPullCancelled as exc:
+            clear_overlay(
+                user_id=self.identity.user_id,
+                session_id=self.identity.session_id,
+                connection_id=self.connection_id,
             )
+            clear_activity(connection_id=self.connection_id)
+            await self.send_error(str(exc), code="cancelled", phase="cancelled")
+            return
         except Exception as exc:  # noqa: BLE001
             clear_overlay(
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
                 connection_id=self.connection_id,
             )
+            clear_activity(connection_id=self.connection_id)
             await self.send_error(str(exc) or exc.__class__.__name__)
             return
+        finally:
+            self._overlay_preparing = False
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
 
         if overlay.mcps:
             register_connection_bridge(self.connection_id, self.send_threadsafe)
@@ -632,6 +698,7 @@ class WsConnection:
 
             unregister_connection_bridge(self.connection_id)
 
+        clear_activity(connection_id=self.connection_id)
         await self.send(
             {
                 "type": "session_overlay_ack",
@@ -659,6 +726,7 @@ class WsConnection:
             connection_id=self.connection_id,
         )
         unregister_connection_bridge(self.connection_id)
+        self._cancel_overlay_prepare(force_pull=False)
         await self.send({"type": "session_overlay_cleared"})
 
     async def handle_mcp_tunnel_response(self, message: dict[str, Any]) -> None:
@@ -670,10 +738,78 @@ class WsConnection:
                 "(or tunnel owned by another connection)"
             )
 
+    def _clear_connection_activity(self) -> None:
+        if self._overlay_preparing:
+            return
+        try:
+            from orchestration.background_activity import clear_activity
+
+            clear_activity(connection_id=self.connection_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _cancel_overlay_prepare(self, *, force_pull: bool) -> bool:
+        from agent_providers.ollama_provider import cancel_active_ollama_pull
+        from orchestration.background_activity import clear_activity
+
+        preparing = self._overlay_preparing
+        self._overlay_cancel.set()
+        pulled = cancel_active_ollama_pull(
+            connection_id=self.connection_id,
+            force=force_pull,
+        )
+        if preparing or pulled or force_pull:
+            clear_activity(connection_id=None if force_pull else self.connection_id)
+        return preparing or pulled
+
+    async def handle_background_activity_cancel(self) -> None:
+        cancelled = self._cancel_overlay_prepare(force_pull=True)
+        await self.send(
+            {
+                "type": "status",
+                "processing": False,
+                "phase": "cancelled",
+                "message": "Background work cancelled." if cancelled else "No background download to cancel.",
+                "code": "cancelled" if cancelled else "not_found",
+            }
+        )
+
     async def handle_cancel(self, message: dict[str, Any]) -> None:
-        """Cancel one in-flight run by questionId without closing the socket."""
+        """Cancel one in-flight run by questionId, or overlay prepare / active pull."""
         question_id = _question_id(message)
+        target = str(message.get("target") or "").strip().lower()
+        if target in ("overlay", "background", "pull", "model_pull") or (
+            not question_id and self._overlay_preparing
+        ):
+            cancelled = self._cancel_overlay_prepare(force_pull=target in ("background", "pull", "model_pull"))
+            await self.send(
+                {
+                    "type": "status",
+                    "processing": False,
+                    "phase": "cancelled",
+                    "message": "Cancelled." if cancelled else "No in-flight overlay prepare.",
+                    "code": "cancelled" if cancelled else "not_found",
+                    **({"question_id": question_id} if question_id else {}),
+                }
+            )
+            if question_id:
+                task = self._runs_by_question.get(question_id)
+                if task is not None and not task.done():
+                    task.cancel()
+            return
         if not question_id:
+            if self._overlay_preparing:
+                self._cancel_overlay_prepare(force_pull=False)
+                await self.send(
+                    {
+                        "type": "status",
+                        "processing": False,
+                        "phase": "cancelled",
+                        "message": "Cancelled.",
+                        "code": "cancelled",
+                    }
+                )
+                return
             await self.send_error(
                 "cancel requires questionId",
                 code="invalid_request",
@@ -681,6 +817,19 @@ class WsConnection:
             return
         task = self._runs_by_question.get(question_id)
         if task is None or task.done():
+            if self._overlay_preparing:
+                self._cancel_overlay_prepare(force_pull=False)
+                await self.send(
+                    {
+                        "type": "status",
+                        "processing": False,
+                        "phase": "cancelled",
+                        "message": "Cancelled.",
+                        "code": "cancelled",
+                        "question_id": question_id,
+                    }
+                )
+                return
             await self.send(
                 {
                     "type": "status",
@@ -692,6 +841,7 @@ class WsConnection:
                 }
             )
             return
+        self._cancel_overlay_prepare(force_pull=False)
         task.cancel()
 
     async def handle_rate(self, message: dict[str, Any]) -> None:
@@ -974,6 +1124,7 @@ class WsConnection:
                 record_run_end(ok=True, elapsed_ms=elapsed_ms)
             except Exception:  # noqa: BLE001
                 pass
+            self._clear_connection_activity()
         except asyncio.CancelledError:
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
@@ -1008,6 +1159,7 @@ class WsConnection:
                 record_run_end(ok=False, elapsed_ms=elapsed_ms)
             except Exception:  # noqa: BLE001
                 pass
+            self._clear_connection_activity()
             return
         except (DirectAgentFormatError, DirectAgentEmptyAnswerError) as exc:
             from orchestration.run_status import error_code_for_exception, friendly_error_message
@@ -1118,6 +1270,7 @@ class WsConnection:
             except Exception:  # noqa: BLE001
                 pass
         finally:
+            self._clear_connection_activity()
             if question_id is None:
                 self._busy = False
             try:

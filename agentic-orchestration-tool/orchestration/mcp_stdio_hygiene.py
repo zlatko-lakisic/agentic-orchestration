@@ -327,9 +327,21 @@ def drop_stdio_mcps_that_fail_handshake(mcps: list[Any] | None) -> list[Any]:
         if _skip_handshake_for_npx(command, args):
             kept.append(entry)
             continue
+        try:
+            from orchestration.progress_sink import emit_progress
+
+            emit_progress(f"stdio MCP handshake: {label}")
+        except Exception:  # noqa: BLE001
+            pass
         outcome = stdio_mcp_handshake(command, args, env)
         if outcome == "fail":
             print(f"stdio MCP {label} failed handshake; tools disabled", file=sys.stderr)
+            try:
+                from orchestration.progress_sink import emit_progress
+
+                emit_progress(f"stdio MCP {label} failed handshake; tools disabled")
+            except Exception:  # noqa: BLE001
+                pass
             continue
         kept.append(entry)
     return kept
