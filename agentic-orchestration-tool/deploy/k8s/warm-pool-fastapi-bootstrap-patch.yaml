@@ -30,6 +30,11 @@ spec:
               }
               PY="$(resolve_python)"
               if ! "${PY}" -c "import fastapi" >/dev/null 2>&1; then
+                if [[ "${PY}" == *"/.venv/"* ]]; then
+                  echo "error: mounted tool .venv missing fastapi (read-only mount — install on host):" >&2
+                  echo "  bash agentic-orchestration-tool/scripts/edge-ensure-tool-venv.sh" >&2
+                  exit 1
+                fi
                 echo "Installing fastapi for litellm MCP handler (${PY}) ..."
                 if ! "${PY}" -m pip install --break-system-packages -q "fastapi>=0.115.0,<1" 2>/dev/null; then
                   "${PY}" -m pip install -q "fastapi>=0.115.0,<1"

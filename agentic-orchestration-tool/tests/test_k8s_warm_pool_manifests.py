@@ -44,6 +44,7 @@ def test_warm_pool_tool_venv_hostpath_patch() -> None:
     assert env["AGENTIC_PYTHON"] == "/app/tool/.venv/bin/python"
     mounts = {m["name"]: m["mountPath"] for m in container.get("volumeMounts") or []}
     assert mounts["jetson-tool-venv"] == "/app/tool/.venv"
+    assert doc["spec"]["template"]["spec"]["volumes"][0]["hostPath"]["type"] == "Directory"
 
 
 @pytest.mark.unit

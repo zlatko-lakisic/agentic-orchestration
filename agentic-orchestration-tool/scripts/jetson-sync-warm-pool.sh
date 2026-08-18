@@ -41,8 +41,22 @@ else
   echo "=== warm-pool worker image: ${WORKER_IMAGE} ==="
 fi
 
+_tool_venv_ready() {
+  local py="${TOOL_ROOT}/.venv/bin/python"
+  [[ -x "${py}" ]] && "${py}" -c "import fastapi" >/dev/null 2>&1
+}
+
 _reapply_warm_pool_patches() {
-  local patch
+  local patch venv_patch="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml"
+  if [[ -f "${venv_patch}" ]]; then
+    if _tool_venv_ready; then
+      echo "=== host tool .venv ok (fastapi present) ==="
+    elif [[ "${AGENTIC_ENSURE_TOOL_VENV:-1}" != "0" ]]; then
+      echo "=== ensuring host tool .venv (Ada / edge) ==="
+      bash "${TOOL_ROOT}/scripts/edge-ensure-tool-venv.sh" "${PROJECT_ROOT}"
+    fi
+  fi
+
   for patch in \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml" \
@@ -50,7 +64,6 @@ _reapply_warm_pool_patches() {
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml" \
-    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
   do
@@ -59,6 +72,15 @@ _reapply_warm_pool_patches() {
       kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${patch}"
     fi
   done
+
+  if [[ -f "${venv_patch}" ]]; then
+    if _tool_venv_ready; then
+      echo "=== warm-pool patch $(basename "${venv_patch}") ==="
+      kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${venv_patch}"
+    else
+      echo "warning: skipping venv mount — no working ${TOOL_ROOT}/.venv (image python + pip bootstrap)" >&2
+    fi
+  fi
 }
 
 echo "=== re-apply Jetson warm-pool volume patches (safe after prior full apply) ==="
