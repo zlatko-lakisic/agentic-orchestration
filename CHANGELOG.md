@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **COMSTAR “analyze my workspace” returned a live-e2e canned line** — AOReach clips long prompts with `…[truncated earlier context]`, which matched the overlay filesystem shortcut (`"truncat" in topic`). Shortcuts now use only the current `<user>` turn, so VS Code chats are not answered with “The filesystem MCP result looks truncated.”
+
 ## [2.4.0] - 2026-08-18
 
 ### Fixed

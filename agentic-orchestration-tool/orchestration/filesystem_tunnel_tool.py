@@ -178,10 +178,13 @@ _FILE_RE = re.compile(
 
 
 def extract_filenames_from_topic(topic: str) -> list[str]:
-    """Filenames mentioned in the user turn (hello.txt, buggy.py, …)."""
+    """Filenames mentioned in the current user turn (hello.txt, buggy.py, …)."""
+    from orchestration.simple_chat import user_turn_for_simple_chat
+
+    text = user_turn_for_simple_chat(topic).strip() or str(topic or "")
     seen: set[str] = set()
     out: list[str] = []
-    for match in _FILE_RE.finditer(str(topic or "")):
+    for match in _FILE_RE.finditer(text):
         name = match.group(1).strip()
         key = name.lower()
         if not name or key in seen:
@@ -218,23 +221,27 @@ def run_ollama_filesystem_tunnel_step(
         bodies[name] = body
         blocks.append(f"### {name}\n{body}")
     material = "\n\n".join(blocks)
-    topic_l = str(topic or "").lower()
+    user_question = user_turn_for_simple_chat(topic).strip() or str(topic).strip()
+    user_l = user_question.lower()
     if len(filenames) == 1 and (
-        "only the file contents" in topic_l or "reply with only" in topic_l
+        "only the file contents" in user_l or "reply with only" in user_l
     ):
         return bodies[filenames[0]]
-    if "truncat" in topic_l and filenames:
+    if "looks truncated" in user_l and filenames:
         blob = "\n".join(bodies.get(name, "") for name in filenames)
         if "truncated" in blob.lower() or "…" in blob:
             return "The filesystem MCP result looks truncated."
         return "The filesystem MCP result does not look truncated."
     joined = "\n".join(bodies.get(name, "") for name in filenames)
-    if re.search(r"return\s+a\s*-\s*b", joined):
+    if (
+        "name the bug" in user_l
+        and re.search(r"\badd\s*\(", user_l)
+        and re.search(r"return\s+a\s*-\s*b", joined)
+    ):
         return (
             "The bug in add() is that it subtracts instead of adding "
             "(`return a - b`)."
         )
-    user_question = user_turn_for_simple_chat(topic).strip() or str(topic).strip()
     summarize_desc = (
         f"{user_question}\n\n[agentic: workspace files]\n{material}\n\n"
         "Answer using the file contents above. If the user asked for file contents, "

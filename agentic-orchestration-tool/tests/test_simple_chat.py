@@ -36,3 +36,17 @@ def test_openclaw_preamble_still_simple_chat() -> None:
         "User message:\nWho are you?"
     )
     assert is_simple_chat_prompt(wrapped)
+
+
+def test_comstar_user_block_ignores_truncated_context() -> None:
+    from orchestration.simple_chat import user_turn_for_simple_chat
+
+    topic = (
+        "…[truncated earlier context]\n"
+        "<system>\nYou may read README.md and package.json.\n"
+        "<user>\nanalyze my workspace, tell me what you know about it"
+    )
+    assert user_turn_for_simple_chat(topic) == (
+        "analyze my workspace, tell me what you know about it"
+    )
+    assert not is_simple_chat_prompt(topic)

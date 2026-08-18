@@ -75,6 +75,71 @@ def test_extract_filenames_from_topic() -> None:
     )
     assert names == ["hello.txt", "buggy.py"]
     assert extract_filenames_from_topic("Reply with exactly the single word pong") == []
+    envelope = (
+        "…[truncated earlier context]\n"
+        "<system>\nOpened files: README.md package.json src/main.py\n"
+        "<user>\nanalyze my workspace, tell me what you know about it"
+    )
+    assert extract_filenames_from_topic(envelope) == []
+
+
+def test_run_ollama_filesystem_tunnel_step_ignores_truncated_context_header(
+    monkeypatch,
+) -> None:
+    from orchestration.filesystem_tunnel_tool import run_ollama_filesystem_tunnel_step
+
+    def _fake_call(_url: str, name: str, arguments=None) -> str:
+        if name == "list_allowed_directories":
+            return "/tmp/ws"
+        return "Z" * 100 + "\n… truncated"
+
+    monkeypatch.setattr(
+        "orchestration.filesystem_tunnel_tool.call_filesystem_mcp_tool",
+        _fake_call,
+    )
+    kicked = {"n": 0}
+
+    class _Task:
+        description = ""
+        expected_output = ""
+
+    class _Agent:
+        llm = None
+
+    built = SimpleNamespace(crew=SimpleNamespace(tasks=[_Task()], agents=[_Agent()]))
+    monkeypatch.setattr(
+        "orchestration.crewai_template.crew_kickoff",
+        lambda *_a, **_k: kicked.__setitem__("n", kicked["n"] + 1) or "workspace overview",
+    )
+    monkeypatch.setattr(
+        "orchestration.mcp_stdio_hygiene.disable_agent_tools_and_mcps",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "orchestration.runner.crew_kickoff_context",
+        lambda *_a, **_k: __import__("contextlib").nullcontext(),
+    )
+    monkeypatch.setattr(
+        "orchestration.output_artifacts.workflow_result_to_extractable_text",
+        lambda text: text,
+    )
+    monkeypatch.setattr(
+        "orchestration.text_normalize.sanitize_user_facing_prose",
+        lambda text: text,
+    )
+    topic = (
+        "…[truncated earlier context]\n<user>\n"
+        "analyze my workspace, tell me what you know about it"
+    )
+    out = run_ollama_filesystem_tunnel_step(
+        built=built,
+        topic=topic,
+        mcp_url="http://localhost:9/t/x/filesystem",
+        filenames=["README.md"],
+    )
+    assert out == "workspace overview"
+    assert "looks truncated" not in out.lower()
+    assert kicked["n"] == 1
 
 
 def test_run_ollama_filesystem_tunnel_step_returns_raw_contents(monkeypatch) -> None:

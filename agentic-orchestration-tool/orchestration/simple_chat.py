@@ -17,11 +17,32 @@ def strip_web_prose_delivery_suffix(text: str) -> str:
     return t
 
 
+_ROLE_TAG_RE = re.compile(r"\n<(system|assistant|user|tool)>", re.IGNORECASE)
+
+
+def last_chat_role_block(text: str, role: str) -> str | None:
+    """Last ``<role>…`` block from a COMSTAR/Reach assembled transcript, if any."""
+    token = f"<{role}>"
+    raw = str(text or "")
+    idx = raw.lower().rfind(token)
+    if idx < 0:
+        return None
+    rest = raw[idx + len(token) :]
+    nxt = _ROLE_TAG_RE.search(rest)
+    if nxt:
+        rest = rest[: nxt.start()]
+    return rest.strip() or None
+
+
 def user_turn_for_simple_chat(text: str) -> str:
     """
-    Prefer the real user turn when hosts prepend context (OpenClaw ``User message:``).
+    Prefer the real user turn when hosts prepend context (COMSTAR ``<user>``,
+    OpenClaw ``User message:``).
     """
     t = strip_web_prose_delivery_suffix(text).strip()
+    block = last_chat_role_block(t, "user")
+    if block:
+        return block
     marker = "User message:"
     if marker in t:
         tail = t.rsplit(marker, 1)[-1].strip()
