@@ -71,6 +71,83 @@ def test_ollama_build_agent_forwards_num_ctx(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.unit
+def test_ollama_build_agent_sets_max_iter(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_agent(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        agent = MagicMock(name="Agent")
+        agent.mcps = None
+        return agent
+
+    _stub_fetch_url_tool(monkeypatch)
+    monkeypatch.setattr("agent_providers.ollama_provider.LLM", lambda **_k: MagicMock(name="LLM"))
+    monkeypatch.setattr("agent_providers.ollama_provider.Agent", _fake_agent)
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.litellm_api_base_for_ollama",
+        lambda: "http://127.0.0.1:11434",
+    )
+    monkeypatch.delenv("AGENTIC_OLLAMA_MAX_ITER", raising=False)
+
+    cfg = AgentProviderConfig(
+        id="ollama_llama",
+        role="Assistant",
+        goal="Help",
+        backstory="Helpful.",
+        model="llama3.2:3b",
+        provider_type="ollama",
+        provider_options={},
+    )
+    OllamaProvider(cfg).build_agent()
+    assert captured["max_iter"] == 6
+
+    captured.clear()
+    monkeypatch.setenv("AGENTIC_OLLAMA_MAX_ITER", "4")
+    OllamaProvider(cfg).build_agent()
+    assert captured["max_iter"] == 4
+
+
+@pytest.mark.unit
+def test_ollama_build_agent_partitions_fetch_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    captured: dict[str, Any] = {}
+
+    def _fake_agent(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        agent = MagicMock(name="Agent")
+        agent.mcps = kwargs.get("mcps")
+        return agent
+
+    monkeypatch.setattr("agent_providers.ollama_provider.LLM", lambda **_k: MagicMock(name="LLM"))
+    monkeypatch.setattr("agent_providers.ollama_provider.Agent", _fake_agent)
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.litellm_api_base_for_ollama",
+        lambda: "http://127.0.0.1:11434",
+    )
+    monkeypatch.setattr(
+        "orchestration.mcp_stdio_hygiene.drop_stdio_mcps_that_fail_handshake",
+        lambda mcps: list(mcps) if mcps else [],
+    )
+    monkeypatch.delenv("AGENTIC_OLLAMA_MAX_ITER", raising=False)
+
+    cfg = AgentProviderConfig(
+        id="ollama_llama",
+        role="Assistant",
+        goal="Help",
+        backstory="Helpful.",
+        model="llama3.2:3b",
+        provider_type="ollama",
+        provider_options={},
+    )
+    fetch = SimpleNamespace(command="uvx", args=["mcp-server-fetch"])
+    other = SimpleNamespace(command="python", args=["-m", "mcp_servers.media_understand"])
+    OllamaProvider(cfg).build_agent(mcps=[fetch, other])
+    assert captured.get("mcps") == [other]
+    assert captured["max_iter"] == 6
+
+
+@pytest.mark.unit
 def test_ollama_build_agent_omits_num_ctx_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

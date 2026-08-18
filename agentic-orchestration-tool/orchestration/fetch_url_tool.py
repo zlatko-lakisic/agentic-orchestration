@@ -12,16 +12,23 @@ from urllib.request import Request, urlopen
 
 from crewai.tools import BaseTool
 
+from orchestration.mcp_stdio_hygiene import stdio_command_args_env
+
 _URL_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
 
 
 def is_fetch_stdio_mcp_entry(entry: Any) -> bool:
-    if not isinstance(entry, dict):
+    """True for python -m mcp_server_fetch, uvx mcp-server-fetch, and MCPServerStdio of those."""
+    if isinstance(entry, str):
         return False
-    args = entry.get("args") or []
-    if any("mcp_server_fetch" in str(a) for a in args):
+    command, args, _ = stdio_command_args_env(entry)
+    tokens = [command, *args]
+    if not any(str(t).strip() for t in tokens):
+        return False
+    blob = " ".join(str(t) for t in tokens).lower()
+    if "mcp_server_fetch" in blob or "mcp-server-fetch" in blob:
         return True
-    return str(entry.get("command", "")).strip().lower() == "mcp_server_fetch"
+    return command.strip().lower() in ("mcp_server_fetch", "mcp-server-fetch")
 
 
 def partition_fetch_stdio_mcps(mcps: list[Any]) -> tuple[list[Any], list[Any]]:
@@ -136,6 +143,7 @@ def run_ollama_fetch_summarize_step(
 
     Used for small Ollama models that print tool-call syntax instead of invoking CrewAI tools.
     """
+    from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
     from orchestration.output_artifacts import workflow_result_to_extractable_text
     from orchestration.runner import crew_kickoff_context
     from orchestration.text_normalize import (
@@ -161,7 +169,7 @@ def run_ollama_fetch_summarize_step(
             crew_task.description = summarize_desc
             crew_task.expected_output = "A short plain-language summary."
         for agent in built.crew.agents:
-            agent.tools = []
+            disable_agent_tools_and_mcps(agent)
         with crew_kickoff_context(built):
             workflow_result = built.crew.kickoff(inputs={"topic": user_question})
         text = sanitize_user_facing_prose(workflow_result_to_extractable_text(workflow_result))

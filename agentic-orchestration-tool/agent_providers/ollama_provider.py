@@ -44,6 +44,15 @@ def _ollama_subprocess_stdio() -> tuple[Any, Any]:
     return (subprocess.DEVNULL, subprocess.DEVNULL)
 
 
+def _ollama_max_iter() -> int:
+    """CrewAI default max_iter is 25; cap Ollama tool retries so a dead MCP cannot loop."""
+    raw = os.getenv("AGENTIC_OLLAMA_MAX_ITER", "6").strip()
+    try:
+        return max(1, min(25, int(raw)))
+    except ValueError:
+        return 6
+
+
 def _ollama_pull_progress_stderr_enabled() -> bool:
     return os.getenv("AGENTIC_OLLAMA_PULL_PROGRESS_STDERR", "1").strip().lower() not in (
         "0",
@@ -686,6 +695,11 @@ class OllamaProvider(AgentProvider):
             attach_fetch_url_tool_to_agents,
             partition_fetch_stdio_mcps,
         )
+        from orchestration.mcp_stdio_hygiene import (
+            drop_failed_stdio_mcps_on_agent,
+            drop_stdio_mcps_that_fail_handshake,
+            prepare_stdio_mcps,
+        )
 
         raw_model = self.config.model
         model_without_prefix = raw_model.removeprefix("ollama/")
@@ -695,6 +709,7 @@ class OllamaProvider(AgentProvider):
         mcps_list = list(mcps) if mcps else []
         other_mcps, fetch_stdio = partition_fetch_stdio_mcps(mcps_list)
         fetch_tool_needed = bool(fetch_stdio)
+        other_mcps = drop_stdio_mcps_that_fail_handshake(prepare_stdio_mcps(other_mcps))
         effective_mcps = other_mcps or None
 
         # Force LiteLLM path so Admin usage callbacks fire. CrewAI's native
@@ -725,10 +740,12 @@ class OllamaProvider(AgentProvider):
             llm=llm,
             verbose=self.config.verbose,
             allow_delegation=self.config.allow_delegation,
+            max_iter=_ollama_max_iter(),
         )
         if effective_mcps:
             kwargs["mcps"] = list(effective_mcps)
         agent = Agent(**kwargs)
+        drop_failed_stdio_mcps_on_agent(agent)
         if fetch_tool_needed:
             attach_fetch_url_tool_to_agents([agent])
         return agent

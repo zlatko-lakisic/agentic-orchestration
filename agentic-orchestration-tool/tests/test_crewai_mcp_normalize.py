@@ -23,9 +23,12 @@ def test_normalize_stdio_dict_to_mcp_server_stdio() -> None:
     assert out is not None
     assert len(out) == 1
     assert isinstance(out[0], MCPServerStdio)
-    assert out[0].command == "npx"
+    assert out[0].command != "npx"
+    assert "orchestration.mcp_stdio_jsonrpc_filter" in (out[0].args or [])
     assert out[0].args[-1] == "/tmp"
-    assert out[0].env == {"FOO": "bar"}
+    assert out[0].env is not None
+    assert out[0].env["FOO"] == "bar"
+    assert out[0].env["npm_config_loglevel"] == "silent"
 
 
 def test_normalize_streamable_http_dict() -> None:
@@ -47,6 +50,7 @@ def test_normalize_keeps_strings() -> None:
 
 def test_agent_coerces_or_accepts_stdio_mcps() -> None:
     """CrewAI 1.12+ coerces stdio dicts; normalize must also produce valid Agent(mcps=...)."""
+    pytest.importorskip("crewai.mcp")
     from crewai import Agent
     from crewai.mcp import MCPServerStdio
 

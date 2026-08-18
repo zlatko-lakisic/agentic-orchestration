@@ -257,6 +257,7 @@ def run_filesystem_list_summarize_step(
     prefer_raw_listing: bool | None = None,
 ) -> str:
     """List the allowlisted workspace; optionally summarize, else return paths."""
+    from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
     from orchestration.output_artifacts import workflow_result_to_extractable_text
     from orchestration.runner import crew_kickoff_context
     from orchestration.text_normalize import (
@@ -286,7 +287,7 @@ def run_filesystem_list_summarize_step(
                 "A plain-language answer or absolute path list from the listing."
             )
         for agent in built.crew.agents:
-            agent.tools = []
+            disable_agent_tools_and_mcps(agent)
         with crew_kickoff_context(built):
             workflow_result = built.crew.kickoff(inputs={"topic": user_question})
         raw = workflow_result_to_extractable_text(workflow_result)

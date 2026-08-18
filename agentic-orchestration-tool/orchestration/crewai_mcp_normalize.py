@@ -60,20 +60,21 @@ def normalize_mcps_for_crewai(mcps: list[Any] | None) -> list[Any] | None:
                 out.append(s)
             continue
         if isinstance(entry, (MCPServerStdio, MCPServerHTTP, MCPServerSSE)):
-            out.append(entry)
+            if isinstance(entry, MCPServerStdio):
+                from orchestration.mcp_stdio_hygiene import prepare_stdio_mcp_entry
+
+                out.append(prepare_stdio_mcp_entry(entry))
+            else:
+                out.append(entry)
             continue
         if not isinstance(entry, dict):
             raise TypeError(f"Unsupported MCP entry type: {type(entry)!r}")
 
         if "command" in entry:
-            env = entry.get("env")
-            out.append(
-                MCPServerStdio(
-                    command=str(entry["command"]),
-                    args=[str(a) for a in (entry.get("args") or [])],
-                    env={str(k): str(v) for k, v in env.items()} if isinstance(env, dict) else None,
-                )
-            )
+            from orchestration.mcp_stdio_hygiene import prepare_stdio_mcp_entry, stdio_command_args_env
+
+            command, args, env = stdio_command_args_env(prepare_stdio_mcp_entry(dict(entry)))
+            out.append(MCPServerStdio(command=command, args=args, env=env))
             continue
 
         url = str(entry.get("url") or "").strip()

@@ -18,6 +18,7 @@ from orchestration.irrigation_minutes import (
     has_irrigation_minutes_line,
     irrigation_minutes_recovery_description,
 )
+from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
 from orchestration.mcp_task_hints import (
     augment_task_description_for_mcps,
     looks_like_mcp_tool_call_leak,
@@ -211,7 +212,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 )
             elif simple_chat:
                 for agent in built.crew.agents:
-                    agent.tools = []
+                    disable_agent_tools_and_mcps(agent)
                 print(
                     "(execute-step) simple chat: k8s warm-pool crew without tools",
                     file=sys.stderr,
@@ -345,7 +346,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                             "Brief reasoning ending with MINUTES: N (integer 0-25)."
                         )
                     for agent in built.crew.agents:
-                        agent.tools = []
+                        disable_agent_tools_and_mcps(agent)
                     with crew_kickoff_context(built):
                         workflow_result = built.crew.kickoff(inputs={"topic": user_q})
                     try:
