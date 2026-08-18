@@ -43,7 +43,7 @@ def test_ollama_build_agent_forwards_num_ctx(monkeypatch: pytest.MonkeyPatch) ->
 
     fake_agent = MagicMock(name="Agent")
     _stub_fetch_url_tool(monkeypatch)
-    monkeypatch.setattr("agent_providers.ollama_provider.LLM", _fake_llm)
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", _fake_llm)
     monkeypatch.setattr("agent_providers.ollama_provider.Agent", lambda **_k: fake_agent)
     monkeypatch.setattr(
         "agent_providers.ollama_provider.litellm_api_base_for_ollama",
@@ -81,7 +81,7 @@ def test_ollama_build_agent_sets_max_iter(monkeypatch: pytest.MonkeyPatch) -> No
         return agent
 
     _stub_fetch_url_tool(monkeypatch)
-    monkeypatch.setattr("agent_providers.ollama_provider.LLM", lambda **_k: MagicMock(name="LLM"))
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", lambda **_k: MagicMock(name="LLM"))
     monkeypatch.setattr("agent_providers.ollama_provider.Agent", _fake_agent)
     monkeypatch.setattr(
         "agent_providers.ollama_provider.litellm_api_base_for_ollama",
@@ -119,7 +119,7 @@ def test_ollama_build_agent_partitions_fetch_stdio(monkeypatch: pytest.MonkeyPat
         agent.mcps = kwargs.get("mcps")
         return agent
 
-    monkeypatch.setattr("agent_providers.ollama_provider.LLM", lambda **_k: MagicMock(name="LLM"))
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", lambda **_k: MagicMock(name="LLM"))
     monkeypatch.setattr("agent_providers.ollama_provider.Agent", _fake_agent)
     monkeypatch.setattr(
         "agent_providers.ollama_provider.litellm_api_base_for_ollama",
@@ -158,7 +158,7 @@ def test_ollama_build_agent_omits_num_ctx_when_unset(
         return MagicMock(name="LLM")
 
     _stub_fetch_url_tool(monkeypatch)
-    monkeypatch.setattr("agent_providers.ollama_provider.LLM", _fake_llm)
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", _fake_llm)
     monkeypatch.setattr(
         "agent_providers.ollama_provider.Agent", lambda **_k: MagicMock(name="Agent")
     )

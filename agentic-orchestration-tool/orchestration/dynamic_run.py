@@ -255,9 +255,13 @@ def run_dynamic_goal(
         overlay_ids=overlay_allowed,
     )
 
+    from orchestration.orchestrator_session import clip_user_prompt_for_edge
+
+    plan_text = clip_user_prompt_for_edge(text)
+
     # Engine WS already emits request_start; do not duplicate the boundary here.
     config, plan = build_dynamic_workflow_config(
-        user_prompt=text,
+        user_prompt=plan_text,
         catalog_path=paths.agent_providers,
         allowed_agent_provider_ids=resolved_ids,
         allowed_mcp_provider_ids=overlay_mcp_allowed,

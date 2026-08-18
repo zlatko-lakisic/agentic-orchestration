@@ -231,6 +231,22 @@ def excerpt_max_chars() -> int:
     return int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
 
 
+def clip_user_prompt_for_edge(text: str, *, max_chars: int | None = None) -> str:
+    """Keep the latest user turn when Continue sends a long transcript."""
+    raw = os.getenv("AGENTIC_REACH_PROMPT_CHARS", "").strip()
+    cap = max_chars
+    if cap is None:
+        try:
+            cap = int(raw) if raw else 12000
+        except ValueError:
+            cap = 12000
+    cap = max(2000, min(100_000, int(cap)))
+    body = str(text or "")
+    if len(body) <= cap:
+        return body
+    return "…[truncated earlier context]\n" + body[-cap:]
+
+
 def _apply_run_outcome(
     data: OrchestratorSessionFile,
     *,

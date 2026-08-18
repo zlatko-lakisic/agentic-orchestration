@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import threading
-from typing import Any, Callable, Iterator, TextIO
+from typing import Any, Sequence, Callable, Iterator, TextIO
 
 import platform
 import shutil
@@ -35,6 +35,31 @@ _ollama_pull_done: set[str] = set()
 
 _active_pull_lock = threading.Lock()
 _active_pull: dict[str, Any] | None = None
+
+
+if isinstance(LLM, type):
+
+    class ThinkingAwareLLM(LLM):
+        """CrewAI LLM that coalesces thinking-only replies and drops tools near context cap."""
+
+        def call(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            from orchestration.llm_usage import (
+                EMPTY_LLM_MESSAGE,
+                looks_like_empty_llm_error,
+                near_context_limit,
+            )
+
+            if near_context_limit():
+                kwargs["tools"] = None
+            try:
+                return super().call(*args, **kwargs)
+            except ValueError as exc:
+                if looks_like_empty_llm_error(exc):
+                    raise ValueError(EMPTY_LLM_MESSAGE) from exc
+                raise
+
+else:
+    ThinkingAwareLLM = LLM  # type: ignore[misc,assignment]
 
 
 class OllamaPullCancelled(RuntimeError):
@@ -905,7 +930,7 @@ class OllamaProvider(AgentProvider):
                 llm_kwargs["num_ctx"] = int(raw_num_ctx)
             except (TypeError, ValueError):
                 pass
-        llm = LLM(**llm_kwargs)
+        llm = ThinkingAwareLLM(**llm_kwargs)
 
         kwargs: dict[str, Any] = dict(
             role=self.crew_agent_role_label(role_suffix),
@@ -926,9 +951,36 @@ class OllamaProvider(AgentProvider):
         drop_failed_stdio_mcps_on_agent(agent)
         if fetch_tool_needed:
             attach_fetch_url_tool_to_agents([agent])
+        self._last_agent = agent
         return agent
 
     def recover_from_workflow_error(self, error: BaseException) -> bool:
+        from orchestration.llm_usage import looks_like_empty_llm_error
+
+        if looks_like_empty_llm_error(error):
+            agent = getattr(self, "_last_agent", None)
+            if agent is not None:
+                try:
+                    agent.tools = []
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    agent.mcps = []
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    agent.max_iter = 1
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    extra = (
+                        "\n\nWrite the final answer now from context you already have. "
+                        "Do not call tools."
+                    )
+                    agent.backstory = str(getattr(agent, "backstory", "") or "") + extra
+                except Exception:  # noqa: BLE001
+                    pass
+            return True
         if not _looks_like_ollama_runner_crash(error):
             return False
         host = normalize_ollama_host(

@@ -2,10 +2,48 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
 _installed = False
+_DEFAULT_TOOL_RESULT_CHARS = 8000
+
+
+def tool_result_char_cap() -> int:
+    raw = os.getenv("AGENTIC_TOOL_RESULT_CHARS", "").strip()
+    if raw:
+        try:
+            return max(500, min(200_000, int(raw)))
+        except ValueError:
+            pass
+    return _DEFAULT_TOOL_RESULT_CHARS
+
+
+def cap_tool_result(value: Any, *, max_chars: int | None = None) -> Any:
+    """Truncate oversized tool output before it re-enters the LLM prompt."""
+    cap = tool_result_char_cap() if max_chars is None else max(1, int(max_chars))
+    marker = "\n… truncated"
+    if isinstance(value, str):
+        if len(value) <= cap:
+            return value
+        return value[: cap - len(marker)] + marker
+    if isinstance(value, dict):
+        text = value.get("content") or value.get("text") or value.get("result")
+        if isinstance(text, str) and len(text) > cap:
+            out = dict(value)
+            key = "content" if "content" in value else ("text" if "text" in value else "result")
+            out[key] = text[: cap - len(marker)] + marker
+            return out
+        if isinstance(text, list) and text and isinstance(text[0], dict) and "text" in text[0]:
+            blob = str(text[0].get("text") or "")
+            if len(blob) > cap:
+                out = dict(value)
+                new_list = list(text)
+                new_list[0] = {**text[0], "text": blob[: cap - len(marker)] + marker}
+                out["content" if "content" in value else "text"] = new_list
+                return out
+    return value
 
 
 def apply_tool_call_trace_wrap() -> None:
@@ -47,7 +85,7 @@ def apply_tool_call_trace_wrap() -> None:
         ok = True
         err: str | None = None
         try:
-            return original(self, *args, **kwargs)
+            return cap_tool_result(original(self, *args, **kwargs))
         except Exception as exc:
             ok = False
             err = str(exc)[:500]

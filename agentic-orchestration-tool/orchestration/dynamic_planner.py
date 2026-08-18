@@ -876,6 +876,107 @@ def plan_raw_from_llm(
     return _extract_json_object(content)
 
 
+def restrict_catalog_for_overlay_session(
+    entries: list[dict[str, Any]],
+    *,
+    overlay_active: bool,
+    allowed_ids: list[str] | None,
+) -> list[dict[str, Any]]:
+    """When an overlay is live and the stock pin is empty, keep ``client.*`` only."""
+    if not overlay_active:
+        return entries
+    cleaned = [str(x).strip() for x in (allowed_ids or []) if str(x).strip()]
+    if cleaned:
+        from orchestration.agent_allowlist import filter_entries_by_allowlist
+
+        return filter_entries_by_allowlist(entries, cleaned)
+    return [
+        e
+        for e in entries
+        if str(e.get("id") or "").strip().startswith("client.")
+    ]
+
+
+def filter_client_agent_tool_ids(
+    ids: list[str],
+    *,
+    agent_provider_id: str,
+    overlay_pin: list[str] | None,
+    declared: list[str] | None = None,
+) -> list[str]:
+    """Drop stock MCP/skill ids attached to ``client.*`` agents unless the overlay pinned them."""
+    if not str(agent_provider_id or "").startswith("client."):
+        return [str(x).strip() for x in ids if str(x).strip()]
+    pin = {str(x).strip() for x in (overlay_pin or []) if str(x).strip()}
+    kept: list[str] = []
+    for raw in ids:
+        sid = str(raw).strip()
+        if not sid:
+            continue
+        if sid.startswith("client.") or sid in pin:
+            kept.append(sid)
+    if declared is not None:
+        allowed = {str(x).strip() for x in declared if str(x).strip()}
+        kept = [x for x in kept if x in allowed]
+    return kept
+
+
+def apply_overlay_client_tool_cap(
+    cfg: WorkflowConfig,
+    *,
+    agent_entries: list[dict[str, Any]],
+    overlay: Any | None,
+) -> WorkflowConfig:
+    """Intersect planned tools for overlay agents with overlay pins + agent YAML."""
+    from orchestration.direct_agent import _mcp_ids_from_agent_entry
+
+    pin_mcp = list(overlay.allowed_mcp_provider_ids) if overlay is not None else None
+    pin_skill = list(overlay.allowed_skill_ids) if overlay is not None else None
+    by_id = {
+        str(e.get("id") or "").strip(): e
+        for e in agent_entries
+        if str(e.get("id") or "").strip()
+    }
+    new_tasks: list[TaskDefinition] = []
+    for task in cfg.tasks:
+        pid = str(task.agent_provider_id or "").strip()
+        entry = by_id.get(pid) or {}
+        declared = _mcp_ids_from_agent_entry(entry) if entry.get("mcp_providers") is not None else None
+        mcps = task.mcp_providers
+        if mcps is not None:
+            mcps = filter_client_agent_tool_ids(
+                list(mcps),
+                agent_provider_id=pid,
+                overlay_pin=pin_mcp,
+                declared=declared,
+            )
+        skills = task.skills
+        if skills is not None:
+            skills = filter_client_agent_tool_ids(
+                list(skills),
+                agent_provider_id=pid,
+                overlay_pin=pin_skill,
+                declared=None,
+            )
+        new_tasks.append(replace(task, mcp_providers=mcps, skills=skills))
+    default_mcp = list(cfg.mcp_providers or [])
+    default_skills = list(cfg.skills or [])
+    if new_tasks and all(str(t.agent_provider_id or "").startswith("client.") for t in new_tasks):
+        default_mcp = filter_client_agent_tool_ids(
+            default_mcp,
+            agent_provider_id="client._",
+            overlay_pin=pin_mcp,
+            declared=None,
+        )
+        default_skills = filter_client_agent_tool_ids(
+            default_skills,
+            agent_provider_id="client._",
+            overlay_pin=pin_skill,
+            declared=None,
+        )
+    return replace(cfg, tasks=new_tasks, mcp_providers=default_mcp, skills=default_skills)
+
+
 def workflow_config_from_plan(
     *,
     user_prompt: str,
@@ -1150,7 +1251,14 @@ def workflow_config_from_plan(
             new_task_defs_rag.append(t)
         task_definitions = new_task_defs_rag
 
-    return WorkflowConfig(
+    overlay = None
+    try:
+        from orchestration.session_overlay import get_current_overlay
+
+        overlay = get_current_overlay()
+    except Exception:  # noqa: BLE001
+        overlay = None
+    cfg = WorkflowConfig(
         name="dynamic-plan",
         process="sequential",
         topic=user_prompt.strip(),
@@ -1161,6 +1269,9 @@ def workflow_config_from_plan(
         tasks=task_definitions,
         task_sequence=[t.id for t in task_definitions],
         rag_sources=rag_plan_ids,
+    )
+    return apply_overlay_client_tool_cap(
+        cfg, agent_entries=provider_payloads, overlay=overlay
     )
 
 
@@ -1646,16 +1757,26 @@ def build_dynamic_workflow_config(
         mcp_allowed = [
             str(x).strip() for x in (allowed_mcp_provider_ids or []) if str(x).strip()
         ]
-        if mcp_allowed:
-            from orchestration.agent_allowlist import filter_entries_by_allowlist
+        overlay_live = False
+        try:
+            from orchestration.session_overlay import get_current_overlay
 
-            mcp_entries = filter_entries_by_allowlist(mcp_entries, mcp_allowed)
-            if not quiet:
-                print(
-                    f"(dynamic) mcp selection: restricting planner catalog to "
-                    f"{sorted(set(mcp_allowed))!r}",
-                    file=sys.stderr,
-                )
+            overlay_live = get_current_overlay() is not None
+        except Exception:  # noqa: BLE001
+            overlay_live = False
+        before_mcp = len(mcp_entries)
+        mcp_entries = restrict_catalog_for_overlay_session(
+            mcp_entries,
+            overlay_active=overlay_live,
+            allowed_ids=mcp_allowed,
+        )
+        if not quiet and overlay_live:
+            print(
+                f"(dynamic) mcp selection: overlay session; "
+                f"{'pin ' + repr(sorted(set(mcp_allowed))) if mcp_allowed else 'client.* only'} "
+                f"({len(mcp_entries)} of {before_mcp})",
+                file=sys.stderr,
+            )
     mcp_doc = mcp_catalog_for_planner_prompt(mcp_entries)
 
     skill_entries: list[dict[str, Any]] = []
@@ -1669,16 +1790,26 @@ def build_dynamic_workflow_config(
         skill_allowed = [
             str(x).strip() for x in (allowed_skill_ids or []) if str(x).strip()
         ]
-        if skill_allowed:
-            from orchestration.agent_allowlist import filter_entries_by_allowlist
+        overlay_live_skills = False
+        try:
+            from orchestration.session_overlay import get_current_overlay
 
-            skill_entries = filter_entries_by_allowlist(skill_entries, skill_allowed)
-            if not quiet:
-                print(
-                    f"(dynamic) skill selection: restricting planner catalog to "
-                    f"{sorted(set(skill_allowed))!r}",
-                    file=sys.stderr,
-                )
+            overlay_live_skills = get_current_overlay() is not None
+        except Exception:  # noqa: BLE001
+            overlay_live_skills = False
+        before_skills = len(skill_entries)
+        skill_entries = restrict_catalog_for_overlay_session(
+            skill_entries,
+            overlay_active=overlay_live_skills,
+            allowed_ids=skill_allowed,
+        )
+        if not quiet and overlay_live_skills:
+            print(
+                f"(dynamic) skill selection: overlay session; "
+                f"{'pin ' + repr(sorted(set(skill_allowed))) if skill_allowed else 'client.* only'} "
+                f"({len(skill_entries)} of {before_skills})",
+                file=sys.stderr,
+            )
     skills_doc = skills_catalog_for_planner_prompt(skill_entries)
 
     rag_entries: list[dict[str, Any]] = []

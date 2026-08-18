@@ -7,6 +7,7 @@ Identity is carried via contextvars set at run boundaries.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from contextlib import contextmanager
@@ -26,6 +27,201 @@ _cv_app_id: ContextVar[str] = ContextVar("llm_usage_app_id", default="")
 _cv_client_ip: ContextVar[str] = ContextVar("llm_usage_client_ip", default="")
 _cv_token_id: ContextVar[str] = ContextVar("llm_usage_token_id", default="")
 _cv_agent_provider_id: ContextVar[str] = ContextVar("llm_usage_agent_provider_id", default="")
+_cv_last_prompt_tokens: ContextVar[int | None] = ContextVar(
+    "llm_usage_last_prompt_tokens", default=None
+)
+
+EMPTY_LLM_MESSAGE = "model returned no text (context or thinking-only)"
+_THINK_RE = re.compile(r"(?is)<think>(.*?)</think>")
+_HEADROOM_TOKENS = 1024
+
+
+class EmptyLlmResponseError(ValueError):
+    """Model produced no user-visible text (thinking-only or truncated)."""
+
+
+def last_prompt_tokens() -> int | None:
+    return _cv_last_prompt_tokens.get()
+
+
+def note_prompt_tokens(n: int | None) -> None:
+    try:
+        _cv_last_prompt_tokens.set(int(n) if n is not None else None)
+    except (TypeError, ValueError):
+        _cv_last_prompt_tokens.set(None)
+
+
+def ollama_context_limit() -> int:
+    for key in ("AGENTIC_OLLAMA_CONTEXT_LENGTH", "OLLAMA_CONTEXT_LENGTH"):
+        raw = os.getenv(key, "").strip()
+        if not raw:
+            continue
+        try:
+            return max(1024, int(raw))
+        except ValueError:
+            continue
+    return 16384
+
+
+def near_context_limit(*, prompt_tokens: int | None = None, headroom: int = _HEADROOM_TOKENS) -> bool:
+    n = prompt_tokens if prompt_tokens is not None else last_prompt_tokens()
+    if n is None:
+        return False
+    return int(n) >= ollama_context_limit() - max(0, int(headroom))
+
+
+def _choice_message(response: Any) -> Any:
+    choices = getattr(response, "choices", None)
+    if choices is None and isinstance(response, dict):
+        choices = response.get("choices")
+    if not choices:
+        return None
+    first = choices[0]
+    if isinstance(first, dict):
+        return first.get("message") or first.get("delta")
+    return getattr(first, "message", None) or getattr(first, "delta", None)
+
+
+def _msg_get(msg: Any, *names: str) -> Any:
+    if msg is None:
+        return None
+    extra: Any = None
+    if isinstance(msg, dict):
+        for name in names:
+            val = msg.get(name)
+            if val:
+                return val
+        extra = msg.get("provider_specific_fields")
+    else:
+        for name in names:
+            val = getattr(msg, name, None)
+            if val:
+                return val
+        extra = getattr(msg, "provider_specific_fields", None)
+    if isinstance(extra, dict):
+        for name in names:
+            val = extra.get(name)
+            if val:
+                return val
+    return None
+
+
+def _content_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("text"):
+                parts.append(str(part.get("text") or ""))
+            else:
+                text = getattr(part, "text", None)
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    return str(content)
+
+
+def _set_msg_content(msg: Any, text: str) -> None:
+    if isinstance(msg, dict):
+        msg["content"] = text
+        return
+    try:
+        msg.content = text
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def thinking_text_from_message(msg: Any) -> str:
+    raw = _msg_get(msg, "reasoning_content", "thinking", "reasoning")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    content = _content_text(_msg_get(msg, "content"))
+    match = _THINK_RE.search(content)
+    if match and not _THINK_RE.sub("", content).strip():
+        return str(match.group(1) or "").strip()
+    return ""
+
+
+def apply_thinking_coalesce(response: Any, *, raise_if_empty: bool = True) -> Any:
+    """Copy thinking/reasoning into ``message.content`` when CrewAI would see empty text."""
+    msg = _choice_message(response)
+    if msg is None:
+        if raise_if_empty:
+            raise EmptyLlmResponseError(EMPTY_LLM_MESSAGE)
+        return response
+    if _msg_get(msg, "tool_calls"):
+        return response
+    content = _content_text(_msg_get(msg, "content")).strip()
+    think_only = bool(content) and bool(_THINK_RE.search(content)) and not _THINK_RE.sub("", content).strip()
+    if content and not think_only:
+        return response
+    thinking = thinking_text_from_message(msg)
+    if thinking:
+        _set_msg_content(msg, thinking)
+        return response
+    if raise_if_empty:
+        raise EmptyLlmResponseError(EMPTY_LLM_MESSAGE)
+    return response
+
+
+def looks_like_empty_llm_error(error: BaseException | str) -> bool:
+    text = str(error or "").lower()
+    return (
+        "none or empty" in text
+        or EMPTY_LLM_MESSAGE in text
+        or "invalid response from llm call" in text
+    )
+
+
+def looks_like_planning_speak(text: str) -> bool:
+    body = str(text or "").strip().lower()
+    if not body:
+        return True
+    needles = (
+        "i should read",
+        "let me call",
+        "i will use the tool",
+        "i'll use the tool",
+        "need to call",
+        "let me list",
+        "i should list",
+        "calling the tool",
+    )
+    return any(n in body for n in needles) and "def " not in body
+
+
+def install_litellm_thinking_coalesce() -> None:
+    """Wrap LiteLLM completion so CrewAI sees thinking as content (idempotent)."""
+    try:
+        import litellm
+    except Exception:  # noqa: BLE001
+        return
+    flag = "_agentic_thinking_coalesce_v1"
+    if getattr(litellm, flag, False):
+        return
+    orig = getattr(litellm, "completion", None)
+    orig_async = getattr(litellm, "acompletion", None)
+    if orig is None:
+        return
+
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        resp = orig(*args, **kwargs)
+        return apply_thinking_coalesce(resp)
+
+    litellm.completion = _wrapped  # type: ignore[method-assign]
+    if orig_async is not None:
+
+        async def _awrapped(*args: Any, **kwargs: Any) -> Any:
+            resp = await orig_async(*args, **kwargs)
+            return apply_thinking_coalesce(resp)
+
+        litellm.acompletion = _awrapped  # type: ignore[method-assign]
+    setattr(litellm, flag, True)
 
 
 def llm_usage_dir(tool_root: Path) -> Path:
@@ -568,6 +764,7 @@ def install_litellm_usage_callback() -> None:
     ``litellm.success_callback``; use ``CustomLogger`` via ``litellm.callbacks``
     (and the logging callback manager when available).
     """
+    install_litellm_thinking_coalesce()
     try:
         import litellm
         from litellm.integrations.custom_logger import CustomLogger
@@ -606,6 +803,7 @@ def install_litellm_usage_callback() -> None:
                         latency_ms = round((end_time - start_time).total_seconds() * 1000.0, 1)
                 except Exception:  # noqa: BLE001
                     pass
+                note_prompt_tokens(norm.get("prompt_tokens"))
                 record_llm_usage(
                     source="crew_litellm",
                     model=str(model) if model else None,
