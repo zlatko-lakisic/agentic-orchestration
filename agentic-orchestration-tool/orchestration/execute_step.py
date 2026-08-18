@@ -13,6 +13,11 @@ from orchestration.fetch_url_tool import (
     recover_fetch_url_after_tool_leak,
     run_ollama_fetch_summarize_step,
 )
+from orchestration.filesystem_tunnel_tool import (
+    extract_filenames_from_topic,
+    partition_filesystem_tunnel_mcps,
+    run_ollama_filesystem_tunnel_step,
+)
 from orchestration.goal_format_hints import goal_requests_irrigation_minutes_line
 from orchestration.irrigation_minutes import (
     has_irrigation_minutes_line,
@@ -237,6 +242,13 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 and goal_requests_filesystem_read(topic)
                 and filesystem_allowed_root() is not None
             )
+            _fs_tunnel_urls = partition_filesystem_tunnel_mcps(mcp_resolved)[1]
+            _fs_names = extract_filenames_from_topic(topic)
+            ollama_fs_tunnel_direct = (
+                _is_ollama_provider(agent_provider)
+                and bool(_fs_tunnel_urls)
+                and bool(_fs_names)
+            )
 
             if ollama_fetch_direct:
                 print(
@@ -248,6 +260,17 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                     topic=topic,
                     task_description=task_description,
                     urls=goal_urls,
+                )
+            elif ollama_fs_tunnel_direct:
+                print(
+                    "(execute-step) ollama+session filesystem tunnel: direct read then summarize",
+                    file=sys.stderr,
+                )
+                text = run_ollama_filesystem_tunnel_step(
+                    built=built,
+                    topic=topic,
+                    mcp_url=_fs_tunnel_urls[0],
+                    filenames=_fs_names,
                 )
             elif ollama_fs_read_direct:
                 root = filesystem_allowed_root()

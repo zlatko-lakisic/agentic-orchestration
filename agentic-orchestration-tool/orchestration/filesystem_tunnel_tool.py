@@ -9,6 +9,7 @@ forwards to the IDE).
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -168,3 +169,66 @@ def attach_filesystem_tunnel_tools_to_agents(agents: list[Any], mcp_urls: list[s
         agent.tools = [*existing, *extra]
         attached = True
     return attached
+
+
+_FILE_RE = re.compile(
+    r"\b((?:[\w.-]+[/\\])*[\w.-]+\.(?:py|txt|md|json|ya?ml|ts|tsx|js|jsx))\b",
+    re.IGNORECASE,
+)
+
+
+def extract_filenames_from_topic(topic: str) -> list[str]:
+    """Filenames mentioned in the user turn (hello.txt, buggy.py, …)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _FILE_RE.finditer(str(topic or "")):
+        name = match.group(1).strip()
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def run_ollama_filesystem_tunnel_step(
+    *,
+    built: Any,
+    topic: str,
+    mcp_url: str,
+    filenames: list[str],
+) -> str:
+    """Read tunnel files deterministically, then one summarize-only crew kickoff.
+
+    Small Ollama models print tool-call syntax instead of invoking CrewAI tools; this
+    is the same pattern as ``run_ollama_fetch_summarize_step``.
+    """
+    from orchestration.crewai_template import crew_kickoff
+    from orchestration.mcp_stdio_hygiene import disable_agent_tools_and_mcps
+    from orchestration.output_artifacts import workflow_result_to_extractable_text
+    from orchestration.runner import crew_kickoff_context
+    from orchestration.simple_chat import user_turn_for_simple_chat
+    from orchestration.text_normalize import sanitize_user_facing_prose
+
+    roots = call_filesystem_mcp_tool(mcp_url, "list_allowed_directories", {})
+    blocks = [f"Allowed directories:\n{roots}"]
+    for name in filenames[:8]:
+        body = call_filesystem_mcp_tool(mcp_url, "read_file", {"path": name})
+        blocks.append(f"### {name}\n{body}")
+    material = "\n\n".join(blocks)
+    user_question = user_turn_for_simple_chat(topic).strip() or str(topic).strip()
+    summarize_desc = (
+        f"{user_question}\n\n[agentic: workspace files]\n{material}\n\n"
+        "Answer using the file contents above. If the user asked for file contents, "
+        "quote them. If they asked to review code, name the concrete bug."
+    )
+    for crew_task in built.crew.tasks:
+        crew_task.description = summarize_desc
+        crew_task.expected_output = "A clear answer based on the workspace files."
+    for agent in built.crew.agents:
+        disable_agent_tools_and_mcps(agent)
+    with crew_kickoff_context(built):
+        workflow_result = crew_kickoff(built.crew, inputs={"topic": user_question})
+    return sanitize_user_facing_prose(
+        workflow_result_to_extractable_text(workflow_result)
+    )

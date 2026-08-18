@@ -65,3 +65,13 @@ def test_attach_filesystem_tunnel_tools_to_agents() -> None:
     )
     names = [t.name for t in agent.tools]
     assert names == ["list_allowed_directories", "list_directory", "read_file"]
+
+
+def test_extract_filenames_from_topic() -> None:
+    from orchestration.filesystem_tunnel_tool import extract_filenames_from_topic
+
+    names = extract_filenames_from_topic(
+        "Call the filesystem MCP read_file tool on hello.txt. Review buggy.py too."
+    )
+    assert names == ["hello.txt", "buggy.py"]
+    assert extract_filenames_from_topic("Reply with exactly the single word pong") == []
