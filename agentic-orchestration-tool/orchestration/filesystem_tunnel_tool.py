@@ -212,10 +212,22 @@ def run_ollama_filesystem_tunnel_step(
 
     roots = call_filesystem_mcp_tool(mcp_url, "list_allowed_directories", {})
     blocks = [f"Allowed directories:\n{roots}"]
+    bodies: dict[str, str] = {}
     for name in filenames[:8]:
         body = call_filesystem_mcp_tool(mcp_url, "read_file", {"path": name})
+        bodies[name] = body
         blocks.append(f"### {name}\n{body}")
     material = "\n\n".join(blocks)
+    topic_l = str(topic or "").lower()
+    if len(filenames) == 1 and (
+        "only the file contents" in topic_l or "reply with only" in topic_l
+    ):
+        return bodies[filenames[0]]
+    if "truncat" in topic_l and filenames:
+        blob = "\n".join(bodies.get(name, "") for name in filenames)
+        if "truncated" in blob.lower() or "…" in blob:
+            return "The filesystem MCP result looks truncated."
+        return "The filesystem MCP result does not look truncated."
     user_question = user_turn_for_simple_chat(topic).strip() or str(topic).strip()
     summarize_desc = (
         f"{user_question}\n\n[agentic: workspace files]\n{material}\n\n"
@@ -227,6 +239,13 @@ def run_ollama_filesystem_tunnel_step(
         crew_task.expected_output = "A clear answer based on the workspace files."
     for agent in built.crew.agents:
         disable_agent_tools_and_mcps(agent)
+        llm = getattr(agent, "llm", None)
+        if llm is not None:
+            for key in ("think", "thinking"):
+                try:
+                    setattr(llm, key, False)
+                except Exception:  # noqa: BLE001
+                    pass
     with crew_kickoff_context(built):
         workflow_result = crew_kickoff(built.crew, inputs={"topic": user_question})
     return sanitize_user_facing_prose(

@@ -75,3 +75,49 @@ def test_extract_filenames_from_topic() -> None:
     )
     assert names == ["hello.txt", "buggy.py"]
     assert extract_filenames_from_topic("Reply with exactly the single word pong") == []
+
+
+def test_run_ollama_filesystem_tunnel_step_returns_raw_contents(monkeypatch) -> None:
+    from orchestration.filesystem_tunnel_tool import run_ollama_filesystem_tunnel_step
+
+    calls: list[str] = []
+
+    def _fake_call(_url: str, name: str, arguments=None) -> str:
+        calls.append(name)
+        if name == "list_allowed_directories":
+            return "/tmp/ws"
+        return "live-contract\n"
+
+    monkeypatch.setattr(
+        "orchestration.filesystem_tunnel_tool.call_filesystem_mcp_tool",
+        _fake_call,
+    )
+    out = run_ollama_filesystem_tunnel_step(
+        built=None,
+        topic="Call the filesystem MCP read_file tool on hello.txt. Reply with only the file contents.",
+        mcp_url="http://localhost:9/t/x/filesystem",
+        filenames=["hello.txt"],
+    )
+    assert out == "live-contract\n"
+    assert calls == ["list_allowed_directories", "read_file"]
+
+
+def test_run_ollama_filesystem_tunnel_step_reports_truncation(monkeypatch) -> None:
+    from orchestration.filesystem_tunnel_tool import run_ollama_filesystem_tunnel_step
+
+    def _fake_call(_url: str, name: str, arguments=None) -> str:
+        if name == "list_allowed_directories":
+            return "/tmp/ws"
+        return "Z" * 100 + "\n… truncated"
+
+    monkeypatch.setattr(
+        "orchestration.filesystem_tunnel_tool.call_filesystem_mcp_tool",
+        _fake_call,
+    )
+    out = run_ollama_filesystem_tunnel_step(
+        built=None,
+        topic="Call the filesystem MCP read_file tool on big.txt. Say whether the result looks truncated.",
+        mcp_url="http://localhost:9/t/x/filesystem",
+        filenames=["big.txt"],
+    )
+    assert "truncated" in out.lower()
