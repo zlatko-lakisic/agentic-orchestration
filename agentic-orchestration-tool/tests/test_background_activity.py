@@ -62,6 +62,7 @@ def test_clear_activity_respects_connection_id() -> None:
 def test_http_pull_cancel_closes_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent_providers.ollama_provider import (
         OllamaPullCancelled,
+        _ollama_pull_done,
         cancel_active_ollama_pull,
         pull_ollama_model,
     )
@@ -99,6 +100,7 @@ def test_http_pull_cancel_closes_stream(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         "agent_providers.ollama_provider.ollama_has_model", lambda *_a, **_k: False
     )
+    _ollama_pull_done.clear()
 
     err: list[BaseException] = []
 

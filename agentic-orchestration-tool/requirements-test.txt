@@ -1,5 +1,6 @@
 # Minimal deps for the unit test tier (no crewai / LLM stack required).
 pytest>=9.0.3,<10
+pytest-asyncio>=0.25,<2
 pyyaml
 python-dotenv
 httpx

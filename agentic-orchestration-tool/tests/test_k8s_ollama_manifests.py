@@ -158,14 +158,14 @@ def _render(env: dict[str, str], *, arch_aarch64: bool) -> dict:
         newline="\n",
     )
     (stub / "kubectl").chmod(0o755)
-    if not arch_aarch64:
-        (stub / "uname").write_text(
-            "#!/usr/bin/env bash\n"
-            'if [[ "$1" == "-m" ]]; then echo x86_64; else exec /usr/bin/uname "$@"; fi\n',
-            encoding="utf-8",
-            newline="\n",
-        )
-        (stub / "uname").chmod(0o755)
+    machine = "aarch64" if arch_aarch64 else "x86_64"
+    (stub / "uname").write_text(
+        "#!/usr/bin/env bash\n"
+        f'if [[ "$1" == "-m" ]]; then echo {machine}; else exec /usr/bin/uname "$@"; fi\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    (stub / "uname").chmod(0o755)
     child_env = dict(os.environ)
     child_env["PATH"] = os.pathsep.join([str(stub), child_env["PATH"]])
     child_env["KUBECONFIG"] = str(work / "kubeconfig")

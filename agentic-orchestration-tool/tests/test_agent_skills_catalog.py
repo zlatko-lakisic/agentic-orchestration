@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -216,6 +217,8 @@ def test_runner_injects_backstory_skill(
         emit_progress_lines=False,
         agent_skills_catalog_path=config_dir / "agent_skills",
     )
+    if isinstance(built.crew, MagicMock):
+        pytest.skip("crewai is stubbed; skill injection needs a real CrewAI Task")
     task = built.crew.tasks[0]
     assert BACKSTORY_SKILLS_MARKER not in str(task.description)
     assert "BACKSTORY_SKILL_ECHO_OK" in str(task.agent.backstory)
@@ -265,6 +268,8 @@ def test_runner_injects_skill_into_task_description(
         emit_progress_lines=False,
         agent_skills_catalog_path=config_dir / "agent_skills",
     )
+    if isinstance(built.crew, MagicMock):
+        pytest.skip("crewai is stubbed; skill injection needs a real CrewAI Task")
     task = built.crew.tasks[0]
     assert SKILLS_MARKER in str(task.description)
     assert "SKILL_ECHO_OK" in str(task.description)

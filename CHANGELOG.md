@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **GitHub Python unit tests** — CI `pytest` now installs `pytest-asyncio` so WebSocket cancel/heartbeat tests run; Jetson Ollama render tests stub `uname -m` to `aarch64` instead of using the Ubuntu runner's `x86_64`; cancelling an HTTP `ollama pull` after the stream closes raises `OllamaPullCancelled` instead of treating EOF as success.
+
 ## [2.3.0] - 2026-08-18
 
 ### Added

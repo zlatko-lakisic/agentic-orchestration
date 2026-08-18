@@ -584,12 +584,15 @@ def _iter_ollama_pull_ndjson(
     cancel_event: threading.Event | None = None,
     model: str = "",
 ) -> Iterator[dict[str, Any]]:
+    event = cancel_event if cancel_event is not None else threading.Event()
     while True:
-        _raise_if_pull_cancelled(cancel_event or threading.Event(), model)
+        _raise_if_pull_cancelled(event, model)
         raw_b = resp.readline()
         if not raw_b:
+            # Closing the HTTP body (cancel) looks like EOF; do not treat it as success.
+            _raise_if_pull_cancelled(event, model)
             break
-        _raise_if_pull_cancelled(cancel_event or threading.Event(), model)
+        _raise_if_pull_cancelled(event, model)
         line = raw_b.decode("utf-8", errors="replace").strip()
         if not line:
             continue
@@ -632,6 +635,7 @@ def _consume_api_pull_stream(
         if not _ollama_pull_progress_stderr_enabled():
             for obj in iterator:
                 _format_api_pull_progress_display_line(obj, model=model)
+            _raise_if_pull_cancelled(cancel_event, model)
             return
         _emit_pull_progress_line(f"ollama pull: starting {model}")
         for obj in iterator:
@@ -640,6 +644,7 @@ def _consume_api_pull_stream(
                 norm = _normalize_ollama_pull_display_line(pl + "\n")
                 if norm:
                     _emit_pull_progress_line(f"ollama pull: {norm}")
+        _raise_if_pull_cancelled(cancel_event, model)
         _emit_pull_progress_line(f"ollama pull: complete {model}")
         return
 

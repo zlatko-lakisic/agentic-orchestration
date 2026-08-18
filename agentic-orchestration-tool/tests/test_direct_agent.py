@@ -21,8 +21,16 @@ pytestmark = pytest.mark.unit
 
 #: Kickoff tests patch ``orchestration.runner``, which imports CrewAI. Config-building
 #: and prompt-shape tests need neither, so they still run on the unit-test tier.
+def _crewai_available() -> bool:
+    try:
+        spec = find_spec("crewai")
+    except ValueError:
+        return False
+    return spec is not None and spec.loader is not None
+
+
 requires_crewai = pytest.mark.skipif(
-    find_spec("crewai") is None,
+    not _crewai_available(),
     reason="crewai not installed (unit-test tier)",
 )
 

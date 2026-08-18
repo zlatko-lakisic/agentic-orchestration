@@ -52,8 +52,18 @@ pytestmark.append(
         reason="latency budgets run only with AGENTIC_LATENCY_CI=1",
     )
 )
+
+
+def _crewai_available() -> bool:
+    try:
+        spec = find_spec("crewai")
+    except ValueError:
+        return False
+    return spec is not None and spec.loader is not None
+
+
 pytestmark.append(
-    pytest.mark.skipif(find_spec("crewai") is None, reason="crewai not installed")
+    pytest.mark.skipif(not _crewai_available(), reason="crewai not installed")
 )
 
 
