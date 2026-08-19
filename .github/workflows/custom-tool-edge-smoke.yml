@@ -18,4 +18,7 @@ jobs:
         run: |
           echo "Run on Ada/Jetson after deploy:"
           echo "  bash agentic-orchestration-tool/scripts/edge-custom-tool-smoke.sh"
+          echo "Defaults: AO_WS_URL=https://127.0.0.1:8765 (HTTPS on edge)"
+          echo "Optional: AO_INSECURE=1, REACH_REPO=/path/to/reach,"
+          echo "  AGENTIC_CUSTOM_TOOL_SANDBOX=1 (sandbox phase; default tunnel-only)"
           test -f agentic-orchestration-tool/scripts/edge-custom-tool-smoke.sh

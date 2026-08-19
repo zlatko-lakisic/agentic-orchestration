@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Edge custom-tool smoke (Gate 2)** — `edge-custom-tool-smoke.sh` defaults to HTTPS engine URL, uses `curl -k` for TLS, resolves Reach repo from common Jetson paths, and invokes `mock_client_runner.py` with `--profile` / `--tunnel-only` instead of removed `--app-id` / `--sandbox-flag` args.
+
 ## [2.5.0] - 2026-08-19
 
 ### Added
