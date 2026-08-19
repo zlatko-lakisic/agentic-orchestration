@@ -197,7 +197,15 @@ class ExecutionQueueStore:
 
 
 def read_state(run_store_mount: str | None = None) -> dict[str, Any]:
-    return ExecutionQueueStore(queue_root(run_store_mount)).read_state()
+    root = queue_root(run_store_mount)
+    path = _state_path(root)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def write_state(snapshot: dict[str, Any], *, run_store_mount: str | None = None) -> None:
