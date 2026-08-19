@@ -21,7 +21,7 @@ _resolve_reach_dir() {
       return 0
     fi
   done
-  for dir in "${candidates[@]}"; do
+  for dir in "/var/projects/agentic-orchestration-reach" "/mnt/nvme/projects/agentic-orchestration-reach"; do
     local parent
     parent="$(dirname "${dir}")"
     if mkdir -p "${parent}" 2>/dev/null; then

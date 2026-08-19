@@ -51,9 +51,9 @@ _resolve_reach_repo() {
     return 0
   fi
   local candidates=(
-    "${REPO_ROOT}/../agentic-orchestration-reach"
     "/mnt/nvme/projects/agentic-orchestration-reach"
     "/var/projects/agentic-orchestration-reach"
+    "${REPO_ROOT}/../agentic-orchestration-reach"
   )
   for dir in "${candidates[@]}"; do
     if [[ -f "${dir}/python/ao_reach/mock_client_runner.py" ]]; then
