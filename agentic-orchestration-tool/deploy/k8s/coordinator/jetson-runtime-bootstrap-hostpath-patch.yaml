@@ -18,6 +18,9 @@ spec:
               mountPath: /app/tool/orchestration/ollama_ownership.py
               subPath: ollama_ownership.py
             - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/dynamic_planner.py
+              subPath: dynamic_planner.py
+            - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/ollama_catalog_filter.py
               subPath: ollama_catalog_filter.py
             - name: jetson-orch-hostpath

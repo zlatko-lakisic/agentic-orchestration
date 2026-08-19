@@ -67,7 +67,6 @@ TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"
 apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=main.py="${TOOL_PY_ROOT}/main.py" \
-  --from-file=dynamic_planner.py="${ORCH_ROOT}/dynamic_planner.py" \
   --from-file=provider_goal_match.py="${ORCH_ROOT}/provider_goal_match.py" \
   --from-file=ollama_keepalive.py="${ORCH_ROOT}/ollama_keepalive.py" \
   --from-file=ollama_runtime.py="${ORCH_ROOT}/ollama_runtime.py" \

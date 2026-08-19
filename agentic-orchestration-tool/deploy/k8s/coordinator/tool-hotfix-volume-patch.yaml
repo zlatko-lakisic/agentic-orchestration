@@ -9,9 +9,6 @@ spec:
               mountPath: /app/tool/main.py
               subPath: main.py
             - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/dynamic_planner.py
-              subPath: dynamic_planner.py
-            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/provider_goal_match.py
               subPath: provider_goal_match.py
             - name: tool-hotfix-orchestration
