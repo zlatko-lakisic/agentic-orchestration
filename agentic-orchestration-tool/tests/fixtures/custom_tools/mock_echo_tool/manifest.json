@@ -1,0 +1,23 @@
+{
+  "contractVersion": "1",
+  "toolId": "client.mock_comstar.echo_tool",
+  "toolVersion": "1.0.0",
+  "runtime": "python",
+  "wheel": "mock_echo_tool-1.0.0-py3-none-any.whl",
+  "entrypoints": {
+    "mcp": "mock_echo_tool.server",
+    "http_callable": "run_server"
+  },
+  "requiredEnv": [],
+  "permissions": {
+    "filesystem": [],
+    "network": false,
+    "env": []
+  },
+  "healthcheck": {
+    "path": "/health",
+    "timeoutSeconds": 5
+  },
+  "fallbackPolicy": "tunnel",
+  "description": "Mock echo tool for AO sandbox e2e"
+}

@@ -22,6 +22,7 @@ CLIENT_ID_RE = re.compile(r"^client\.[a-z0-9][a-z0-9_.]*$")
 #: Stable product identity required on every Reach ``session_overlay_register``.
 APP_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 TUNNEL_URL_PREFIX = "tunnel://session-mcp/"
+SANDBOX_LOOPBACK_PREFIXES = ("http://127.0.0.1", "http://localhost")
 
 _DEFAULT_TTL_S = 3600
 _DEFAULT_MAX_BYTES = 512 * 1024
@@ -48,6 +49,14 @@ def session_overlay_enabled() -> bool:
 
 def mcp_tunnel_enabled() -> bool:
     return _truthy("AGENTIC_SERVE_MCP_TUNNEL")
+
+
+def custom_tool_sandbox_enabled() -> bool:
+    return _truthy("AGENTIC_CUSTOM_TOOL_SANDBOX")
+
+
+def _is_sandbox_loopback_url(url: str) -> bool:
+    return any(url.startswith(prefix) for prefix in SANDBOX_LOOPBACK_PREFIXES)
 
 
 def overlay_ttl_default_s() -> int:
@@ -248,15 +257,23 @@ def _validate_mcp_entry(entry: dict[str, Any], *, index: int) -> dict[str, Any]:
             f"mcps[{index}] ({pid}): streamable_http block is required"
         )
     url = str(sh.get("url", "")).strip()
-    if not url.startswith(TUNNEL_URL_PREFIX):
+    if url.startswith(TUNNEL_URL_PREFIX):
+        alias = url[len(TUNNEL_URL_PREFIX) :].strip().strip("/")
+        if not alias or "/" in alias or not re.match(r"^[a-z0-9][a-z0-9_.-]*$", alias):
+            raise SessionOverlayError(
+                f"mcps[{index}] ({pid}): invalid tunnel alias in url {url!r}"
+            )
+    elif custom_tool_sandbox_enabled() and _is_sandbox_loopback_url(url):
+        if not url.rstrip("/").endswith("/mcp"):
+            raise SessionOverlayError(
+                f"mcps[{index}] ({pid}): sandbox streamable_http.url must end with /mcp "
+                f"(got {url!r})"
+            )
+    else:
         raise SessionOverlayError(
             f"mcps[{index}] ({pid}): streamable_http.url must start with "
-            f"{TUNNEL_URL_PREFIX!r} (got {url!r})"
-        )
-    alias = url[len(TUNNEL_URL_PREFIX) :].strip().strip("/")
-    if not alias or "/" in alias or not re.match(r"^[a-z0-9][a-z0-9_.-]*$", alias):
-        raise SessionOverlayError(
-            f"mcps[{index}] ({pid}): invalid tunnel alias in url {url!r}"
+            f"{TUNNEL_URL_PREFIX!r} or be an AO sandbox loopback URL when "
+            f"AGENTIC_CUSTOM_TOOL_SANDBOX=1 (got {url!r})"
         )
     out = copy.deepcopy(entry)
     out["id"] = pid
@@ -406,10 +423,22 @@ def register_overlay(
     for i, m in enumerate(raw_mcps):
         if not isinstance(m, dict):
             raise SessionOverlayError(f"mcps[{i}] must be a mapping")
-        if not mcp_tunnel_enabled() and m.get("streamable_http"):
+        sh = m.get("streamable_http") if isinstance(m.get("streamable_http"), dict) else {}
+        url = str(sh.get("url", "")).strip()
+        needs_tunnel = url.startswith(TUNNEL_URL_PREFIX)
+        if needs_tunnel and not mcp_tunnel_enabled():
             raise SessionOverlayError(
                 "MCP tunnel is disabled (set AGENTIC_SERVE_MCP_TUNNEL=1) "
-                "before registering session MCP entries"
+                "before registering tunnel-backed session MCP entries"
+            )
+        if (
+            not needs_tunnel
+            and url
+            and _is_sandbox_loopback_url(url)
+            and not custom_tool_sandbox_enabled()
+        ):
+            raise SessionOverlayError(
+                "AO sandbox MCP URLs require AGENTIC_CUSTOM_TOOL_SANDBOX=1"
             )
         validated_mcps.append(_validate_mcp_entry(m, index=i))
 
@@ -545,12 +574,55 @@ def merge_session_agents(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def merge_session_mcps(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not session_overlay_enabled():
-        return entries
-    overlay = get_current_overlay()
-    if overlay is None or not overlay.mcps:
-        return entries
-    return list(entries) + [copy.deepcopy(e) for e in overlay.mcps]
+    merged = list(entries)
+    if session_overlay_enabled():
+        overlay = get_current_overlay()
+        if overlay is not None and overlay.mcps:
+            merged = merged + [copy.deepcopy(e) for e in overlay.mcps]
+    merged = merged + _merge_active_custom_tool_mcps(merged)
+    return merged
+
+
+def _merge_active_custom_tool_mcps(existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Inject activated AO sandbox tools as loopback streamable_http MCP entries."""
+    try:
+        from orchestration.tool_artifacts import active_sandbox_mcp_entries, custom_tool_sandbox_enabled
+    except ImportError:
+        return []
+    if not custom_tool_sandbox_enabled():
+        return []
+    key = current_overlay_key()
+    if key is None:
+        return []
+    overlay = get_overlay(key[0], key[1])
+    if overlay is None:
+        return []
+    try:
+        from orchestration.serve import tool_root
+
+        root = tool_root()
+    except Exception:  # noqa: BLE001
+        root = None
+    if root is None:
+        return []
+    sandbox_entries = active_sandbox_mcp_entries(
+        root,
+        user_id=overlay.user_id,
+        app_id=overlay.app_id,
+    )
+    if not sandbox_entries:
+        return []
+    existing_ids = {
+        str(e.get("id") or "").strip()
+        for e in existing
+        if isinstance(e, dict) and str(e.get("id") or "").strip()
+    }
+    out: list[dict[str, Any]] = []
+    for entry in sandbox_entries:
+        pid = str(entry.get("id") or "").strip()
+        if pid and pid not in existing_ids:
+            out.append(copy.deepcopy(entry))
+    return out
 
 
 def merge_session_skills(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

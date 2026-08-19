@@ -1,0 +1,21 @@
+name: Custom tool edge smoke
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  edge-smoke-note:
+    name: Edge smoke (manual SSH)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Document edge smoke entrypoint
+        run: |
+          echo "Run on Ada/Jetson after deploy:"
+          echo "  bash agentic-orchestration-tool/scripts/edge-custom-tool-smoke.sh"
+          test -f agentic-orchestration-tool/scripts/edge-custom-tool-smoke.sh

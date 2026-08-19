@@ -97,6 +97,23 @@ class KbUpsertRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CustomToolActivateRequest(BaseModel):
+    artifact_id: str | None = Field(default=None, alias="artifactId")
+    app_id: str = Field(..., alias="appId")
+    tool_id: str | None = Field(default=None, alias="toolId")
+    tool_version: str | None = Field(default=None, alias="toolVersion")
+    env: dict[str, str] | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class CustomToolDeactivateRequest(BaseModel):
+    app_id: str = Field(..., alias="appId")
+    client_id: str = Field(..., alias="clientId")
+
+    model_config = {"populate_by_name": True}
+
+
 def _check_deal_access(*, root: Path, identity: Identity, deal_id: str | None) -> None:
     from orchestration.deal_auth import DealAccessDenied, check_deal_access
 
@@ -606,6 +623,166 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         except MtlsCaError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return JSONResponse({"ok": True, "caPem": pem})
+
+    @app.post("/api/v1/custom-tools/upload")
+    async def api_custom_tools_upload(
+        request: Request,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.custom_tool_contract import CustomToolContractError
+        from orchestration.tool_artifacts import (
+            ToolArtifactDenied,
+            ToolArtifactError,
+            custom_tool_sandbox_enabled,
+            ingest_upload,
+        )
+
+        if not custom_tool_sandbox_enabled():
+            raise HTTPException(
+                status_code=403,
+                detail="custom tool sandbox is disabled (AGENTIC_CUSTOM_TOOL_SANDBOX=0)",
+            )
+
+        content_type = (request.headers.get("content-type") or "").lower()
+        app_id = (request.query_params.get("appId") or request.query_params.get("app_id") or "").strip()
+        if "multipart/form-data" in content_type:
+            form = await request.form()
+            upload = form.get("file") or form.get("package")
+            if upload is None:
+                raise HTTPException(status_code=400, detail="file field is required")
+            if not app_id:
+                app_id = str(form.get("appId") or form.get("app_id") or "").strip()
+            data = await upload.read()  # type: ignore[union-attr]
+        else:
+            data = await request.body()
+        if not app_id:
+            raise HTTPException(status_code=400, detail="appId is required")
+
+        try:
+            record = await run_in_threadpool(
+                lambda: ingest_upload(
+                    tool_root=root,
+                    user_id=identity.user_id,
+                    app_id=app_id,
+                    zip_bytes=data,
+                )
+            )
+        except ToolArtifactDenied as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (ToolArtifactError, CustomToolContractError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "artifact": record.to_json()}
+
+    @app.post("/api/v1/custom-tools/activate")
+    async def api_custom_tools_activate(
+        payload: CustomToolActivateRequest,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.tool_artifacts import (
+            ToolArtifactDenied,
+            ToolArtifactError,
+            _parse_storage_key,
+            activate_artifact,
+        )
+
+        tool_id = payload.tool_id
+        tool_version = payload.tool_version
+        app_id = payload.app_id
+        if payload.artifact_id:
+            try:
+                uid, parsed_app, tool_id, tool_version = _parse_storage_key(payload.artifact_id)
+            except ToolArtifactError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if uid != identity.user_id:
+                raise HTTPException(status_code=403, detail="artifact belongs to another user")
+            if app_id and app_id != parsed_app:
+                raise HTTPException(status_code=400, detail="appId does not match artifact")
+            app_id = parsed_app
+
+        if not tool_id or not tool_version:
+            raise HTTPException(
+                status_code=400,
+                detail="artifactId or toolId+toolVersion are required",
+            )
+
+        try:
+            result = await run_in_threadpool(
+                lambda: activate_artifact(
+                    tool_root=root,
+                    user_id=identity.user_id,
+                    app_id=app_id,
+                    tool_id=tool_id,
+                    tool_version=tool_version,
+                    env=payload.env,
+                )
+            )
+        except ToolArtifactDenied as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ToolArtifactError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        artifact_id = payload.artifact_id
+        if not artifact_id:
+            artifact_id = f"{identity.user_id}::{app_id}::{tool_id}@{tool_version}"
+        return {
+            **result,
+            "artifactId": artifact_id,
+            "baseUrl": result.get("runtime", {}).get("baseUrl"),
+        }
+
+    @app.post("/api/v1/custom-tools/deactivate")
+    async def api_custom_tools_deactivate(
+        payload: CustomToolDeactivateRequest,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.tool_artifacts import deactivate_artifact
+
+        return await run_in_threadpool(
+            lambda: deactivate_artifact(
+                user_id=identity.user_id,
+                app_id=payload.app_id,
+                client_id=payload.client_id,
+            )
+        )
+
+    @app.get("/api/v1/custom-tools")
+    async def api_custom_tools_list(
+        app_id: str | None = Query(default=None, alias="appId"),
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.tool_artifacts import custom_tool_sandbox_enabled, list_artifacts
+
+        artifacts = await run_in_threadpool(
+            lambda: [a.to_json() for a in list_artifacts(user_id=identity.user_id, app_id=app_id)]
+        )
+        return {
+            "ok": True,
+            "enabled": custom_tool_sandbox_enabled(),
+            "artifacts": artifacts,
+            "count": len(artifacts),
+        }
+
+    @app.delete("/api/v1/custom-tools/{artifact_id}")
+    async def api_custom_tools_delete(
+        artifact_id: str,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.tool_artifacts import ToolArtifactDenied, ToolArtifactError, delete_artifact
+
+        try:
+            removed = await run_in_threadpool(
+                lambda: delete_artifact(
+                    tool_root=root,
+                    user_id=identity.user_id,
+                    artifact_id=artifact_id,
+                )
+            )
+        except ToolArtifactDenied as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ToolArtifactError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not removed:
+            raise HTTPException(status_code=404, detail="artifact not found")
+        return {"ok": True, "artifactId": artifact_id, "deleted": True}
 
     @app.post("/api/v1/mtls/enroll")
     async def api_mtls_enroll(payload: MtlsEnrollRequest) -> dict[str, Any]:

@@ -415,7 +415,11 @@ class WsConnection:
             await self.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
             return
 
-        from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+        from orchestration.session_overlay import (
+            custom_tool_sandbox_enabled,
+            mcp_tunnel_enabled,
+            session_overlay_enabled,
+        )
         from orchestration.serve.mtls_ca import is_peercert_revoked, mtls_hello_payload
         from orchestration.speech_capability import speech_hello_payload
 
@@ -433,6 +437,7 @@ class WsConnection:
             "questionTags": True,
             "sessionOverlay": session_overlay_enabled(),
             "mcpTunnel": mcp_tunnel_enabled(),
+            "customToolSandbox": custom_tool_sandbox_enabled(),
             "userName": self.identity.user_name,
             "sessionId": self.identity.session_id,
             "userId": self.identity.user_id,
@@ -488,7 +493,11 @@ class WsConnection:
             await self.send({"type": "pong"})
             return
         if kind == "client_hello":
-            from orchestration.session_overlay import mcp_tunnel_enabled, session_overlay_enabled
+            from orchestration.session_overlay import (
+                custom_tool_sandbox_enabled,
+                mcp_tunnel_enabled,
+                session_overlay_enabled,
+            )
             from orchestration.speech_capability import speech_hello_payload
 
             reply: dict[str, Any] = {
@@ -497,6 +506,7 @@ class WsConnection:
                 "sessionId": (self.identity.session_id if self.identity else None),
                 "sessionOverlay": session_overlay_enabled(),
                 "mcpTunnel": mcp_tunnel_enabled(),
+                "customToolSandbox": custom_tool_sandbox_enabled(),
             }
             speech = speech_hello_payload()
             if speech is not None:

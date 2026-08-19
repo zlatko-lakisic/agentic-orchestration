@@ -1,0 +1,7 @@
+pyproject.toml
+src/mock_echo_tool/__init__.py
+src/mock_echo_tool/server.py
+src/mock_echo_tool.egg-info/PKG-INFO
+src/mock_echo_tool.egg-info/SOURCES.txt
+src/mock_echo_tool.egg-info/dependency_links.txt
+src/mock_echo_tool.egg-info/top_level.txt

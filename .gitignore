@@ -45,3 +45,7 @@ docs/vendor/config/env.host
 
 # Host-written live metrics (Jetson jtop/tegrastats, etc.)
 /var/
+
+# Custom tool sandbox runtime (local dev)
+agentic-orchestration-tool/_tool_artifacts/
+agentic-orchestration-tool/_tool_sandbox/

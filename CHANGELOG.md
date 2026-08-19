@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Custom tool sandbox (opt-in)** — Reach can upload Python wheel + manifest packages via `POST /api/v1/custom-tools/upload`, activate them with `POST /api/v1/custom-tools/activate`, list with `GET /api/v1/custom-tools`, and delete with `DELETE /api/v1/custom-tools/{id}`. AO validates contract v1 manifests (`contractVersion`, `toolId`, `toolVersion`, `runtime: python`, wheel filename, `entrypoints.http_module` / `stdio_module`, `mcp.clientId` in the `client.*` namespace), installs each tool into an isolated venv under `_tool_sandbox/`, and exposes a loopback `streamable_http` MCP endpoint. Activated tools merge into session overlay MCP resolution when `AGENTIC_CUSTOM_TOOL_SANDBOX=1` (default **off**). Engine WebSocket `hello` advertises `customToolSandbox` when enabled. Includes mock echo fixture, pytest coverage, and `scripts/edge-custom-tool-smoke.sh` for Ada/Jetson validation.
+
 ### Fixed
 
 - **COMSTAR commit/push died with thinking-only empty LLM** — Jetson run `aafdd81412ff48108ea96a86c7ba443b` (`qwen3.6:27b`) used filesystem tools then billed 499 completion tokens with no `message.content`. Ollama overlay agents with MCPs now send `think=false`, thinking coalesce also reads `thinking_blocks`, and a thinking-only call retries once with tools stripped instead of failing the Reach run.
