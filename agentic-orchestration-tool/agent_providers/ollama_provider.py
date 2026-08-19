@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import threading
+from contextvars import ContextVar
 from typing import Any, Sequence, Callable, Iterator, TextIO
 
 import platform
@@ -36,6 +37,66 @@ _ollama_pull_done: set[str] = set()
 _active_pull_lock = threading.Lock()
 _active_pull: dict[str, Any] | None = None
 
+_LLM_CALL_INDEX: ContextVar[int] = ContextVar("_LLM_CALL_INDEX", default=0)
+_LLM_PROGRESS_EMITTED: ContextVar[set[str]] = ContextVar("_LLM_PROGRESS_EMITTED", default=set())
+_REACT_SNIPPET_CHARS = 300
+
+
+def reset_llm_call_index() -> None:
+    """Reset per-run LLM progress counter (call at crew kickoff)."""
+    _LLM_CALL_INDEX.set(0)
+    _LLM_PROGRESS_EMITTED.set(set())
+
+
+def _llm_result_text(result: Any) -> str:
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result.strip()
+    for attr in ("content", "text", "raw"):
+        val = getattr(result, attr, None)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    if isinstance(result, dict):
+        for key in ("content", "text", "raw"):
+            val = result.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return str(result).strip()
+
+
+def _emit_react_snippets(text: str) -> None:
+    from orchestration.progress_sink import emit_progress
+
+    blob = str(text or "").strip()
+    if not blob:
+        return
+    for kind in ("Thought", "Action"):
+        pat = re.compile(rf"(?is)\b{kind}:\s*(.+?)(?=\b(?:Thought|Action):|\Z)")
+        for match in pat.finditer(blob):
+            snippet = " ".join(match.group(1).split())[:_REACT_SNIPPET_CHARS].strip()
+            if snippet:
+                emit_progress(f"(agent) {kind}: {snippet}")
+
+
+def _emit_llm_progress(model_name: str) -> None:
+    from orchestration.progress_sink import emit_progress
+
+    name = str(model_name or "model").strip().split("/", 1)[-1]
+    idx = _LLM_CALL_INDEX.get()
+    if idx <= 0:
+        key = f"consulting:{name.casefold()}"
+        line = f"(llm) consulting {name}"
+    else:
+        key = f"continuing:{name.casefold()}"
+        line = f"(llm) continuing {name}"
+    emitted = set(_LLM_PROGRESS_EMITTED.get())
+    if key not in emitted:
+        emit_progress(line)
+        emitted.add(key)
+        _LLM_PROGRESS_EMITTED.set(emitted)
+    _LLM_CALL_INDEX.set(idx + 1)
+
 
 if isinstance(LLM, type):
 
@@ -56,35 +117,29 @@ if isinstance(LLM, type):
                     pass
 
         def call(self, messages: Any, tools: Any = None, **kwargs: Any) -> Any:  # noqa: ANN401
-            from orchestration.llm_usage import build_prompt_preview, call_with_empty_retry, near_context_limit
-            from orchestration.progress_sink import emit_progress
+            from orchestration.llm_usage import call_with_empty_retry, near_context_limit
 
             if near_context_limit():
                 tools = None
 
-            # Reach streaming: show what the orchestrator is sending into the model.
-            # We intentionally emit only a small, non-sensitive preview (last user message + tool names).
-            try:
-                preview = build_prompt_preview(messages=messages, tools=tools, max_chars=220)
-            except Exception:  # noqa: BLE001
-                preview = ""
-            if preview:
-                model_name = str(getattr(self, "model", "") or "").strip()
-                if not model_name:
-                    model_name = "model"
-                model_name = model_name.split("/", 1)[-1]
-                emit_progress(f"Model input ({model_name}): {preview}")
+            model_name = str(getattr(self, "model", "") or "").strip() or "model"
+            _emit_llm_progress(model_name)
 
             def _invoke(*a: Any, **k: Any) -> Any:
                 return super(ThinkingAwareLLM, self).call(*a, **k)
 
-            return call_with_empty_retry(
+            result = call_with_empty_retry(
                 _invoke,
                 messages,
                 on_retry=self._disable_think,
                 tools=tools,
                 **kwargs,
             )
+            try:
+                _emit_react_snippets(_llm_result_text(result))
+            except Exception:  # noqa: BLE001
+                pass
+            return result
 
 else:
     ThinkingAwareLLM = LLM  # type: ignore[misc,assignment]

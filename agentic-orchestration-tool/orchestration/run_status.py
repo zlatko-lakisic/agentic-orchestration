@@ -20,6 +20,7 @@ PHASE_STARTING_AGENT = "starting_agent"
 PHASE_GENERATING = "generating"
 PHASE_EXECUTING = "executing"
 PHASE_STEP = "step"
+PHASE_TOOL = "tool"
 PHASE_PREPARING_RESPONSE = "preparing_response"
 PHASE_DONE = "done"
 PHASE_ERROR = "error"
@@ -134,6 +135,28 @@ _MCP_HANDSHAKE_FAIL = re.compile(
     re.I,
 )
 _MCP_HANDSHAKE = re.compile(r"stdio MCP handshake:\s+(\S+)", re.I)
+_LLM_CONSULTING_RE = re.compile(r"^\(llm\)\s+consulting\s+(.+)$", re.I)
+_LLM_CONTINUING_RE = re.compile(r"^\(llm\)\s+continuing\s+(.+)$", re.I)
+_TOOL_PROGRESS_RE = re.compile(r"^\(tool\)\s+([^:]+):\s*(.*)$", re.I)
+_AGENT_THOUGHT_RE = re.compile(r"^\(agent\)\s+Thought:\s*(.+)", re.I | re.S)
+_AGENT_ACTION_RE = re.compile(r"^\(agent\)\s+Action:\s*(.+)", re.I | re.S)
+_JUNK_PROGRESS_MARKERS = (
+    "model input (",
+    "<important_rules>",
+    "current task: <system>",
+)
+
+
+def _is_junk_progress_line(text: str) -> bool:
+    low = str(text or "").strip().lower()
+    if not low:
+        return True
+    return any(marker in low for marker in _JUNK_PROGRESS_MARKERS)
+
+
+def is_filtered_progress_line(line: str) -> bool:
+    """True when a progress line must not reach user-facing status or thought streams."""
+    return _is_junk_progress_line(line)
 
 
 def map_progress_line(line: str) -> dict[str, Any] | None:
@@ -151,7 +174,73 @@ def map_progress_line(line: str) -> dict[str, Any] | None:
     text = _PROGRESS_PREFIX.sub("", text).strip()
     if not text:
         return None
+    if _is_junk_progress_line(text):
+        return None
     low = text.lower()
+
+    llm_consult = _LLM_CONSULTING_RE.match(text)
+    if llm_consult:
+        model = llm_consult.group(1).strip()
+        return {
+            "phase": PHASE_GENERATING,
+            "message": f"Consulting {model}…",
+            "model": model,
+            "detail": text,
+        }
+    llm_cont = _LLM_CONTINUING_RE.match(text)
+    if llm_cont:
+        model = llm_cont.group(1).strip()
+        return {
+            "phase": PHASE_GENERATING,
+            "message": f"Still working with {model}…",
+            "model": model,
+            "detail": text,
+        }
+
+    tool_m = _TOOL_PROGRESS_RE.match(text)
+    if tool_m:
+        tool_name = tool_m.group(1).strip()
+        tool_arg = tool_m.group(2).strip()
+        name_l = tool_name.lower()
+        if "run_terminal" in name_l or name_l in ("terminal", "run_terminal_command"):
+            cmd = tool_arg or tool_name
+            msg = f"Running: {cmd}" if cmd else f"Running {tool_name}…"
+        elif "read_file" in name_l or name_l == "read":
+            path = tool_arg or "file"
+            msg = f"Reading: {path}"
+        elif any(x in name_l for x in ("write_file", "edit_file", "write", "edit")):
+            path = tool_arg or "file"
+            msg = f"Updating: {path}"
+        else:
+            msg = f"Using {tool_name}…"
+        if len(msg) > 200:
+            msg = msg[:197] + "…"
+        return {
+            "phase": PHASE_TOOL,
+            "message": msg,
+            "detail": text,
+        }
+
+    thought_m = _AGENT_THOUGHT_RE.match(text)
+    if thought_m:
+        snippet = thought_m.group(1).strip()
+        if len(snippet) > 300:
+            snippet = snippet[:297] + "…"
+        return {
+            "phase": PHASE_STEP,
+            "message": f"Thought: {snippet}",
+            "detail": text,
+        }
+    action_m = _AGENT_ACTION_RE.match(text)
+    if action_m:
+        snippet = action_m.group(1).strip()
+        if len(snippet) > 300:
+            snippet = snippet[:297] + "…"
+        return {
+            "phase": PHASE_STEP,
+            "message": f"Action: {snippet}",
+            "detail": text,
+        }
 
     if low in ("planning", "dynamic planning"):
         return {"phase": PHASE_PLANNING, "message": default_message_for_phase(PHASE_PLANNING)}

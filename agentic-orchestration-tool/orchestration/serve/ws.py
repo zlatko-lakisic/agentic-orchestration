@@ -279,10 +279,15 @@ class WsConnection:
     def _progress_to_status(self, line: str, tag: dict[str, Any]) -> None:
         """Map a legacy progress line to status + keep stderr chunk for older clients."""
         from orchestration.background_activity import observe_progress, should_emit_status
-        from orchestration.run_status import build_status_event, map_progress_line
+        from orchestration.run_status import (
+            build_status_event,
+            is_filtered_progress_line,
+            map_progress_line,
+        )
 
         mapped = map_progress_line(line)
         text = str(line or "").strip()
+        filtered = is_filtered_progress_line(text)
         try:
             observe_progress(
                 text,
@@ -291,6 +296,8 @@ class WsConnection:
             )
         except Exception:  # noqa: BLE001
             pass
+        if filtered:
+            return
         message = str((mapped or {}).get("message") or text)
         percent = (mapped or {}).get("percent")
         if mapped and not should_emit_status(
@@ -306,26 +313,24 @@ class WsConnection:
             }
         )
         # Intermediate thoughts for Continue (ignored by Reach stdout concatenators).
-        if _stream_thoughts_enabled() and text:
-            agent_id = None
-            phase = "progress"
-            if mapped:
-                agent_id = mapped.get("agentProviderId")
-                phase = str(mapped.get("phase") or phase)
+        if _stream_thoughts_enabled() and mapped:
+            thought_text = str(mapped.get("message") or "").strip()
+            if not thought_text:
+                return
+            agent_id = mapped.get("agentProviderId")
+            phase = str(mapped.get("phase") or "progress")
             if text.lower().startswith("plan:"):
                 phase = "planner"
-            # Skip tiny machine status lines; keep plan text and longer updates.
-            if phase == "planner" or len(text) >= 40 or ":" in text:
-                self.send_threadsafe(
-                    {
-                        "type": "chunk",
-                        "stream": "thought",
-                        "text": text if text.endswith("\n") else f"{text}\n",
-                        "agentId": agent_id,
-                        "phase": phase,
-                        **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
-                    }
-                )
+            self.send_threadsafe(
+                {
+                    "type": "chunk",
+                    "stream": "thought",
+                    "text": thought_text if thought_text.endswith("\n") else f"{thought_text}\n",
+                    "agentId": agent_id,
+                    "phase": phase,
+                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                }
+            )
         if not mapped:
             return
         extra: dict[str, Any] = {}
@@ -364,7 +369,7 @@ class WsConnection:
                 build_status_event(
                     phase=phase,
                     processing=True,
-                    message=f"{message} ({_humanize_elapsed(elapsed)})",
+                    message=message,
                     question_id=tag.get("question_id"),
                     run_id=tag.get("run_id"),
                     extra={"heartbeat": True, "elapsedMs": round(elapsed * 1000, 1)},
@@ -1000,6 +1005,12 @@ class WsConnection:
                 client_ip=self.client_ip or "",
                 token_id=token_id_s,
             )
+            try:
+                from agent_providers.ollama_provider import reset_llm_call_index
+
+                reset_llm_call_index()
+            except Exception:  # noqa: BLE001
+                pass
         except Exception:  # noqa: BLE001
             usage_tokens = []
         try:
@@ -1329,6 +1340,12 @@ class WsConnection:
             client_ip=self.client_ip or "",
             token_id=str(token_id or ""),
         )
+        try:
+            from agent_providers.ollama_provider import reset_llm_call_index
+
+            reset_llm_call_index()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             apply_tool_call_trace_wrap()
         except Exception:  # noqa: BLE001

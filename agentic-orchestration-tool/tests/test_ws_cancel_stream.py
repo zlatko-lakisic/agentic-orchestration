@@ -102,7 +102,40 @@ async def test_heartbeat_repeats_current_phase_with_elapsed(
     assert beats[0]["phase"] == "executing"
     assert beats[0]["processing"] is True
     assert beats[0]["question_id"] == "q-1"
-    assert "Working through 3 steps…" in beats[0]["message"]
+    assert beats[0]["message"] == "Working through 3 steps…"
+    assert beats[0].get("elapsedMs") is not None
+    assert "(" not in beats[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_progress_to_status_skips_filtered_thought_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_SERVE_STREAM_THOUGHTS", "1")
+
+    from orchestration.serve.ws import WsConnection
+
+    ws = _FakeWs()
+    conn = WsConnection(ws, tool_root=os.getcwd())  # type: ignore[arg-type]
+    conn._loop = asyncio.get_running_loop()
+    tag = {"question_id": "q-1", "run_id": "r-1"}
+
+    conn._progress_to_status(
+        "Model input (qwen3.6:27b): Current Task: <system>…",
+        tag,
+    )
+    await asyncio.sleep(0.05)
+    chunks = [f for f in ws.sent if f.get("type") == "chunk"]
+    assert chunks == []
+
+    ws.sent.clear()
+    conn._progress_to_status("(tool) run_terminal_command: git status", tag)
+    await asyncio.sleep(0.05)
+    thought = [f for f in ws.sent if f.get("stream") == "thought"]
+    status = [f for f in ws.sent if f.get("type") == "status"]
+    assert thought
+    assert status
+    assert status[0]["message"] == "Running: git status"
 
 
 @pytest.mark.asyncio

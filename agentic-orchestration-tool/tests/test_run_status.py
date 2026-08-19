@@ -5,8 +5,10 @@ from __future__ import annotations
 from orchestration.run_status import (
     PHASE_GENERATING,
     PHASE_PLANNING,
+    PHASE_TOOL,
     PHASE_WARMING_AGENT,
     build_status_event,
+    is_filtered_progress_line,
     map_progress_line,
 )
 
@@ -19,6 +21,42 @@ def test_map_progress_planning_and_agent() -> None:
     assert "gpt research" in warm["message"].lower()
     gen = map_progress_line("generating")
     assert gen["phase"] == PHASE_GENERATING
+
+
+def test_map_progress_llm_consulting_and_continuing() -> None:
+    first = map_progress_line("(llm) consulting qwen3.6:27b")
+    assert first["phase"] == PHASE_GENERATING
+    assert first["message"] == "Consulting qwen3.6:27b…"
+    assert first["model"] == "qwen3.6:27b"
+    again = map_progress_line("(llm) continuing qwen3.6:27b")
+    assert again["message"] == "Still working with qwen3.6:27b…"
+
+
+def test_map_progress_tool_lines() -> None:
+    term = map_progress_line("(tool) run_terminal_command: git add package.json")
+    assert term["phase"] == PHASE_TOOL
+    assert term["message"] == "Running: git add package.json"
+    read = map_progress_line("(tool) read_file: src/main.py")
+    assert read["message"] == "Reading: src/main.py"
+    write = map_progress_line("(tool) write_file: README.md")
+    assert write["message"] == "Updating: README.md"
+    generic = map_progress_line("(tool) search_web: irrigation sensors")
+    assert generic["message"] == "Using search_web…"
+
+
+def test_map_progress_agent_thought_and_action() -> None:
+    thought = map_progress_line("(agent) Thought: re-staging after pre-commit hook")
+    assert thought["message"].startswith("Thought:")
+    assert "pre-commit" in thought["message"]
+    action = map_progress_line("(agent) Action: run_terminal_command")
+    assert action["message"].startswith("Action:")
+
+
+def test_map_progress_filters_junk_lines() -> None:
+    assert map_progress_line("Model input (qwen3.6:27b): Current Task: <system>…") is None
+    assert map_progress_line("payload with <important_rules> inside") is None
+    assert map_progress_line("Current Task: <system> you are an agent") is None
+    assert is_filtered_progress_line("Model input (x): y") is True
 
 
 def test_map_progress_ollama_pull_includes_model_and_percent() -> None:
@@ -67,3 +105,21 @@ def test_build_status_event_shape() -> None:
     assert ev["question_id"] == "q1"
     assert ev["run_id"] == "r1"
     assert ev["message"]
+
+
+def test_map_progress_llm_tool_agent_and_junk() -> None:
+    from orchestration.run_status import PHASE_GENERATING, PHASE_TOOL
+
+    assert map_progress_line("Model input (qwen): Current Task: <system>…") is None
+    consult = map_progress_line("(llm) consulting qwen3.6:27b")
+    assert consult["phase"] == PHASE_GENERATING
+    assert consult["message"] == "Consulting qwen3.6:27b…"
+    cont = map_progress_line("(llm) continuing qwen3.6:27b")
+    assert "Still working with" in cont["message"]
+    tool = map_progress_line("(tool) run_terminal_command: git add package.json")
+    assert tool["phase"] == PHASE_TOOL
+    assert "git add package.json" in tool["message"]
+    thought = map_progress_line("(agent) Thought: re-staging package.json")
+    assert thought["message"].startswith("Thought:")
+    action = map_progress_line("(agent) Action: git commit -m fix")
+    assert action["message"].startswith("Action:")

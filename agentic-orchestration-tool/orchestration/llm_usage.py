@@ -154,10 +154,31 @@ def _truncate_preview(text: str, max_chars: int) -> str:
     return t[: max(1, max_chars - 1)].rstrip() + "…"
 
 
+def _strip_comstar_envelope(text: str) -> str:
+    """Remove COMSTAR/CrewAI agent task wrapper so previews show the real user goal."""
+    from orchestration.simple_chat import user_turn_for_simple_chat
+
+    t = re.sub(r"(?is)<system>.*?</system>", " ", str(text or ""))
+    t = re.sub(r"(?i)^Current Task:\s*", "", t.strip())
+    t = re.sub(r"(?i)</(?:user|system|assistant|tool)>\s*$", "", t.strip())
+    t = user_turn_for_simple_chat(t).strip()
+    t = re.sub(r"(?i)</(?:user|system|assistant|tool)>\s*$", "", t.strip())
+    return t
+
+
+def _looks_like_agent_instructions(text: str) -> bool:
+    low = str(text or "").lower()
+    return "<important_rules>" in low or "tool_use_instructions" in low
+
+
 def _extract_last_user_content(messages: Any) -> str:
     # CrewAI tends to pass a list of {role, content} dicts (or LLMMessage objects).
     if isinstance(messages, str):
-        return _collapse_whitespace(messages)
+        extracted = _strip_comstar_envelope(messages)
+        extracted = _collapse_whitespace(extracted)
+        if extracted and _looks_like_agent_instructions(extracted):
+            return ""
+        return extracted
     if not isinstance(messages, list):
         return ""
     for msg in reversed(messages):
@@ -176,7 +197,10 @@ def _extract_last_user_content(messages: Any) -> str:
         if content is None:
             continue
         extracted = _content_text(content)
+        extracted = _strip_comstar_envelope(extracted)
         extracted = _collapse_whitespace(extracted)
+        if extracted and _looks_like_agent_instructions(extracted):
+            return ""
         if extracted:
             return extracted
     return ""

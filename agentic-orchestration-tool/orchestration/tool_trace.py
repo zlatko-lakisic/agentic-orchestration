@@ -10,6 +10,44 @@ _installed = False
 _DEFAULT_TOOL_RESULT_CHARS = 8000
 
 
+def _truncate_tool_arg(value: Any, *, max_chars: int = 120) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _tool_progress_line(name: str, *args: Any, **kwargs: Any) -> str:
+    """Structured progress line mapped by run_status.map_progress_line."""
+    name_l = name.lower()
+    if "run_terminal" in name_l or name_l in ("terminal", "run_terminal_command"):
+        cmd = kwargs.get("command") or kwargs.get("cmd") or (args[0] if args else "")
+        return f"(tool) {name}: {_truncate_tool_arg(cmd)}"
+    if "read_file" in name_l or name_l == "read":
+        path = (
+            kwargs.get("path")
+            or kwargs.get("file_path")
+            or kwargs.get("filename")
+            or (args[0] if args else "")
+        )
+        return f"(tool) {name}: {_truncate_tool_arg(path)}"
+    if any(x in name_l for x in ("write_file", "edit_file", "write", "edit")):
+        path = (
+            kwargs.get("path")
+            or kwargs.get("file_path")
+            or kwargs.get("filename")
+            or (args[0] if args else "")
+        )
+        return f"(tool) {name}: {_truncate_tool_arg(path)}"
+    if kwargs:
+        first_val = next(iter(kwargs.values()), "")
+        if first_val:
+            return f"(tool) {name}: {_truncate_tool_arg(first_val)}"
+    if args:
+        return f"(tool) {name}: {_truncate_tool_arg(args[0])}"
+    return f"(tool) {name}:"
+
+
 def tool_result_char_cap() -> int:
     raw = os.getenv("AGENTIC_TOOL_RESULT_CHARS", "").strip()
     if raw:
@@ -66,8 +104,13 @@ def apply_tool_call_trace_wrap() -> None:
         name = str(getattr(self, "name", None) or self.__class__.__name__ or "tool")
         started = time.monotonic()
         from orchestration.llm_usage import current_tool_root, current_usage_identity
+        from orchestration.progress_sink import emit_progress
         from orchestration.run_trace import append_run_event
 
+        try:
+            emit_progress(_tool_progress_line(name, *args, **kwargs))
+        except Exception:  # noqa: BLE001
+            pass
         root = current_tool_root()
         rid = current_usage_identity().get("runId") or ""
         if root is not None and rid:
