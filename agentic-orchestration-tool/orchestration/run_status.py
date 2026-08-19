@@ -25,6 +25,9 @@ PHASE_PREPARING_RESPONSE = "preparing_response"
 PHASE_DONE = "done"
 PHASE_ERROR = "error"
 PHASE_BUSY = "busy"
+PHASE_QUEUED = "queued"
+PHASE_QUEUE_ADMITTED = "queue_admitted"
+PHASE_PREEMPTED = "preempted"
 PHASE_INFO = "info"
 
 _FRIENDLY: dict[str, str] = {
@@ -41,6 +44,9 @@ _FRIENDLY: dict[str, str] = {
     PHASE_DONE: "Done.",
     PHASE_ERROR: "Something went wrong.",
     PHASE_BUSY: "Another request is already running — please wait.",
+    PHASE_QUEUED: "Waiting in queue…",
+    PHASE_QUEUE_ADMITTED: "Starting now…",
+    PHASE_PREEMPTED: "Stopped to free capacity for a higher-priority request.",
     PHASE_INFO: "Working…",
 }
 
@@ -56,8 +62,16 @@ def friendly_agent_label(agent_id: str | None) -> str:
     return _AGENT_DISPLAY.sub(" ", bare).strip() or raw
 
 
-def default_message_for_phase(phase: str, *, agent_provider_id: str | None = None) -> str:
+def default_message_for_phase(
+    phase: str,
+    *,
+    agent_provider_id: str | None = None,
+    queue_position: int | None = None,
+    queue_length: int | None = None,
+) -> str:
     p = str(phase or "").strip() or PHASE_INFO
+    if p == PHASE_QUEUED and queue_position is not None and queue_length is not None:
+        return f"Waiting in queue — position {queue_position} of {queue_length}…"
     if p == PHASE_WARMING_AGENT and agent_provider_id:
         return f"Warming up {friendly_agent_label(agent_provider_id)}…"
     if p == PHASE_STARTING_AGENT and agent_provider_id:

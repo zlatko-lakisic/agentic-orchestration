@@ -665,6 +665,44 @@ def plan_resident_models(
     }
 
 
+def requirements_from_workflow_config(
+    config: Any,
+    catalog_entries: list[dict[str, Any]],
+) -> Any:
+    """Build execution-phase resource requirements from a planned workflow."""
+    from orchestration.execution_queue import ResourceRequirements
+
+    agent_ids = [
+        str(getattr(t, "agent_provider_id", "") or "").strip()
+        for t in getattr(config, "tasks", None) or []
+        if getattr(t, "agent_provider_id", None)
+    ]
+    by_id = {
+        str(e.get("id", "")).strip(): e
+        for e in catalog_entries or []
+        if str(e.get("id", "")).strip()
+    }
+    entries_for_ids = [by_id[aid] for aid in agent_ids if aid in by_id]
+    plan = plan_resident_models(
+        catalog_entries,
+        vram_gb_available=detect_vram_gb_available(),
+        required_ids=agent_ids,
+    )
+    gpu = any("gpu" in provider_required_architectures(e) for e in entries_for_ids)
+    cpu_raw = os.getenv("AGENTIC_EXEC_QUEUE_EXEC_CPU_CORES", "").strip()
+    try:
+        cpu_cores = float(cpu_raw) if cpu_raw else max(1.0, len(agent_ids) * 0.5)
+    except ValueError:
+        cpu_cores = max(1.0, len(agent_ids) * 0.5)
+    return ResourceRequirements(
+        phase="execution",
+        vram_gb=float(plan.get("usedGb") or 0.0),
+        cpu_cores=cpu_cores,
+        gpu_slots=1 if gpu else 0,
+        agent_provider_ids=tuple(agent_ids),
+    )
+
+
 def filter_catalog_by_hardware(
     entries: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str], float | None, set[str]]:

@@ -5,9 +5,12 @@ from __future__ import annotations
 from orchestration.run_status import (
     PHASE_GENERATING,
     PHASE_PLANNING,
+    PHASE_PREEMPTED,
+    PHASE_QUEUED,
     PHASE_TOOL,
     PHASE_WARMING_AGENT,
     build_status_event,
+    default_message_for_phase,
     is_filtered_progress_line,
     map_progress_line,
 )
@@ -123,3 +126,17 @@ def test_map_progress_llm_tool_agent_and_junk() -> None:
     assert thought["message"].startswith("Thought:")
     action = map_progress_line("(agent) Action: git commit -m fix")
     assert action["message"].startswith("Action:")
+
+
+def test_phase_queued_message_interpolation() -> None:
+    msg = default_message_for_phase(PHASE_QUEUED, queue_position=2, queue_length=5)
+    assert "2" in msg and "5" in msg
+    ev = build_status_event(
+        phase=PHASE_QUEUED,
+        processing=True,
+        extra={"queuePhase": "planning", "queuePosition": 2, "queueLength": 5},
+    )
+    assert ev["phase"] == PHASE_QUEUED
+    assert ev["queuePosition"] == 2
+    preempt = build_status_event(phase=PHASE_PREEMPTED, processing=False)
+    assert preempt["phase"] == PHASE_PREEMPTED

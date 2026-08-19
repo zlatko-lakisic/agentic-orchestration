@@ -107,6 +107,12 @@ class SessionOverlay:
     byte_size: int = 0
     #: Peer IP of the Reach WebSocket client (best-effort; may be empty).
     client_ip: str = ""
+    #: Default queue priority for runs from this app (0–100 or label string).
+    default_priority: int | str | None = None
+    #: Cap on priority this app may request (prevents untrusted realtime flood).
+    max_queue_priority: int | None = None
+    #: Per-tenant concurrent / queued run quotas (see execution_queue_fair_share).
+    queue_quota: dict[str, Any] | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -350,6 +356,9 @@ def register_overlay(
     allowed_agent_provider_ids: Any = None,
     allowed_mcp_provider_ids: Any = None,
     allowed_skill_ids: Any = None,
+    default_priority: Any = None,
+    max_queue_priority: Any = None,
+    queue_quota: Any = None,
     ttl_seconds: float | None = None,
     catalog_root: Any | None = None,
     stock_ids: set[str] | None = None,
@@ -470,6 +479,14 @@ def register_overlay(
     ttl = overlay_ttl_default_s() if ttl_seconds is None else float(ttl_seconds)
     ttl = max(30.0, min(86_400.0, ttl))
     now = time.time()
+    parsed_max_priority: int | None = None
+    if max_queue_priority is not None:
+        try:
+            parsed_max_priority = max(0, min(100, int(max_queue_priority)))
+        except (TypeError, ValueError):
+            parsed_max_priority = None
+    parsed_default_priority: int | str | None = default_priority
+    parsed_queue_quota = queue_quota if isinstance(queue_quota, dict) else None
     overlay = SessionOverlay(
         user_id=uid,
         session_id=sid,
@@ -485,6 +502,9 @@ def register_overlay(
         expires_at=now + ttl,
         byte_size=byte_size,
         client_ip=str(client_ip or "").strip(),
+        default_priority=parsed_default_priority,
+        max_queue_priority=parsed_max_priority,
+        queue_quota=parsed_queue_quota,
     )
     with _lock:
         sweep_expired_locked(now=now)
@@ -517,6 +537,20 @@ def clear_overlay_for_connection(connection_id: str) -> list[tuple[str, str]]:
                 del _overlays[key]
                 cleared.append(key)
     return cleared
+
+
+def get_overlay_by_app_id(app_id: str, *, now: float | None = None) -> SessionOverlay | None:
+    """Return the most recently registered overlay for ``app_id`` (any session)."""
+    aid = str(app_id or "").strip().lower()
+    if not aid:
+        return None
+    ts = now if now is not None else time.time()
+    with _lock:
+        sweep_expired_locked(now=ts)
+        matches = [o for o in _overlays.values() if o.app_id == aid and not o.is_expired(now=ts)]
+    if not matches:
+        return None
+    return max(matches, key=lambda o: o.expires_at)
 
 
 def get_overlay(

@@ -59,7 +59,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -188,6 +188,7 @@ class WsConnection:
         # Latest phase/message so heartbeats repeat what the run is actually doing.
         self._last_phase: str | None = None
         self._last_message: str | None = None
+        self._last_queue_extra: dict[str, Any] = {}
         self._overlay_preparing = False
         self._overlay_cancel = threading.Event()
 
@@ -241,6 +242,7 @@ class WsConnection:
         step_count: int | None = None,
         code: str | None = None,
         also_stderr: bool = True,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         from orchestration.run_status import build_status_event
 
@@ -255,6 +257,7 @@ class WsConnection:
             code=code,
             question_id=tag.get("question_id"),
             run_id=tag.get("run_id"),
+            extra=extra,
         )
         self._remember_status(event)
         self.send_threadsafe(event)
@@ -268,6 +271,25 @@ class WsConnection:
                 }
             )
 
+    def _emit_status_extra(
+        self,
+        *,
+        phase: str,
+        processing: bool,
+        tag: dict[str, Any],
+        message: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        if extra:
+            self._last_queue_extra = dict(extra)
+        self._emit_status(
+            phase=phase,
+            processing=processing,
+            tag=tag,
+            message=message,
+            extra=extra,
+        )
+
     def _remember_status(self, event: dict[str, Any]) -> None:
         phase = str(event.get("phase") or "").strip()
         message = str(event.get("message") or "").strip()
@@ -275,6 +297,8 @@ class WsConnection:
             self._last_phase = phase
         if message:
             self._last_message = message
+        if phase != "queued":
+            self._last_queue_extra = {}
 
     def _progress_to_status(self, line: str, tag: dict[str, Any]) -> None:
         """Map a legacy progress line to status + keep stderr chunk for older clients."""
@@ -355,7 +379,7 @@ class WsConnection:
 
     async def _heartbeat(self, tag: dict[str, Any], started: float) -> None:
         """Emit ``status`` keepalives until cancelled so clients see liveness."""
-        from orchestration.run_status import PHASE_INFO, build_status_event
+        from orchestration.run_status import PHASE_INFO, PHASE_QUEUED, build_status_event
 
         interval = heartbeat_seconds()
         if interval <= 0:
@@ -365,6 +389,10 @@ class WsConnection:
             elapsed = time.monotonic() - started
             phase = self._last_phase or PHASE_INFO
             message = self._last_message or "Working…"
+            extra: dict[str, Any] = {"heartbeat": True, "elapsedMs": round(elapsed * 1000, 1)}
+            if phase == PHASE_QUEUED and self._last_queue_extra:
+                extra.update(self._last_queue_extra)
+                extra["elapsedMs"] = round(elapsed * 1000, 1)
             await self.send(
                 build_status_event(
                     phase=phase,
@@ -372,7 +400,7 @@ class WsConnection:
                     message=message,
                     question_id=tag.get("question_id"),
                     run_id=tag.get("run_id"),
-                    extra={"heartbeat": True, "elapsedMs": round(elapsed * 1000, 1)},
+                    extra=extra,
                 )
             )
 
@@ -630,6 +658,21 @@ class WsConnection:
                     message.get("allowedSkillIds")
                     if message.get("allowedSkillIds") is not None
                     else message.get("allowed_skill_ids")
+                ),
+                default_priority=(
+                    message.get("defaultPriority")
+                    if message.get("defaultPriority") is not None
+                    else message.get("default_priority")
+                ),
+                max_queue_priority=(
+                    message.get("maxQueuePriority")
+                    if message.get("maxQueuePriority") is not None
+                    else message.get("max_queue_priority")
+                ),
+                queue_quota=(
+                    message.get("queueQuota")
+                    if message.get("queueQuota") is not None
+                    else message.get("queue_quota")
                 ),
                 ttl_seconds=ttl,
                 catalog_root=self.tool_root,
@@ -938,20 +981,26 @@ class WsConnection:
             )
             return
         if question_id is None and self._busy:
-            await self.send_error(
-                "A run is already in progress for this connection.",
-                code="busy",
-                phase="busy",
-            )
-            return
+            from orchestration.execution_queue import execution_queue_enabled
+
+            if not execution_queue_enabled():
+                await self.send_error(
+                    "A run is already in progress for this connection.",
+                    code="busy",
+                    phase="busy",
+                )
+                return
         if question_id is not None and len(self._runs) >= max_concurrent_runs():
-            await self.send_error(
-                f"Too many concurrent runs (limit {max_concurrent_runs()}); retry shortly.",
-                question_id=question_id,
-                code="busy",
-                phase="busy",
-            )
-            return
+            from orchestration.execution_queue import execution_queue_enabled
+
+            if not execution_queue_enabled():
+                await self.send_error(
+                    f"Too many concurrent runs (limit {max_concurrent_runs()}); retry shortly.",
+                    question_id=question_id,
+                    code="busy",
+                    phase="busy",
+                )
+                return
         if question_id is None:
             self._busy = True
         task = asyncio.create_task(self._run(message, kind, text, question_id, images))
@@ -1091,10 +1140,24 @@ class WsConnection:
                 }
             )
             heartbeat = asyncio.create_task(self._heartbeat(tag, started))
+            run_task = asyncio.current_task()
             try:
-                answer = await asyncio.to_thread(
-                    self._execute, message, kind, text, tag, run_id, images or []
+                from orchestration.execution_queue import (
+                    register_preempt_hook,
+                    unregister_preempt_hook,
                 )
+
+                def _preempt_run(_run_id: str) -> None:
+                    if run_task is not None and not run_task.done() and self._loop is not None:
+                        self._loop.call_soon_threadsafe(run_task.cancel)
+
+                register_preempt_hook(run_id, _preempt_run)
+                try:
+                    answer = await asyncio.to_thread(
+                        self._execute, message, kind, text, tag, run_id, images or []
+                    )
+                finally:
+                    unregister_preempt_hook(run_id)
             finally:
                 heartbeat.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -1148,23 +1211,39 @@ class WsConnection:
             self._clear_connection_activity()
         except asyncio.CancelledError:
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
-            await self.send(
-                {
-                    "type": "status",
-                    "processing": False,
-                    "phase": "cancelled",
-                    "message": "Cancelled.",
-                    "code": "cancelled",
-                    **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
-                }
-            )
+            from orchestration.execution_queue import cancel_run_queue
+
+            cancel_run_queue(run_id)
+            preempted = getattr(asyncio.current_task(), "_preempted", False)
+            if preempted:
+                await self.send(
+                    {
+                        "type": "status",
+                        "processing": False,
+                        "phase": "preempted",
+                        "message": "Stopped to free capacity for a higher-priority request.",
+                        "code": "queue_preempted",
+                        **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                    }
+                )
+            else:
+                await self.send(
+                    {
+                        "type": "status",
+                        "processing": False,
+                        "phase": "cancelled",
+                        "message": "Cancelled.",
+                        "code": "cancelled",
+                        **{k: tag[k] for k in ("run_id", "question_id") if k in tag},
+                    }
+                )
             await self.send(
                 {
                     "type": "run_end",
                     "ok": False,
                     "exitCode": 130,
                     "error": "Cancelled.",
-                    "code": "cancelled",
+                    "code": "queue_preempted" if preempted else "cancelled",
                     "elapsedMs": elapsed_ms,
                     "processing": False,
                     **tag,
@@ -1609,4 +1688,40 @@ class WsConnection:
             agent_provider_ids=[str(x) for x in selected] if isinstance(selected, list) else None,
             on_progress=progress,
             run_id=run_id,
+            priority=message.get("priority"),
+            priority_label=(
+                str(message.get("priorityLabel") or message.get("priority_label") or "").strip()
+                or None
+            ),
+            on_queue_wait=self._make_queue_wait_callback(tag),
+            app_id=self._resolve_app_id(message),
         )
+
+    def _make_queue_wait_callback(self, tag: dict[str, Any]) -> Callable[[Any], None]:
+        from orchestration.run_status import PHASE_QUEUED, default_message_for_phase
+
+        def _cb(snap: Any) -> None:
+            msg = default_message_for_phase(
+                PHASE_QUEUED,
+                queue_position=snap.position,
+                queue_length=snap.length,
+            )
+            extra = {
+                "queuePhase": snap.phase,
+                "queuePosition": snap.position,
+                "queueLength": snap.length,
+                "queuePriority": snap.priority,
+                "queuePriorityLabel": snap.priority_label,
+                "elapsedMs": snap.elapsed_ms,
+            }
+            if snap.quota_reason:
+                extra["quotaReason"] = snap.quota_reason
+            self._emit_status_extra(
+                phase=PHASE_QUEUED,
+                processing=True,
+                tag=tag,
+                message=msg,
+                extra=extra,
+            )
+
+        return _cb

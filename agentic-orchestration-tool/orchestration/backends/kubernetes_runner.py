@@ -191,7 +191,7 @@ def run_config_via_kubernetes(
             index = next(i for i, s in enumerate(all_specs) if s.step_id == spec.step_id)
             return _run_one(config_box[0], index)
 
-        result = coordinator.run_sequential(
+        result = coordinator.run_dag(
             all_specs,
             execute_step=execute_step,
             try_recover=make_step_recovery_callback(

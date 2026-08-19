@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-08-19
+
+### Added
+
+- **Global execution queue** — installation-wide planning + execution admission with priority tiers (`realtime` / `high` / `normal` / `low` / `background`), per-tenant fair-share quotas, optional preemption, step sub-leases, warm-pool unify, and autoscale hooks. Default `AGENTIC_EXECUTION_QUEUE_ENABLED=0`; Jetson enables conservative settings in `config/env.jetson`.
+- **Reach queue status** — `phase: queued` / `preempted` with `queuePosition`, `queueLength`, `queuePriority`, and `queuePhase` on engine WebSocket `status` frames.
+- **`GET /api/agentic/execution-queue/status`** — pending/active counts, usage, and warm-pool worker snapshot.
+- **Step DAG parallelization** — `StepCoordinator.run_dag()` executes independent workflow steps in parallel waves; materializer emits `depends_on` on `StepSpec`.
+- **Edge smoke** — `scripts/edge-execution-queue-smoke.sh` validates queue status and Reach concurrent priority on Ada/Jetson.
+
 ### Fixed
 
 - **Edge custom-tool smoke (Gate 2)** — `edge-custom-tool-smoke.sh` defaults to HTTPS engine URL, uses `curl -k` for TLS, resolves Reach repo from common Jetson paths, and invokes `mock_client_runner.py` with `--profile` / `--tunnel-only` instead of removed `--app-id` / `--sandbox-flag` args.

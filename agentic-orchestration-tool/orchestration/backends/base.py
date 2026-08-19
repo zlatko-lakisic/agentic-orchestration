@@ -46,6 +46,7 @@ class StepSpec:
     rag_query: str = ""
     rag_sources_catalog_path: str = ""
     rag_audit: dict[str, Any] = field(default_factory=dict)
+    depends_on: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         paths: dict[str, str] = {

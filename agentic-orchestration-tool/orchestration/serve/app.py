@@ -145,12 +145,18 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         )
 
         app.state.warm = await run_in_threadpool(warm_catalogs, root)
+        from orchestration.execution_queue_broker import start_broker
+
+        app.state.execution_queue_broker = await run_in_threadpool(start_broker)
         await run_in_threadpool(
             lambda: start_ollama_keepalive_loop(log_prefix="(engine) ollama keep-alive")
         )
         try:
             yield
         finally:
+            from orchestration.execution_queue_broker import stop_broker
+
+            await run_in_threadpool(stop_broker)
             await run_in_threadpool(stop_ollama_keepalive_loop)
             from orchestration.ollama_serve_lifecycle import stop_all_serves
 
@@ -270,6 +276,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             },
             headers={"X-Agentic-Engine": "1"},
         )
+
+    @app.get("/api/agentic/execution-queue/status")
+    async def execution_queue_status() -> dict[str, Any]:
+        from orchestration.execution_queue_broker import broker_status
+
+        return await run_in_threadpool(broker_status)
 
     @app.get("/api/v1/catalog")
     async def api_v1_catalog(

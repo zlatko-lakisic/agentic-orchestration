@@ -111,9 +111,11 @@ def build_step_specs(
             )
 
         prior_output = ""
+        depends_on: tuple[str, ...] = ()
         if index > 0:
             prev_id = config.task_sequence[index - 1]
             prior_output = prior.get(prev_id, "")
+            depends_on = (prev_id,)
 
         task_entries, backstory_entries = partition_skill_entries(task_skills.get(task_id, []))
         raw_mcps = raw_mcp_spec_for_task(task_def, config)
@@ -193,6 +195,7 @@ def build_step_specs(
                     else ""
                 ),
                 rag_audit=rag_audit.to_dict(),
+                depends_on=depends_on,
             )
         )
     return specs

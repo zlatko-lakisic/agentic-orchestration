@@ -202,6 +202,10 @@ def run_dynamic_goal(
     max_steps: int | None = None,
     on_progress: Callable[[str], None] | None = None,
     run_id: str | None = None,
+    priority: int | str | None = None,
+    priority_label: str | None = None,
+    on_queue_wait: Callable[[Any], None] | None = None,
+    app_id: str | None = None,
 ) -> str:
     """
     Plan and execute one dynamic goal in this process; return the final text.
@@ -244,7 +248,7 @@ def run_dynamic_goal(
     from orchestration.session_overlay import get_current_overlay
 
     overlay = get_current_overlay()
-    app_id = overlay.app_id if overlay else None
+    app_id = app_id or (overlay.app_id if overlay else None)
     overlay_allowed = overlay.allowed_agent_provider_ids if overlay else None
     overlay_mcp_allowed = overlay.allowed_mcp_provider_ids if overlay else None
     overlay_skill_allowed = overlay.allowed_skill_ids if overlay else None
@@ -255,25 +259,117 @@ def run_dynamic_goal(
         overlay_ids=overlay_allowed,
     )
 
+    from orchestration.execution_queue import (
+        QueueQuota,
+        normalize_priority,
+        resolve_app_max_priority,
+        resolve_default_priority,
+        resolve_tenant_id,
+        resolve_tenant_quota,
+        run_with_execution_queue,
+    )
+
+    app_max = resolve_app_max_priority(app_id)
+    default_pri = resolve_default_priority(app_id)
+    numeric_priority, resolved_label = normalize_priority(
+        priority,
+        app_max=app_max,
+        label=priority_label,
+    )
+    if default_pri is not None and priority is None and priority_label is None:
+        numeric_priority = default_pri
+    tenant_id = resolve_tenant_id(app_id=app_id, user_id=user_id)
+    quota: QueueQuota | None = resolve_tenant_quota(app_id, user_id)
+
     from orchestration.orchestrator_session import clip_user_prompt_for_edge
 
     plan_text = clip_user_prompt_for_edge(text)
+    plan_holder: dict[str, Any] = {}
 
-    # Engine WS already emits request_start; do not duplicate the boundary here.
-    config, plan = build_dynamic_workflow_config(
-        user_prompt=plan_text,
-        catalog_path=paths.agent_providers,
-        allowed_agent_provider_ids=resolved_ids,
-        allowed_mcp_provider_ids=overlay_mcp_allowed,
-        allowed_skill_ids=overlay_skill_allowed,
-        mcp_catalog_path=paths.mcp_providers,
-        agent_skills_catalog_path=paths.agent_skills,
-        rag_sources_catalog_path=paths.rag_sources,
-        session_path=session_path,
-        tool_root=root,
-        max_steps=max_steps,
-        quiet=quiet,
+    def _plan() -> Any:
+        config, plan = build_dynamic_workflow_config(
+            user_prompt=plan_text,
+            catalog_path=paths.agent_providers,
+            allowed_agent_provider_ids=resolved_ids,
+            allowed_mcp_provider_ids=overlay_mcp_allowed,
+            allowed_skill_ids=overlay_skill_allowed,
+            mcp_catalog_path=paths.mcp_providers,
+            agent_skills_catalog_path=paths.agent_skills,
+            rag_sources_catalog_path=paths.rag_sources,
+            session_path=session_path,
+            tool_root=root,
+            max_steps=max_steps,
+            quiet=quiet,
+        )
+        plan_holder["plan"] = plan
+        return config
+
+    def _execute(config: Any) -> str:
+        plan = plan_holder.get("plan") or {}
+        return _execute_planned_dynamic(
+            config=config,
+            plan=plan if isinstance(plan, dict) else {},
+            root=root,
+            paths=paths,
+            session_path=session_path,
+            slug=slug,
+            text=text,
+            user_id=user_id,
+            rid=rid,
+            backend_name=backend_name,
+            quiet=quiet,
+            on_progress=on_progress,
+            progress=progress,
+        )
+
+    try:
+        from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+
+        catalog_entries = load_agent_providers_catalog_merged(paths.agent_providers)
+    except Exception:  # noqa: BLE001
+        catalog_entries = []
+
+    result_holder: dict[str, str] = {}
+
+    def _execute_wrapper(config: Any) -> str:
+        result_holder["text"] = _execute(config)
+        return result_holder["text"]
+
+    run_with_execution_queue(
+        run_id=rid,
+        priority=numeric_priority,
+        priority_label=resolved_label,
+        tenant_id=tenant_id,
+        client_id=app_id,
+        quota=quota,
+        on_wait=on_queue_wait,
+        plan_fn=_plan,
+        execute_fn=_execute_wrapper,
+        catalog_entries=catalog_entries,
     )
+    return result_holder["text"]
+
+
+def _execute_planned_dynamic(
+    *,
+    config: Any,
+    plan: dict[str, Any],
+    root: Path,
+    paths: CatalogPaths,
+    session_path: Path,
+    slug: str,
+    text: str,
+    user_id: str | None,
+    rid: str,
+    backend_name: str,
+    quiet: bool,
+    on_progress: Callable[[str], None] | None,
+    progress: Callable[[str], None],
+) -> str:
+    from orchestration.backends.crewai import run_options_from_legacy
+    from orchestration.execution_dispatch import execute_workflow_config_resolved
+    from orchestration.run_trace import append_run_event
+
     summary = plan.get("plan_summary") if isinstance(plan, dict) else None
     if isinstance(summary, str) and summary.strip():
         progress(f"plan: {summary.strip()}")
