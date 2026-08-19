@@ -64,7 +64,18 @@ def test_attach_filesystem_tunnel_tools_to_agents() -> None:
         ["http://localhost:9/t/x/filesystem"],
     )
     names = [t.name for t in agent.tools]
-    assert names == ["list_allowed_directories", "list_directory", "read_file"]
+    assert names == [
+        "list_allowed_directories",
+        "list_directory",
+        "read_file",
+        "read_text_file",
+        "write_file",
+        "create_directory",
+        "edit_file",
+        "get_file_info",
+        "search_files",
+        "directory_tree",
+    ]
 
 
 def test_extract_filenames_from_topic() -> None:

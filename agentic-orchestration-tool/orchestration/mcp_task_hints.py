@@ -14,6 +14,7 @@ _MEDIA_MCP_IDS = frozenset(
 )
 
 FILESYSTEM_MCP_IDS = frozenset({"filesystem_local", "openclaw_filesystem"})
+TERMINAL_MCP_IDS = frozenset({"terminal_local"})
 
 
 def is_filesystem_mcp_id(mid: str) -> bool:
@@ -22,6 +23,12 @@ def is_filesystem_mcp_id(mid: str) -> bool:
     if sid in FILESYSTEM_MCP_IDS or sid.startswith("openclaw_"):
         return True
     return sid.endswith(".filesystem_local") or sid.endswith(".openclaw_filesystem")
+
+
+def is_terminal_mcp_id(mid: str) -> bool:
+    """True for the session-tunnel terminal MCP (`client.terminal_local`)."""
+    sid = str(mid or "").strip()
+    return sid in TERMINAL_MCP_IDS or sid.endswith(".terminal_local")
 
 _TOOL_LEAK_RE = re.compile(
     r"(^name:\s*\S+|python[_-]?m[_-]?mcp_server_fetch|mcp_server_fetch|"
@@ -165,10 +172,19 @@ def _media_understand_hint() -> str:
 def _filesystem_hint() -> str:
     return (
         "Filesystem tools: prefer list_directory / directory_tree with the absolute workspace "
-        "path from the tool schema; then answer with absolute paths for the user. "
+        "path from the tool schema. If you need modifications, use write_file / edit_file "
+        "/ create_directory / search_files as appropriate, then summarize what changed. "
         "Do not print tool-call JSON (name/parameters) as your Final Answer — that is not "
         "a substitute for invoking tools or summarizing their results. Intentional "
         "structured JSON for the user goal is fine when the goal asks for it."
+    )
+
+
+def _terminal_hint() -> str:
+    return (
+        "Terminal tools: when you need to run commands (e.g. `git`), use "
+        "`run_terminal_command` with the exact shell command you want executed. "
+        "Ground your final answer in the command output."
     )
 
 
@@ -184,6 +200,8 @@ def augment_task_description_for_mcps(description: str, mcp_ids: list[str]) -> s
         blocks.append(_media_understand_hint())
     if any(is_filesystem_mcp_id(mid) for mid in mcp_ids):
         blocks.append(_filesystem_hint())
+    if any(is_terminal_mcp_id(mid) for mid in mcp_ids):
+        blocks.append(_terminal_hint())
     if not blocks:
         return description
     return description.rstrip() + "\n\n" + _MARKER + "\n" + "\n".join(blocks)

@@ -145,10 +145,140 @@ def filesystem_tunnel_tools(mcp_url: str) -> list[BaseTool]:
                 return "Error: path is required"
             return call_filesystem_mcp_tool(url, "read_file", {"path": target})
 
+    class ReadTextFileTool(BaseTool):
+        name: str = "read_text_file"
+        description: str = (
+            "Read a UTF-8 text file from the workspace (optionally with head/tail). "
+            "Input: path (required string). Relative names like hello.txt are resolved "
+            "against the workspace root from list_allowed_directories. "
+            "Optional: head (max number of lines), tail (max number of lines)."
+        )
+
+        def _run(
+            self,
+            path: str,
+            head: int | None = None,
+            tail: int | None = None,
+        ) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            arguments: dict[str, Any] = {"path": target}
+            if isinstance(head, int) and head >= 0:
+                arguments["head"] = head
+            if isinstance(tail, int) and tail >= 0:
+                arguments["tail"] = tail
+            return call_filesystem_mcp_tool(url, "read_text_file", arguments)
+
+    class WriteFileTool(BaseTool):
+        name: str = "write_file"
+        description: str = (
+            "Write UTF-8 content to a file (creates parents). "
+            "Input: path (required string) and content (required string). "
+            "Relative names like hello.txt are resolved against the workspace root."
+        )
+
+        def _run(self, path: str, content: str) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            return call_filesystem_mcp_tool(
+                url,
+                "write_file",
+                {"path": target, "content": str(content or "")},
+            )
+
+    class CreateDirectoryTool(BaseTool):
+        name: str = "create_directory"
+        description: str = (
+            "Create a directory (recursive). "
+            "Input: path (required string). Relative names are resolved against the workspace root."
+        )
+
+        def _run(self, path: str) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            return call_filesystem_mcp_tool(url, "create_directory", {"path": target})
+
+    class EditFileTool(BaseTool):
+        name: str = "edit_file"
+        description: str = (
+            "Apply sequential search/replace edits to a file. "
+            "Input: path (required string) and edits (required array). "
+            "Each edit must provide oldText and newText strings. "
+            "Optional: dryRun (boolean). Relative names are resolved against the workspace root."
+        )
+
+        def _run(
+            self,
+            path: str,
+            edits: list[dict[str, Any]],
+            dryRun: bool = False,
+        ) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            arguments = {"path": target, "edits": edits or [], "dryRun": bool(dryRun)}
+            return call_filesystem_mcp_tool(url, "edit_file", arguments)
+
+    class GetFileInfoTool(BaseTool):
+        name: str = "get_file_info"
+        description: str = (
+            "Stat a file or directory. "
+            "Input: path (required string). Relative names are resolved against the workspace root."
+        )
+
+        def _run(self, path: str) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            return call_filesystem_mcp_tool(url, "get_file_info", {"path": target})
+
+    class SearchFilesTool(BaseTool):
+        name: str = "search_files"
+        description: str = (
+            "Search for files by glob-like substring pattern under path. "
+            "Input: path (required string, absolute or workspace-relative) and pattern (required string)."
+        )
+
+        def _run(self, path: str, pattern: str) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            pat = str(pattern or "").strip()
+            if not pat:
+                return "Error: pattern is required"
+            return call_filesystem_mcp_tool(
+                url,
+                "search_files",
+                {"path": target, "pattern": pat},
+            )
+
+    class DirectoryTreeTool(BaseTool):
+        name: str = "directory_tree"
+        description: str = (
+            "Return a shallow JSON directory tree. "
+            "Input: path (required string, absolute or workspace-relative)."
+        )
+
+        def _run(self, path: str) -> str:
+            target = str(path or "").strip()
+            if not target:
+                return "Error: path is required"
+            return call_filesystem_mcp_tool(url, "directory_tree", {"path": target})
+
     return [
         ListAllowedDirectoriesTool(),
         ListDirectoryTool(),
         ReadFileTool(),
+        ReadTextFileTool(),
+        WriteFileTool(),
+        CreateDirectoryTool(),
+        EditFileTool(),
+        GetFileInfoTool(),
+        SearchFilesTool(),
+        DirectoryTreeTool(),
     ]
 
 

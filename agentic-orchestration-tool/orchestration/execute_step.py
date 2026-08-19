@@ -248,6 +248,10 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 _is_ollama_provider(agent_provider)
                 and bool(_fs_tunnel_urls)
                 and bool(_fs_names)
+                # The tunnel fast-path is optimized for deterministic reads on
+                # small Ollama models. For edits/writes we must let the agent
+                # use the full tool set exposed by the tunnel shims.
+                and goal_requests_filesystem_read(topic)
             )
 
             if ollama_fetch_direct:
