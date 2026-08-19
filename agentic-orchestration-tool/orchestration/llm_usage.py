@@ -138,6 +138,110 @@ def _content_text(content: Any) -> str:
     return str(content)
 
 
+def _collapse_whitespace(text: str) -> str:
+    # Keep it single-line so it survives: (1) WS thought chunks, (2) Mermaid tooltips.
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _truncate_preview(text: str, max_chars: int) -> str:
+    t = _collapse_whitespace(text)
+    if not t:
+        return ""
+    if max_chars < 2:
+        return "…"
+    if len(t) <= max_chars:
+        return t
+    return t[: max(1, max_chars - 1)].rstrip() + "…"
+
+
+def _extract_last_user_content(messages: Any) -> str:
+    # CrewAI tends to pass a list of {role, content} dicts (or LLMMessage objects).
+    if isinstance(messages, str):
+        return _collapse_whitespace(messages)
+    if not isinstance(messages, list):
+        return ""
+    for msg in reversed(messages):
+        role = None
+        if isinstance(msg, dict):
+            role = msg.get("role")
+        else:
+            role = getattr(msg, "role", None)
+        if str(role or "").strip().lower() != "user":
+            continue
+        content = None
+        if isinstance(msg, dict):
+            content = msg.get("content")
+        else:
+            content = getattr(msg, "content", None)
+        if content is None:
+            continue
+        extracted = _content_text(content)
+        extracted = _collapse_whitespace(extracted)
+        if extracted:
+            return extracted
+    return ""
+
+
+def _extract_tool_names(tools: Any, *, max_tools: int = 5) -> list[str]:
+    names: list[str] = []
+    if not tools:
+        return names
+    if not isinstance(tools, list):
+        return names
+    for t in tools:
+        if not t:
+            continue
+        name: Any = None
+        if isinstance(t, dict):
+            name = t.get("name")
+            if not name and isinstance(t.get("function"), dict):
+                name = t["function"].get("name")
+        else:
+            name = getattr(t, "name", None)
+        if not name:
+            continue
+        s = _collapse_whitespace(str(name))
+        if not s:
+            continue
+        if s not in names:
+            names.append(s)
+        if len(names) >= max_tools:
+            break
+    return names
+
+
+def build_prompt_preview(
+    *,
+    messages: Any,
+    tools: Any | None = None,
+    max_chars: int = 220,
+    max_tool_names: int = 5,
+) -> str:
+    """Safe preview of the orchestrator->model payload.
+
+    Intentionally avoids system prompts and tool arguments/output; uses:
+    - last `role=user` message content
+    - tool *names only* (best-effort) to indicate intent
+    """
+    user_text = _extract_last_user_content(messages)
+    tool_names = _extract_tool_names(tools, max_tools=max_tool_names)
+
+    if not user_text and not tool_names:
+        return ""
+
+    if tool_names:
+        tools_part = f"tools: {', '.join(tool_names)}"
+        # Reserve space for tools_part + separator.
+        reserve = len(tools_part) + 3  # " · "
+        excerpt = _truncate_preview(user_text, max(20, max_chars - reserve))
+        if not excerpt:
+            return _truncate_preview(tools_part, max_chars)
+        combined = f"{excerpt} · {tools_part}"
+        return _truncate_preview(combined, max_chars)
+
+    return _truncate_preview(user_text, max_chars)
+
+
 def _set_msg_content(msg: Any, text: str) -> None:
     if isinstance(msg, dict):
         msg["content"] = text
@@ -912,6 +1016,16 @@ def install_litellm_usage_callback() -> None:
                 except Exception:  # noqa: BLE001
                     pass
                 note_prompt_tokens(norm.get("prompt_tokens"))
+                preview = ""
+                try:
+                    if isinstance(kwargs, dict):
+                        preview = build_prompt_preview(
+                            messages=kwargs.get("messages"),
+                            tools=kwargs.get("tools"),
+                            max_chars=220,
+                        )
+                except Exception:  # noqa: BLE001
+                    preview = ""
                 record_llm_usage(
                     source="crew_litellm",
                     model=str(model) if model else None,
@@ -920,6 +1034,7 @@ def install_litellm_usage_callback() -> None:
                     total_tokens=norm["total_tokens"],
                     latency_ms=latency_ms,
                     ok=True,
+                    detail={"promptPreview": preview} if preview else None,
                 )
             except Exception:  # noqa: BLE001
                 return

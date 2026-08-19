@@ -56,10 +56,24 @@ if isinstance(LLM, type):
                     pass
 
         def call(self, messages: Any, tools: Any = None, **kwargs: Any) -> Any:  # noqa: ANN401
-            from orchestration.llm_usage import call_with_empty_retry, near_context_limit
+            from orchestration.llm_usage import build_prompt_preview, call_with_empty_retry, near_context_limit
+            from orchestration.progress_sink import emit_progress
 
             if near_context_limit():
                 tools = None
+
+            # Reach streaming: show what the orchestrator is sending into the model.
+            # We intentionally emit only a small, non-sensitive preview (last user message + tool names).
+            try:
+                preview = build_prompt_preview(messages=messages, tools=tools, max_chars=220)
+            except Exception:  # noqa: BLE001
+                preview = ""
+            if preview:
+                model_name = str(getattr(self, "model", "") or "").strip()
+                if not model_name:
+                    model_name = "model"
+                model_name = model_name.split("/", 1)[-1]
+                emit_progress(f"Model input ({model_name}): {preview}")
 
             def _invoke(*a: Any, **k: Any) -> Any:
                 return super(ThinkingAwareLLM, self).call(*a, **k)

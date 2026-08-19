@@ -2320,12 +2320,30 @@ function eventsToMermaid(events) {
       const reqFull = agent ? `${modelName} · agent ${agent}` : modelName;
       const reqLabel = shortMermaidLabel(reqFull);
       const reqIdx = pushMsg(`  ${caller}->>${mid}: ${reqLabel}`);
+      const previewRaw =
+        detail.promptPreview ?? detail.prompt_preview ?? detail.input_preview ?? "";
+      const preview = String(previewRaw || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/"/g, "'");
+      const previewShown =
+        preview && preview.length > 220
+          ? preview.slice(0, 219).trimEnd() + "…"
+          : preview;
       const prompt = coerceTokenInt(detail.prompt_tokens);
       if (prompt != null) {
         tokenHelps.push({
           messageIndex: reqIdx,
-          tooltip: `prompt=${prompt}`,
+          tooltip: previewShown
+            ? `prompt=${prompt} · input=${previewShown}`
+            : `prompt=${prompt}`,
           kind: "prompt",
+        });
+      } else if (previewShown) {
+        tokenHelps.push({
+          messageIndex: reqIdx,
+          tooltip: `input=${previewShown}`,
+          kind: "prompt_preview",
         });
       }
       const retIdx = pushMsg(`  ${mid}-->>${caller}: ok`);
