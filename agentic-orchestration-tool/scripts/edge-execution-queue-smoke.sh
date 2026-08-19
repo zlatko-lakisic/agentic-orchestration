@@ -66,6 +66,7 @@ _resolve_reach_repo() {
 
 if REACH_ROOT="$(_resolve_reach_repo)"; then
   RUNNER="${REACH_ROOT}/python/ao_reach/mock_client_runner.py"
+  export PYTHONPATH="${REACH_ROOT}/python${PYTHONPATH:+:${PYTHONPATH}}"
   echo "Reach simulator: concurrent low + realtime (best-effort)"
   python3 "${RUNNER}" \
     --base-url "${AO_WS_URL}" \
