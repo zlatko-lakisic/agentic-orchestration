@@ -47,6 +47,12 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
   selector: 'ao-host-utilization',
   imports: [MatCard, MatDivider, MatProgressBarModule, ChartComponent],
   host: { class: 'block' },
+  styles: `
+    :host ::ng-deep .apexcharts-radialbar .apexcharts-datalabel-label,
+    :host ::ng-deep .apexcharts-radialbar .apexcharts-datalabel-value {
+      fill: #ffffff !important;
+    }
+  `,
   template: `
     <mat-card
       class="overflow-hidden"
@@ -221,45 +227,47 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
       </div>
 
       <div class="mt-1 grid grid-cols-1 gap-2 px-2 pb-2 xl:grid-cols-2">
-        <div class="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 px-3 pt-2">
-          <div>
-            <div
-              class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
-            >
-              <span
-                class="inline-block size-2 rounded-full"
-                [style.background-color]="gaugeColors[0]"
-              ></span>
-              AO RAM
+        <div class="flex min-w-0 items-center gap-x-6 px-3 pt-2">
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-8 gap-y-2">
+            <div>
+              <div
+                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+              >
+                <span
+                  class="inline-block size-2 rounded-full"
+                  [style.background-color]="gaugeColors[0]"
+                ></span>
+                AO RAM
+              </div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoRamGib() ?? '—'
+                }}@if (aoRamGib() != null) {
+                  <span class="text-lg text-neutral-500">GiB</span>
+                }
+              </div>
+              <div class="text-xs text-neutral-500">{{ aoRamShare() }}</div>
             </div>
-            <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-              {{ aoRamGib() ?? '—'
-              }}@if (aoRamGib() != null) {
-                <span class="text-lg text-neutral-500">GiB</span>
-              }
+            <div>
+              <div
+                class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
+              >
+                <span
+                  class="inline-block size-2 rounded-full"
+                  [style.background-color]="gaugeColors[1]"
+                ></span>
+                AO VRAM
+              </div>
+              <div class="text-3xl font-semibold tabular-nums tracking-tighter">
+                {{ aoVramGib() ?? '—'
+                }}@if (aoVramGib() != null) {
+                  <span class="text-lg text-neutral-500">GiB</span>
+                }
+              </div>
+              <div class="text-xs text-neutral-500">{{ aoVramShare() }}</div>
             </div>
-            <div class="text-xs text-neutral-500">{{ aoRamShare() }}</div>
-          </div>
-          <div>
-            <div
-              class="flex items-center gap-x-1.5 text-sm font-medium text-neutral-500"
-            >
-              <span
-                class="inline-block size-2 rounded-full"
-                [style.background-color]="gaugeColors[1]"
-              ></span>
-              AO VRAM
-            </div>
-            <div class="text-3xl font-semibold tabular-nums tracking-tighter">
-              {{ aoVramGib() ?? '—'
-              }}@if (aoVramGib() != null) {
-                <span class="text-lg text-neutral-500">GiB</span>
-              }
-            </div>
-            <div class="text-xs text-neutral-500">{{ aoVramShare() }}</div>
           </div>
           <apx-chart
-            class="h-40 w-40 shrink-0 sm:ml-auto"
+            class="h-40 w-40 shrink-0"
             [chart]="gaugeChart.chart"
             [colors]="gaugeColors"
             [labels]="gaugeLabels"
@@ -408,9 +416,10 @@ export class HostUtilization implements OnInit, OnDestroy {
    */
   readonly gaugePlotOptions = computed((): ApexPlotOptions => {
     const ram = this.aoResources()?.ao?.ramPercentOfHost;
-    /** Apex paints SVG text with a hardcoded near-black fill unless set here. */
-    const label = '#737373';
-    const value = this.theming.isDark() ? '#ffffff' : '#0a0a0a';
+    /** Hex only — Apex SVG `fill` ignores CSS variables and falls back to black. */
+    const onDark = this.theming.isDark();
+    const label = onDark ? '#ffffff' : '#404040';
+    const value = onDark ? '#ffffff' : '#0a0a0a';
     return {
       radialBar: {
         hollow: { size: '56%' },
@@ -426,7 +435,7 @@ export class HostUtilization implements OnInit, OnDestroy {
           total: {
             show: true,
             label: 'RAM of host',
-            color: label,
+            color: value,
             formatter: () => (ram == null ? '—' : `${Math.round(ram)}%`),
           },
         },
@@ -775,7 +784,7 @@ export class HostUtilization implements OnInit, OnDestroy {
     chart: {
       animations: { enabled: false },
       fontFamily: 'inherit',
-      foreColor: AXIS_TEXT,
+      foreColor: '#ffffff',
       height: '100%',
       type: 'radialBar',
       toolbar: { show: false },

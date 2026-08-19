@@ -70,8 +70,20 @@ def near_context_limit(*, prompt_tokens: int | None = None, headroom: int = _HEA
     return int(n) >= ollama_context_limit() - max(0, int(headroom))
 
 
+def _is_completion_stream(response: Any) -> bool:
+    """True for LiteLLM/CrewAI stream wrappers — they have no ``choices`` payload yet."""
+    if response is None or isinstance(response, (dict, list, str, bytes)):
+        return False
+    if not hasattr(response, "choices"):
+        return hasattr(response, "__iter__")
+    choices = getattr(response, "choices", None)
+    return isinstance(choices, type)
+
+
 def _choice_message(response: Any) -> Any:
     choices = getattr(response, "choices", None)
+    if isinstance(choices, type):
+        choices = None
     if choices is None and isinstance(response, dict):
         choices = response.get("choices")
     if not choices:
@@ -136,10 +148,79 @@ def _set_msg_content(msg: Any, text: str) -> None:
         pass
 
 
+def _blocks_text(blocks: Any) -> str:
+    if not blocks:
+        return ""
+    if isinstance(blocks, str):
+        return blocks.strip()
+    parts: list[str] = []
+    for block in blocks if isinstance(blocks, (list, tuple)) else (blocks,):
+        if isinstance(block, str) and block.strip():
+            parts.append(block.strip())
+            continue
+        dumped = None
+        if isinstance(block, dict):
+            dumped = block
+        elif hasattr(block, "model_dump"):
+            try:
+                dumped = block.model_dump()
+            except Exception:  # noqa: BLE001
+                dumped = None
+        if isinstance(dumped, dict):
+            for key in ("thinking", "text", "content", "reasoning", "reasoning_content"):
+                val = dumped.get(key)
+                if isinstance(val, str) and val.strip():
+                    parts.append(val.strip())
+                    break
+            continue
+        for key in ("thinking", "text", "content", "reasoning", "reasoning_content"):
+            val = getattr(block, key, None)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+                break
+    return "\n".join(parts).strip()
+
+
 def thinking_text_from_message(msg: Any) -> str:
-    raw = _msg_get(msg, "reasoning_content", "thinking", "reasoning")
+    raw = _msg_get(
+        msg,
+        "reasoning_content",
+        "thinking",
+        "reasoning",
+        "reasoning_text",
+        "thought",
+    )
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
+    if isinstance(raw, dict):
+        nested = raw.get("text") or raw.get("content") or raw.get("thinking")
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+    dumped: dict[str, Any] | None = None
+    if hasattr(msg, "model_dump"):
+        try:
+            dumped = msg.model_dump()
+        except Exception:  # noqa: BLE001
+            dumped = None
+    if dumped is None and isinstance(msg, dict):
+        dumped = msg
+    if isinstance(dumped, dict):
+        for key in ("reasoning_content", "thinking", "reasoning", "reasoning_text", "thought"):
+            val = dumped.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        extra = dumped.get("provider_specific_fields")
+        if isinstance(extra, dict):
+            for key in ("reasoning_content", "thinking", "reasoning"):
+                val = extra.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+        from_blocks = _blocks_text(dumped.get("thinking_blocks") or dumped.get("reasoning_items"))
+        if from_blocks:
+            return from_blocks
+    from_blocks = _blocks_text(_msg_get(msg, "thinking_blocks") or _msg_get(msg, "reasoning_items"))
+    if from_blocks:
+        return from_blocks
     content = _content_text(_msg_get(msg, "content"))
     match = _THINK_RE.search(content)
     if match and not _THINK_RE.sub("", content).strip():
@@ -149,6 +230,8 @@ def thinking_text_from_message(msg: Any) -> str:
 
 def apply_thinking_coalesce(response: Any, *, raise_if_empty: bool = True) -> Any:
     """Copy thinking/reasoning into ``message.content`` when CrewAI would see empty text."""
+    if _is_completion_stream(response):
+        return response
     msg = _choice_message(response)
     if msg is None:
         if raise_if_empty:
@@ -175,7 +258,32 @@ def looks_like_empty_llm_error(error: BaseException | str) -> bool:
         "none or empty" in text
         or EMPTY_LLM_MESSAGE in text
         or "invalid response from llm call" in text
+        or "no content received from streaming" in text
     )
+
+
+def call_with_empty_retry(invoke: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run ``invoke``; on a thinking-only/empty reply retry once with ``tools=None``.
+
+    ``on_retry`` (optional kw-only, popped) is called before the second attempt so
+    the LLM can turn thinking off.
+    """
+    on_retry = kwargs.pop("on_retry", None)
+    try:
+        return invoke(*args, **kwargs)
+    except Exception as exc:
+        if not looks_like_empty_llm_error(exc):
+            raise
+        retry_kwargs = dict(kwargs)
+        retry_kwargs["tools"] = None
+        if on_retry is not None:
+            on_retry()
+        try:
+            return invoke(*args, **retry_kwargs)
+        except Exception as retry_exc:
+            if looks_like_empty_llm_error(retry_exc):
+                raise EmptyLlmResponseError(EMPTY_LLM_MESSAGE) from retry_exc
+            raise
 
 
 def looks_like_planning_speak(text: str) -> bool:

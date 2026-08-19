@@ -182,6 +182,46 @@ def test_ollama_build_agent_omits_num_ctx_when_unset(
     )
     OllamaProvider(cfg).build_agent()
     assert "num_ctx" not in captured
+    assert "think" not in captured
+
+
+@pytest.mark.unit
+def test_ollama_build_agent_disables_think_for_filesystem_tunnel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_llm(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        return MagicMock(name="LLM")
+
+    _stub_fetch_url_tool(monkeypatch)
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", _fake_llm)
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.Agent", lambda **_k: MagicMock(name="Agent")
+    )
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.litellm_api_base_for_ollama",
+        lambda: "http://127.0.0.1:11434",
+    )
+    monkeypatch.setattr(
+        "orchestration.mcp_stdio_hygiene.drop_stdio_mcps_that_fail_handshake",
+        lambda mcps: list(mcps) if mcps else [],
+    )
+
+    cfg = AgentProviderConfig(
+        id="client.code_assistant",
+        role="Assistant",
+        goal="Help",
+        backstory="Helpful.",
+        model="qwen3.6:27b",
+        provider_type="ollama",
+        provider_options={},
+    )
+    OllamaProvider(cfg).build_agent(
+        mcps=[{"url": "http://localhost:8766/t/abc/filesystem"}]
+    )
+    assert captured.get("think") is False
 
 
 @pytest.mark.unit

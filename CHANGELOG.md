@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **COMSTAR commit/push died with thinking-only empty LLM** — Jetson run `aafdd81412ff48108ea96a86c7ba443b` (`qwen3.6:27b`) used filesystem tools then billed 499 completion tokens with no `message.content`. Ollama overlay agents with MCPs now send `think=false`, thinking coalesce also reads `thinking_blocks`, and a thinking-only call retries once with tools stripped instead of failing the Reach run.
+- **AO footprint dial layout and centre text** — the RAM/VRAM share chart sits to the right of the AO RAM and AO VRAM figures instead of wrapping underneath, and the centre “RAM of host” / percent labels use a white fill (Apex SVG ignored CSS variables and painted them near-black).
 - **COMSTAR “analyze my workspace” returned a live-e2e canned line** — AOReach clips long prompts with `…[truncated earlier context]`, which matched the overlay filesystem shortcut (`"truncat" in topic`). Shortcuts now use only the current `<user>` turn, so VS Code chats are not answered with “The filesystem MCP result looks truncated.”
 
 ## [2.4.0] - 2026-08-18

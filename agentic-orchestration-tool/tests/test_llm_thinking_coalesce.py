@@ -48,9 +48,53 @@ def test_real_content_unchanged() -> None:
     assert out.choices[0].message.content == "Ship it."
 
 
-def test_still_empty_raises() -> None:
+def test_coalesce_thinking_blocks_when_content_empty() -> None:
+    out = apply_thinking_coalesce(
+        _resp(
+            content="",
+            tool_calls=None,
+            thinking_blocks=[{"type": "thinking", "thinking": "Use git commit -m."}],
+        )
+    )
+    assert out.choices[0].message.content == "Use git commit -m."
+
+
+def test_coalesce_passes_through_stream_iterators() -> None:
+    stream = iter([1, 2, 3])
+    assert apply_thinking_coalesce(stream) is stream
+
+
+def test_empty_retry_strips_tools_and_calls_on_retry() -> None:
+    from orchestration.llm_usage import EMPTY_LLM_MESSAGE, call_with_empty_retry
+
+    calls: list[object] = []
+    retried: list[bool] = []
+
+    def invoke(*_a: object, **kwargs: object) -> str:
+        calls.append(kwargs.get("tools"))
+        if len(calls) == 1:
+            raise ValueError(EMPTY_LLM_MESSAGE)
+        return "feat: move AO footprint dial"
+
+    out = call_with_empty_retry(
+        invoke,
+        "messages",
+        tools=[{"name": "read_file"}],
+        on_retry=lambda: retried.append(True),
+    )
+    assert out == "feat: move AO footprint dial"
+    assert calls == [[{"name": "read_file"}], None]
+    assert retried == [True]
+
+
+def test_empty_retry_reraises_when_second_call_empty() -> None:
+    from orchestration.llm_usage import EMPTY_LLM_MESSAGE, EmptyLlmResponseError, call_with_empty_retry
+
+    def invoke(*_a: object, **_k: object) -> str:
+        raise ValueError(EMPTY_LLM_MESSAGE)
+
     with pytest.raises(EmptyLlmResponseError, match="no text"):
-        apply_thinking_coalesce(_resp(content="", tool_calls=None))
+        call_with_empty_retry(invoke, tools=[{"name": "x"}])
 
 
 def test_empty_error_detector() -> None:

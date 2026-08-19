@@ -42,21 +42,35 @@ if isinstance(LLM, type):
     class ThinkingAwareLLM(LLM):
         """CrewAI LLM that coalesces thinking-only replies and drops tools near context cap."""
 
-        def call(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            from orchestration.llm_usage import (
-                EMPTY_LLM_MESSAGE,
-                looks_like_empty_llm_error,
-                near_context_limit,
-            )
+        def _disable_think(self) -> None:
+            extra = dict(getattr(self, "additional_params", None) or {})
+            extra["think"] = False
+            try:
+                self.additional_params = extra
+            except Exception:  # noqa: BLE001
+                pass
+            for key in ("think", "thinking"):
+                try:
+                    setattr(self, key, False)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        def call(self, messages: Any, tools: Any = None, **kwargs: Any) -> Any:  # noqa: ANN401
+            from orchestration.llm_usage import call_with_empty_retry, near_context_limit
 
             if near_context_limit():
-                kwargs["tools"] = None
-            try:
-                return super().call(*args, **kwargs)
-            except ValueError as exc:
-                if looks_like_empty_llm_error(exc):
-                    raise ValueError(EMPTY_LLM_MESSAGE) from exc
-                raise
+                tools = None
+
+            def _invoke(*a: Any, **k: Any) -> Any:
+                return super(ThinkingAwareLLM, self).call(*a, **k)
+
+            return call_with_empty_retry(
+                _invoke,
+                messages,
+                on_retry=self._disable_think,
+                tools=tools,
+                **kwargs,
+            )
 
 else:
     ThinkingAwareLLM = LLM  # type: ignore[misc,assignment]
@@ -940,6 +954,10 @@ class OllamaProvider(AgentProvider):
                 llm_kwargs["num_ctx"] = int(raw_num_ctx)
             except (TypeError, ValueError):
                 pass
+        # Qwen3.x thinking often burns the completion budget then leaves
+        # ``message.content`` empty; CrewAI treats that as a failed LLM call.
+        if effective_mcps or filesystem_urls or fetch_tool_needed:
+            llm_kwargs["think"] = False
         llm = ThinkingAwareLLM(**llm_kwargs)
 
         kwargs: dict[str, Any] = dict(
