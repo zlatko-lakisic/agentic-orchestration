@@ -994,6 +994,11 @@ def parse_args() -> argparse.Namespace:
         help="Correlation id for this CLI run (also set via AGENTIC_RUN_ID). Minted when omitted.",
     )
     parser.add_argument(
+        "--queue-priority",
+        default=os.getenv("AGENTIC_EXEC_QUEUE_PRIORITY", "").strip() or None,
+        help="Execution queue priority label or 0–100 (env AGENTIC_EXEC_QUEUE_PRIORITY).",
+    )
+    parser.add_argument(
         "--warm-pool-worker",
         action="store_true",
         help="K8s warm pool mode: poll run-store queue and execute steps until terminated.",
@@ -1424,74 +1429,71 @@ def main() -> None:
             if not args.quiet:
                 label = f"{r}/{max_rounds}" if args.dynamic_iterative_auto else f"{r}/{manual_rounds}"
                 print(f"(dynamic-iter) round {label}", file=sys.stderr)
+            def _iter_on_planned(dyn_cfg: WorkflowConfig, plan: dict[str, Any]) -> None:
+                try:
+                    from orchestration.learning_store import emit_run_rating_meta
+
+                    emit_run_rating_meta(dyn_cfg)
+                except Exception:  # noqa: BLE001
+                    pass
+                summary = plan.get("plan_summary")
+                if not args.quiet and isinstance(summary, str) and summary.strip():
+                    print(f"(dynamic-iter) plan: {summary.strip()}", file=sys.stderr)
+                if not args.quiet and dyn_cfg.tasks:
+                    tdef = dyn_cfg.tasks[0]
+                    first_line = str(tdef.description or "").strip().splitlines()[0].strip()
+                    if tdef.mcp_providers is not None:
+                        mcp_part = f"mcp {tdef.mcp_providers!r}"
+                    else:
+                        mcp_part = f"mcp (default {dyn_cfg.mcp_providers!r})"
+                    print(
+                        f"(dynamic-iter) step: {first_line or tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
+                        file=sys.stderr,
+                    )
+                steps_raw = plan.get("steps")
+                if isinstance(steps_raw, list) and steps_raw:
+                    step0 = steps_raw[0]
+                    if isinstance(step0, dict):
+                        sr = (
+                            str(
+                                step0.get("rationale")
+                                or step0.get("step_rationale")
+                                or step0.get("why")
+                                or "",
+                            ).strip()
+                        )
+                        if sr:
+                            print(
+                                f"(dynamic-iter) planner step rationale: {sr}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+
             try:
-                dyn_cfg, plan = build_dynamic_workflow_config(
+                from orchestration.dynamic_run import run_dynamic_plan_execute_queued
+
+                exit_code, result_text, dyn_cfg, dyn_execution = run_dynamic_plan_execute_queued(
+                    run_id=cli_run_id,
                     user_prompt=compose_goal(logical_goal),
-                    catalog_path=agent_providers_catalog_path,
-                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
-                    mcp_catalog_path=mcp_catalog_path,
-                    agent_skills_catalog_path=agent_skills_catalog_path,
-                    rag_sources_catalog_path=rag_sources_catalog_path,
-                    session_path=orchestrator_session_path,
-                    max_steps=1,
                     tool_root=tool_root,
+                    session_path=orchestrator_session_path,
+                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
+                    max_steps=1,
                     quiet=args.quiet,
+                    priority=getattr(args, "queue_priority", None),
+                    on_planned=_iter_on_planned,
+                    agent_providers_catalog_path=agent_providers_catalog_path,
+                    execute_kwargs={
+                        "crew_verbose": not args.quiet,
+                        "quiet": args.quiet,
+                        "emit_stdout_summary": stream_iter_steps,
+                        "emit_progress_lines": stream_iter_steps,
+                        "run_id": cli_run_id,
+                    },
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"(dynamic-iter) planning failed: {exc}", file=sys.stderr)
                 sys.exit(1)
-
-            try:
-                from orchestration.learning_store import emit_run_rating_meta
-
-                emit_run_rating_meta(dyn_cfg)
-            except Exception:  # noqa: BLE001
-                pass
-
-            summary = plan.get("plan_summary")
-            if not args.quiet and isinstance(summary, str) and summary.strip():
-                print(f"(dynamic-iter) plan: {summary.strip()}", file=sys.stderr)
-            if not args.quiet and dyn_cfg.tasks:
-                tdef = dyn_cfg.tasks[0]
-                first_line = str(tdef.description or "").strip().splitlines()[0].strip()
-                if tdef.mcp_providers is not None:
-                    mcp_part = f"mcp {tdef.mcp_providers!r}"
-                else:
-                    mcp_part = f"mcp (default {dyn_cfg.mcp_providers!r})"
-                print(
-                    f"(dynamic-iter) step: {first_line or tdef.id} -> agent_provider {tdef.agent_provider_id!r}; {mcp_part}",
-                    file=sys.stderr,
-                )
-            steps_raw = plan.get("steps")
-            if isinstance(steps_raw, list) and steps_raw:
-                step0 = steps_raw[0]
-                if isinstance(step0, dict):
-                    sr = (
-                        str(
-                            step0.get("rationale")
-                            or step0.get("step_rationale")
-                            or step0.get("why")
-                            or "",
-                        ).strip()
-                    )
-                    if sr:
-                        print(
-                            f"(dynamic-iter) planner step rationale: {sr}",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-
-            exit_code, result_text, dyn_cfg, dyn_execution = _run_dynamic_workflow_with_hf_fallback(
-                dyn_cfg,
-                agent_providers_catalog_path=agent_providers_catalog_path,
-                mcp_catalog_path=mcp_catalog_path,
-                agent_skills_catalog_path=agent_skills_catalog_path,
-                rag_sources_catalog_path=rag_sources_catalog_path,
-                crew_verbose=not args.quiet,
-                quiet=args.quiet,
-                emit_stdout_summary=stream_iter_steps,
-                emit_progress_lines=stream_iter_steps,
-            )
             if exit_code:
                 _update_session_after_crew(
                     orchestrator_session_path,
@@ -1665,41 +1667,39 @@ def main() -> None:
                 "## Intermediate results (excerpt)\n"
                 f"{excerpt}\n"
             )
+            def _synth_on_planned(synth_cfg: WorkflowConfig, plan: dict[str, Any]) -> None:
+                try:
+                    from orchestration.learning_store import emit_run_rating_meta
+
+                    emit_run_rating_meta(synth_cfg)
+                except Exception:  # noqa: BLE001
+                    pass
+
             try:
-                synth_cfg, plan = build_dynamic_workflow_config(
+                from orchestration.dynamic_run import run_dynamic_plan_execute_queued
+
+                exit_code, result_text, synth_cfg, synth_execution = run_dynamic_plan_execute_queued(
+                    run_id=cli_run_id,
                     user_prompt=synth_prompt,
-                    catalog_path=agent_providers_catalog_path,
-                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
-                    mcp_catalog_path=mcp_catalog_path,
-                    agent_skills_catalog_path=agent_skills_catalog_path,
-                    rag_sources_catalog_path=rag_sources_catalog_path,
-                    session_path=orchestrator_session_path,
-                    max_steps=1,
                     tool_root=tool_root,
+                    session_path=orchestrator_session_path,
+                    allowed_agent_provider_ids=selected_dynamic_provider_ids,
+                    max_steps=1,
                     quiet=args.quiet,
+                    priority=getattr(args, "queue_priority", None),
+                    on_planned=_synth_on_planned,
+                    agent_providers_catalog_path=agent_providers_catalog_path,
+                    execute_kwargs={
+                        "crew_verbose": not args.quiet,
+                        "quiet": args.quiet,
+                        "emit_stdout_summary": True,
+                        "emit_progress_lines": stream_iter_steps,
+                        "run_id": cli_run_id,
+                    },
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"(dynamic-iter) synthesis planning failed: {exc}", file=sys.stderr)
                 sys.exit(1)
-
-            try:
-                from orchestration.learning_store import emit_run_rating_meta
-
-                emit_run_rating_meta(synth_cfg)
-            except Exception:  # noqa: BLE001
-                pass
-
-            exit_code, result_text, synth_cfg, synth_execution = _run_dynamic_workflow_with_hf_fallback(
-                synth_cfg,
-                agent_providers_catalog_path=agent_providers_catalog_path,
-                mcp_catalog_path=mcp_catalog_path,
-                agent_skills_catalog_path=agent_skills_catalog_path,
-                rag_sources_catalog_path=rag_sources_catalog_path,
-                crew_verbose=not args.quiet,
-                quiet=args.quiet,
-                emit_stdout_summary=True,
-                emit_progress_lines=stream_iter_steps,
-            )
             if exit_code:
                 _update_session_after_crew(
                     orchestrator_session_path,
@@ -1933,17 +1933,81 @@ def main() -> None:
                 print("(dynamic) direct vision completion (no agent tool loop)", file=sys.stderr)
             print(direct_vision)
             return
+        def _dynamic_on_planned(dyn_cfg: WorkflowConfig, plan: dict[str, Any]) -> None:
+            try:
+                from orchestration.learning_store import emit_run_rating_meta
+
+                emit_run_rating_meta(dyn_cfg)
+            except Exception:  # noqa: BLE001
+                pass
+            summary = plan.get("plan_summary")
+            agents = []
+            for step in plan.get("steps") or []:
+                if isinstance(step, dict) and step.get("agent_provider_id"):
+                    agents.append(str(step["agent_provider_id"]))
+            for tdef in dyn_cfg.tasks:
+                if tdef.agent_provider_id and tdef.agent_provider_id not in agents:
+                    agents.append(tdef.agent_provider_id)
+            append_run_event(
+                tool_root,
+                cli_run_id,
+                "plan",
+                actor="planner",
+                message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
+                detail={"agents": agents, "steps": len(dyn_cfg.tasks)},
+            )
+            append_run_event(
+                tool_root,
+                cli_run_id,
+                "decision",
+                actor="orchestrator",
+                message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
+                detail={
+                    "reason": str(summary or "").strip() or None,
+                    "agents": agents,
+                    "steps": [
+                        {
+                            "id": getattr(t, "id", None),
+                            "agent_provider_id": getattr(t, "agent_provider_id", None),
+                        }
+                        for t in (dyn_cfg.tasks or [])[:12]
+                    ],
+                },
+            )
+            if not args.quiet:
+                if isinstance(summary, str) and summary.strip():
+                    print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
+                for i, tdef in enumerate(dyn_cfg.tasks, start=1):
+                    if tdef.mcp_providers is not None:
+                        mcp_part = f"; mcp {tdef.mcp_providers!r}"
+                    else:
+                        mcp_part = f"; mcp (default {dyn_cfg.mcp_providers!r})"
+                    print(
+                        f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> "
+                        f"agent_provider {tdef.agent_provider_id!r}{mcp_part}",
+                        file=sys.stderr,
+                    )
+
         try:
-            dyn_cfg, plan = build_dynamic_workflow_config(
+            from orchestration.dynamic_run import run_dynamic_plan_execute_queued
+
+            exit_code, result_text, dyn_cfg, dyn_execution = run_dynamic_plan_execute_queued(
+                run_id=cli_run_id,
                 user_prompt=cache_goal,
-                catalog_path=agent_providers_catalog_path,
-                allowed_agent_provider_ids=selected_dynamic_provider_ids,
-                mcp_catalog_path=mcp_catalog_path,
-                agent_skills_catalog_path=agent_skills_catalog_path,
-                rag_sources_catalog_path=rag_sources_catalog_path,
-                session_path=orchestrator_session_path,
                 tool_root=tool_root,
+                session_path=orchestrator_session_path,
+                allowed_agent_provider_ids=selected_dynamic_provider_ids,
                 quiet=args.quiet,
+                priority=getattr(args, "queue_priority", None),
+                on_planned=_dynamic_on_planned,
+                agent_providers_catalog_path=agent_providers_catalog_path,
+                execute_kwargs={
+                    "crew_verbose": not args.quiet,
+                    "quiet": args.quiet,
+                    "emit_stdout_summary": True,
+                    "emit_progress_lines": True,
+                    "run_id": cli_run_id,
+                },
             )
         except Exception as exc:  # noqa: BLE001
             print(f"(dynamic) planning failed: {exc}", file=sys.stderr)
@@ -1956,71 +2020,6 @@ def main() -> None:
                 detail={"phase": "planning"},
             )
             sys.exit(1)
-        try:
-            from orchestration.learning_store import emit_run_rating_meta
-
-            emit_run_rating_meta(dyn_cfg)
-        except Exception:  # noqa: BLE001
-            pass
-        summary = plan.get("plan_summary")
-        agents = []
-        if isinstance(plan, dict):
-            for step in plan.get("steps") or []:
-                if isinstance(step, dict) and step.get("agent_provider_id"):
-                    agents.append(str(step["agent_provider_id"]))
-        for tdef in dyn_cfg.tasks:
-            if tdef.agent_provider_id and tdef.agent_provider_id not in agents:
-                agents.append(tdef.agent_provider_id)
-        append_run_event(
-            tool_root,
-            cli_run_id,
-            "plan",
-            actor="planner",
-            message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
-            detail={"agents": agents, "steps": len(dyn_cfg.tasks)},
-        )
-        append_run_event(
-            tool_root,
-            cli_run_id,
-            "decision",
-            actor="orchestrator",
-            message=str(summary or f"{len(dyn_cfg.tasks)} step(s)").strip()[:200],
-            detail={
-                "reason": str(summary or "").strip() or None,
-                "agents": agents,
-                "steps": [
-                    {
-                        "id": getattr(t, "id", None),
-                        "agent_provider_id": getattr(t, "agent_provider_id", None),
-                    }
-                    for t in (dyn_cfg.tasks or [])[:12]
-                ],
-            },
-        )
-        if not args.quiet:
-            if isinstance(summary, str) and summary.strip():
-                print(f"(dynamic) plan: {summary.strip()}", file=sys.stderr)
-            for i, tdef in enumerate(dyn_cfg.tasks, start=1):
-                if tdef.mcp_providers is not None:
-                    mcp_part = f"; mcp {tdef.mcp_providers!r}"
-                else:
-                    mcp_part = f"; mcp (default {dyn_cfg.mcp_providers!r})"
-                print(
-                    f"(dynamic) step {i}/{len(dyn_cfg.tasks)}: {tdef.id} -> "
-                    f"agent_provider {tdef.agent_provider_id!r}{mcp_part}",
-                    file=sys.stderr,
-                )
-        exit_code, result_text, dyn_cfg, dyn_execution = _run_dynamic_workflow_with_hf_fallback(
-            dyn_cfg,
-            agent_providers_catalog_path=agent_providers_catalog_path,
-            mcp_catalog_path=mcp_catalog_path,
-            agent_skills_catalog_path=agent_skills_catalog_path,
-            rag_sources_catalog_path=rag_sources_catalog_path,
-            crew_verbose=not args.quiet,
-            quiet=args.quiet,
-            emit_stdout_summary=True,
-            emit_progress_lines=True,
-        )
         if exit_code:
             append_run_event(
                 tool_root,

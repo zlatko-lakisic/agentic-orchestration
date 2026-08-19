@@ -998,6 +998,7 @@ def run_with_execution_queue(
     catalog_entries: list[dict[str, Any]] | None = None,
     exec_requirements_fn: Callable[[Any], ResourceRequirements] | None = None,
     execute_fn: Callable[[Any], Any],
+    on_planned: Callable[[Any], None] | None = None,
 ) -> Any:
     """Two-phase wrapper: planning acquire → plan → execution acquire → execute."""
     from orchestration.hardware_profile import requirements_from_workflow_config
@@ -1011,6 +1012,12 @@ def run_with_execution_queue(
             return exec_requirements_fn(config)
         return requirements_from_workflow_config(config, catalog_entries or [])
 
+    if not execution_queue_enabled():
+        config = plan_fn()
+        if on_planned is not None:
+            on_planned(config)
+        return execute_fn(config)
+
     config = None
     with acquire_planning(
         run_id=run_id,
@@ -1022,6 +1029,8 @@ def run_with_execution_queue(
         if check_preempted(run_id):
             raise RuntimeError("preempted")
         config = plan_fn()
+        if on_planned is not None:
+            on_planned(config)
     req = _requirements(config)
     with acquire_execution(
         run_id=run_id,
@@ -1034,6 +1043,39 @@ def run_with_execution_queue(
         if check_preempted(run_id):
             raise RuntimeError("preempted")
         return execute_fn(config)
+
+
+def run_with_execution_only_queue(
+    *,
+    run_id: str,
+    requirements: ResourceRequirements,
+    priority: str | int | None = None,
+    priority_label: str | None = None,
+    client_id: str | None = None,
+    tenant_id: str | None = None,
+    quota: QueueQuota | None = None,
+    on_wait: Callable[[WaitSnapshot], None] | None = None,
+    execute_fn: Callable[[], Any],
+) -> Any:
+    """Single-phase wrapper: execution acquire → execute (no planning)."""
+    if not execution_queue_enabled():
+        return execute_fn()
+
+    effective_tenant = tenant_id or client_id
+    if quota is None:
+        _, _, quota = _overlay_queue_policy()
+
+    with acquire_execution(
+        run_id=run_id,
+        requirements=requirements,
+        priority=priority,
+        priority_label=priority_label,
+        client_id=effective_tenant,
+        on_wait=on_wait,
+    ):
+        if check_preempted(run_id):
+            raise RuntimeError("preempted")
+        return execute_fn()
 
 
 def resolve_app_max_priority(app_id: str | None) -> int | None:

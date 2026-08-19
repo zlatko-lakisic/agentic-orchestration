@@ -1609,8 +1609,41 @@ class WsConnection:
                 agent_usage_tokens = bind_usage_context(agent_provider_id=agent_provider_id)
             except Exception:  # noqa: BLE001
                 agent_usage_tokens = []
+
+            from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+            from orchestration.dynamic_run import catalog_paths
+            from orchestration.execution_queue import (
+                infer_priority,
+                resolve_app_max_priority,
+                resolve_default_priority,
+                run_with_execution_only_queue,
+            )
+            from orchestration.hardware_profile import requirements_from_agent_provider
+
+            ws_paths = catalog_paths(self.tool_root)
             try:
-                answer = run_direct_agent(
+                catalog_entries = load_agent_providers_catalog_merged(ws_paths.agent_providers)
+            except Exception:  # noqa: BLE001
+                catalog_entries = []
+            req = requirements_from_agent_provider(agent_provider_id, catalog_entries)
+            app_id = self._resolve_app_id(message)
+            app_max = resolve_app_max_priority(app_id)
+            overlay_default = resolve_default_priority(app_id)
+            has_images = bool(message.get("images"))
+            numeric_priority, resolved_label = infer_priority(
+                explicit=message.get("priority"),
+                label=(
+                    str(message.get("priorityLabel") or message.get("priority_label") or "").strip()
+                    or None
+                ),
+                kind="direct_agent",
+                has_images=has_images,
+                overlay_default=overlay_default,
+                app_max=app_max,
+            )
+
+            def _run_direct() -> str:
+                return run_direct_agent(
                     tool_root=self.tool_root,
                     agent_provider_id=agent_provider_id,
                     goal=text,
@@ -1621,6 +1654,17 @@ class WsConnection:
                     on_progress=progress,
                     response_format=response_format if isinstance(response_format, dict) else None,
                     json_schema=json_schema if isinstance(json_schema, dict) else None,
+                )
+
+            try:
+                answer = run_with_execution_only_queue(
+                    run_id=run_id,
+                    requirements=req,
+                    priority=numeric_priority,
+                    priority_label=resolved_label,
+                    client_id=app_id,
+                    on_wait=self._make_queue_wait_callback(tag),
+                    execute_fn=_run_direct,
                 )
             except Exception:
                 try:

@@ -20,6 +20,8 @@ git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
 
+bash "${TOOL_ROOT}/scripts/edge-clone-reach.sh" || true
+
 # Export deploy toggles from the merged .env (apply-env writes the file; this shell
 # must see AGENTIC_OLLAMA_MODE / ENABLE_* for the steps below).
 if [[ -f "${TOOL_ROOT}/.env" ]]; then

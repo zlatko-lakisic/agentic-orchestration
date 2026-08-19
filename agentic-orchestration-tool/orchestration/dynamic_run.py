@@ -1,9 +1,9 @@
 """
 In-process single-pass dynamic run for the API daemon.
 
-``main.py --dynamic`` stays the CLI entry point; this module is the same pipeline
-(plan → execute → persist) without argparse, interactive prompts, attachment
-manifests, or artifact saving, so a warm daemon can serve a chat turn without
+``main.py --dynamic`` stays the CLI entry point (supports ``--queue-priority``); this module
+is the same pipeline (plan → execute → persist) without argparse, interactive prompts,
+attachment manifests, or artifact saving, so a warm daemon can serve a chat turn without
 spawning Python per message.
 """
 
@@ -350,6 +350,180 @@ def run_dynamic_goal(
     return result_holder["text"]
 
 
+def _execute_dynamic_with_hf_fallback(
+    cfg: Any,
+    *,
+    agent_providers_catalog_path: Path,
+    mcp_catalog_path: Path | None,
+    agent_skills_catalog_path: Path | None,
+    rag_sources_catalog_path: Path | None = None,
+    crew_verbose: bool,
+    quiet: bool,
+    emit_stdout_summary: bool = True,
+    emit_progress_lines: bool = True,
+    run_id: str = "",
+) -> tuple[int, str | None, Any, Any]:
+    """Run ``cfg`` once with optional HF LiteLLM fallback (mirrors ``main._run_dynamic_workflow_with_hf_fallback``)."""
+    from orchestration.backends.crewai import run_options_from_legacy
+    from orchestration.execution_dispatch import execute_workflow_config_resolved
+    from orchestration.execution_fallback import workflow_config_after_hf_litellm_fallback
+
+    executed = cfg
+    sink: list[str] = []
+    options = run_options_from_legacy(
+        quiet=quiet,
+        emit_stdout_summary=emit_stdout_summary,
+        execution_error_sink=sink,
+        log_terminal_execution_failure=False,
+        crew_verbose=crew_verbose,
+        mcp_catalog_path=mcp_catalog_path,
+        agent_skills_catalog_path=agent_skills_catalog_path,
+        rag_sources_catalog_path=rag_sources_catalog_path,
+        emit_progress_lines=emit_progress_lines,
+        run_id=run_id,
+    )
+    result = execute_workflow_config_resolved(executed, options=options)
+    if result.exit_code == 0:
+        return 0, result.result_text, executed, result
+    err_text = sink[-1] if sink else str(result.error or "")
+    if not err_text:
+        return result.exit_code, result.result_text, executed, result
+    fb = workflow_config_after_hf_litellm_fallback(
+        executed,
+        err_text,
+        catalog_path=agent_providers_catalog_path,
+        quiet=quiet,
+    )
+    if fb is None:
+        return result.exit_code, result.result_text, executed, result
+    if not quiet:
+        print(
+            "(dynamic) exec fallback: HF inference failed; retrying once with substituted "
+            "provider(s) …",
+            file=sys.stderr,
+        )
+    result2 = execute_workflow_config_resolved(fb, options=options)
+    return result2.exit_code, result2.result_text, fb, result2
+
+
+def run_dynamic_plan_execute_queued(
+    *,
+    run_id: str,
+    user_prompt: str,
+    tool_root: Path,
+    session_path: Path,
+    paths: CatalogPaths | None = None,
+    allowed_agent_provider_ids: list[str] | None = None,
+    allowed_mcp_provider_ids: list[str] | None = None,
+    allowed_skill_ids: list[str] | None = None,
+    max_steps: int | None = None,
+    quiet: bool = True,
+    priority: int | str | None = None,
+    priority_label: str | None = None,
+    on_queue_wait: Callable[[Any], None] | None = None,
+    on_planned: Callable[[Any, dict[str, Any]], None] | None = None,
+    agent_providers_catalog_path: Path | None = None,
+    execute_kwargs: dict[str, Any] | None = None,
+) -> tuple[int, str | None, Any, Any]:
+    """
+    Plan and execute a dynamic workflow with optional global execution queue admission.
+
+    Returns ``(exit_code, result_text, executed_cfg, execution)`` — same shape as
+    ``main._run_dynamic_workflow_with_hf_fallback``. When ``AGENTIC_EXECUTION_QUEUE_ENABLED=0``,
+    behaves like direct plan-then-execute (no queue leases).
+    """
+    from orchestration.dynamic_planner import build_dynamic_workflow_config
+    from orchestration.execution_queue import (
+        execution_queue_enabled,
+        infer_priority,
+        resolve_app_max_priority,
+        resolve_default_priority,
+        run_with_execution_queue,
+    )
+
+    root = tool_root
+    resolved_paths = paths or catalog_paths(root)
+    agents_path = agent_providers_catalog_path or resolved_paths.agent_providers
+    exec_kw = dict(execute_kwargs or {})
+    plan_text = str(user_prompt or "").strip()
+    if not plan_text:
+        raise ValueError("Empty user_prompt")
+
+    try:
+        from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+
+        catalog_entries = load_agent_providers_catalog_merged(resolved_paths.agent_providers)
+    except Exception:  # noqa: BLE001
+        catalog_entries = []
+
+    app_max = resolve_app_max_priority(None)
+    overlay_default = resolve_default_priority(None)
+    numeric_priority, resolved_label = infer_priority(
+        explicit=priority,
+        label=priority_label,
+        kind="cli",
+        overlay_default=overlay_default,
+        app_max=app_max,
+    )
+
+    plan_holder: dict[str, Any] = {}
+
+    def _plan() -> Any:
+        config, plan = build_dynamic_workflow_config(
+            user_prompt=plan_text,
+            catalog_path=resolved_paths.agent_providers,
+            allowed_agent_provider_ids=allowed_agent_provider_ids,
+            allowed_mcp_provider_ids=allowed_mcp_provider_ids,
+            allowed_skill_ids=allowed_skill_ids,
+            mcp_catalog_path=resolved_paths.mcp_providers,
+            agent_skills_catalog_path=resolved_paths.agent_skills,
+            rag_sources_catalog_path=resolved_paths.rag_sources,
+            session_path=session_path,
+            tool_root=root,
+            max_steps=max_steps,
+            quiet=quiet,
+        )
+        plan_holder["plan"] = plan if isinstance(plan, dict) else {}
+        if on_planned is not None:
+            on_planned(config, plan_holder["plan"])
+        return config
+
+    def _execute(config: Any) -> tuple[int, str | None, Any, Any]:
+        return _execute_dynamic_with_hf_fallback(
+            config,
+            agent_providers_catalog_path=agents_path,
+            mcp_catalog_path=resolved_paths.mcp_providers,
+            agent_skills_catalog_path=resolved_paths.agent_skills,
+            rag_sources_catalog_path=resolved_paths.rag_sources,
+            crew_verbose=bool(exec_kw.get("crew_verbose", not quiet)),
+            quiet=bool(exec_kw.get("quiet", quiet)),
+            emit_stdout_summary=bool(exec_kw.get("emit_stdout_summary", True)),
+            emit_progress_lines=bool(exec_kw.get("emit_progress_lines", True)),
+            run_id=str(exec_kw.get("run_id") or run_id or ""),
+        )
+
+    result_holder: dict[str, tuple[int, str | None, Any, Any]] = {}
+
+    def _execute_wrapper(config: Any) -> tuple[int, str | None, Any, Any]:
+        result_holder["out"] = _execute(config)
+        return result_holder["out"]
+
+    if not execution_queue_enabled():
+        config = _plan()
+        return _execute(config)
+
+    run_with_execution_queue(
+        run_id=run_id,
+        priority=numeric_priority,
+        priority_label=resolved_label,
+        on_wait=on_queue_wait,
+        plan_fn=_plan,
+        execute_fn=_execute_wrapper,
+        catalog_entries=catalog_entries,
+    )
+    return result_holder["out"]
+
+
 def _execute_planned_dynamic(
     *,
     config: Any,
@@ -369,6 +543,7 @@ def _execute_planned_dynamic(
     from orchestration.backends.crewai import run_options_from_legacy
     from orchestration.execution_dispatch import execute_workflow_config_resolved
     from orchestration.run_trace import append_run_event
+    from orchestration.structured_logging import emit_log
 
     summary = plan.get("plan_summary") if isinstance(plan, dict) else None
     if isinstance(summary, str) and summary.strip():

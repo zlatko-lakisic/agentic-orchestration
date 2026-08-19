@@ -665,6 +665,41 @@ def plan_resident_models(
     }
 
 
+def requirements_from_agent_provider(
+    agent_provider_id: str,
+    catalog_entries: list[dict[str, Any]],
+) -> Any:
+    """Build execution-phase resource requirements for a single direct agent."""
+    from orchestration.execution_queue import ResourceRequirements
+
+    agent_id = str(agent_provider_id or "").strip()
+    by_id = {
+        str(e.get("id", "")).strip(): e
+        for e in catalog_entries or []
+        if str(e.get("id", "")).strip()
+    }
+    entry = by_id.get(agent_id)
+    entries_for_ids = [entry] if entry else []
+    plan = plan_resident_models(
+        catalog_entries,
+        vram_gb_available=detect_vram_gb_available(),
+        required_ids=[agent_id] if agent_id else [],
+    )
+    gpu = any("gpu" in provider_required_architectures(e) for e in entries_for_ids)
+    cpu_raw = os.getenv("AGENTIC_EXEC_QUEUE_EXEC_CPU_CORES", "").strip()
+    try:
+        cpu_cores = float(cpu_raw) if cpu_raw else 1.0
+    except ValueError:
+        cpu_cores = 1.0
+    return ResourceRequirements(
+        phase="execution",
+        vram_gb=float(plan.get("usedGb") or 0.0),
+        cpu_cores=cpu_cores,
+        gpu_slots=1 if gpu else 0,
+        agent_provider_ids=(agent_id,) if agent_id else (),
+    )
+
+
 def requirements_from_workflow_config(
     config: Any,
     catalog_entries: list[dict[str, Any]],

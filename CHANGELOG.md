@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-08-19
+
+### Fixed
+
+- **Reach/COMSTAR chat after planning** — `_execute_planned_dynamic` called `emit_log` without importing it, surfacing `name 'emit_log' is not defined` on every dynamic execution phase (AO 2.6.0 regression).
+- **CLI dynamic queue admission** — `main.py --dynamic`, `--dynamic-iterative` rounds, and synthesis now plan and execute through `run_with_execution_queue` (via `run_dynamic_plan_execute_queued`); disabled queue (`AGENTIC_EXECUTION_QUEUE_ENABLED=0`) keeps prior direct behavior.
+- **`direct_agent` WebSocket execution lease** — `_execute_text` acquires an execution slot via `run_with_execution_only_queue` before `run_direct_agent`, with queue-wait status frames matching chat.
+- **`--queue-priority` CLI flag** — pass a priority label or 0–100 (env `AGENTIC_EXEC_QUEUE_PRIORITY`) on dynamic CLI paths.
+- **Edge execution-queue smoke HTTPS/mTLS** — smoke script defaults to HTTPS engine URL with `curl -k` for TLS (from post-2.6.0 edge work).
+
+### Changed
+
+- **Jetson/Ada execution queue** — enable preemption and warm-pool autoscale in `config/env.jetson` (conservative caps: min 1, max 3 replicas).
+- **Edge Reach clone** — `edge-clone-reach.sh` clones/updates `agentic-orchestration-reach` during `jetson-deploy.sh` for full concurrent-priority smoke.
+
 ## [2.6.0] - 2026-08-19
 
 ### Added
