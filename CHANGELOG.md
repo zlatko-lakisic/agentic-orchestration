@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-08-19
+
 ### Added
 
 - **Custom tool sandbox (opt-in)** — Reach can upload Python wheel + manifest packages via `POST /api/v1/custom-tools/upload`, activate them with `POST /api/v1/custom-tools/activate`, list with `GET /api/v1/custom-tools`, and delete with `DELETE /api/v1/custom-tools/{id}`. AO validates contract v1 manifests (`contractVersion`, `toolId`, `toolVersion`, `runtime: python`, wheel filename, `entrypoints.http_module` / `stdio_module`, `mcp.clientId` in the `client.*` namespace), installs each tool into an isolated venv under `_tool_sandbox/`, and exposes a loopback `streamable_http` MCP endpoint. Activated tools merge into session overlay MCP resolution when `AGENTIC_CUSTOM_TOOL_SANDBOX=1` (default **off**). Engine WebSocket `hello` advertises `customToolSandbox` when enabled. Includes mock echo fixture, pytest coverage, and `scripts/edge-custom-tool-smoke.sh` for Ada/Jetson validation.
