@@ -47,6 +47,12 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/crewai_template.py
               subPath: crewai_template.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/filesystem_tunnel_tool.py
+              subPath: filesystem_tunnel_tool.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/terminal_tunnel_tool.py
+              subPath: terminal_tunnel_tool.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

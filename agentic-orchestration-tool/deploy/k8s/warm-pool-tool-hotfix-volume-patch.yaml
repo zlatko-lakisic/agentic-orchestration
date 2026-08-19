@@ -21,12 +21,6 @@ spec:
               mountPath: /app/orchestration/mcp_tunnel.py
               subPath: mcp_tunnel.py
             - name: tool-hotfix-orchestration
-              mountPath: /app/orchestration/filesystem_tunnel_tool.py
-              subPath: filesystem_tunnel_tool.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/orchestration/terminal_tunnel_tool.py
-              subPath: terminal_tunnel_tool.py
-            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
               subPath: kubernetes_warm_pool.py
             - name: tool-hotfix-orchestration
