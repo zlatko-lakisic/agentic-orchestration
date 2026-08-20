@@ -75,6 +75,7 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=session_overlay_runtime.py="${ORCH_ROOT}/session_overlay_runtime.py" \
   --from-file=mcp_tunnel.py="${ORCH_ROOT}/mcp_tunnel.py" \
   --from-file=kubernetes_warm_pool.py="${ORCH_ROOT}/backends/kubernetes_warm_pool.py" \
+  --from-file=execution_queue_store.py="${ORCH_ROOT}/execution_queue_store.py" \
   --from-file=kubernetes_runner.py="${ORCH_ROOT}/backends/kubernetes_runner.py" \
   --from-file=execute_step.py="${ORCH_ROOT}/execute_step.py" \
   --from-file=k8s_delegation_tool.py="${ORCH_ROOT}/k8s_delegation_tool.py" \
