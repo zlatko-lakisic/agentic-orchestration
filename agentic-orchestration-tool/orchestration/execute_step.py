@@ -163,6 +163,30 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
         task_description = strip_rag_from_description(task_description)
         task_description = augment_task_description_for_mcps(task_description, mcp_ids)
 
+        from orchestration.deterministic_runtime import (
+            is_deterministic_entry,
+            run_deterministic_step,
+        )
+
+        if is_deterministic_entry(provider_payload):
+            print("(execute-step) deterministic entrypoint", file=sys.stderr)
+            text = run_deterministic_step(
+                provider_payload,
+                text=task_description.replace("{{topic}}", topic) if topic else task_description,
+                context=topic,
+                mcp_tool_results_or_handles=mcp_resolved or mcp_ids,
+            )
+            step_result = StepResult(
+                run_id=run_id,
+                step_id=step_id,
+                exit_code=0,
+                result_text=text,
+            )
+            if result_path is not None:
+                _write_step_result(result_path, step_result)
+                print(f"wrote {result_path}", file=sys.stderr)
+            return 0
+
         cfg = WorkflowConfig(
             name=str(data.get("workflow_name", "execute-step")),
             process="sequential",

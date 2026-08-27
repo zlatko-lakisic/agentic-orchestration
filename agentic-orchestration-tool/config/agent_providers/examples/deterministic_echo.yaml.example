@@ -1,0 +1,11 @@
+# Example only — not loaded into the default catalog.
+# Copy into an EXTRA overlay or session overlay for market scorers.
+id: example_deterministic_echo
+type: deterministic
+role: Deterministic echo
+goal: Echo structured input for harness checks
+backstory: Fixed Python callable; no language model.
+entrypoint: orchestration.deterministic_runtime:serialize_deterministic_result
+planner_hint: >-
+  Use only for tests that need a deterministic agent id. Production scorers
+  ship in downstream overlays (e.g. comstar-stocks).
