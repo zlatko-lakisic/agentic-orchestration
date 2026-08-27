@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-08-27
+
 ### Added
 
 - **Deterministic agent providers (`type: deterministic`)** — catalog agents that run a fixed Python `entrypoint` (`module:callable`) with no LLM. Factory accepts YAML without a model; `direct_agent` and `execute_step` take a fast path; CrewAI workflows use a BaseLLM shim so mixed plans still work. Planner prompt documents when to pick deterministic vs LLM types. Tests: `tests/test_deterministic_agent_provider.py`.
