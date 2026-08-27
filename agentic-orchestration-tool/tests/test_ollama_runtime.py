@@ -5,7 +5,13 @@ from __future__ import annotations
 from orchestration import ollama_runtime as ort
 
 
+def _clear_ollama_mode_env(monkeypatch) -> None:
+    """CrewAI/dotenv may load tool-root ``.env``; keep detection tests hermetic."""
+    monkeypatch.delenv("AGENTIC_OLLAMA_MODE", raising=False)
+
+
 def test_detect_ollama_runtime_native_preferred(monkeypatch):
+    _clear_ollama_mode_env(monkeypatch)
     monkeypatch.setenv("AGENTIC_EDGE_PLATFORM", "jetson")
     monkeypatch.setenv("AGENTIC_OLLAMA_RUNTIME", "native")
     monkeypatch.setattr(
@@ -19,6 +25,7 @@ def test_detect_ollama_runtime_native_preferred(monkeypatch):
 
 
 def test_detect_ollama_runtime_auto_jetson_container_running(monkeypatch):
+    _clear_ollama_mode_env(monkeypatch)
     monkeypatch.setenv("AGENTIC_EDGE_PLATFORM", "jetson")
     monkeypatch.setenv("AGENTIC_OLLAMA_RUNTIME", "auto")
     monkeypatch.setattr(ort, "_detect_native_ollama", lambda: {"version": "ollama v0.20.7"})
@@ -32,6 +39,7 @@ def test_detect_ollama_runtime_auto_jetson_container_running(monkeypatch):
 
 
 def test_detect_ollama_runtime_auto_jetson_falls_back_native(monkeypatch):
+    _clear_ollama_mode_env(monkeypatch)
     monkeypatch.setenv("AGENTIC_EDGE_PLATFORM", "jetson")
     monkeypatch.setenv("AGENTIC_OLLAMA_RUNTIME", "auto")
     monkeypatch.setattr(ort, "_detect_native_ollama", lambda: {"version": "ollama v0.20.7"})
