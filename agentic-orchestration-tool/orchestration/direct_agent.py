@@ -581,6 +581,23 @@ def run_direct_agent(
     paths = catalog_paths(root)
     pid = str(agent_provider_id or "").strip()
 
+    # Fast path: deterministic providers skip CrewAI entirely.
+    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
+    from orchestration.deterministic_runtime import (
+        is_deterministic_entry,
+        run_deterministic_step,
+    )
+
+    if is_deterministic_entry(entry):
+        if on_progress is not None:
+            on_progress(f"deterministic:{pid}")
+        return run_deterministic_step(
+            entry,
+            text=text,
+            context=str(context or ""),
+            mcp_tool_results_or_handles=mcp_provider_ids,
+        )
+
     # Resolve the catalog entry before importing the CrewAI runner so unknown ids
     # surface as LookupError (HTTP 400) even when crewai is not installed.
     config = build_direct_agent_config(

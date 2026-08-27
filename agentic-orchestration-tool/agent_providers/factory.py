@@ -193,16 +193,28 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "hardware",
         "harness_profile",
         "harness",
+        "entrypoint",
     }
     provider_options = {k: v for k, v in data.items() if k not in known_keys}
+    provider_type = str(data.get("type", "crewai")).strip().lower()
+    # Keep entrypoint accessible on provider_options for deterministic runners.
+    if "entrypoint" in data and data.get("entrypoint") is not None:
+        provider_options = {
+            **provider_options,
+            "entrypoint": str(data.get("entrypoint") or "").strip(),
+        }
+
+    model_raw = str(data.get("model", default_model)).strip()
+    if provider_type == "deterministic" and not model_raw:
+        model_raw = "deterministic"
 
     config = AgentProviderConfig(
         id=provider_id,
         role=str(data.get("role", "")).strip(),
         goal=str(data.get("goal", "")).strip(),
         backstory=str(data.get("backstory", "")).strip(),
-        model=str(data.get("model", default_model)).strip(),
-        provider_type=str(data.get("type", "crewai")).strip().lower(),
+        model=model_raw,
+        provider_type=provider_type,
         provider_class=str(data.get("provider_class", "")).strip(),
         provider_options=provider_options,
         selfcontained=bool(data.get("selfcontained", False)),
@@ -221,7 +233,12 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         raise ValueError(f"Agent provider '{config.id}' is missing 'goal'.")
     if not config.backstory:
         raise ValueError(f"Agent provider '{config.id}' is missing 'backstory'.")
-    if not config.model:
+    if provider_type == "deterministic":
+        if not str(provider_options.get("entrypoint") or "").strip():
+            raise ValueError(
+                f"Agent provider '{config.id}' (type deterministic) is missing 'entrypoint'."
+            )
+    elif not config.model:
         raise ValueError(f"Agent provider '{config.id}' is missing 'model'.")
     impl = _load_agent_provider_class(config)
     return impl(config)

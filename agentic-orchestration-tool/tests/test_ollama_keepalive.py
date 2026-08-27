@@ -36,6 +36,7 @@ def test_ollama_keepalive_duration_string(monkeypatch: pytest.MonkeyPatch) -> No
 @pytest.mark.unit
 def test_ping_ollama_keepalive_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_OLLAMA_KEEPALIVE", "1")
+    monkeypatch.setenv("AGENTIC_OLLAMA_RESOURCE_SHARING", "0")
     monkeypatch.delenv("AGENTIC_OLLAMA_KEEPALIVE_MODELS", raising=False)
     monkeypatch.setenv("AGENTIC_PLANNER_MODEL", "ollama/llama3.2:3b")
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
@@ -72,6 +73,7 @@ def test_ping_ollama_keepalive_success(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.unit
 def test_ping_multi_model_keepalive(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_OLLAMA_KEEPALIVE", "1")
+    monkeypatch.setenv("AGENTIC_OLLAMA_RESOURCE_SHARING", "0")
     monkeypatch.setenv("AGENTIC_OLLAMA_KEEPALIVE_MODELS", "a:1b,b:1b")
     seen: list[str] = []
 

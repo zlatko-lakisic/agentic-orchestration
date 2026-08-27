@@ -153,12 +153,26 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
         (p for p in entries if str(p.get("type", "")).strip().lower() == "jetstream"),
         key=_id_key,
     )
+    deterministic_list = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "deterministic"),
+        key=_id_key,
+    )
     other = sorted(
         (
             p
             for p in entries
             if str(p.get("type", "")).strip().lower()
-            not in frozenset({"ollama", "openai", "anthropic", "huggingface", "vllm", "jetstream"})
+            not in frozenset(
+                {
+                    "ollama",
+                    "openai",
+                    "anthropic",
+                    "huggingface",
+                    "vllm",
+                    "jetstream",
+                    "deterministic",
+                }
+            )
         ),
         key=_id_key,
     )
@@ -201,6 +215,12 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
             "### TPU endpoint — JetStream (`type: jetstream`)\n"
             "OpenAI-compatible JetStream endpoints on TPU; use for low-latency TPU inference where available.\n"
             + "\n".join(_format_agent_provider_entry(p) for p in jetstream_list)
+        )
+    if deterministic_list:
+        sections.append(
+            "### Deterministic (`type: deterministic`)\n"
+            "Fixed Python entrypoints (no LLM). Prefer for scoring, rules, calibrated probabilities, and pure transforms.\n"
+            + "\n".join(_format_agent_provider_entry(p) for p in deterministic_list)
         )
     if other:
         sections.append(
