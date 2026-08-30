@@ -314,7 +314,7 @@ def claim_next_global_step(run_store_mount: str) -> tuple[Path, StoredTicket] | 
     from orchestration.execution_queue_store import ExecutionQueueStore, StoredTicket
 
     store = ExecutionQueueStore(Path(run_store_mount.rstrip("/")) / "execution-queue")
-    pending = store.list_pending("steps")
+    pending = store.list_pending("step")
     if not pending:
         return None
     path, ticket = pending[0]

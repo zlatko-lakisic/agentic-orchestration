@@ -33,6 +33,9 @@ spec:
               mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
               subPath: kubernetes_warm_pool.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/tool/orchestration/execution_queue_store.py
+              subPath: execution_queue_store.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/backends/kubernetes_runner.py
               subPath: kubernetes_runner.py
             - name: tool-hotfix-orchestration

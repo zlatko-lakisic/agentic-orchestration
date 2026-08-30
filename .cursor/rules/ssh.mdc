@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+# Connecting to SSH
+
+All ssh connection secrets and settings are in the /.secrets/ssh folder with the environment name being tha neme of the file.

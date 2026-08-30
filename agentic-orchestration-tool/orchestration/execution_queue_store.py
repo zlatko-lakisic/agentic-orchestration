@@ -41,7 +41,7 @@ def _state_path(root: Path) -> Path:
 
 def ensure_queue_dirs(run_store_mount: str | None = None) -> Path:
     root = queue_root(run_store_mount)
-    for sub in ("planning", "execution", "steps"):
+    for sub in ("planning", "execution", "steps", "step"):
         _pending_dir(root, sub).mkdir(parents=True, exist_ok=True)
     _granted_dir(root).mkdir(parents=True, exist_ok=True)
     _preempt_dir(root).mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ class ExecutionQueueStore:
         self._root = Path(root)
         if self._root.name != "execution-queue":
             self._root = self._root / "execution-queue"
-        for sub in ("planning", "execution", "steps"):
+        for sub in ("planning", "execution", "steps", "step"):
             (_pending_dir(self._root, sub)).mkdir(parents=True, exist_ok=True)
         _granted_dir(self._root).mkdir(parents=True, exist_ok=True)
         _preempt_dir(self._root).mkdir(parents=True, exist_ok=True)
