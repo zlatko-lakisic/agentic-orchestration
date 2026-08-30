@@ -20,6 +20,9 @@ _web_uploads/
 __orchestrator_*/
 harness_runs/
 
+# Secrets (SSH creds, local keys — never commit)
+.secrets/
+
 # Local dev tools (not committed)
 agentic-orchestration-tool/.tools/
 
