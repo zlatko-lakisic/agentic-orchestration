@@ -15,6 +15,11 @@ const {
   resolveSessionIdFromHeaders,
   userNameFromRequestHeaders,
   userDisplayNameSpawnEnv,
+  authProfileFromRequestHeaders,
+  normalizeAvatarUrl,
+  sanitizeLogoutUrl,
+  sessionPayloadFromAuthProfile,
+  resolveAuthDisplayName,
 } = await import(libUrl);
 
 test("userNameFromRequestHeaders reads configured header", () => {
@@ -70,4 +75,55 @@ test("resolveSessionIdFromHeaders generates web- id when headers empty", () => {
 test("generateWebSessionId matches web- prefix pattern", () => {
   const id = generateWebSessionId();
   assert.match(id, /^web-[a-f0-9]{12}$/);
+});
+
+test("authProfileFromRequestHeaders maps Warpgate X-Auth-* headers", () => {
+  const profile = authProfileFromRequestHeaders({
+    "x-auth-user-id": "uid-42",
+    "x-auth-email": "ada@example.com",
+    "x-auth-first-name": "Ada",
+    "x-auth-last-name": "Lovelace",
+    "x-auth-logout-url": "https://gate.example/logout",
+    "x-auth-avatar": "https://cdn.example/ada.jpg",
+  });
+  assert.equal(profile.userId, "uid-42");
+  assert.equal(profile.email, "ada@example.com");
+  assert.equal(profile.firstName, "Ada");
+  assert.equal(profile.lastName, "Lovelace");
+  assert.equal(profile.logoutUrl, "https://gate.example/logout");
+  assert.equal(profile.avatarUrl, "https://cdn.example/ada.jpg");
+  assert.equal(profile.userName, "Ada Lovelace");
+});
+
+test("normalizeAvatarUrl wraps bare base64 jpegPhoto", () => {
+  const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  assert.equal(normalizeAvatarUrl(b64), `data:image/jpeg;base64,${b64}`);
+});
+
+test("normalizeAvatarUrl accepts data URI and rejects javascript", () => {
+  assert.equal(normalizeAvatarUrl("data:image/png;base64,abc"), "data:image/png;base64,abc");
+  assert.equal(normalizeAvatarUrl("javascript:alert(1)"), null);
+});
+
+test("sessionPayloadFromAuthProfile omits null optional keys", () => {
+  const payload = sessionPayloadFromAuthProfile(
+    authProfileFromRequestHeaders({ "x-auth-email": "solo@example.com" }),
+    "web-abc",
+  );
+  assert.equal(payload.userName, "solo@example.com");
+  assert.equal(payload.sessionId, "web-abc");
+  assert.equal(payload.email, "solo@example.com");
+  assert.equal("userId" in payload, false);
+});
+
+test("resolveAuthDisplayName prefers first and last name", () => {
+  assert.equal(
+    resolveAuthDisplayName({ firstName: "Ada", lastName: "Lovelace", email: "ada@example.com" }),
+    "Ada Lovelace",
+  );
+});
+
+test("sanitizeLogoutUrl allows http(s) only", () => {
+  assert.equal(sanitizeLogoutUrl("https://gate/logout"), "https://gate/logout");
+  assert.equal(sanitizeLogoutUrl("ftp://gate/logout"), null);
 });

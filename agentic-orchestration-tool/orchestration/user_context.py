@@ -23,6 +23,7 @@ from typing import Any, Mapping
 
 DEFAULT_USER_NAME_HEADERS = "x-agentic-user-name,x-user-name"
 DEFAULT_SESSION_ID_HEADERS = "x-agentic-session-id,x-warpgate-session-id"
+DEFAULT_AVATAR_HEADERS = "x-auth-avatar,x-warpgate-avatar,x-forwarded-avatar"
 
 LOCAL_USER_ID = "local"
 
@@ -137,6 +138,115 @@ def user_display_name_spawn_env(user_name: Any) -> dict[str, str]:
     return {"AGENTIC_WEB_USER_DISPLAY_NAME": name}
 
 
+def sanitize_auth_user_id(raw: Any) -> str | None:
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 128:
+        return None
+    if _CONTROL_CHARS.search(text):
+        return None
+    return text
+
+
+def sanitize_person_name(raw: Any) -> str | None:
+    text = " ".join(str(raw if raw is not None else "").split())
+    if not text or len(text) > 64:
+        return None
+    if _CONTROL_CHARS.search(text):
+        return None
+    return text
+
+
+def sanitize_email(raw: Any) -> str | None:
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 254:
+        return None
+    if _CONTROL_CHARS.search(text):
+        return None
+    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", text):
+        return None
+    return text
+
+
+def sanitize_logout_url(raw: Any) -> str | None:
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 2048:
+        return None
+    if not re.match(r"^https?://", text, re.IGNORECASE):
+        return None
+    return text
+
+
+def normalize_avatar_url(raw: Any) -> str | None:
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 500_000:
+        return None
+    if re.match(r"^https?://", text, re.IGNORECASE):
+        return text
+    if re.match(r"^data:image/", text, re.IGNORECASE):
+        return text
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"[A-Za-z0-9+/=]+", compact) and len(compact) > 20:
+        return f"data:image/jpeg;base64,{compact}"
+    return None
+
+
+def resolve_auth_display_name(
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+    legacy_user_name: str | None = None,
+    user_id: str | None = None,
+) -> str | None:
+    if first_name and last_name:
+        return f"{first_name} {last_name}"
+    if first_name:
+        return first_name
+    if last_name:
+        return last_name
+    if email:
+        return email
+    if legacy_user_name:
+        return legacy_user_name
+    if user_id:
+        return user_id
+    return None
+
+
+def auth_profile_from_request_headers(
+    headers: Mapping[str, Any] | None,
+) -> dict[str, str | None]:
+    """Warpgate / identity-proxy auth profile from inbound request headers."""
+    user_id = sanitize_auth_user_id(_header_value(headers, "x-auth-user-id"))
+    email = sanitize_email(_header_value(headers, "x-auth-email"))
+    first_name = sanitize_person_name(_header_value(headers, "x-auth-first-name"))
+    last_name = sanitize_person_name(_header_value(headers, "x-auth-last-name"))
+    logout_url = sanitize_logout_url(_header_value(headers, "x-auth-logout-url"))
+    avatar_configured = os.getenv("AGENTIC_WEB_AVATAR_HEADER", DEFAULT_AVATAR_HEADERS).strip()
+    avatar_url: str | None = None
+    for key in _header_keys(avatar_configured):
+        avatar_url = normalize_avatar_url(_header_value(headers, key))
+        if avatar_url:
+            break
+    legacy_user_name = user_name_from_request_headers(headers)
+    user_name = resolve_auth_display_name(
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        legacy_user_name=legacy_user_name,
+        user_id=user_id,
+    )
+    return {
+        "user_id": user_id,
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "logout_url": logout_url,
+        "avatar_url": avatar_url,
+        "user_name": user_name,
+    }
+
+
 def require_identity_enabled() -> bool:
     """``AGENTIC_REQUIRE_IDENTITY=1`` — server mode must not fall back to the local user."""
     return os.getenv("AGENTIC_REQUIRE_IDENTITY", "").strip().lower() in (
@@ -169,15 +279,31 @@ class Identity:
     local: bool = True
     #: True when identity came from a verified TLS client certificate.
     mtls: bool = False
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    logout_url: str | None = None
+    avatar_url: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "userName": self.user_name,
             "sessionId": self.session_id,
             "userId": self.user_id,
             "local": self.local,
             "mtls": self.mtls,
         }
+        if self.email:
+            out["email"] = self.email
+        if self.first_name:
+            out["firstName"] = self.first_name
+        if self.last_name:
+            out["lastName"] = self.last_name
+        if self.logout_url:
+            out["logoutUrl"] = self.logout_url
+        if self.avatar_url:
+            out["avatarUrl"] = self.avatar_url
+        return out
 
 
 _URI_USER = re.compile(r"^agentic://user/(.+)$", re.IGNORECASE)
@@ -250,7 +376,11 @@ def resolve_identity(
 
     user_name = user_name_from_request_headers(headers)
     session_id = session_id_from_request_headers(headers)
-    local = user_name is None
+    profile = auth_profile_from_request_headers(headers)
+    if profile["user_name"]:
+        user_name = profile["user_name"]
+    resolved_user_id = profile["user_id"] or user_id_from_display_name(user_name)
+    local = user_name is None and profile["user_id"] is None
     if local and require_identity_enabled():
         raise IdentityRequiredError(
             "AGENTIC_REQUIRE_IDENTITY=1 but no identity header was forwarded "
@@ -262,7 +392,12 @@ def resolve_identity(
     return Identity(
         user_name=user_name,
         session_id=session_id or generate_web_session_id(),
-        user_id=user_id_from_display_name(user_name),
+        user_id=resolved_user_id,
         local=local,
         mtls=False,
+        email=profile["email"],
+        first_name=profile["first_name"],
+        last_name=profile["last_name"],
+        logout_url=profile["logout_url"],
+        avatar_url=profile["avatar_url"],
     )

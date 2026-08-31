@@ -471,6 +471,16 @@ class WsConnection:
             "userId": self.identity.user_id,
             "mtls": self.identity.mtls,
         }
+        if self.identity.email:
+            hello["email"] = self.identity.email
+        if self.identity.first_name:
+            hello["firstName"] = self.identity.first_name
+        if self.identity.last_name:
+            hello["lastName"] = self.identity.last_name
+        if self.identity.logout_url:
+            hello["logoutUrl"] = self.identity.logout_url
+        if self.identity.avatar_url:
+            hello["avatarUrl"] = self.identity.avatar_url
         speech = speech_hello_payload()
         if speech is not None:
             hello["speech"] = speech

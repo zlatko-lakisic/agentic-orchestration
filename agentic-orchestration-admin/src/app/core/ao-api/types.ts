@@ -484,6 +484,12 @@ export interface PingResponse {
 export interface SessionResponse {
   userName?: string | null;
   sessionId?: string | null;
+  userId?: string | null;
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  logoutUrl?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface HostMetrics {

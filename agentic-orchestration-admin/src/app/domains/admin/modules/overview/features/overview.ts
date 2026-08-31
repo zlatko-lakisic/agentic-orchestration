@@ -264,6 +264,24 @@ const DEPENDENCY_ORDER = [
                   {{ session()?.userName || '—' }}
                 </div>
               </div>
+              @if (session()?.email) {
+                <div class="flex items-center gap-x-1">
+                  <div class="text-neutral-500">email</div>
+                  <div class="flex-auto"></div>
+                  <div class="max-w-[60%] truncate font-medium">
+                    {{ session()?.email }}
+                  </div>
+                </div>
+              }
+              @if (session()?.userId) {
+                <div class="flex items-center gap-x-1">
+                  <div class="text-neutral-500">user id</div>
+                  <div class="flex-auto"></div>
+                  <div class="max-w-[60%] truncate font-mono text-sm font-medium">
+                    {{ session()?.userId }}
+                  </div>
+                </div>
+              }
             </div>
           </mat-card-content>
         </mat-card>
