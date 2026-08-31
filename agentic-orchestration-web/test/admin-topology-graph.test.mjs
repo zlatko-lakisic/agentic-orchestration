@@ -206,6 +206,73 @@ test("running sandbox surfaces app node and healthy cluster", async () => {
   assert.equal(graph.meta.customToolSandboxes.count, 1);
 });
 
+test("enrolled mTLS clients appear on Application band without Reach", async () => {
+  const graph = await buildTopologyGraph({
+    toolRoot,
+    webRoot,
+    webInstanceId: "test",
+    webPid: 1,
+    fetchJson: async () => ({ ok: false, error: "skip" }),
+    buildCatalogs: () => ({ entries: [{ id: "a" }] }),
+    probeEngineForGraphFn: async () => ({
+      health: {
+        ok: true,
+        json: {
+          version: "test",
+          catalogs: { ok: true, agentProviders: 1 },
+          mtls: { enroll: true, required: true },
+          customToolSandbox: true,
+        },
+      },
+      sessions: { ok: true, sessions: [], sessionOverlayEnabled: true },
+      sandboxes: {
+        ok: true,
+        enabled: true,
+        runtimes: [],
+        count: 0,
+        artifacts: [],
+        artifactCount: 0,
+      },
+      mtlsClients: {
+        ok: true,
+        count: 2,
+        clients: [
+          {
+            subject: "comstar-stocks",
+            revoked: false,
+            expiresAt: "2027-08-31T00:00:00Z",
+          },
+          {
+            subject: "comstar-sandbox-smoke",
+            revoked: true,
+            expiresAt: "2027-01-01T00:00:00Z",
+          },
+        ],
+      },
+      probeHost: "test",
+      engineLatencyMs: 3,
+    }),
+  });
+  const stocks = graph.nodes.find((n) => n.id === "app/comstar-stocks");
+  assert.ok(stocks, "comstar-stocks mTLS client should appear");
+  assert.equal(stocks.kind, "mtls-client");
+  assert.equal(stocks.appGroup, "web-api");
+  assert.match(String(stocks.sublabel), /mTLS/i);
+  assert.equal(
+    graph.nodes.some((n) => n.id === "app/comstar-sandbox-smoke"),
+    false,
+    "revoked clients stay hidden",
+  );
+  assert.ok(
+    graph.edges.some((e) => e.id === "app/comstar-stocks->engine/mtls-enrol"),
+  );
+  assert.equal(
+    graph.edges.some((e) => e.id === "app/comstar-stocks->web-ui"),
+    false,
+    "mTLS clients do not take the Web UI bypass edge",
+  );
+});
+
 test("sandbox cluster hidden when feature off", async () => {
   const graph = await buildTopologyGraph({
     toolRoot,
@@ -232,6 +299,7 @@ test("sandbox cluster hidden when feature off", async () => {
         artifacts: [],
         artifactCount: 0,
       },
+      mtlsClients: { ok: true, clients: [], count: 0 },
       probeHost: "test",
       engineLatencyMs: 3,
     }),

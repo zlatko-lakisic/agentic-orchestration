@@ -172,9 +172,8 @@ function setAppMembers(nodes, id, members) {
 }
 
 /**
- * Probe engine /health, /api/v1/admin/reach-sessions, and
- * /api/v1/admin/custom-tool-sandboxes using the same host candidates
- * as the legacy topology probe.
+ * Probe engine /health, reach-sessions, custom-tool-sandboxes, and mtls/clients
+ * using the same host candidates as the legacy topology probe.
  */
 export async function probeEngineForGraph({
   fetchJson,
@@ -204,6 +203,7 @@ export async function probeEngineForGraph({
     artifacts: [],
     artifactCount: 0,
   };
+  let mtlsClients = { ok: false, clients: [], count: 0 };
   let probeHost = null;
   let engineLatencyMs = null;
 
@@ -264,9 +264,24 @@ export async function probeEngineForGraph({
         enabled: Boolean(health.json.customToolSandbox),
       };
     }
+
+    const mc = await fetchJson(
+      `${engineScheme}://${probeHost}:${enginePort}/api/v1/admin/mtls/clients`,
+      2000,
+      tlsInsecure,
+    );
+    if (mc.ok && mc.json) {
+      const clients = Array.isArray(mc.json.clients) ? mc.json.clients : [];
+      mtlsClients = {
+        ok: true,
+        ...mc.json,
+        clients,
+        count: Number(mc.json.count ?? clients.length),
+      };
+    }
   }
 
-  return { health, sessions, sandboxes, probeHost, engineLatencyMs };
+  return { health, sessions, sandboxes, mtlsClients, probeHost, engineLatencyMs };
 }
 
 /**
@@ -324,6 +339,7 @@ export async function buildTopologyGraph(ctx) {
       artifacts: [],
       artifactCount: 0,
     },
+    mtlsClients: mtlsClientsProbe = { ok: false, clients: [], count: 0 },
     probeHost,
     engineLatencyMs,
   } = await probeEngineForGraphFn({
@@ -477,6 +493,54 @@ export async function buildTopologyGraph(ctx) {
           : "Active Access token(s); no API usage recorded yet",
       }),
     );
+  }
+
+  // Enrolled mTLS clients (e.g. comstar-stocks) — no Reach WS required.
+  const mtlsClientList = Array.isArray(mtlsClientsProbe.clients)
+    ? mtlsClientsProbe.clients
+    : [];
+  {
+    const knownAppNodeIds = new Set(
+      nodes.filter((n) => String(n.id || "").startsWith("app/")).map((n) => n.id),
+    );
+    for (const c of mtlsClientList) {
+      if (c?.revoked) continue;
+      const subject = String(c.subject || c.cn || c.clientName || "").trim();
+      if (!subject) continue;
+      const appId = subject.toLowerCase();
+      if (reservedAppIds.has(appId) || isFirstPartyUiAppId(appId)) continue;
+      const nodeId = `app/${appId}`;
+      if (knownAppNodeIds.has(nodeId)) continue;
+      const expiresAt = c.expiresAt || c.notAfter || null;
+      nodes.push(
+        node({
+          id: nodeId,
+          kind: "mtls-client",
+          band: "application",
+          appGroup: "web-api",
+          appId,
+          label: subject,
+          sublabel: "mTLS client",
+          status: "healthy",
+          instrumented: true,
+          deployed: true,
+          statusReason: expiresAt
+            ? `Enrolled mTLS leaf CN=${subject} (expires ${expiresAt})`
+            : `Enrolled mTLS leaf CN=${subject}`,
+        }),
+      );
+      knownAppNodeIds.add(nodeId);
+      if (engineOk) {
+        edges.push(
+          edge({
+            id: `${nodeId}->engine/mtls-enrol`,
+            from: nodeId,
+            to: "engine/mtls-enrol",
+            kind: "request",
+          }),
+        );
+      }
+    }
   }
 
   // —— Application + Reach bands (Reach always when engine is up) ——
@@ -1617,6 +1681,8 @@ export async function buildTopologyGraph(ctx) {
   // Bypass paths → Web UI (Web API family; skip Reach / engine)
   for (const n of nodes) {
     if (n.appGroup !== "web-api" || n.deployed === false) continue;
+    // mTLS leaves talk to the engine, not the Web UI bypass path.
+    if (n.kind === "mtls-client") continue;
     edges.push(
       edge({
         id: `${n.id}->web-ui`,
@@ -1780,6 +1846,11 @@ export async function buildTopologyGraph(ctx) {
         artifacts: Array.isArray(sandboxProbe.artifacts)
           ? sandboxProbe.artifacts
           : [],
+      },
+      mtlsClients: {
+        ok: Boolean(mtlsClientsProbe.ok),
+        count: mtlsClientList.filter((c) => !c?.revoked).length,
+        clients: mtlsClientList,
       },
       ports: {
         web: webPort,
