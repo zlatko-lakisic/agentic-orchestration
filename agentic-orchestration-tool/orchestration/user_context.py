@@ -176,6 +176,27 @@ def sanitize_logout_url(raw: Any) -> str | None:
     return text
 
 
+def sanitize_logout_method(raw: Any) -> str | None:
+    text = str(raw if raw is not None else "").strip().upper()
+    if not text:
+        return None
+    if text not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
+        return None
+    return text
+
+
+def sanitize_logout_redirect(raw: Any) -> str | None:
+    """Absolute http(s) URL or same-origin path (e.g. ``/@warpgate``)."""
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 2048:
+        return None
+    if text.startswith("/") and not text.startswith("//"):
+        if _CONTROL_CHARS.search(text):
+            return None
+        return text
+    return sanitize_logout_url(text)
+
+
 def normalize_avatar_url(raw: Any) -> str | None:
     text = str(raw if raw is not None else "").strip()
     if not text or len(text) > 500_000:
@@ -222,6 +243,10 @@ def auth_profile_from_request_headers(
     first_name = sanitize_person_name(_header_value(headers, "x-auth-first-name"))
     last_name = sanitize_person_name(_header_value(headers, "x-auth-last-name"))
     logout_url = sanitize_logout_url(_header_value(headers, "x-auth-logout-url"))
+    logout_method = sanitize_logout_method(_header_value(headers, "x-auth-logout-method"))
+    logout_redirect = sanitize_logout_redirect(
+        _header_value(headers, "x-auth-logout-redirect")
+    )
     avatar_configured = os.getenv("AGENTIC_WEB_AVATAR_HEADER", DEFAULT_AVATAR_HEADERS).strip()
     avatar_url: str | None = None
     for key in _header_keys(avatar_configured):
@@ -242,6 +267,8 @@ def auth_profile_from_request_headers(
         "first_name": first_name,
         "last_name": last_name,
         "logout_url": logout_url,
+        "logout_method": logout_method,
+        "logout_redirect": logout_redirect,
         "avatar_url": avatar_url,
         "user_name": user_name,
     }
@@ -283,6 +310,8 @@ class Identity:
     first_name: str | None = None
     last_name: str | None = None
     logout_url: str | None = None
+    logout_method: str | None = None
+    logout_redirect: str | None = None
     avatar_url: str | None = None
 
     def to_json_dict(self) -> dict[str, Any]:
@@ -301,6 +330,10 @@ class Identity:
             out["lastName"] = self.last_name
         if self.logout_url:
             out["logoutUrl"] = self.logout_url
+        if self.logout_method:
+            out["logoutMethod"] = self.logout_method
+        if self.logout_redirect:
+            out["logoutRedirect"] = self.logout_redirect
         if self.avatar_url:
             out["avatarUrl"] = self.avatar_url
         return out
@@ -399,5 +432,7 @@ def resolve_identity(
         first_name=profile["first_name"],
         last_name=profile["last_name"],
         logout_url=profile["logout_url"],
+        logout_method=profile["logout_method"],
+        logout_redirect=profile["logout_redirect"],
         avatar_url=profile["avatar_url"],
     )

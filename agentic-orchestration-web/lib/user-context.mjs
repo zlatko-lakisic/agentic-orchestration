@@ -144,6 +144,28 @@ export function sanitizeLogoutUrl(raw) {
 }
 
 /** @param {string | null | undefined} raw */
+export function sanitizeLogoutMethod(raw) {
+  const t = String(raw ?? "").trim().toUpperCase();
+  if (!t) return null;
+  if (!/^(GET|POST|PUT|PATCH|DELETE|HEAD)$/.test(t)) return null;
+  return t;
+}
+
+/**
+ * Absolute http(s) URL or same-origin path (e.g. `/@warpgate`).
+ * @param {string | null | undefined} raw
+ */
+export function sanitizeLogoutRedirect(raw) {
+  const t = String(raw ?? "").trim();
+  if (!t || t.length > 2048) return null;
+  if (t.startsWith("/") && !t.startsWith("//")) {
+    if (/[\x00-\x1f\x7f]/.test(t)) return null;
+    return t;
+  }
+  return sanitizeLogoutUrl(t);
+}
+
+/** @param {string | null | undefined} raw */
 export function normalizeAvatarUrl(raw) {
   const t = String(raw ?? "").trim();
   if (!t || t.length > 500_000) return null;
@@ -187,6 +209,12 @@ export function authProfileFromRequestHeaders(headers) {
   const firstName = sanitizePersonName(firstHeaderValue(headers, "x-auth-first-name"));
   const lastName = sanitizePersonName(firstHeaderValue(headers, "x-auth-last-name"));
   const logoutUrl = sanitizeLogoutUrl(firstHeaderValue(headers, "x-auth-logout-url"));
+  const logoutMethod = sanitizeLogoutMethod(
+    firstHeaderValue(headers, "x-auth-logout-method"),
+  );
+  const logoutRedirect = sanitizeLogoutRedirect(
+    firstHeaderValue(headers, "x-auth-logout-redirect"),
+  );
   const avatarConfigured = String(
     process.env.AGENTIC_WEB_AVATAR_HEADER ?? DEFAULT_AVATAR_HEADERS,
   ).trim();
@@ -209,6 +237,8 @@ export function authProfileFromRequestHeaders(headers) {
     firstName,
     lastName,
     logoutUrl,
+    logoutMethod,
+    logoutRedirect,
     avatarUrl,
     userName,
   };
@@ -230,6 +260,8 @@ export function sessionPayloadFromAuthProfile(profile, sessionId) {
   if (profile.firstName) out.firstName = profile.firstName;
   if (profile.lastName) out.lastName = profile.lastName;
   if (profile.logoutUrl) out.logoutUrl = profile.logoutUrl;
+  if (profile.logoutMethod) out.logoutMethod = profile.logoutMethod;
+  if (profile.logoutRedirect) out.logoutRedirect = profile.logoutRedirect;
   if (profile.avatarUrl) out.avatarUrl = profile.avatarUrl;
   return out;
 }

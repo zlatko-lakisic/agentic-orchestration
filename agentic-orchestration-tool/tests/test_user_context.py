@@ -190,13 +190,18 @@ def test_auth_profile_from_request_headers_maps_warpgate_headers() -> None:
             "x-auth-email": "ada@example.com",
             "x-auth-first-name": "Ada",
             "x-auth-last-name": "Lovelace",
-            "x-auth-logout-url": "https://gate.example/logout",
+            "x-auth-logout-url": "https://gate.example/@warpgate/api/auth/logout",
+            "x-auth-logout-method": "post",
+            "x-auth-logout-redirect": "/@warpgate",
             "x-warpgate-avatar": "https://cdn.example/ada.jpg",
         }
     )
     assert profile["user_id"] == "uid-42"
     assert profile["email"] == "ada@example.com"
     assert profile["user_name"] == "Ada Lovelace"
+    assert profile["logout_url"] == "https://gate.example/@warpgate/api/auth/logout"
+    assert profile["logout_method"] == "POST"
+    assert profile["logout_redirect"] == "/@warpgate"
     assert profile["avatar_url"] == "https://cdn.example/ada.jpg"
 
 
@@ -235,3 +240,13 @@ def test_resolve_auth_display_name_prefers_name_parts() -> None:
 def test_sanitize_logout_url_allows_https_only() -> None:
     assert sanitize_logout_url("https://gate/logout") == "https://gate/logout"
     assert sanitize_logout_url("ftp://gate/logout") is None
+
+
+def test_sanitize_logout_method_and_redirect() -> None:
+    from orchestration.user_context import sanitize_logout_method, sanitize_logout_redirect
+
+    assert sanitize_logout_method("post") == "POST"
+    assert sanitize_logout_method("TRACE") is None
+    assert sanitize_logout_redirect("/@warpgate") == "/@warpgate"
+    assert sanitize_logout_redirect("https://gate.example/@warpgate") == "https://gate.example/@warpgate"
+    assert sanitize_logout_redirect("//evil.example") is None

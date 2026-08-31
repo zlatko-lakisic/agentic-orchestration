@@ -489,6 +489,8 @@ export interface SessionResponse {
   firstName?: string | null;
   lastName?: string | null;
   logoutUrl?: string | null;
+  logoutMethod?: string | null;
+  logoutRedirect?: string | null;
   avatarUrl?: string | null;
 }
 
