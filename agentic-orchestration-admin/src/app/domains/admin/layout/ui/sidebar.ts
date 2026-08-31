@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { SessionResponse } from '@/app/core/ao-api/types';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
@@ -66,8 +67,29 @@ import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
       <div class="font-mono font-medium">
         {{ hostname() || 'unknown-host' }} · {{ profile() || 'local' }}
       </div>
-      @if (userName()) {
-        <div class="text-neutral-500">{{ userName() }}</div>
+      @if (session()?.userName) {
+        <div class="mt-1 font-medium">{{ session()?.userName }}</div>
+      }
+      @if (session()?.email) {
+        <div class="text-neutral-500">{{ session()?.email }}</div>
+      }
+      @if (session()?.userId) {
+        <div class="truncate font-mono text-neutral-500">
+          {{ session()?.userId }}
+        </div>
+      }
+      @if (session()?.logoutUrl) {
+        <a
+          matButton="outlined"
+          class="small mt-2 w-full"
+          [href]="session()?.logoutUrl!"
+        >
+          Log out
+          <mat-icon
+            svgIcon="log-out"
+            iconPositionEnd
+          />
+        </a>
       }
     </div>
 
@@ -80,7 +102,7 @@ export class AdminSidebar implements OnInit {
   private api = inject(AoApi);
   readonly hostname = signal<string | null>(null);
   readonly profile = signal<string | null>(null);
-  readonly userName = signal<string | null>(null);
+  readonly session = signal<SessionResponse | null>(null);
 
   ngOnInit() {
     this.api.topology().subscribe((r) => {
@@ -89,7 +111,7 @@ export class AdminSidebar implements OnInit {
       this.profile.set(r.data.environment || null);
     });
     this.api.session().subscribe((r) => {
-      if (r.ok) this.userName.set(r.data.userName || null);
+      if (r.ok) this.session.set(r.data);
     });
   }
 }

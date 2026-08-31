@@ -15,8 +15,10 @@ import { isSimpleChatPrompt, performanceSpawnEnvOverrides } from "./lib/perf-opt
 import { extractUserFacingStdout } from "./lib/chat-output.mjs";
 import { sanitizeUserFacingProse, stripWrappingQuotes } from "./lib/text-normalize.mjs";
 import {
+  authProfileFromRequestHeaders,
   resolveSessionIdFromHeaders,
   sanitizeUserDisplayName,
+  sessionPayloadFromAuthProfile,
   userDisplayNameSpawnEnv,
   userNameFromRequestHeaders,
 } from "./lib/user-context.mjs";
@@ -738,11 +740,10 @@ function spawnIdentityEnvFromReq(req) {
   } catch {
     /* ignore */
   }
-  const uname = userNameFromRequestHeaders(req?.headers || {});
-  if (uname) {
-    out.AGENTIC_USER_NAME = String(uname);
-    out.AGENTIC_USER_ID = String(uname);
-  }
+  const profile = authProfileFromRequestHeaders(req?.headers || {});
+  if (profile.userName) out.AGENTIC_USER_NAME = String(profile.userName);
+  if (profile.userId) out.AGENTIC_USER_ID = String(profile.userId);
+  else if (profile.userName) out.AGENTIC_USER_ID = String(profile.userName);
   return out;
 }
 
@@ -752,10 +753,9 @@ function webOrchestratorSpawnEnvForWs(ws, extra = {}) {
   if (auth.appId) ident.AGENTIC_APP_ID = String(auth.appId);
   if (auth.tokenId) ident.AGENTIC_API_TOKEN_ID = String(auth.tokenId);
   if (ws?._clientIp) ident.AGENTIC_CLIENT_IP = String(ws._clientIp);
-  if (ws?._userName) {
-    ident.AGENTIC_USER_NAME = String(ws._userName);
-    ident.AGENTIC_USER_ID = String(ws._userName);
-  }
+  if (ws?._userName) ident.AGENTIC_USER_NAME = String(ws._userName);
+  if (ws?._userId) ident.AGENTIC_USER_ID = String(ws._userId);
+  else if (ws?._userName) ident.AGENTIC_USER_ID = String(ws._userName);
   return webOrchestratorSpawnEnv({
     ...userDisplayNameSpawnEnv(ws?._userName),
     ...ident,
@@ -2531,13 +2531,13 @@ function handleHttp(req, res) {
   }
   if (isApiSession(req)) {
     if (!applyFirstPartyUiAccessGate(req, res)) return;
-    const userName = userNameFromRequestHeaders(req.headers);
+    const profile = authProfileFromRequestHeaders(req.headers);
     const sessionId = resolveSessionIdFromHeaders(req.headers);
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    res.end(JSON.stringify({ userName, sessionId }));
+    res.end(JSON.stringify(sessionPayloadFromAuthProfile(profile, sessionId)));
     return;
   }
   if (isApiHostMetrics(req)) {
@@ -3439,7 +3439,9 @@ wss.on("connection", (ws, req) => {
   if (!authorizeWsConnection(req, ws)) return;
   ws._busy = false;
   ws._greetBusy = false;
-  ws._userName = userNameFromRequestHeaders(req?.headers || {});
+  const profile = authProfileFromRequestHeaders(req?.headers || {});
+  ws._userName = profile.userName;
+  ws._userId = profile.userId;
   ws._sessionId = resolveSessionIdFromHeaders(req?.headers || {});
   ws._agenticAuth = req.agenticAuth || null;
   try {
@@ -3457,6 +3459,12 @@ wss.on("connection", (ws, req) => {
     plannerGreet,
     userName: ws._userName,
     sessionId: ws._sessionId,
+    userId: profile.userId ?? undefined,
+    email: profile.email ?? undefined,
+    firstName: profile.firstName ?? undefined,
+    lastName: profile.lastName ?? undefined,
+    logoutUrl: profile.logoutUrl ?? undefined,
+    avatarUrl: profile.avatarUrl ?? undefined,
     welcomeMessage: plannerGreet ? null : webWelcomeMessage(),
   });
 

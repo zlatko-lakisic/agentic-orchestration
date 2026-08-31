@@ -12,10 +12,14 @@ from orchestration.user_context import (
     Identity,
     IdentityRequiredError,
     LOCAL_USER_ID,
+    auth_profile_from_request_headers,
     generate_web_session_id,
+    normalize_avatar_url,
     require_identity_enabled,
+    resolve_auth_display_name,
     resolve_identity,
     resolve_session_id_from_headers,
+    sanitize_logout_url,
     sanitize_session_id,
     sanitize_user_display_name,
     session_id_from_request_headers,
@@ -177,3 +181,57 @@ def test_resolve_identity_mtls_wins_over_headers() -> None:
     assert identity.mtls is True
     assert identity.local is False
     assert identity.to_json_dict()["mtls"] is True
+
+
+def test_auth_profile_from_request_headers_maps_warpgate_headers() -> None:
+    profile = auth_profile_from_request_headers(
+        {
+            "x-auth-user-id": "uid-42",
+            "x-auth-email": "ada@example.com",
+            "x-auth-first-name": "Ada",
+            "x-auth-last-name": "Lovelace",
+            "x-auth-logout-url": "https://gate.example/logout",
+            "x-warpgate-avatar": "https://cdn.example/ada.jpg",
+        }
+    )
+    assert profile["user_id"] == "uid-42"
+    assert profile["email"] == "ada@example.com"
+    assert profile["user_name"] == "Ada Lovelace"
+    assert profile["avatar_url"] == "https://cdn.example/ada.jpg"
+
+
+def test_normalize_avatar_url_wraps_bare_base64() -> None:
+    b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    assert normalize_avatar_url(b64) == f"data:image/jpeg;base64,{b64}"
+
+
+def test_resolve_identity_uses_auth_user_id() -> None:
+    identity = resolve_identity(
+        {
+            "x-auth-user-id": "ldap-uid-9",
+            "x-auth-first-name": "Ada",
+            "x-auth-last-name": "Lovelace",
+        }
+    )
+    assert identity.user_name == "Ada Lovelace"
+    assert identity.user_id == "ldap-uid-9"
+    body = identity.to_json_dict()
+    assert body["firstName"] == "Ada"
+    assert body["lastName"] == "Lovelace"
+    assert body["userId"] == "ldap-uid-9"
+
+
+def test_resolve_auth_display_name_prefers_name_parts() -> None:
+    assert (
+        resolve_auth_display_name(
+            first_name="Ada",
+            last_name="Lovelace",
+            email="ada@example.com",
+        )
+        == "Ada Lovelace"
+    )
+
+
+def test_sanitize_logout_url_allows_https_only() -> None:
+    assert sanitize_logout_url("https://gate/logout") == "https://gate/logout"
+    assert sanitize_logout_url("ftp://gate/logout") is None
