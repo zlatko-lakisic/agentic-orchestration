@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Topology custom-tool sandboxes** — Admin topology probes `GET /api/v1/admin/custom-tool-sandboxes` and `/health.customToolSandbox`, rendering `engine/custom-tool-sandbox` + `sandboxes/cluster` (and Application-band app nodes for sandbox-only appIds such as comstar-stocks market_data).
+
 ## [2.7.0] - 2026-08-27
 
 ### Added

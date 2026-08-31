@@ -172,7 +172,8 @@ function setAppMembers(nodes, id, members) {
 }
 
 /**
- * Probe engine /health and /api/v1/admin/reach-sessions using the same host candidates
+ * Probe engine /health, /api/v1/admin/reach-sessions, and
+ * /api/v1/admin/custom-tool-sandboxes using the same host candidates
  * as the legacy topology probe.
  */
 export async function probeEngineForGraph({
@@ -195,6 +196,14 @@ export async function probeEngineForGraph({
 
   let health = { ok: false, error: "no probe candidates" };
   let sessions = { ok: false, sessions: [], count: 0 };
+  let sandboxes = {
+    ok: false,
+    enabled: false,
+    runtimes: [],
+    count: 0,
+    artifacts: [],
+    artifactCount: 0,
+  };
   let probeHost = null;
   let engineLatencyMs = null;
 
@@ -230,9 +239,34 @@ export async function probeEngineForGraph({
         count: Number(sess.json.count || 0),
       };
     }
+
+    const sb = await fetchJson(
+      `${engineScheme}://${probeHost}:${enginePort}/api/v1/admin/custom-tool-sandboxes`,
+      2000,
+      tlsInsecure,
+    );
+    if (sb.ok && sb.json) {
+      const runtimes = Array.isArray(sb.json.runtimes) ? sb.json.runtimes : [];
+      const artifacts = Array.isArray(sb.json.artifacts) ? sb.json.artifacts : [];
+      sandboxes = {
+        ok: true,
+        ...sb.json,
+        enabled: Boolean(sb.json.enabled),
+        runtimes,
+        count: Number(sb.json.count ?? runtimes.filter((r) => r?.running).length),
+        artifacts,
+        artifactCount: Number(sb.json.artifactCount ?? artifacts.length),
+      };
+    } else if (health.ok && health.json && "customToolSandbox" in health.json) {
+      sandboxes = {
+        ...sandboxes,
+        ok: false,
+        enabled: Boolean(health.json.customToolSandbox),
+      };
+    }
   }
 
-  return { health, sessions, probeHost, engineLatencyMs };
+  return { health, sessions, sandboxes, probeHost, engineLatencyMs };
 }
 
 /**
@@ -282,6 +316,14 @@ export async function buildTopologyGraph(ctx) {
   const {
     health: engineHealth,
     sessions: reachSessions,
+    sandboxes: sandboxProbe = {
+      ok: false,
+      enabled: false,
+      runtimes: [],
+      count: 0,
+      artifacts: [],
+      artifactCount: 0,
+    },
     probeHost,
     engineLatencyMs,
   } = await probeEngineForGraphFn({
@@ -299,6 +341,15 @@ export async function buildTopologyGraph(ctx) {
   const overlaysOn =
     overlaysOnEnv || Boolean(reachSessions.sessionOverlayEnabled);
   const tunnelOn = tunnelOnEnv || Boolean(reachSessions.mcpTunnelEnabled);
+  const sandboxRuntimes = Array.isArray(sandboxProbe.runtimes)
+    ? sandboxProbe.runtimes
+    : [];
+  const sandboxRunning = sandboxRuntimes.filter((r) => r?.running);
+  const sandboxEnabled =
+    Boolean(sandboxProbe.enabled) ||
+    Boolean(engineJson.customToolSandbox) ||
+    sandboxRunning.length > 0;
+  const sandboxArtifactCount = Number(sandboxProbe.artifactCount || 0);
 
   const nowIso = () => new Date().toISOString();
 
@@ -581,6 +632,51 @@ export async function buildTopologyGraph(ctx) {
       );
     }
 
+    // Custom-tool sandbox appIds (e.g. comstar-stocks) without Reach WS / API token nodes.
+    const knownAppNodeIds = new Set(
+      nodes.filter((n) => String(n.id || "").startsWith("app/")).map((n) => n.id),
+    );
+    const sandboxApps = new Map();
+    for (const rt of sandboxRunning) {
+      const appId = String(rt.appId || "").trim();
+      if (!appId || reservedAppIds.has(appId)) continue;
+      const key = `app/${appId}`;
+      if (knownAppNodeIds.has(key)) continue;
+      if (!sandboxApps.has(appId)) sandboxApps.set(appId, []);
+      sandboxApps.get(appId).push(rt);
+    }
+    for (const [appId, rts] of sandboxApps) {
+      const tools = uniqueSorted(rts.map((r) => r.toolId || r.clientId).filter(Boolean));
+      nodes.push(
+        node({
+          id: `app/${appId}`,
+          kind: "web-api-client",
+          band: "application",
+          appGroup: "web-api",
+          appId,
+          label: appId,
+          sublabel: `sandbox · ${rts.length} tool${rts.length === 1 ? "" : "s"}`,
+          status: "healthy",
+          instrumented: true,
+          deployed: true,
+          count: rts.length,
+          ownedByApps: [appId],
+          statusReason: `Active custom-tool sandbox${rts.length === 1 ? "" : "es"}: ${
+            tools.join(", ") || "running"
+          } (no Reach session)`,
+        }),
+      );
+      knownAppNodeIds.add(`app/${appId}`);
+      edges.push(
+        edge({
+          id: `app/${appId}->sandboxes/cluster`,
+          from: `app/${appId}`,
+          to: "sandboxes/cluster",
+          kind: "request",
+        }),
+      );
+    }
+
     // —— Reach band (always when engine reachable) ——
     nodes.push(
       node({
@@ -765,6 +861,13 @@ export async function buildTopologyGraph(ctx) {
       detail: "MCP tunnel flag from engine",
     },
     {
+      id: "engine/custom-tool-sandbox",
+      kind: "endpoint",
+      label: "custom_tool_sandbox",
+      deployed: sandboxEnabled,
+      detail: "custom tool sandbox flag from engine",
+    },
+    {
       id: "engine/direct-agent",
       kind: "endpoint",
       label: "direct_agent",
@@ -814,6 +917,96 @@ export async function buildTopologyGraph(ctx) {
           id: `engine->${ep.id}`,
           from: "engine",
           to: ep.id,
+          kind: "request",
+        }),
+      );
+    }
+  }
+
+  // Custom-tool sandbox cluster (loopback MCP venvs under _tool_sandbox/).
+  {
+    const runningN = sandboxRunning.length;
+    const ownedByApps = uniqueSorted(
+      sandboxRunning.map((r) => r.appId).filter(Boolean),
+    );
+    const sandboxMembers = ownedByApps.map((appId) => {
+      const rts = sandboxRunning.filter((r) => r.appId === appId);
+      const ids = uniqueSorted(
+        rts.map((r) => r.toolId || r.clientId).filter(Boolean),
+      );
+      return {
+        appId,
+        instanceCount: rts.length,
+        ids,
+        overlayIds: ids,
+      };
+    });
+    const clusterDeployed = sandboxEnabled || runningN > 0;
+    let clusterStatus = "offline";
+    let clusterReason = "custom tool sandbox disabled (AGENTIC_CUSTOM_TOOL_SANDBOX=0)";
+    let clusterSublabel = "off";
+    if (sandboxEnabled && engineOk) {
+      if (runningN > 0) {
+        clusterStatus = "healthy";
+        clusterSublabel = `${runningN} running`;
+        clusterReason = `${runningN} sandbox runtime${runningN === 1 ? "" : "s"} · ${
+          sandboxArtifactCount
+        } artifact${sandboxArtifactCount === 1 ? "" : "s"} registered`;
+      } else {
+        clusterStatus = "degraded";
+        clusterSublabel = "none";
+        clusterReason =
+          sandboxArtifactCount > 0
+            ? `${sandboxArtifactCount} artifact${sandboxArtifactCount === 1 ? "" : "s"} uploaded — none running`
+            : "custom tool sandbox enabled — no runtimes yet";
+      }
+    } else if (sandboxEnabled && !engineOk) {
+      clusterStatus = "failed";
+      clusterSublabel = "engine down";
+      clusterReason = "sandbox enabled but engine unreachable";
+    } else if (runningN > 0) {
+      clusterStatus = "healthy";
+      clusterSublabel = `${runningN} running`;
+      clusterReason = "sandbox runtimes present (feature flag not reported)";
+    }
+    nodes.push(
+      node({
+        id: "sandboxes/cluster",
+        kind: "tool-sandbox",
+        band: "ao",
+        label: "Tool sandboxes",
+        sublabel: clusterSublabel,
+        status: clusterStatus,
+        instrumented: sandboxEnabled || runningN > 0,
+        deployed: clusterDeployed,
+        count: runningN,
+        breakdown: {
+          running: runningN,
+          artifacts: sandboxArtifactCount,
+          total: sandboxRuntimes.length,
+        },
+        ownedByApps,
+        appMembers: sandboxMembers.length ? sandboxMembers : undefined,
+        statusReason: clusterReason,
+        lastProbeAt: sandboxProbe.ok || runningN > 0 ? nowIso() : undefined,
+      }),
+    );
+    if (clusterDeployed && sandboxEnabled) {
+      edges.push(
+        edge({
+          id: "engine/custom-tool-sandbox->sandboxes/cluster",
+          from: "engine/custom-tool-sandbox",
+          to: "sandboxes/cluster",
+          kind: "request",
+        }),
+      );
+    }
+    if (clusterDeployed && overlaysOn) {
+      edges.push(
+        edge({
+          id: "sandboxes/cluster->engine/session-overlay",
+          from: "sandboxes/cluster",
+          to: "engine/session-overlay",
           kind: "request",
         }),
       );
@@ -1579,6 +1772,15 @@ export async function buildTopologyGraph(ctx) {
       hostname: process.env.HOSTNAME || null,
       engineLatencyMs,
       reachSessions: sessionList,
+      customToolSandboxes: {
+        enabled: sandboxEnabled,
+        count: sandboxRunning.length,
+        artifactCount: sandboxArtifactCount,
+        runtimes: sandboxRuntimes,
+        artifacts: Array.isArray(sandboxProbe.artifacts)
+          ? sandboxProbe.artifacts
+          : [],
+      },
       ports: {
         web: webPort,
         webNodePort: 30487,
@@ -1650,6 +1852,9 @@ export async function buildTopologyNodeDetail(id, ctx) {
       "AGENTIC_SPEECH_ENABLED",
     );
   }
+  if (id === "engine/custom-tool-sandbox" || id === "sandboxes/cluster") {
+    configKeys.push("AGENTIC_CUSTOM_TOOL_SANDBOX", "AGENTIC_CUSTOM_TOOL_ALLOW_NETWORK");
+  }
   if (id === "execution" || id.startsWith("workers") || id === "platform/k3s" || id.startsWith("k8s/")) {
     configKeys.push("AGENTIC_EXECUTION_BACKEND", "AGENTIC_K8S_WARM_POOL_ENABLED");
   }
@@ -1719,19 +1924,36 @@ export async function buildTopologyNodeDetail(id, ctx) {
             note: `role ${n.k8sResource.role || "workload"}`,
             pods: n.k8sResource.pods,
           }
-        : n.count != null
+        : id === "sandboxes/cluster" || id === "engine/custom-tool-sandbox"
           ? {
-              count: n.count,
-              breakdown: n.breakdown || null,
-              note:
-                n.kind === "app"
-                  ? `${n.count} connected Reach instance${n.count === 1 ? "" : "s"}`
-                  : appMembers.length
-                    ? "Stock catalog size; Reach session overlays listed by app below"
-                    : n.statusReason ||
-                      "Member list available via Capabilities catalogs",
+              count: (graph.meta?.customToolSandboxes?.runtimes || []).filter(
+                (r) => r?.running,
+              ).length,
+              breakdown: n.breakdown || {
+                running: (graph.meta?.customToolSandboxes?.runtimes || []).filter(
+                  (r) => r?.running,
+                ).length,
+                artifacts: graph.meta?.customToolSandboxes?.artifactCount || 0,
+              },
+              note: graph.meta?.customToolSandboxes?.enabled
+                ? "AO custom-tool sandbox runtimes (loopback MCP)"
+                : "custom tool sandbox disabled",
+              runtimes: graph.meta?.customToolSandboxes?.runtimes || [],
+              artifacts: graph.meta?.customToolSandboxes?.artifacts || [],
             }
-          : null;
+          : n.count != null
+            ? {
+                count: n.count,
+                breakdown: n.breakdown || null,
+                note:
+                  n.kind === "app"
+                    ? `${n.count} connected Reach instance${n.count === 1 ? "" : "s"}`
+                    : appMembers.length
+                      ? "Stock catalog size; Reach session overlays listed by app below"
+                      : n.statusReason ||
+                        "Member list available via Capabilities catalogs",
+              }
+            : null;
 
   return {
     id: n.id,

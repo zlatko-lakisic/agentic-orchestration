@@ -43,6 +43,7 @@ const KIND_SLOT: Record<
   'execution-backend': { band: 'ao', rank: 3, lane: 0, order: 0 },
   worker: { band: 'ao', rank: 3, lane: 1, order: 0 },
   'mcp-sidecar': { band: 'ao', rank: 3, lane: 2, order: 0 },
+  'tool-sandbox': { band: 'ao', rank: 3, lane: 3, order: 0 },
 
   platform: { band: 'ao', rank: 4, lane: 0, order: 0 },
   storage: { band: 'ao', rank: 4, lane: 1, order: 0 },
@@ -52,6 +53,7 @@ const KIND_SLOT: Record<
 const ENDPOINT_LANE: Record<string, number> = {
   'engine/session-overlay': 1,
   'engine/mcp-tunnel': 2,
+  'engine/custom-tool-sandbox': 2,
   'engine/direct-agent': 3,
   'engine/hello-speech': 4,
   'engine/mtls-enrol': 4,

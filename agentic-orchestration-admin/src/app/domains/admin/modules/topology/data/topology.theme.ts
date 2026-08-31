@@ -38,6 +38,7 @@ const BY_KIND: Record<string, TopologyKindTheme> = {
   'execution-backend': { accent: '#9333ea', icon: 'workflow', aspect: 'Execution' },
   worker: { accent: '#a855f7', icon: 'server', aspect: 'Workers' },
   'mcp-sidecar': { accent: '#c026d3', icon: 'puzzle', aspect: 'Sidecar' },
+  'tool-sandbox': { accent: '#7c3aed', icon: 'box', aspect: 'Sandbox' },
 
   platform: { accent: '#3B6EA5', icon: 'container', aspect: 'Platform' },
   storage: { accent: '#64748b', icon: 'hard-drive', aspect: 'Storage' },

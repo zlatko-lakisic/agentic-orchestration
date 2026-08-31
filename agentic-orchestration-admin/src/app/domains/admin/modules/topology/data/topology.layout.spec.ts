@@ -338,6 +338,24 @@ describe('topology.layout', () => {
     );
   });
 
+  it('places tool-sandbox to the right of mcp-sidecar on execution rank', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'execution', kind: 'execution-backend', band: 'ao' }),
+      n({ id: 'workers/cluster', kind: 'worker', band: 'ao' }),
+      n({ id: 'sidecars/cluster', kind: 'mcp-sidecar', band: 'ao' }),
+      n({ id: 'sandboxes/cluster', kind: 'tool-sandbox', band: 'ao' }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    const workers = layout.nodes.find((x) => x.id === 'workers/cluster')!;
+    const sidecars = layout.nodes.find((x) => x.id === 'sidecars/cluster')!;
+    const sandboxes = layout.nodes.find((x) => x.id === 'sandboxes/cluster')!;
+    expect(workers.y).toBe(sidecars.y);
+    expect(sidecars.y).toBe(sandboxes.y);
+    expect(workers.x).toBeLessThan(sidecars.x);
+    expect(sidecars.x).toBeLessThan(sandboxes.x);
+    expect(slotForKind('tool-sandbox').lane).toBe(3);
+  });
+
   it('nests pods under their node with labeled k8s group frames', () => {
     const nodes: TopologyNode[] = [
       n({

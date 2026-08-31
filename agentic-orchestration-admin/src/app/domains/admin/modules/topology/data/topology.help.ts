@@ -106,6 +106,11 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
     wikiKey: 'mcp-sidecar',
     blurb: 'MCP sidecar containers attached to workers for tool execution.',
   },
+  'tool-sandbox': {
+    wikiKey: 'tool-sandbox',
+    blurb:
+      'AO custom-tool sandbox cluster — isolated loopback MCP venvs (e.g. comstar market_data).',
+  },
   platform: {
     wikiKey: 'platform-expand',
     blurb:
@@ -141,6 +146,16 @@ const NODE_BY_ID: Record<string, TopologyHelp> = {
   'engine/mcp-tunnel': {
     wikiKey: 'endpoint-mcp-tunnel',
     blurb: 'Reverse tunnel endpoint that calls back into the client MCP host.',
+  },
+  'engine/custom-tool-sandbox': {
+    wikiKey: 'endpoint-custom-tool-sandbox',
+    blurb:
+      'Opt-in custom tool sandbox (AGENTIC_CUSTOM_TOOL_SANDBOX) — upload/activate wheel MCP packages.',
+  },
+  'sandboxes/cluster': {
+    wikiKey: 'tool-sandbox',
+    blurb:
+      'Running custom-tool sandbox processes under _tool_sandbox/ (loopback streamable_http MCP).',
   },
   'engine/direct-agent': {
     wikiKey: 'endpoint-direct-agent',

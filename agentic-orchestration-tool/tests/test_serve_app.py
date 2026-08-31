@@ -48,6 +48,8 @@ def test_health_reports_version_and_warm_catalogs(client: TestClient) -> None:
     assert "catalogs" in body
     assert "resident" in body
     assert "keepaliveModels" in body["resident"]
+    assert "customToolSandbox" in body
+    assert isinstance(body["customToolSandbox"], bool)
     assert "vramGbAvailable" in body["resident"]
     assert "hardware" in body
     assert "architectures" in body["hardware"]
