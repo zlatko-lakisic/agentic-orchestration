@@ -23,6 +23,7 @@ const KIND_SLOT: Record<
   'ao-web': { band: 'application', rank: 0, lane: 1, order: 0 },
   'ao-chat': { band: 'application', rank: 0, lane: 2, order: 0 },
   'web-api-client': { band: 'application', rank: 0, lane: 3, order: 0 },
+  'mtls-client': { band: 'application', rank: 0, lane: 4, order: 0 },
 
   'session-bridge': { band: 'reach', rank: 0, lane: 0, order: 0 },
   'overlay-packer': { band: 'reach', rank: 0, lane: 1, order: 0 },
@@ -134,6 +135,7 @@ const BYPASS_APP_LANE: Record<string, number> = {
   'ao-web': 1,
   'ao-chat': 2,
   'web-api-client': 3,
+  'mtls-client': 4,
 };
 
 /** Preferred left-to-right order inside the Web API family. */
@@ -142,6 +144,7 @@ const WEB_API_KIND_ORDER: Record<string, number> = {
   'ao-chat': 1,
   openclaw: 2,
   'web-api-client': 3,
+  'mtls-client': 4,
 };
 
 function sortWebApiIds(ids: string[], kindById: Map<string, string>): string[] {

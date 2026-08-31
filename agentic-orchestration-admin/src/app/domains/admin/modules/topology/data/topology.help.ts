@@ -46,6 +46,11 @@ const NODE_BY_KIND: Record<string, TopologyHelp> = {
     blurb:
       'External appId with minted Access token(s) calling the Web UI API (bypass Reach).',
   },
+  'mtls-client': {
+    wikiKey: 'mtls-client',
+    blurb:
+      'Enrolled engine mTLS leaf (certificate CN) — e.g. comstar-stocks — without a Reach WebSocket session.',
+  },
   'session-bridge': {
     wikiKey: 'session-bridge',
     blurb: 'Reach SessionBridge carrying the authenticated client session.',

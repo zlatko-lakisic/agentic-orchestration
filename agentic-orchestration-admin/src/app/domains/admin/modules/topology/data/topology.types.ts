@@ -27,6 +27,7 @@ export type TopologyNodeKind =
   | 'ao-web'
   | 'ao-chat'
   | 'web-api-client'
+  | 'mtls-client'
   | 'session-bridge'
   | 'overlay-packer'
   | 'local-mcp-host'
