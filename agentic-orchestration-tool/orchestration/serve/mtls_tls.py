@@ -25,6 +25,7 @@ MTLS_PUBLIC_PATHS = frozenset(
         "/api/ping",
         "/api/agentic/execution-queue/status",
         "/api/v1/admin/reach-sessions",
+        "/api/v1/admin/custom-tool-sandboxes",
         "/api/v1/admin/background-activity/cancel",
         "/api/v1/admin/mtls/clients",
         "/api/v1/mtls/ca",
