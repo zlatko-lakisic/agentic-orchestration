@@ -3464,6 +3464,8 @@ wss.on("connection", (ws, req) => {
     firstName: profile.firstName ?? undefined,
     lastName: profile.lastName ?? undefined,
     logoutUrl: profile.logoutUrl ?? undefined,
+    logoutMethod: profile.logoutMethod ?? undefined,
+    logoutRedirect: profile.logoutRedirect ?? undefined,
     avatarUrl: profile.avatarUrl ?? undefined,
     welcomeMessage: plannerGreet ? null : webWelcomeMessage(),
   });

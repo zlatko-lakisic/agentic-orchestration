@@ -3,6 +3,7 @@ import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { SessionResponse } from '@/app/core/ao-api/types';
+import { logoutFromSession } from '@/app/core/auth/warpgate-logout';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
@@ -79,17 +80,18 @@ import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
         </div>
       }
       @if (session()?.logoutUrl) {
-        <a
+        <button
           matButton="outlined"
           class="small mt-2 w-full"
-          [href]="session()?.logoutUrl!"
+          type="button"
+          (click)="logout()"
         >
           Log out
           <mat-icon
             svgIcon="log-out"
             iconPositionEnd
           />
-        </a>
+        </button>
       }
     </div>
 
@@ -113,5 +115,9 @@ export class AdminSidebar implements OnInit {
     this.api.session().subscribe((r) => {
       if (r.ok) this.session.set(r.data);
     });
+  }
+
+  logout() {
+    void logoutFromSession(this.session());
   }
 }

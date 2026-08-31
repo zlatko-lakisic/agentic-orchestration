@@ -18,6 +18,8 @@ const {
   authProfileFromRequestHeaders,
   normalizeAvatarUrl,
   sanitizeLogoutUrl,
+  sanitizeLogoutMethod,
+  sanitizeLogoutRedirect,
   sessionPayloadFromAuthProfile,
   resolveAuthDisplayName,
 } = await import(libUrl);
@@ -83,14 +85,18 @@ test("authProfileFromRequestHeaders maps Warpgate X-Auth-* headers", () => {
     "x-auth-email": "ada@example.com",
     "x-auth-first-name": "Ada",
     "x-auth-last-name": "Lovelace",
-    "x-auth-logout-url": "https://gate.example/logout",
+    "x-auth-logout-url": "https://gate.example/@warpgate/api/auth/logout",
+    "x-auth-logout-method": "post",
+    "x-auth-logout-redirect": "/@warpgate",
     "x-auth-avatar": "https://cdn.example/ada.jpg",
   });
   assert.equal(profile.userId, "uid-42");
   assert.equal(profile.email, "ada@example.com");
   assert.equal(profile.firstName, "Ada");
   assert.equal(profile.lastName, "Lovelace");
-  assert.equal(profile.logoutUrl, "https://gate.example/logout");
+  assert.equal(profile.logoutUrl, "https://gate.example/@warpgate/api/auth/logout");
+  assert.equal(profile.logoutMethod, "POST");
+  assert.equal(profile.logoutRedirect, "/@warpgate");
   assert.equal(profile.avatarUrl, "https://cdn.example/ada.jpg");
   assert.equal(profile.userName, "Ada Lovelace");
 });
@@ -126,4 +132,12 @@ test("resolveAuthDisplayName prefers first and last name", () => {
 test("sanitizeLogoutUrl allows http(s) only", () => {
   assert.equal(sanitizeLogoutUrl("https://gate/logout"), "https://gate/logout");
   assert.equal(sanitizeLogoutUrl("ftp://gate/logout"), null);
+});
+
+test("sanitizeLogoutMethod and sanitizeLogoutRedirect", () => {
+  assert.equal(sanitizeLogoutMethod("post"), "POST");
+  assert.equal(sanitizeLogoutMethod("TRACE"), null);
+  assert.equal(sanitizeLogoutRedirect("/@warpgate"), "/@warpgate");
+  assert.equal(sanitizeLogoutRedirect("https://gate.example/@warpgate"), "https://gate.example/@warpgate");
+  assert.equal(sanitizeLogoutRedirect("//evil.example"), null);
 });

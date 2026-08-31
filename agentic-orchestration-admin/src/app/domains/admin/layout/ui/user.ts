@@ -5,6 +5,7 @@ import { MatDivider } from '@angular/material/list';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { SessionResponse } from '@/app/core/ao-api/types';
+import { logoutFromSession } from '@/app/core/auth/warpgate-logout';
 import { Scheme, Theming } from '@/app/core/theming';
 
 /** Fuse layout/ui/user.ts — session-backed identity from Warpgate / proxy headers. */
@@ -97,13 +98,14 @@ import { Scheme, Theming } from '@/app/core/theming';
         Open chat
       </a>
       @if (logoutUrl()) {
-        <a
+        <button
           mat-menu-item
-          [href]="logoutUrl()!"
+          type="button"
+          (click)="logout()"
         >
           <mat-icon svgIcon="log-out" />
           Log out
-        </a>
+        </button>
       }
       <mat-divider />
       <button
@@ -171,5 +173,9 @@ export class User implements OnInit {
 
   updateScheme(scheme: Scheme) {
     this.theming.scheme.set(scheme);
+  }
+
+  logout() {
+    void logoutFromSession(this.sessionData());
   }
 }
