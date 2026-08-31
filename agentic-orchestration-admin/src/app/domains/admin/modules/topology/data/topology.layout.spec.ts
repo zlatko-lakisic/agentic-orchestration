@@ -356,6 +356,35 @@ describe('topology.layout', () => {
     expect(slotForKind('tool-sandbox').lane).toBe(3);
   });
 
+  it('keeps engine mtls-enrol and web-ui from overlapping when all endpoints are live', () => {
+    const nodes: TopologyNode[] = [
+      n({ id: 'engine', kind: 'engine', band: 'ao' }),
+      n({ id: 'engine/session-overlay', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/mcp-tunnel', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/custom-tool-sandbox', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/direct-agent', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/hello-speech', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'engine/mtls-enrol', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'speech/stt', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'speech/tts', kind: 'endpoint', band: 'ao' }),
+      n({ id: 'web-ui', kind: 'web-ui', band: 'ao' }),
+    ];
+    const layout = layoutTopology(nodes, []);
+    const mtls = layout.nodes.find((x) => x.id === 'engine/mtls-enrol')!;
+    const web = layout.nodes.find((x) => x.id === 'web-ui')!;
+    expect(mtls).toBeTruthy();
+    expect(web).toBeTruthy();
+    expect(nodesOverlap(mtls, web)).toBe(false);
+    expect(mtls.x).not.toBe(web.x);
+    // All AO rank-0 cards must be pairwise non-overlapping.
+    const edgeRank = layout.nodes.filter((x) => x.y === mtls.y);
+    for (let i = 0; i < edgeRank.length; i++) {
+      for (let j = i + 1; j < edgeRank.length; j++) {
+        expect(nodesOverlap(edgeRank[i], edgeRank[j])).toBe(false);
+      }
+    }
+  });
+
   it('nests pods under their node with labeled k8s group frames', () => {
     const nodes: TopologyNode[] = [
       n({
@@ -481,7 +510,7 @@ describe('topology.layout', () => {
       }),
     ];
     const layout = layoutTopology(nodes, []);
-    expect(layout.nodes[0].lane).toBe(7);
+    expect(layout.nodes[0].lane).toBe(11);
   });
 
   it('computes path closure upstream and downstream', () => {

@@ -33,7 +33,8 @@ const KIND_SLOT: Record<
 
   engine: { band: 'ao', rank: 0, lane: 0, order: 0 },
   endpoint: { band: 'ao', rank: 0, lane: 1, order: 0 },
-  'web-ui': { band: 'ao', rank: 0, lane: 5, order: 0 },
+  // Far-right edge of the AO edge row — keep clear of engine endpoints.
+  'web-ui': { band: 'ao', rank: 0, lane: 9, order: 0 },
 
   planner: { band: 'ao', rank: 1, lane: 0, order: 0 },
 
@@ -54,12 +55,12 @@ const KIND_SLOT: Record<
 const ENDPOINT_LANE: Record<string, number> = {
   'engine/session-overlay': 1,
   'engine/mcp-tunnel': 2,
-  'engine/custom-tool-sandbox': 2,
-  'engine/direct-agent': 3,
-  'engine/hello-speech': 4,
-  'engine/mtls-enrol': 4,
-  'speech/stt': 3,
-  'speech/tts': 4,
+  'engine/custom-tool-sandbox': 3,
+  'engine/direct-agent': 4,
+  'engine/hello-speech': 5,
+  'speech/stt': 6,
+  'speech/tts': 7,
+  'engine/mtls-enrol': 8,
 };
 
 const CATALOG_LANE: Record<string, number> = {
@@ -88,7 +89,8 @@ const BAND_LABEL_H = 22;
 const BAND_GAP = 56;
 const MARGIN = 32;
 const ROUTE_MARGIN = 72;
-const MAX_LANES = 8;
+/** AO edge rank can host engine + endpoints + speech + web-ui side by side. */
+const MAX_LANES = 12;
 /** Inflate node rects so routes keep a visible gap from card edges. */
 const CLEARANCE = 14;
 /** Perpendicular stub so wires leave/enter with room before the arrowhead. */
