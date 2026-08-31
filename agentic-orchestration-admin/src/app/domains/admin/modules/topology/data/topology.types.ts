@@ -42,6 +42,7 @@ export type TopologyNodeKind =
   |   'execution-backend'
   | 'worker'
   | 'mcp-sidecar'
+  | 'tool-sandbox'
   | 'platform'
   | 'storage'
   | 'k8s-workload'

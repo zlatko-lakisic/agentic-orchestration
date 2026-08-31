@@ -198,6 +198,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         from orchestration.hardware_profile import hardware_snapshot
         from orchestration.ollama_keepalive import keepalive_status, resolve_keepalive_model_tags
         from orchestration.serve.mtls_ca import ca_exists, mtls_hello_payload
+        from orchestration.tool_artifacts import custom_tool_sandbox_enabled
 
         warm = dict(app.state.warm or {})
         ka = keepalive_status()
@@ -212,6 +213,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "bind": f"{serve_host()}:{serve_port()}",
             "catalogs": warm,
             "hardware": hw,
+            "customToolSandbox": custom_tool_sandbox_enabled(),
             "resident": {
                 "keepaliveModels": ka.get("models") or resolve_keepalive_model_tags(),
                 "keepaliveOk": ka.get("ok"),
@@ -324,6 +326,43 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "sessions": sessions,
             "count": len(sessions),
         }
+
+    @app.get("/api/v1/admin/custom-tool-sandboxes")
+    async def api_custom_tool_sandboxes() -> dict[str, Any]:
+        """Host-wide custom-tool sandbox inventory for Admin topology."""
+        from orchestration.tool_artifacts import (
+            custom_tool_sandbox_enabled,
+            list_artifacts,
+        )
+        from orchestration.tool_sandbox_runtime import list_runtimes
+
+        def _snapshot() -> dict[str, Any]:
+            runtimes = [r.status() for r in list_runtimes()]
+            running = [r for r in runtimes if r.get("running")]
+            artifacts = [
+                {
+                    "artifactId": a.storage_key,
+                    "toolId": a.manifest.tool_id,
+                    "toolVersion": a.manifest.tool_version,
+                    "clientId": a.manifest.client_id,
+                    "appId": a.app_id,
+                    "userId": a.user_id,
+                    "activated": bool(a.activated),
+                    "runtimeBaseUrl": a.runtime_base_url,
+                }
+                for a in list_artifacts()
+            ]
+            return {
+                "ok": True,
+                "generatedAt": datetime.now(timezone.utc).isoformat(),
+                "enabled": custom_tool_sandbox_enabled(),
+                "runtimes": runtimes,
+                "count": len(running),
+                "artifacts": artifacts,
+                "artifactCount": len(artifacts),
+            }
+
+        return await run_in_threadpool(_snapshot)
 
     @app.post("/api/v1/admin/background-activity/cancel")
     async def api_cancel_background_activity() -> dict[str, Any]:
