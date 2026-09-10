@@ -651,3 +651,16 @@ export interface ControlStatus {
   targets: ControlTarget[];
   lastAction?: ControlRestartResult | null;
 }
+
+export interface OllamaTagsResponse {
+  ok?: boolean;
+  base?: string | null;
+  models?: Array<{ name?: string; model?: string; size?: number; modified_at?: string }>;
+}
+
+export interface OllamaPullResponse {
+  ok?: boolean;
+  model?: string;
+  base?: string | null;
+  result?: unknown;
+}

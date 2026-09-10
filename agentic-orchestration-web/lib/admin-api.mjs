@@ -30,7 +30,7 @@ import {
   revokeToken,
 } from "./api-tokens.mjs";
 import { getAppPrefs, listAppPrefs, setAppPrefs } from "./app-prefs.mjs";
-import { ollamaBaseUrl } from "./admin-topology-probes.mjs";
+import { ollamaBaseUrl, rewriteLoopbackForCluster } from "./admin-topology-probes.mjs";
 import { sampleAoResources } from "./ao-resource-usage.mjs";
 import { sampleMemoryAndGpu } from "../host-metrics.mjs";
 
@@ -1524,6 +1524,67 @@ async function cancelEngineBackgroundActivity() {
     return { ok: false, error: result.error || `HTTP ${result.status || "?"}` };
   }
   return result.json || { ok: true };
+}
+
+function resolveOllamaBases() {
+  const base = ollamaBaseUrl();
+  if (!base) return [];
+  const rewritten = rewriteLoopbackForCluster(base);
+  if (rewritten && rewritten !== base) return [base, rewritten];
+  return [base];
+}
+
+async function fetchOllamaTags() {
+  const bases = resolveOllamaBases();
+  if (!bases.length) {
+    return { ok: false, error: "OLLAMA_API_BASE / OLLAMA_HOST is not configured", status: 503 };
+  }
+  let last = { ok: false, error: "ollama unreachable", status: 503 };
+  for (const base of bases) {
+    const result = await fetchJsonRequest(`${base}/api/tags`, { timeoutMs: 4000 });
+    if (result.ok) {
+      return { ok: true, base, json: result.json || {} };
+    }
+    last = { ok: false, error: result.error || `HTTP ${result.status || "?"}`, status: result.status || 502 };
+  }
+  return last;
+}
+
+async function pullOllamaModel(modelRaw) {
+  const model = String(modelRaw || "").trim();
+  if (!model) {
+    return { ok: false, status: 400, error: "model is required" };
+  }
+  const bases = resolveOllamaBases();
+  if (!bases.length) {
+    return { ok: false, status: 503, error: "OLLAMA_API_BASE / OLLAMA_HOST is not configured" };
+  }
+  let last = { ok: false, status: 502, error: "ollama pull failed" };
+  for (const base of bases) {
+    const result = await fetchJsonRequest(`${base}/api/pull`, {
+      method: "POST",
+      timeoutMs: 15 * 60 * 1000,
+      body: { name: model, stream: false },
+    });
+    if (result.ok) {
+      return {
+        ok: true,
+        status: 200,
+        json: {
+          ok: true,
+          model,
+          base,
+          result: result.json || null,
+        },
+      };
+    }
+    last = {
+      ok: false,
+      status: result.status || 502,
+      error: result.error || result.raw || `HTTP ${result.status || "?"}`,
+    };
+  }
+  return last;
 }
 
 /**
@@ -3256,6 +3317,8 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/mtls/enroll-tokens") return { name: "mtls_enroll_tokens" };
   if (p === "/api/v1/admin/control") return { name: "control" };
   if (p === "/api/v1/admin/control/restart") return { name: "control_restart" };
+  if (p === "/api/v1/admin/ollama/tags") return { name: "ollama_tags" };
+  if (p === "/api/v1/admin/ollama/pull") return { name: "ollama_pull" };
   if (p === "/api/v1/admin/background-activity/cancel") return { name: "background_activity_cancel" };
   return null;
 }
@@ -3298,6 +3361,7 @@ function isTokenWriteRoute(route, method) {
   if (route.name === "mtls_clients_unrevoke" && method === "POST") return true;
   if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
   if (route.name === "control_restart" && method === "POST") return true;
+  if (route.name === "ollama_pull" && method === "POST") return true;
   if (route.name === "background_activity_cancel" && method === "POST") return true;
   return false;
 }
@@ -3328,10 +3392,10 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: { tokens: true, appPrefs: true, mtlsClients: true, control: true },
+        writeApi: { tokens: true, appPrefs: true, mtlsClients: true, control: true, ollamaPull: true },
         title: "AO Administration",
         readOnlyMessage:
-          "Read-only except API tokens, per-app planning prefs, mTLS client revoke, and AO control restarts",
+          "Read-only except API tokens, app prefs, mTLS client revoke, AO control restarts, and Ollama model pulls",
         webUiAppId: WEB_UI_APP_ID,
         chatUiAppId: CHAT_UI_APP_ID,
         webUiAssigned: isWebUiAssigned(ctx.toolRoot),
@@ -3761,6 +3825,36 @@ async function handleAdminApi(req, res, ctx) {
           });
         }, 300);
       }
+      return true;
+    }
+    if (route.name === "ollama_tags" && (method === "GET" || method === "HEAD")) {
+      const tags = await fetchOllamaTags();
+      if (!tags.ok) {
+        send(tags.status || 502, { error: tags.error || "Ollama tags failed" });
+        return true;
+      }
+      send(200, {
+        ok: true,
+        base: tags.base,
+        models: Array.isArray(tags.json?.models) ? tags.json.models : [],
+      });
+      return true;
+    }
+    if (route.name === "ollama_pull" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        const code = err?.code === "too_large" ? 413 : 400;
+        send(code, { error: err instanceof Error ? err.message : "Invalid body" });
+        return true;
+      }
+      const pulled = await pullOllamaModel(body?.model);
+      if (!pulled.ok) {
+        send(pulled.status || 502, { error: pulled.error || "Ollama pull failed" });
+        return true;
+      }
+      send(200, pulled.json || { ok: true });
       return true;
     }
     if (route.name === "background_activity_cancel" && method === "POST") {

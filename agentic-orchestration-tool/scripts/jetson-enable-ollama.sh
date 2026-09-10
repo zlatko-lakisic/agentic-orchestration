@@ -228,12 +228,12 @@ broker = f"""        - name: resource-broker
               value: "2"
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
               host: 127.0.0.1
             initialDelaySeconds: 3
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:

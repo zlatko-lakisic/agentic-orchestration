@@ -110,7 +110,7 @@ def test_reach_client_simulator_sandbox_overlay_register(
                 }
             )
             ack = ws.receive_json()
-            while ack.get("type") in ("status", "chunk"):
+            while ack.get("type") in ("status", "chunk", "agent_state"):
                 ack = ws.receive_json()
             assert ack["type"] == "session_overlay_ack"
 
@@ -169,7 +169,7 @@ def test_legacy_tunnel_overlay_unchanged_when_sandbox_off(
                 }
             )
             ack = ws.receive_json()
-            while ack.get("type") in ("status", "chunk"):
+            while ack.get("type") in ("status", "chunk", "agent_state"):
                 ack = ws.receive_json()
             assert ack["type"] == "session_overlay_ack"
             overlay = get_overlay("legacy", "legacy-1")

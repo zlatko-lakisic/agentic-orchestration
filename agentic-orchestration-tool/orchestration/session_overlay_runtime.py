@@ -112,11 +112,14 @@ def ensure_session_overlay_ollama_models(
     on_progress: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
     connection_id: str | None = None,
+    on_lifecycle: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> None:
     """Pull missing models for overlay ollama agents against the resolved HTTP API base.
 
     Serializes pulls (one at a time). Does not install or spawn Ollama. Ignores the
-    kubernetes ``selfcontained`` gate used by ``should_ensure_ollama``.
+    catalog ``selfcontained`` gate used by ``should_ensure_ollama``.
+
+    ``on_lifecycle`` receives ``("pulling"|"ready", {"model": ...})`` during ensure.
     """
     if not session_overlay_ensure_ollama_enabled():
         return
@@ -137,6 +140,7 @@ def ensure_session_overlay_ollama_models(
                 on_progress=log,
                 cancel_event=cancel_event,
                 connection_id=connection_id,
+                on_lifecycle=on_lifecycle,
             )
 
 
@@ -144,6 +148,7 @@ def ensure_client_agent_ollama_runtime(
     entry: dict[str, Any],
     *,
     on_progress: Callable[[str], None] | None = None,
+    on_lifecycle: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> None:
     """HTTP ensure for a single ``client.*`` ollama agent (first-use / direct_agent path)."""
     if not session_overlay_ensure_ollama_enabled():
@@ -162,4 +167,9 @@ def ensure_client_agent_ollama_runtime(
     from agent_providers.ollama_provider import ensure_ollama_model_on_api
 
     with _pull_lock:
-        ensure_ollama_model_on_api(model=model, host=host, on_progress=on_progress)
+        ensure_ollama_model_on_api(
+            model=model,
+            host=host,
+            on_progress=on_progress,
+            on_lifecycle=on_lifecycle,
+        )

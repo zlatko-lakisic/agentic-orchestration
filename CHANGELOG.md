@@ -9,6 +9,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Admin Ollama model pull UI** — Models & hardware page lists tags from the configured Ollama runtime and can pull a model tag via `GET/POST /api/v1/admin/ollama/{tags,pull}`.
+
+## [2.8.0] - 2026-09-10
+
+### Fixed
+
+- **Ollama resource-broker liveness under load** — `/health` no longer calls upstream
+  `/api/ps` on the asyncio event loop (which caused kubelet `context deadline exceeded`
+  and broker restarts while models were loading / chatting). Liveness uses shallow
+  in-memory `/health`; readiness uses `/ready` (≤1s upstream ping). Session overlay
+  ensure soft-retries Ollama health briefly across broker flaps.
+
+### Added
+
+- **Reach `agent_state` frames** — engine hello advertises `agentState: true` and emits
+  per-overlay-agent lifecycle (`down` / `starting` / `pulling` / `ready` / `busy` /
+  `stopping`). `pulling` is first-class (local Ollama ensure/pull only).
 - **Topology mTLS clients** — enrolled (non-revoked) engine mTLS leaves appear on the Application band (e.g. `comstar-stocks`) without a Reach WebSocket session.
 - **Topology custom-tool sandboxes** — Admin topology probes `GET /api/v1/admin/custom-tool-sandboxes` and `/health.customToolSandbox`, rendering `engine/custom-tool-sandbox` + `sandboxes/cluster` (and Application-band app nodes for sandbox-only appIds such as comstar-stocks market_data).
 

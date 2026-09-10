@@ -9,7 +9,12 @@
 # Resource sharing: the Deployment runs a `resource-broker` sidecar on :11434 and
 # the ollama daemon on loopback :11435. Clients keep using http://agentic-ollama:11434.
 # The broker FIFO-queues when VRAM is busy and unloads idle models after
-# AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS (default 120). Status:
+# AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS (default 120).
+#
+# Probes (resource-broker):
+#   GET /health  — liveness; in-memory only (never waits on upstream Ollama)
+#   GET /ready   — readiness; ≤1s threaded ping of upstream /api/tags
+# Deep status (operators / debug; may wait on /api/ps):
 #   GET http://agentic-ollama:11434/api/agentic/resource-status
 #
 # Bring-your-own / host systemd Ollama (edge default today): leave
