@@ -341,6 +341,30 @@ def _ollama_chat_json(
         "stream": False,
         "format": fmt,
     }
+    # Overlay agents may pin sampling / context (e.g. campaign_director
+    # temperature: 0, num_ctx: 8192). Without this, Ollama uses defaults
+    # (temperature 0.8) and silent front-truncation can drop ROLE/OBJECTIVES.
+    options: dict[str, Any] = {}
+    if entry.get("temperature") is not None:
+        try:
+            options["temperature"] = float(entry["temperature"])
+        except (TypeError, ValueError):
+            pass
+    raw_num_ctx = entry.get("num_ctx")
+    if raw_num_ctx is None and isinstance(entry.get("options"), dict):
+        raw_num_ctx = entry["options"].get("num_ctx")
+        if entry.get("temperature") is None and entry["options"].get("temperature") is not None:
+            try:
+                options["temperature"] = float(entry["options"]["temperature"])
+            except (TypeError, ValueError):
+                pass
+    if raw_num_ctx is not None and str(raw_num_ctx).strip() != "":
+        try:
+            options["num_ctx"] = int(raw_num_ctx)
+        except (TypeError, ValueError):
+            pass
+    if options:
+        body["options"] = options
     if on_progress:
         on_progress("generating")
     raw_http = json.dumps(body).encode("utf-8")
