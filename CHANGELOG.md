@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Admin Ollama model pull UI** — Models & hardware page lists tags from the configured Ollama runtime and can pull a model tag via `GET/POST /api/v1/admin/ollama/{tags,pull}`.
+
 ## [2.8.0] - 2026-09-10
 
 ### Fixed
