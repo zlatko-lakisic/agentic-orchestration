@@ -11,6 +11,7 @@ Run::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -70,12 +71,14 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
     @app.get("/api/agentic/resource-status")
     async def resource_status() -> dict[str, Any]:
         mgr = app.state.manager
-        return mgr.status()
+        # Deep status hits upstream /api/ps — keep it off the event loop.
+        return await asyncio.to_thread(mgr.status)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
+        """Liveness: in-memory only. Never waits on upstream Ollama."""
         mgr = app.state.manager
-        st = mgr.status()
+        st = mgr.local_status()
         return {
             "ok": True,
             "service": "agentic-ollama-resource-broker",
@@ -83,8 +86,21 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
             "upstream": st.get("upstream"),
             "queueDepth": st.get("queueDepth"),
             "active": st.get("active"),
-            "loaded": st.get("loaded"),
         }
+
+    @app.get("/ready")
+    async def ready() -> Response:
+        """Readiness: short upstream ping in a thread (≤1s)."""
+        mgr = app.state.manager
+        ok = await asyncio.to_thread(mgr.ping_upstream, timeout_s=1.0)
+        body = {
+            "ok": ok,
+            "service": "agentic-ollama-resource-broker",
+            "upstream": resolve_upstream_base(),
+        }
+        if not ok:
+            return JSONResponse(body, status_code=503)
+        return JSONResponse(body)
 
     @app.api_route(
         "/{full_path:path}",
@@ -94,7 +110,7 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
         mgr = app.state.manager
         path = "/" + (full_path or "").lstrip("/")
         if path in ("/api/agentic/resource-status",):
-            return JSONResponse(mgr.status())
+            return JSONResponse(await asyncio.to_thread(mgr.status))
 
         upstream = resolve_upstream_base().rstrip("/")
         url = f"{upstream}{path}"
@@ -121,8 +137,6 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
         if needs and resource_sharing_enabled() and model:
             try:
                 # Blocking admission in a thread so the event loop stays responsive.
-                import asyncio
-
                 lease = await asyncio.to_thread(mgr.acquire, model)
             except TimeoutError as exc:
                 return JSONResponse(

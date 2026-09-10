@@ -69,6 +69,21 @@ def test_probe_target_matches_daemon_bind_address() -> None:
 
 
 @pytest.mark.unit
+def test_broker_liveness_is_shallow_health_readiness_uses_ready() -> None:
+    """Liveness must not depend on saturated upstream /api/ps; readiness may."""
+    doc = _load_yaml("deployment.yaml")
+    broker = next(
+        c
+        for c in doc["spec"]["template"]["spec"]["containers"]
+        if c["name"] == "resource-broker"
+    )
+    assert broker["livenessProbe"]["httpGet"]["path"] == "/health"
+    assert broker["livenessProbe"]["timeoutSeconds"] == 3
+    assert broker["readinessProbe"]["httpGet"]["path"] == "/ready"
+    assert broker["readinessProbe"]["timeoutSeconds"] == 5
+
+
+@pytest.mark.unit
 def test_broker_runs_current_orchestration_source() -> None:
     """The pinned coordinator image predates the broker modules."""
     doc = _load_yaml("deployment.yaml")

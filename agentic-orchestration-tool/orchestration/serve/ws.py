@@ -191,6 +191,8 @@ class WsConnection:
         self._last_queue_extra: dict[str, Any] = {}
         self._overlay_preparing = False
         self._overlay_cancel = threading.Event()
+        self._agent_states: dict[str, str] = {}
+        self._overlay_agents: list[dict[str, Any]] = []
 
     # ---- transport -------------------------------------------------------
 
@@ -205,6 +207,60 @@ class WsConnection:
             return
         with contextlib.suppress(RuntimeError):
             asyncio.run_coroutine_threadsafe(self.send(payload), self._loop)
+
+    def emit_agent_state(
+        self,
+        agent_provider_id: str,
+        state: str,
+        *,
+        reason: str | None = None,
+        detail: str | None = None,
+        model: str | None = None,
+        progress: float | None = None,
+        question_id: str | None = None,
+    ) -> None:
+        """Push ``type: agent_state`` (thread-safe)."""
+        from orchestration.agent_lifecycle import agent_state_frame
+
+        pid = str(agent_provider_id or "").strip()
+        if not pid:
+            return
+        try:
+            frame = agent_state_frame(
+                pid,
+                state,
+                reason=reason,
+                detail=detail,
+                model=model,
+                progress=progress,
+                question_id=question_id,
+            )
+        except ValueError:
+            return
+        self._agent_states[pid] = state
+        self.send_threadsafe(frame)
+
+    def emit_agent_states(
+        self,
+        agent_ids: list[str],
+        state: str,
+        *,
+        reason: str | None = None,
+        detail: str | None = None,
+        model: str | None = None,
+        progress: float | None = None,
+        question_id: str | None = None,
+    ) -> None:
+        for pid in agent_ids:
+            self.emit_agent_state(
+                pid,
+                state,
+                reason=reason,
+                detail=detail,
+                model=model,
+                progress=progress,
+                question_id=question_id,
+            )
 
     async def send_error(
         self,
@@ -466,6 +522,7 @@ class WsConnection:
             "sessionOverlay": session_overlay_enabled(),
             "mcpTunnel": mcp_tunnel_enabled(),
             "customToolSandbox": custom_tool_sandbox_enabled(),
+            "agentState": True,
             "userName": self.identity.user_name,
             "sessionId": self.identity.session_id,
             "userId": self.identity.user_id,
@@ -522,6 +579,18 @@ class WsConnection:
         clear_overlay_for_connection(self.connection_id)
         unregister_connection_bridge(self.connection_id)
         self._cancel_overlay_prepare(force_pull=False)
+        if self._overlay_agents:
+            from orchestration.agent_lifecycle import (
+                AGENT_STATE_DOWN,
+                AGENT_STATE_STOPPING,
+                overlay_agent_ids,
+            )
+
+            ids = overlay_agent_ids(self._overlay_agents)
+            self.emit_agent_states(ids, AGENT_STATE_STOPPING, reason="disconnect")
+            self.emit_agent_states(ids, AGENT_STATE_DOWN, reason="disconnect")
+            self._overlay_agents = []
+            self._agent_states.clear()
 
     # ---- dispatch --------------------------------------------------------
 
@@ -545,6 +614,7 @@ class WsConnection:
                 "sessionOverlay": session_overlay_enabled(),
                 "mcpTunnel": mcp_tunnel_enabled(),
                 "customToolSandbox": custom_tool_sandbox_enabled(),
+                "agentState": True,
             }
             speech = speech_hello_payload()
             if speech is not None:
@@ -706,9 +776,68 @@ class WsConnection:
 
         def progress(line: str) -> None:
             self._progress_to_status(line, {})
+            from orchestration.agent_lifecycle import (
+                AGENT_STATE_PULLING,
+                looks_like_ollama_pull_line,
+                ollama_agent_ids_for_model,
+                parse_pull_progress,
+            )
+
+            if not looks_like_ollama_pull_line(line):
+                return
+            model = None
+            lower = line.casefold()
+            for entry in self._overlay_agents:
+                mid = str(entry.get("model") or "").removeprefix("ollama/").strip()
+                if mid and mid.casefold() in lower:
+                    model = mid
+                    break
+            ids = (
+                ollama_agent_ids_for_model(self._overlay_agents, model)
+                if model
+                else [
+                    str(e.get("id") or "").strip()
+                    for e in self._overlay_agents
+                    if str(e.get("type") or "").lower() == "ollama"
+                    and str(e.get("id") or "").strip()
+                ]
+            )
+            self.emit_agent_states(
+                ids,
+                AGENT_STATE_PULLING,
+                reason="ollama_pull",
+                model=model,
+                detail=line[:200],
+                progress=parse_pull_progress(line),
+            )
+
+        def on_lifecycle(event: str, data: dict[str, Any]) -> None:
+            from orchestration.agent_lifecycle import (
+                AGENT_STATE_PULLING,
+                ollama_agent_ids_for_model,
+            )
+
+            model = str((data or {}).get("model") or "")
+            ids = ollama_agent_ids_for_model(self._overlay_agents, model)
+            if event == "pulling" and ids:
+                self.emit_agent_states(
+                    ids,
+                    AGENT_STATE_PULLING,
+                    reason=str((data or {}).get("reason") or "ollama_pull"),
+                    model=model,
+                    detail=f"pulling {model}",
+                )
 
         self._overlay_cancel.clear()
         self._overlay_preparing = True
+        self._overlay_agents = list(overlay.agents)
+        from orchestration.agent_lifecycle import AGENT_STATE_STARTING, overlay_agent_ids
+
+        self.emit_agent_states(
+            overlay_agent_ids(overlay.agents),
+            AGENT_STATE_STARTING,
+            reason="overlay_register",
+        )
         from orchestration.background_activity import clear_activity, set_activity
         from orchestration.progress_sink import progress_callback
         from agent_providers.ollama_provider import OllamaPullCancelled
@@ -734,6 +863,7 @@ class WsConnection:
                     on_progress=progress,
                     cancel_event=self._overlay_cancel,
                     connection_id=self.connection_id,
+                    on_lifecycle=on_lifecycle,
                 )
         except OllamaPullCancelled as exc:
             clear_overlay(
@@ -742,6 +872,14 @@ class WsConnection:
                 connection_id=self.connection_id,
             )
             clear_activity(connection_id=self.connection_id)
+            from orchestration.agent_lifecycle import AGENT_STATE_DOWN, overlay_agent_ids
+
+            self.emit_agent_states(
+                overlay_agent_ids(overlay.agents),
+                AGENT_STATE_DOWN,
+                reason="cancelled",
+                detail=str(exc),
+            )
             await self.send_error(str(exc), code="cancelled", phase="cancelled")
             return
         except Exception as exc:  # noqa: BLE001
@@ -751,6 +889,15 @@ class WsConnection:
                 connection_id=self.connection_id,
             )
             clear_activity(connection_id=self.connection_id)
+            from orchestration.agent_lifecycle import AGENT_STATE_DOWN, overlay_agent_ids
+
+            reason = "ollama_unreachable" if "not reachable" in str(exc).casefold() else "ensure_failed"
+            self.emit_agent_states(
+                overlay_agent_ids(overlay.agents),
+                AGENT_STATE_DOWN,
+                reason=reason,
+                detail=str(exc) or exc.__class__.__name__,
+            )
             await self.send_error(str(exc) or exc.__class__.__name__)
             return
         finally:
@@ -767,6 +914,13 @@ class WsConnection:
             unregister_connection_bridge(self.connection_id)
 
         clear_activity(connection_id=self.connection_id)
+        from orchestration.agent_lifecycle import AGENT_STATE_READY, overlay_agent_ids
+
+        self.emit_agent_states(
+            overlay_agent_ids(overlay.agents),
+            AGENT_STATE_READY,
+            reason="overlay_ack",
+        )
         await self.send(
             {
                 "type": "session_overlay_ack",
@@ -795,6 +949,17 @@ class WsConnection:
         )
         unregister_connection_bridge(self.connection_id)
         self._cancel_overlay_prepare(force_pull=False)
+        if self._overlay_agents:
+            from orchestration.agent_lifecycle import (
+                AGENT_STATE_DOWN,
+                AGENT_STATE_STOPPING,
+                overlay_agent_ids,
+            )
+
+            ids = overlay_agent_ids(self._overlay_agents)
+            self.emit_agent_states(ids, AGENT_STATE_STOPPING, reason="overlay_clear")
+            self.emit_agent_states(ids, AGENT_STATE_DOWN, reason="overlay_clear")
+            self._overlay_agents = []
         await self.send({"type": "session_overlay_cleared"})
 
     async def handle_mcp_tunnel_response(self, message: dict[str, Any]) -> None:
@@ -1046,6 +1211,15 @@ class WsConnection:
         response_format = message.get("responseFormat") or message.get("response_format")
         if isinstance(response_format, dict):
             tag["responseFormat"] = response_format
+        agent_provider_id = str(
+            message.get("agent_provider_id") or message.get("agentProviderId") or ""
+        ).strip()
+        if not agent_provider_id:
+            selected = message.get("selectedAgentProviderIds")
+            if selected is None:
+                selected = message.get("selected_agent_provider_ids")
+            if isinstance(selected, list) and selected:
+                agent_provider_id = str(selected[0] or "").strip()
         log_extra = {"question_id": question_id} if question_id else None
         emit_log(
             f"engine {kind} start",
@@ -1053,6 +1227,15 @@ class WsConnection:
             component="engine",
             extra=log_extra,
         )
+        if kind == "direct_agent" and agent_provider_id:
+            from orchestration.agent_lifecycle import AGENT_STATE_BUSY
+
+            self.emit_agent_state(
+                agent_provider_id,
+                AGENT_STATE_BUSY,
+                reason="direct_agent",
+                question_id=question_id,
+            )
         app_id_s = self._resolve_app_id(message)
         token_id_s = str(
             message.get("tokenId") or message.get("token_id") or ""
@@ -1383,6 +1566,19 @@ class WsConnection:
             self._clear_connection_activity()
             if question_id is None:
                 self._busy = False
+            if kind == "direct_agent" and agent_provider_id:
+                from orchestration.agent_lifecycle import AGENT_STATE_READY
+
+                # Overlay still owns the agent → ready; otherwise leave prior state.
+                if agent_provider_id in {
+                    str(e.get("id") or "").strip() for e in self._overlay_agents
+                } or self._agent_states.get(agent_provider_id) == "busy":
+                    self.emit_agent_state(
+                        agent_provider_id,
+                        AGENT_STATE_READY,
+                        reason="run_end",
+                        question_id=question_id,
+                    )
             try:
                 from orchestration.llm_usage import reset_usage_context
 

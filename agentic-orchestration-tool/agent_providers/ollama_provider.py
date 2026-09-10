@@ -420,11 +420,38 @@ def ollama_listen_addr(host: str) -> str:
 
 
 def is_ollama_healthy(host: str) -> bool:
-    try:
-        with urllib.request.urlopen(f"{host}/api/tags", timeout=2) as response:
-            return 200 <= response.status < 300
-    except (urllib.error.URLError, TimeoutError, ValueError):
-        return False
+    from orchestration.ollama_health import is_ollama_healthy as _healthy
+
+    return _healthy(host)
+
+
+def wait_for_ollama_healthy(
+    host: str,
+    *,
+    attempts: int = 3,
+    delays_s: tuple[float, ...] = (0.5, 1.0, 2.0),
+    cancel_event: threading.Event | None = None,
+) -> bool:
+    """Retry ``is_ollama_healthy`` for brief broker restart flaps.
+
+    Uses this module's ``is_ollama_healthy`` so unit tests can monkeypatch it.
+    """
+    host_n = normalize_ollama_host(host)
+    max_attempts = max(1, int(attempts))
+    for i in range(max_attempts):
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        if is_ollama_healthy(host_n):
+            return True
+        if i + 1 >= max_attempts:
+            break
+        delay = delays_s[min(i, len(delays_s) - 1)] if delays_s else 0.5
+        if cancel_event is not None:
+            if cancel_event.wait(timeout=delay):
+                return False
+        else:
+            time.sleep(delay)
+    return False
 
 
 def ollama_has_model(host: str, model: str) -> bool:
@@ -465,19 +492,24 @@ def ensure_ollama_model_on_api(
     on_progress: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
     connection_id: str | None = None,
+    on_lifecycle: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> None:
     """Ensure ``model`` exists on an already-running Ollama HTTP API (tags → pull).
 
     Never installs Ollama or spawns ``ollama serve``. Used for session-overlay agents
     on shared hosts (e.g. Jetson ``OLLAMA_API_BASE``) where the daemon is external.
+
+    ``on_lifecycle`` receives ``("pulling"|"ready", {"model": ...})`` for Reach
+    agent_state frames (``pulling`` is a first-class state, not a reason).
     """
     model_clean = str(model or "").removeprefix("ollama/").strip()
     if not model_clean:
         raise ValueError("model is required")
     host_n = normalize_ollama_host(host)
     log = on_progress or (lambda _m: None)
+    life = on_lifecycle or (lambda _s, _d: None)
 
-    if not is_ollama_healthy(host_n):
+    if not wait_for_ollama_healthy(host_n, cancel_event=cancel_event):
         raise RuntimeError(
             f"Ollama is not reachable at {host_n}. "
             "Configure OLLAMA_API_BASE / OLLAMA_HOST to a running server "
@@ -485,8 +517,10 @@ def ensure_ollama_model_on_api(
         )
     if ollama_has_model(host_n, model_clean):
         log(f"ollama model ready: {model_clean} at {host_n}")
+        life("ready", {"model": model_clean})
         return
     log(f"ollama model missing: {model_clean}; pulling via {host_n} …")
+    life("pulling", {"model": model_clean, "reason": "ollama_pull"})
     try:
         pull_ollama_model(
             model_clean,
@@ -506,6 +540,7 @@ def ensure_ollama_model_on_api(
             f"not listed in /api/tags after pull at {host_n}"
         )
     log(f"ollama model ready: {model_clean} at {host_n}")
+    life("ready", {"model": model_clean})
 
 
 def install_ollama_native_linux() -> None:
