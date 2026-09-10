@@ -892,12 +892,24 @@ def test_ws_session_overlay_register_ensures_ollama_model(
     reset_overlays_for_tests()
     seen: list[list] = []
 
-    def fake_ensure(agents, *, on_progress=None, cancel_event=None, connection_id=None):
+    def fake_ensure(
+        agents,
+        *,
+        on_progress=None,
+        cancel_event=None,
+        connection_id=None,
+        on_lifecycle=None,
+        **_kwargs,
+    ):
         seen.append(list(agents))
         if on_progress:
             on_progress("ollama model missing: qwen2.5:3b; pulling …")
             on_progress("ollama pull: starting qwen2.5:3b")
             on_progress("ollama pull: pulling abc  40%")
+            on_progress("ollama model ready: qwen2.5:3b")
+        if on_lifecycle:
+            on_lifecycle("pulling", {"model": "qwen2.5:3b", "reason": "ollama_pull"})
+            on_lifecycle("ready", {"model": "qwen2.5:3b"})
 
     monkeypatch.setattr(sor, "ensure_session_overlay_ollama_models", fake_ensure)
     headers = {"x-agentic-user-name": "Ada", "x-agentic-session-id": "sess-pull"}
