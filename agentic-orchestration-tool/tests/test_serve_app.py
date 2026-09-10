@@ -774,7 +774,7 @@ def test_ws_session_overlay_register_ack_and_clear(
                 }
             )
             ack = ws.receive_json()
-            while ack["type"] in ("status", "chunk"):
+            while ack["type"] in ("status", "chunk", "agent_state"):
                 ack = ws.receive_json()
             assert ack["type"] == "session_overlay_ack"
             assert ack["agentIds"] == ["client.kb_researcher"]
@@ -784,6 +784,8 @@ def test_ws_session_overlay_register_ack_and_clear(
 
             ws.send_json({"type": "session_overlay_clear"})
             cleared = ws.receive_json()
+            while cleared["type"] in ("agent_state",):
+                cleared = ws.receive_json()
             assert cleared["type"] == "session_overlay_cleared"
             assert get_overlay("ada", "sess-1") is None
 

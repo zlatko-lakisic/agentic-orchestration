@@ -432,14 +432,26 @@ def wait_for_ollama_healthy(
     delays_s: tuple[float, ...] = (0.5, 1.0, 2.0),
     cancel_event: threading.Event | None = None,
 ) -> bool:
-    from orchestration.ollama_health import wait_for_ollama_healthy as _wait
+    """Retry ``is_ollama_healthy`` for brief broker restart flaps.
 
-    return _wait(
-        host,
-        attempts=attempts,
-        delays_s=delays_s,
-        cancel_event=cancel_event,
-    )
+    Uses this module's ``is_ollama_healthy`` so unit tests can monkeypatch it.
+    """
+    host_n = normalize_ollama_host(host)
+    max_attempts = max(1, int(attempts))
+    for i in range(max_attempts):
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        if is_ollama_healthy(host_n):
+            return True
+        if i + 1 >= max_attempts:
+            break
+        delay = delays_s[min(i, len(delays_s) - 1)] if delays_s else 0.5
+        if cancel_event is not None:
+            if cancel_event.wait(timeout=delay):
+                return False
+        else:
+            time.sleep(delay)
+    return False
 
 
 def ollama_has_model(host: str, model: str) -> bool:
