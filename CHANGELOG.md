@@ -7,9 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-09-10
+
 ### Added
 
 - **Admin Ollama model pull UI** — Models & hardware page lists tags from the configured Ollama runtime and can pull a model tag via `GET/POST /api/v1/admin/ollama/{tags,pull}`.
+
+### Fixed
+
+- **direct_ollama ignored overlay temperature / num_ctx** — JSON `/api/chat` path now forwards those options from overlay agent YAML so campaign_director pins take effect.
 
 ## [2.8.0] - 2026-09-10
 
