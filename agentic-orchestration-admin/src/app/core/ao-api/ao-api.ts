@@ -28,6 +28,8 @@ import {
   TopologyResponse,
   TracesListResponse,
   LlmUsageResponse,
+  OllamaPullResponse,
+  OllamaTagsResponse,
 } from './types';
 import type {
   TopologyGraph,
@@ -306,6 +308,14 @@ export class AoApi {
 
   controlRestart(body: { target: string; confirm?: string }) {
     return this.post<ControlRestartResult>('/api/v1/admin/control/restart', body);
+  }
+
+  ollamaTags() {
+    return this.get<OllamaTagsResponse>('/api/v1/admin/ollama/tags');
+  }
+
+  ollamaPull(body: { model: string }) {
+    return this.post<OllamaPullResponse>('/api/v1/admin/ollama/pull', body);
   }
 
   cancelBackgroundActivity() {
