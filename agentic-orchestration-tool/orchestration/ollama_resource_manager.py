@@ -544,6 +544,37 @@ class OllamaResourceManager:
                 head.event.set()
                 self._cond.notify_all()
 
+    def local_status(self) -> dict[str, Any]:
+        """In-memory broker metrics only — never calls upstream Ollama.
+
+        Safe for kubelet liveness: must not block on a saturated daemon.
+        """
+        with self._lock:
+            active = {k: v for k, v in self._active.items() if v > 0}
+            return {
+                "enabled": True,
+                "upstream": self.upstream_base,
+                "active": active,
+                "queueDepth": len(self._queue),
+                "admits": self._admits,
+                "rejects": self._rejects,
+                "evictions": self._evictions,
+                "lastError": self._last_error,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+
+    def ping_upstream(self, *, timeout_s: float = 1.0) -> bool:
+        """True when upstream Ollama answers ``GET /api/tags`` within ``timeout_s``."""
+        timeout = max(0.05, float(timeout_s))
+        try:
+            res = self._http().get(
+                f"{self.upstream_base}/api/tags",
+                timeout=timeout,
+            )
+            return bool(res.is_success)
+        except (httpx.HTTPError, ValueError, TypeError):
+            return False
+
     def status(self) -> dict[str, Any]:
         loaded = self.list_loaded_models()
         with self._lock:
