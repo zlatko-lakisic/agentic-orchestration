@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-09-10
+
 ### Fixed
 
 - **Ollama resource-broker liveness under load** — `/health` no longer calls upstream
