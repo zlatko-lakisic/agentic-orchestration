@@ -543,6 +543,48 @@ def ensure_ollama_model_on_api(
     life("ready", {"model": model_clean})
 
 
+def warmup_ollama_model_on_api(
+    *,
+    model: str,
+    host: str,
+    timeout_seconds: float = 300.0,
+    on_progress: Callable[[str], None] | None = None,
+    on_lifecycle: Callable[[str, dict[str, Any]], None] | None = None,
+) -> None:
+    """Load ``model`` into VRAM with a one-token ``/api/generate`` (keepalive-style).
+
+    Raises on HTTP/network failure so callers can choose to soft-fail.
+    """
+    import httpx
+
+    model_clean = str(model or "").removeprefix("ollama/").strip()
+    if not model_clean:
+        raise ValueError("model is required")
+    host_n = normalize_ollama_host(host)
+    log = on_progress or (lambda _m: None)
+    life = on_lifecycle or (lambda _s, _d: None)
+    timeout_s = max(30.0, min(7200.0, float(timeout_seconds)))
+    life(
+        "loading",
+        {"model": model_clean, "reason": "vram_warmup", "timeout_s": timeout_s},
+    )
+    log(f"ollama prewarm: {model_clean} at {host_n} (timeout_s={timeout_s:g})")
+    body: dict[str, Any] = {
+        "model": model_clean,
+        "prompt": " ",
+        "stream": False,
+        "options": {"num_predict": 1},
+    }
+    with httpx.Client(timeout=timeout_s) as client:
+        res = client.post(f"{host_n}/api/generate", json=body)
+        if not res.is_success:
+            raise RuntimeError(
+                f"ollama prewarm failed for {model_clean!r}: "
+                f"HTTP {res.status_code} {res.text[:200]}"
+            )
+    log(f"ollama prewarm ok: {model_clean}")
+
+
 def install_ollama_native_linux() -> None:
     """Install upstream Ollama via ollama.com install.sh (ARM64 CUDA on Jetson when supported)."""
     out, err = _ollama_subprocess_stdio()

@@ -270,6 +270,7 @@ class WsConnection:
         run_id: str | None = None,
         code: str | None = None,
         phase: str | None = None,
+        detail: str | None = None,
     ) -> None:
         payload: dict[str, Any] = {
             "type": "error",
@@ -279,6 +280,8 @@ class WsConnection:
         }
         if code:
             payload["code"] = code
+        if detail:
+            payload["detail"] = detail
         if question_id:
             payload["question_id"] = question_id
         if run_id:
@@ -813,19 +816,30 @@ class WsConnection:
 
         def on_lifecycle(event: str, data: dict[str, Any]) -> None:
             from orchestration.agent_lifecycle import (
+                AGENT_STATE_LOADING,
                 AGENT_STATE_PULLING,
                 ollama_agent_ids_for_model,
             )
 
             model = str((data or {}).get("model") or "")
             ids = ollama_agent_ids_for_model(self._overlay_agents, model)
-            if event == "pulling" and ids:
+            if not ids:
+                return
+            if event == "pulling":
                 self.emit_agent_states(
                     ids,
                     AGENT_STATE_PULLING,
                     reason=str((data or {}).get("reason") or "ollama_pull"),
                     model=model,
                     detail=f"pulling {model}",
+                )
+            elif event == "loading":
+                self.emit_agent_states(
+                    ids,
+                    AGENT_STATE_LOADING,
+                    reason=str((data or {}).get("reason") or "vram_warmup"),
+                    model=model,
+                    detail=f"loading {model} into VRAM",
                 )
 
         self._overlay_cancel.clear()
@@ -1477,6 +1491,7 @@ class WsConnection:
                 question_id=question_id,
                 run_id=run_id,
                 code=err_code,
+                detail=exc.message,
             )
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
@@ -1485,6 +1500,7 @@ class WsConnection:
                     "ok": False,
                     "exitCode": 0,
                     "error": friendly,
+                    "detail": exc.message,
                     "code": err_code,
                     "text": getattr(exc, "raw", None),
                     "elapsedMs": elapsed_ms,
@@ -1537,6 +1553,7 @@ class WsConnection:
                 question_id=question_id,
                 run_id=run_id,
                 code=err_code,
+                detail=err_msg,
             )
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             await self.send(
@@ -1545,6 +1562,7 @@ class WsConnection:
                     "ok": False,
                     "exitCode": 1,
                     "error": friendly,
+                    "detail": err_msg,
                     "code": err_code,
                     "elapsedMs": elapsed_ms,
                     "processing": False,
