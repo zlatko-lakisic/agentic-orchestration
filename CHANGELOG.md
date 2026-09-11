@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Optional overlay Ollama VRAM prewarm** — agent YAML `prewarm: true` (or
+  `AGENTIC_OLLAMA_OVERLAY_PREWARM=1`) runs a one-token `/api/generate` after
+  tags/pull and emits first-class `agent_state: loading` before `ready`. Soft-fails
+  on warmup errors so overlay still acks; chat timeout covers cold path.
+- **Per-agent `chat_timeout_sec`** — optional on agent YAML (or
+  `options.chat_timeout_sec`); falls through to `AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC`
+  then **600s**.
+
+### Fixed
+
+- **JSON `direct_agent` Ollama `/api/chat` hardcoded 120s wall** — cold load +
+  constrained decode on shared GPUs routinely exceeded 120s while Reach clients
+  waited 600s+. Timeout is now configurable (YAML → env → 600); timeouts raise
+  `TimeoutError` (`code=timeout`) with `detail` on WS `error` / `run_end`.
+
 ## [2.9.0] - 2026-09-10
 
 ### Added

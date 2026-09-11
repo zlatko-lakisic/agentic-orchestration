@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from orchestration.agent_lifecycle import (
+    AGENT_STATE_LOADING,
     AGENT_STATE_PULLING,
     AGENT_STATE_READY,
     agent_state_frame,
@@ -29,6 +30,19 @@ def test_agent_state_frame_pulling_is_first_class() -> None:
     assert frame["agentProviderId"] == "client.campaign_director"
     assert frame["model"] == "qwen3.5:9b"
     assert frame["progress"] == pytest.approx(0.42)
+
+
+@pytest.mark.unit
+def test_agent_state_frame_loading_is_first_class() -> None:
+    frame = agent_state_frame(
+        "client.campaign_director",
+        AGENT_STATE_LOADING,
+        reason="vram_warmup",
+        model="qwen3.5:4b",
+        detail="loading qwen3.5:4b into VRAM",
+    )
+    assert frame["state"] == "loading"
+    assert frame["reason"] == "vram_warmup"
 
 
 @pytest.mark.unit

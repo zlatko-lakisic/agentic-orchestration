@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -30,6 +32,45 @@ DEFAULT_EXPECTED_OUTPUT = (
 JSON_EXPECTED_OUTPUT = (
     "Return a single JSON object only. No markdown fences, no preamble, no trailing prose."
 )
+
+_DEFAULT_OLLAMA_CHAT_TIMEOUT_SEC = 600.0
+_MIN_OLLAMA_CHAT_TIMEOUT_SEC = 30.0
+_MAX_OLLAMA_CHAT_TIMEOUT_SEC = 7200.0
+
+
+def _parse_positive_float(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def ollama_chat_timeout_sec(entry: dict[str, Any] | None = None) -> float:
+    """Resolve non-streaming Ollama ``/api/chat`` wall timeout.
+
+    Order: agent YAML ``chat_timeout_sec`` (or ``options.chat_timeout_sec``) →
+    ``AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC`` → 600. Missing / blank / unparseable / ≤0
+    values fall through. Result is clamped to ``[30, 7200]``.
+    """
+    raw: Any = None
+    if isinstance(entry, dict):
+        raw = entry.get("chat_timeout_sec")
+        if raw is None and isinstance(entry.get("options"), dict):
+            raw = entry["options"].get("chat_timeout_sec")
+    value = _parse_positive_float(raw)
+    if value is None:
+        value = _parse_positive_float(os.getenv("AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC"))
+    if value is None:
+        value = _DEFAULT_OLLAMA_CHAT_TIMEOUT_SEC
+    return max(_MIN_OLLAMA_CHAT_TIMEOUT_SEC, min(_MAX_OLLAMA_CHAT_TIMEOUT_SEC, float(value)))
 
 
 class DirectAgentFormatError(Exception):
@@ -365,8 +406,9 @@ def _ollama_chat_json(
             pass
     if options:
         body["options"] = options
+    timeout_s = ollama_chat_timeout_sec(entry)
     if on_progress:
-        on_progress("generating")
+        on_progress(f"generating (timeout_s={timeout_s:g})")
     raw_http = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         f"{host}/api/chat",
@@ -374,8 +416,24 @@ def _ollama_chat_json(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    started = time.monotonic()
+
+    def _raise_chat_timeout(exc: BaseException) -> None:
+        elapsed = time.monotonic() - started
+        raise TimeoutError(
+            f"Ollama /api/chat timed out after {timeout_s:g}s (elapsed={elapsed:.1f}s)"
+        ) from exc
+
+    def _is_timeout(exc: BaseException) -> bool:
+        if isinstance(exc, (TimeoutError, socket.timeout)):
+            return True
+        name = exc.__class__.__name__.casefold()
+        if "timeout" in name:
+            return True
+        return "timed out" in str(exc).casefold()
+
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
@@ -389,13 +447,17 @@ def _ollama_chat_json(
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req2, timeout=120) as resp:
+                with urllib.request.urlopen(req2, timeout=timeout_s) as resp:
                     payload = json.loads(resp.read().decode("utf-8"))
             except Exception as exc2:  # noqa: BLE001
+                if _is_timeout(exc2):
+                    _raise_chat_timeout(exc2)
                 raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
         else:
             raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
     except Exception as exc:  # noqa: BLE001
+        if _is_timeout(exc):
+            _raise_chat_timeout(exc)
         raise RuntimeError(f"Ollama /api/chat failed: {exc}") from exc
 
     message = payload.get("message") if isinstance(payload, dict) else None

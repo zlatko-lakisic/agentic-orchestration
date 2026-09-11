@@ -2,7 +2,7 @@
 
 States are sticky per ``agentProviderId`` on a WebSocket connection. ``pulling``
 is first-class (not a reason under ``starting``) and is only used for local
-Ollama ensure/pull.
+Ollama ensure/pull. ``loading`` is VRAM warmup (optional prewarm) before ``ready``.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import Any
 AGENT_STATE_DOWN = "down"
 AGENT_STATE_STARTING = "starting"
 AGENT_STATE_PULLING = "pulling"
+AGENT_STATE_LOADING = "loading"
 AGENT_STATE_READY = "ready"
 AGENT_STATE_BUSY = "busy"
 AGENT_STATE_STOPPING = "stopping"
@@ -21,6 +22,7 @@ AGENT_STATES = frozenset(
         AGENT_STATE_DOWN,
         AGENT_STATE_STARTING,
         AGENT_STATE_PULLING,
+        AGENT_STATE_LOADING,
         AGENT_STATE_READY,
         AGENT_STATE_BUSY,
         AGENT_STATE_STOPPING,
