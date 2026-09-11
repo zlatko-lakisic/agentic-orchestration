@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-10
+
 ### Added
 
 - **Optional overlay Ollama VRAM prewarm** — agent YAML `prewarm: true` (or
