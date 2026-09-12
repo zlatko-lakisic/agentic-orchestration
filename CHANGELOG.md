@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reach multimodal vision LiteLLM 180s wall** — `client.map_target_vision` /
+  image `direct_agent` used `AGENTIC_REACH_VISION_TIMEOUT_SECONDS` default **180**
+  while COMSTAR waits 600s. Default is now **600**; resolution is YAML
+  `chat_timeout_sec` → `AGENTIC_REACH_VISION_TIMEOUT_SECONDS` →
+  `AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC` → 600. LiteLLM/Ollama timeouts raise
+  `TimeoutError` (`code=timeout`).
+
 ## [2.10.0] - 2026-09-10
 
 ### Added

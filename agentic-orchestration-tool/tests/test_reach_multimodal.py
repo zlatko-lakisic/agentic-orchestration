@@ -20,6 +20,7 @@ from orchestration.reach_multimodal import (
     run_reach_multimodal,
     split_model_hint,
     system_prompt_for_agent,
+    vision_timeout_seconds,
 )
 
 pytestmark = pytest.mark.unit
@@ -44,6 +45,8 @@ def _clear_vision_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AGENTIC_REACH_MAX_IMAGES",
         "AGENTIC_REACH_MAX_IMAGE_BYTES",
         "AGENTIC_REACH_MAX_IMAGES_TOTAL_BYTES",
+        "AGENTIC_REACH_VISION_TIMEOUT_SECONDS",
+        "AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC",
         "OPENAI_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -347,7 +350,62 @@ def test_run_returns_plain_text_answer(
 
     assert answer.splitlines()[0] == "PERSON"
     assert fake.calls[0]["model"] == "openai/gpt-4o-mini"
-    assert fake.calls[0]["timeout"] >= 120
+    assert fake.calls[0]["timeout"] == 600.0
+
+
+def test_vision_timeout_defaults_to_600() -> None:
+    assert vision_timeout_seconds() == 600.0
+
+
+def test_vision_timeout_prefers_yaml_then_vision_env_then_chat_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC", "400")
+    monkeypatch.setenv("AGENTIC_REACH_VISION_TIMEOUT_SECONDS", "500")
+    assert vision_timeout_seconds() == 500.0
+    assert vision_timeout_seconds({"chat_timeout_sec": 700}) == 700.0
+    assert vision_timeout_seconds({"options": {"chat_timeout_sec": 90}}) == 90.0
+
+
+def test_vision_timeout_clamps_and_falls_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert vision_timeout_seconds({"chat_timeout_sec": 5}) == 30.0
+    assert vision_timeout_seconds({"chat_timeout_sec": 99999}) == 7200.0
+    monkeypatch.setenv("AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC", "450")
+    assert vision_timeout_seconds() == 450.0
+
+
+def test_run_passes_resolved_timeout_to_litellm(
+    fake_litellm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_VISION_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("AGENTIC_REACH_VISION_TIMEOUT_SECONDS", "777")
+    fake = fake_litellm("PERSON\nSomeone.\nGate")
+
+    run_reach_multimodal(text="classify", images=parse_reach_images([_image_payload()]))
+
+    assert fake.calls[0]["timeout"] == 777.0
+
+
+def test_run_maps_litellm_timeout_to_timeout_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_VISION_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("AGENTIC_REACH_VISION_TIMEOUT_SECONDS", "180")
+    monkeypatch.setenv("AGENTIC_TOOL_ROOT", str(tmp_path))
+
+    class _TimeoutLiteLLM:
+        def completion(self, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError(
+                "litellm.APIConnectionError: OllamaException - "
+                "litellm.Timeout: Connection timed out after 180.0 seconds."
+            )
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "litellm", _TimeoutLiteLLM())
+
+    with pytest.raises(TimeoutError, match="timed out after 180"):
+        run_reach_multimodal(text="classify", images=parse_reach_images([_image_payload()]))
 
 
 def test_run_strips_the_model_hint_from_the_prompt(

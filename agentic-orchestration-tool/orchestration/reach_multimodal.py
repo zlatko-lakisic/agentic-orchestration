@@ -30,7 +30,10 @@ ALLOWED_IMAGE_MIME_TYPES = frozenset(
 DEFAULT_MAX_IMAGES = 16
 DEFAULT_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024
-DEFAULT_TIMEOUT_SECONDS = 180.0
+#: Align with JSON ``direct_agent`` Ollama chat wall (COMSTAR waits 600s).
+DEFAULT_TIMEOUT_SECONDS = 600.0
+_MIN_VISION_TIMEOUT_SECONDS = 30.0
+_MAX_VISION_TIMEOUT_SECONDS = 7200.0
 
 #: Optional soft model hint HA prepends to ``text`` (``[model=gpt-4o-mini]\n…``).
 _MODEL_HINT_RE = re.compile(r"^\s*\[model\s*=\s*([^\]]{1,120})\]\s*\n?", re.IGNORECASE)
@@ -130,15 +133,44 @@ def max_total_image_bytes() -> int:
     return _env_int("AGENTIC_REACH_MAX_IMAGES_TOTAL_BYTES", DEFAULT_MAX_TOTAL_BYTES)
 
 
-def vision_timeout_seconds() -> float:
-    raw = os.getenv("AGENTIC_REACH_VISION_TIMEOUT_SECONDS", "").strip()
-    if not raw:
-        return DEFAULT_TIMEOUT_SECONDS
+def _parse_positive_timeout(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
     try:
-        value = float(raw)
-    except ValueError:
-        return DEFAULT_TIMEOUT_SECONDS
-    return value if value > 0 else DEFAULT_TIMEOUT_SECONDS
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def vision_timeout_seconds(entry: dict[str, Any] | None = None) -> float:
+    """Resolve LiteLLM vision completion wall timeout.
+
+    Order: agent YAML ``chat_timeout_sec`` (or ``options.chat_timeout_sec``) →
+    ``AGENTIC_REACH_VISION_TIMEOUT_SECONDS`` → ``AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC``
+    → 600. Result is clamped to ``[30, 7200]``.
+    """
+    raw: Any = None
+    if isinstance(entry, dict):
+        raw = entry.get("chat_timeout_sec")
+        if raw is None and isinstance(entry.get("options"), dict):
+            raw = entry["options"].get("chat_timeout_sec")
+    value = _parse_positive_timeout(raw)
+    if value is None:
+        value = _parse_positive_timeout(os.getenv("AGENTIC_REACH_VISION_TIMEOUT_SECONDS"))
+    if value is None:
+        value = _parse_positive_timeout(os.getenv("AGENTIC_OLLAMA_CHAT_TIMEOUT_SEC"))
+    if value is None:
+        value = DEFAULT_TIMEOUT_SECONDS
+    return max(
+        _MIN_VISION_TIMEOUT_SECONDS,
+        min(_MAX_VISION_TIMEOUT_SECONDS, float(value)),
+    )
 
 
 def ollama_api_base() -> str:
@@ -553,6 +585,7 @@ def run_reach_multimodal(
             f"LiteLLM is required for multimodal Reach turns but is unavailable: {exc}"
         ) from exc
 
+    timeout_sec = vision_timeout_seconds(entry if isinstance(entry, dict) else None)
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": build_vision_messages(
@@ -561,14 +594,26 @@ def run_reach_multimodal(
             system_prompt=system_prompt_for_agent(entry),
         ),
         "temperature": 0.1,
-        "timeout": vision_timeout_seconds(),
+        "timeout": timeout_sec,
     }
     if model.lower().startswith("ollama/"):
         kwargs["api_base"] = ollama_api_base()
 
     progress("generating")
     started = time.monotonic()
-    response = litellm.completion(**kwargs)
+    try:
+        response = litellm.completion(**kwargs)
+    except TimeoutError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # LiteLLM wraps Ollama aborts as Timeout / APIConnectionError with "timed out".
+        name = type(exc).__name__.lower()
+        text = str(exc).lower()
+        if "timeout" in name or "timed out" in text or "timeout" in text:
+            raise TimeoutError(
+                f"Vision model {model} timed out after {timeout_sec:g}s"
+            ) from exc
+        raise
     latency_ms = round((time.monotonic() - started) * 1000, 1)
 
     raw = _completion_text(response)
