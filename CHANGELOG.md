@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-09-11
+
 ### Fixed
 
 - **Reach multimodal vision LiteLLM 180s wall** — `client.map_target_vision` /
