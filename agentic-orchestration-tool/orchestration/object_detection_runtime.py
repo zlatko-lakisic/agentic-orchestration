@@ -167,16 +167,26 @@ def _available_providers() -> list[str]:
         import onnxruntime as ort  # type: ignore[import-untyped]
     except ImportError as exc:
         raise DetectionUnavailableError(
-            "onnxruntime is not installed; pip install -r requirements-detection.txt"
+            "onnxruntime is not installed; pip install -r requirements-detection.txt "
+            "(GPU: requirements-detection-gpu.txt)"
         ) from exc
+    # Preload NVIDIA pip wheels (cuda/cudnn) so CUDA EP can find libcudnn.so.
+    preload = getattr(ort, "preload_dlls", None)
+    if callable(preload):
+        try:
+            preload()
+        except Exception:  # noqa: BLE001
+            pass
     return list(ort.get_available_providers())
 
 
 def _create_session(model_path: Any, entry: dict[str, Any]) -> tuple[Any, str]:
     import onnxruntime as ort  # type: ignore[import-untyped]
+    import numpy as np
 
     preferred = resolve_execution_providers(entry)
     available = set(_available_providers())
+    iw, ih = _input_size(entry)
     last_err: Exception | None = None
     for provider in preferred:
         if provider not in available and provider != "CPUExecutionProvider":
@@ -186,6 +196,11 @@ def _create_session(model_path: Any, entry: dict[str, Any]) -> tuple[Any, str]:
                 str(model_path),
                 providers=[provider],
             )
+            inputs = sess.get_inputs()
+            input_name = inputs[0].name if inputs else "images"
+            # Probe inference — CUDA may list as available without cuDNN.
+            dummy = np.zeros((1, 3, ih, iw), dtype=np.float32)
+            sess.run(None, {input_name: dummy})
             used = sess.get_providers()[0] if sess.get_providers() else provider
             return sess, str(used)
         except Exception as exc:  # noqa: BLE001
@@ -193,7 +208,11 @@ def _create_session(model_path: Any, entry: dict[str, Any]) -> tuple[Any, str]:
             continue
     # Final fallback: let ORT pick
     try:
-        sess = ort.InferenceSession(str(model_path))
+        sess = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+        inputs = sess.get_inputs()
+        input_name = inputs[0].name if inputs else "images"
+        dummy = np.zeros((1, 3, ih, iw), dtype=np.float32)
+        sess.run(None, {input_name: dummy})
         used = sess.get_providers()[0] if sess.get_providers() else "CPUExecutionProvider"
         return sess, str(used)
     except Exception as exc:
@@ -370,15 +389,7 @@ def _get_or_create_resident(
     session, ep = _create_session(path, entry)
     inputs = session.get_inputs()
     input_name = inputs[0].name if inputs else "images"
-    # Warmup
-    import numpy as np
-
-    dummy = np.zeros((1, 3, ih, iw), dtype=np.float32)
-    try:
-        session.run(None, {input_name: dummy})
-    except Exception:  # noqa: BLE001
-        # Some models expect different layout; still mark loaded if session exists
-        pass
+    # Warmup already done inside _create_session probe.
     if on_lifecycle:
         on_lifecycle("ready", {"sha256": digest, "execution_provider": ep})
 

@@ -19,6 +19,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
   (`AGENTIC_MCP_DETECTION_ENABLED`), Reach overlay packer rules, harness
   profile `detection`, and opt-in live e2e (`AGENTIC_DETECTION_E2E=1`,
   `scripts/detection-e2e.ps1` / `.sh`). Answer cache bypasses detection JSON.
+  GPU hosts: `requirements-detection-gpu.txt` installs
+  `onnxruntime-gpu[cuda,cudnn]` (cuDNN 9 via pip); runtime calls
+  `ort.preload_dlls()` before session create.
 
 ## [2.10.1] - 2026-09-11
 
