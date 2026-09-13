@@ -31,6 +31,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **YOLOX ONNX postprocess** — top-left letterbox, 0–255 input (no `/255`), and
   official stride grid decode so live frames return boxes instead of empty lists.
+- **Reach vision empty/thinking replies** — coalesce `thinking` / `reasoning_content`
+  when `content` is empty (Qwen3-VL); preserve JSON object/array answers instead of
+  sanitizing them into prose.
 
 ## [2.10.1] - 2026-09-11
 

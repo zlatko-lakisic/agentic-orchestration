@@ -471,6 +471,24 @@ def load_vision_agent_entry(
 
 
 def _completion_text(response: Any) -> str:
+    """Extract user-visible text from a LiteLLM / OpenAI-style completion.
+
+    Qwen3-VL and other thinking models often leave ``message.content`` empty
+    (or as a list of parts) while putting the answer in ``thinking`` /
+    ``reasoning_content``. Reuse the CrewAI coalesce helpers so vision does
+    not fail closed on a usable reply.
+    """
+    from orchestration.llm_usage import (
+        _content_text,
+        apply_thinking_coalesce,
+        thinking_text_from_message,
+    )
+
+    try:
+        response = apply_thinking_coalesce(response, raise_if_empty=False)
+    except Exception:  # noqa: BLE001
+        pass
+
     if hasattr(response, "model_dump"):
         try:
             response = response.model_dump()
@@ -490,8 +508,48 @@ def _completion_text(response: Any) -> str:
     message = first.get("message")
     if not isinstance(message, dict):
         return ""
-    content = message.get("content")
-    return content.strip() if isinstance(content, str) else ""
+    content = _content_text(message.get("content")).strip()
+    if content:
+        return content
+    return thinking_text_from_message(message).strip()
+
+
+def _vision_usable_answer(raw: str) -> str:
+    """Sanitize vision replies without destroying structured JSON payloads.
+
+    COMSTAR map-target turns ask for a JSON object/array. ``sanitize_user_facing_prose``
+    unwraps JSON into speakable prose (or empty), which would blank a valid scan.
+    """
+    import json
+
+    from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
+    from orchestration.text_normalize import sanitize_user_facing_prose
+
+    text = str(raw or "").strip()
+    if not text or looks_like_mcp_tool_call_leak(text):
+        return ""
+
+    candidate = text
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidate = "\n".join(lines).strip()
+
+    if (
+        (candidate.startswith("{") and candidate.endswith("}"))
+        or (candidate.startswith("[") and candidate.endswith("]"))
+    ):
+        try:
+            json.loads(candidate)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        else:
+            return candidate
+
+    return sanitize_user_facing_prose(text)
 
 
 def _record_usage(
@@ -598,6 +656,8 @@ def run_reach_multimodal(
     }
     if model.lower().startswith("ollama/"):
         kwargs["api_base"] = ollama_api_base()
+        # Qwen3 / Qwen3-VL default to thinking; empty content then fails vision.
+        kwargs["think"] = False
 
     progress("generating")
     started = time.monotonic()
@@ -622,9 +682,8 @@ def run_reach_multimodal(
     )
 
     from orchestration.mcp_task_hints import looks_like_mcp_tool_call_leak
-    from orchestration.text_normalize import sanitize_user_facing_prose
 
-    answer = sanitize_user_facing_prose(raw)
+    answer = _vision_usable_answer(raw)
     if looks_like_mcp_tool_call_leak(raw) or not answer:
         # Never fall back to a text-only guess: an invented PERSON line would
         # trigger a real household notification.

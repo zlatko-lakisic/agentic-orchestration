@@ -353,6 +353,68 @@ def test_run_returns_plain_text_answer(
     assert fake.calls[0]["timeout"] == 600.0
 
 
+def test_run_preserves_json_array_answers(
+    fake_litellm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_VISION_MODEL", "openai/gpt-4o-mini")
+    payload = '[{"name":"Capua","x":0.4,"y":0.5}]'
+    fake_litellm(payload)
+
+    answer = run_reach_multimodal(
+        text="list settlements", images=parse_reach_images([_image_payload()])
+    )
+
+    assert answer == payload
+
+
+def test_run_coalesces_thinking_when_content_empty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_VISION_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("AGENTIC_TOOL_ROOT", str(tmp_path))
+
+    class _ThinkingLiteLLM:
+        calls: list[dict[str, Any]] = []
+
+        def completion(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(kwargs)
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "thinking": "PERSON\nSomeone at the gate.\nPerson",
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+
+    import sys
+
+    fake = _ThinkingLiteLLM()
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+
+    answer = run_reach_multimodal(
+        text="classify", images=parse_reach_images([_image_payload()])
+    )
+    assert answer.splitlines()[0] == "PERSON"
+
+
+def test_ollama_vision_disables_think(
+    fake_litellm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTIC_REACH_VISION_MODEL", "ollama/qwen3-vl:8b")
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+    fake = fake_litellm("PERSON\nSomeone.\nGate")
+
+    run_reach_multimodal(text="classify", images=parse_reach_images([_image_payload()]))
+
+    assert fake.calls[0]["model"] == "ollama/qwen3-vl:8b"
+    assert fake.calls[0]["think"] is False
+    assert fake.calls[0]["api_base"] == "http://127.0.0.1:11434"
+
+
 def test_vision_timeout_defaults_to_600() -> None:
     assert vision_timeout_seconds() == 600.0
 
