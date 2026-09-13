@@ -22,6 +22,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
   GPU hosts: `requirements-detection-gpu.txt` installs
   `onnxruntime-gpu[cuda,cudnn]` (cuDNN 9 via pip); runtime calls
   `ort.preload_dlls()` before session create.
+- **Jetson/Ada catalog** `detect_yolox_nano` — YOLOX-nano ONNX entry under
+  `config/agent_providers_jetson/`.
+- **HTTP `direct_agent` images** — `DirectAgentRequest.images` so detection (and
+  vision) can run without WS-only payloads.
+
+### Fixed
+
+- **YOLOX ONNX postprocess** — top-left letterbox, 0–255 input (no `/255`), and
+  official stride grid decode so live frames return boxes instead of empty lists.
 
 ## [2.10.1] - 2026-09-11
 

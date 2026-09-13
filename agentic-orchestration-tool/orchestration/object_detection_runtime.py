@@ -226,9 +226,10 @@ def letterbox(
     *,
     new_shape: tuple[int, int],
 ) -> tuple[Any, float, tuple[float, float]]:
-    """Resize with aspect ratio preserved and pad to ``new_shape`` (h, w).
+    """YOLOX-style letterbox: top-left paste, gray 114 pad.
 
-    Returns ``(padded_rgb_uint8, ratio, (pad_w, pad_h))``.
+    Returns ``(padded_rgb_uint8, ratio, (pad_w, pad_h))`` where pads are (0, 0)
+    for the YOLOX top-left layout (kept for API compatibility).
     """
     import numpy as np
     from PIL import Image
@@ -238,15 +239,13 @@ def letterbox(
     else:
         img = Image.fromarray(np.asarray(image)).convert("RGB")
     ow, oh = img.size
-    th, tw = new_shape[0], new_shape[1]
+    th, tw = int(new_shape[0]), int(new_shape[1])
     ratio = min(tw / ow, th / oh)
-    nw, nh = int(round(ow * ratio)), int(round(oh * ratio))
+    nw, nh = int(img.size[0] * ratio), int(img.size[1] * ratio)
     resized = img.resize((nw, nh), Image.BILINEAR)
     canvas = Image.new("RGB", (tw, th), (114, 114, 114))
-    pad_w = (tw - nw) / 2.0
-    pad_h = (th - nh) / 2.0
-    canvas.paste(resized, (int(round(pad_w)), int(round(pad_h))))
-    return canvas, ratio, (pad_w, pad_h)
+    canvas.paste(resized, (0, 0))
+    return canvas, float(ratio), (0.0, 0.0)
 
 
 def preprocess_image(
@@ -255,7 +254,7 @@ def preprocess_image(
     input_width: int,
     input_height: int,
 ) -> tuple[Any, int, int, float, tuple[float, float]]:
-    """Decode bytes → NCHW float32 [0,1], return meta for box mapping."""
+    """Decode bytes → NCHW float32 in 0–255 (YOLOX ONNX convention, not 0–1)."""
     import numpy as np
     from io import BytesIO
     from PIL import Image
@@ -263,8 +262,7 @@ def preprocess_image(
     img = Image.open(BytesIO(image_bytes)).convert("RGB")
     orig_w, orig_h = img.size
     padded, ratio, pads = letterbox(img, new_shape=(input_height, input_width))
-    arr = np.asarray(padded, dtype=np.float32) / 255.0
-    # NCHW
+    arr = np.asarray(padded, dtype=np.float32)  # YOLOX: do not /255
     chw = np.transpose(arr, (2, 0, 1))[None, ...]
     return chw, orig_w, orig_h, ratio, pads
 
@@ -294,6 +292,31 @@ def _nms_xyxy(boxes: Any, scores: Any, iou_thr: float) -> list[int]:
     return keep
 
 
+def yolox_demo_postprocess(outputs: Any, *, input_height: int, input_width: int) -> Any:
+    """Decode raw YOLOX ONNX strides (Apache-2.0 YOLOX ``demo_postprocess``)."""
+    import numpy as np
+
+    arr = np.asarray(outputs, dtype=np.float32)
+    if arr.ndim == 2:
+        arr = arr[None, ...]
+    grids = []
+    expanded_strides = []
+    strides = [8, 16, 32]
+    for stride in strides:
+        hsize = input_height // stride
+        wsize = input_width // stride
+        xv, yv = np.meshgrid(np.arange(wsize), np.arange(hsize))
+        grid = np.stack((xv, yv), 2).reshape(1, -1, 2)
+        grids.append(grid)
+        expanded_strides.append(np.full((1, grid.shape[1], 1), stride))
+    grids_a = np.concatenate(grids, 1).astype(np.float32)
+    strides_a = np.concatenate(expanded_strides, 1).astype(np.float32)
+    out = arr.copy()
+    out[..., :2] = (out[..., :2] + grids_a) * strides_a
+    out[..., 2:4] = np.exp(out[..., 2:4]) * strides_a
+    return out
+
+
 def postprocess_yolox_like(
     output: Any,
     *,
@@ -308,23 +331,34 @@ def postprocess_yolox_like(
     iou_threshold: float,
     classes_allowlist: set[str] | None,
 ) -> list[dict[str, Any]]:
-    """Decode YOLOX-style ``[N, 5+num_classes]`` or ``[1, N, 5+C]`` outputs to boxes."""
+    """Decode YOLOX ONNX outputs to boxes in submitted-image pixel space."""
     import numpy as np
 
-    arr = np.asarray(output)
+    arr = np.asarray(output, dtype=np.float32)
     if arr.ndim == 3:
         arr = arr[0]
     if arr.ndim != 2 or arr.shape[1] < 6:
         return []
+    expected_anchors = sum(
+        (input_height // s) * (input_width // s) for s in (8, 16, 32)
+    )
+    # Official YOLOX ONNX heads emit raw grid logits; synthetic / already-decoded
+    # tensors (tests, alternate exporters) keep length != sum of stride grids.
+    if arr.shape[0] == expected_anchors:
+        decoded = yolox_demo_postprocess(
+            arr, input_height=input_height, input_width=input_width
+        )
+        arr = np.asarray(decoded, dtype=np.float32)
+        if arr.ndim == 3:
+            arr = arr[0]
 
     boxes_cxcywh = arr[:, :4]
-    obj = arr[:, 4:5]
+    obj = arr[:, 4]
     cls_scores = arr[:, 5:]
     cls_ids = cls_scores.argmax(axis=1)
     cls_conf = cls_scores.max(axis=1)
-    scores = (obj.reshape(-1) * cls_conf).astype(np.float32)
+    scores = (obj * cls_conf).astype(np.float32)
 
-    # cxcywh → xyxy in letterboxed space
     cx, cy, w, h = boxes_cxcywh[:, 0], boxes_cxcywh[:, 1], boxes_cxcywh[:, 2], boxes_cxcywh[:, 3]
     x1 = cx - w / 2.0
     y1 = cy - h / 2.0
@@ -343,7 +377,7 @@ def postprocess_yolox_like(
     pad_w, pad_h = pads
     detections: list[dict[str, Any]] = []
     for box, score, cid in zip(boxes, scores, cls_ids, strict=False):
-        # undo letterbox → original pixels
+        # YOLOX top-left letterbox: divide by ratio only (pads are 0).
         x1 = (float(box[0]) - pad_w) / ratio
         y1 = (float(box[1]) - pad_h) / ratio
         x2 = (float(box[2]) - pad_w) / ratio

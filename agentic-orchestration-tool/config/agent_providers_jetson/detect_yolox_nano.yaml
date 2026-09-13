@@ -1,0 +1,27 @@
+# Edge object detector — YOLOX-nano ONNX (Apache-2.0 Megvii weights).
+# Weights are engine-cached under AGENTIC_DETECTION_ARTIFACT_CACHE (sha256 verified).
+id: detect_yolox_nano
+type: object_detection
+role: YOLOX nano object detector
+goal: Return typed pixel boxes for COCO classes in a single frame
+backstory: ONNX Runtime detector; not a chat model. Prefer direct_agent with images[].
+weights:
+  uri: "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx"
+  sha256: "c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d"
+  format: onnx
+runtime: onnxruntime
+execution_providers: [tensorrt, cuda, cpu]
+input:
+  width: 416
+  height: 416
+confidence_min: 0.3
+iou_threshold: 0.45
+residency: resident
+hardware:
+  architecture: [cpu, gpu]
+min_vram_gb: 1
+planner_hint: >-
+  Sensing only: typed COCO boxes via YOLOX-nano. Prefer direct_agent with images.
+harness_profile: detection
+harness:
+  skip_live: true

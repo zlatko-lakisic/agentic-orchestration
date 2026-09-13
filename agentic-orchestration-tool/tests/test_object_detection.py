@@ -116,7 +116,8 @@ def test_letterbox_preserves_aspect() -> None:
     padded, ratio, pads = letterbox(img, new_shape=(64, 64))
     assert padded.size == (64, 64)
     assert ratio == pytest.approx(64 / 200)
-    assert pads[0] == pytest.approx(0.0)
+    # YOLOX top-left pad
+    assert pads == (0.0, 0.0)
 
 
 def test_postprocess_empty_and_boxes() -> None:
