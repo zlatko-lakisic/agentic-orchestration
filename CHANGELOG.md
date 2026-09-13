@@ -31,6 +31,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **YOLOX ONNX postprocess** — top-left letterbox, 0–255 input (no `/255`), and
   official stride grid decode so live frames return boxes instead of empty lists.
+- **WS image routing without catalog** — missing/unknown agent catalog falls through
+  to the vision path instead of failing the run (detection only when entry resolves).
 - **Reach vision empty/thinking replies** — coalesce `thinking` / `reasoning_content`
   when `content` is empty (Qwen3-VL); preserve JSON object/array answers instead of
   sanitizing them into prose.

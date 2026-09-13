@@ -1726,7 +1726,8 @@ class WsConnection:
                         agent_provider_id=agent_provider_id,
                         catalog_path=paths.agent_providers,
                     )
-                except LookupError:
+                except (LookupError, FileNotFoundError, OSError, ValueError):
+                    # Missing/unknown catalog → vision path (prior behavior).
                     entry = None
                 if entry is not None and is_object_detection_entry(entry):
                     return self._execute_detection(
