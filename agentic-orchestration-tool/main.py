@@ -1336,6 +1336,18 @@ def main() -> None:
                 "off",
             )
 
+        def _looks_like_detection_answer(text: str | None) -> bool:
+            raw = str(text or "").strip()
+            if not raw.startswith("{"):
+                return False
+            try:
+                import json
+
+                data = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                return False
+            return isinstance(data, dict) and "detections" in data
+
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
         dynamic_manifest = _dynamic_manifest_path(args, tool_root)
         media_grounding_bundle = None
@@ -1384,7 +1396,9 @@ def main() -> None:
                 save_session(orchestrator_session_path, sess0)
             elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
                 cache_goal = compose_goal(raw_task)
-                if _norm(sess0.last_user_goal) == _norm(cache_goal):
+                if _looks_like_detection_answer(sess0.last_final_answer_excerpt):
+                    pass  # Y6: never replay detection boxes from answer cache
+                elif _norm(sess0.last_user_goal) == _norm(cache_goal):
                     # Mark pending so a follow-up "no" can trigger a re-run of the same goal.
                     sess0.pending_reprocess_goal = raw_task
                     from orchestration.orchestrator_session import save_session
@@ -1866,6 +1880,18 @@ def main() -> None:
                 "off",
             )
 
+        def _looks_like_detection_answer(text: str | None) -> bool:
+            raw = str(text or "").strip()
+            if not raw.startswith("{"):
+                return False
+            try:
+                import json
+
+                data = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                return False
+            return isinstance(data, dict) and "detections" in data
+
         attachment_block = _load_dynamic_attachment_block(args, tool_root)
         dynamic_manifest = _dynamic_manifest_path(args, tool_root)
         media_grounding_bundle = None
@@ -1909,7 +1935,9 @@ def main() -> None:
                 save_session(orchestrator_session_path, sess0)
             elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
                 cache_goal = compose_goal(raw_task)
-                if _norm(sess0.last_user_goal) == _norm(cache_goal):
+                if _looks_like_detection_answer(sess0.last_final_answer_excerpt):
+                    pass  # Y6: never replay detection boxes from answer cache
+                elif _norm(sess0.last_user_goal) == _norm(cache_goal):
                     sess0.pending_reprocess_goal = raw_task
                     from orchestration.orchestrator_session import save_session
 

@@ -1,0 +1,36 @@
+# Example only — not loaded into the default catalog.
+# Copy into EXTRA overlay or session overlay for UI / scene detectors.
+# Weights are engine-side artifacts (fetch + sha256). Prefer permissive ONNX
+# (e.g. YOLOX); do not ship Ultralytics AGPL weights in the distributed tree.
+id: example_object_detection
+type: object_detection
+role: Object detector
+goal: Return typed pixel boxes for objects in a single frame
+backstory: ONNX detector via onnxruntime; not a conversational model.
+weights:
+  uri: "https://example.invalid/artifacts/yolox_nano.onnx"
+  sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  format: onnx
+runtime: onnxruntime
+execution_providers: [tensorrt, cuda, cpu]
+input:
+  width: 640
+  height: 640
+confidence_min: 0.25
+iou_threshold: 0.45
+class_names:
+  - person
+  - bicycle
+  - car
+classes:
+  - person
+  - car
+residency: resident
+hardware:
+  architecture: [cpu, gpu]
+min_vram_gb: 1
+planner_hint: >-
+  Sensing only: returns typed boxes. Prefer direct_agent with images[].
+harness_profile: detection
+harness:
+  skip_live: true

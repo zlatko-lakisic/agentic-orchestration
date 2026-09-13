@@ -1,0 +1,6 @@
+# Optional deps for type: object_detection (Apache-2.0 / BSD / HPND — no ultralytics).
+# Install: pip install -r requirements-detection.txt
+# GPU/Jetson: replace onnxruntime with a CUDA/TensorRT-capable ORT wheel when available.
+onnxruntime>=1.17.0,<2
+numpy>=1.24.0
+Pillow>=10.0.0

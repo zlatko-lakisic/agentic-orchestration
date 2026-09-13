@@ -187,6 +187,33 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print(f"wrote {result_path}", file=sys.stderr)
             return 0
 
+        from orchestration.object_detection_runtime import (
+            is_object_detection_entry,
+            run_object_detection,
+        )
+
+        if is_object_detection_entry(provider_payload):
+            print("(execute-step) object_detection entrypoint", file=sys.stderr)
+            step_images = data.get("images") if isinstance(data.get("images"), list) else []
+            if not step_images:
+                raise SystemExit(
+                    "object_detection execute-step requires a non-empty images list on the step payload"
+                )
+            from orchestration.reach_multimodal import parse_reach_images
+
+            parsed_images = parse_reach_images(step_images)
+            text = run_object_detection(provider_payload, images=parsed_images)
+            step_result = StepResult(
+                run_id=run_id,
+                step_id=step_id,
+                exit_code=0,
+                result_text=text,
+            )
+            if result_path is not None:
+                _write_step_result(result_path, step_result)
+                print(f"wrote {result_path}", file=sys.stderr)
+            return 0
+
         cfg = WorkflowConfig(
             name=str(data.get("workflow_name", "execute-step")),
             process="sequential",

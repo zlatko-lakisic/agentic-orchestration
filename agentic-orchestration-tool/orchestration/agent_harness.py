@@ -82,6 +82,10 @@ def infer_harness_profile(entry: dict[str, Any]) -> str:
 
     if any(k in combined for k in ("vision", "vlm", "visual")):
         return "vision"
+    if any(k in combined for k in ("detect", "detection", "yolo", "bounding")):
+        return "detection"
+    if str(entry.get("type", "")).strip().lower() == "object_detection":
+        return "detection"
     if "coder" in pid or "code" in role or "starcoder" in pid or "devstral" in pid:
         return "coding"
     if "research" in role or "analyst" in role and "engineer" not in role:
