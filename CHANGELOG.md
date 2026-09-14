@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Admin object-detection UX** — Overview/Components `detection` row from engine
+  `GET /health.detection` (ORT providers, preferred EP, weights cache); Topology
+  `models/onnxruntime` node; Catalogs badges/detail for `object_detection`;
+  `POST /api/v1/admin/detection/ensure-ready` (download + ORT warm) from Components
+  **Ensure ready**; Runs Detection chip, pretty JSON, and box overlay when a capped
+  frame preview is persisted on the detection run.
+
 ## [2.11.0] - 2026-09-13
 
 ### Added

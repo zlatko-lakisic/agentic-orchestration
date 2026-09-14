@@ -22,6 +22,12 @@ import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
+import {
+  formatDetectionAnswer,
+  isDetectionAnswer,
+  parseDetectionResult,
+} from '@/app/domains/admin/shared/detection/detection-answer';
+import { DetectionOverlay } from '@/app/domains/admin/shared/detection/detection-overlay';
 
 @Component({
   selector: 'ao-runs-page',
@@ -38,6 +44,7 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
     LoadingState,
     AoTimeAgoPipe,
     AoAbsoluteTimePipe,
+    DetectionOverlay,
   ],
   template: `
     <div class="mx-auto flex h-full w-full max-w-7xl flex-auto flex-col overflow-hidden">
@@ -85,6 +92,12 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
                 <pre
                   class="overflow-auto rounded border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100"
                   >{{ d.error }}</pre
+                >
+              }
+              @if (isDetection(d.lastAnswerExcerpt)) {
+                <span
+                  class="w-fit rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                  >Detection</span
                 >
               }
               @if (d.lastGoal) {
@@ -146,9 +159,18 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
                   Open sequence trace
                 </a>
               </div>
+              @if (detectionAnswer(d); as ans) {
+                @if (d.detectionPreview?.dataBase64) {
+                  <ao-detection-overlay [answer]="ans" [preview]="d.detectionPreview!" />
+                } @else {
+                  <p class="text-xs text-neutral-500">
+                    No frame preview stored for this run (older runs or preview capture failed).
+                  </p>
+                }
+              }
               @if (d.lastAnswerExcerpt) {
                 <pre class="overflow-auto rounded bg-neutral-100 p-3 text-xs dark:bg-neutral-800">{{
-                  d.lastAnswerExcerpt
+                  answerDisplay(d.lastAnswerExcerpt)
                 }}</pre>
               }
               @if (copyFlash()) {
@@ -299,8 +321,20 @@ export class RunsPage implements OnInit, OnDestroy {
     this.live.release();
   }
 
+  isDetection(text: string | null | undefined): boolean {
+    return isDetectionAnswer(text);
+  }
+
+  answerDisplay(text: string | null | undefined): string {
+    return formatDetectionAnswer(text);
+  }
+
+  detectionAnswer(d: RunDetail) {
+    return parseDetectionResult(d.lastAnswerExcerpt);
+  }
+
   correlationId(d: RunDetail | AdminRun): string | null {
-    return (d.lastRunId || (d.scope === 'run_store' ? d.id : null) || null) as string | null;
+    return (d.lastRunId || (d.scope === 'run_store' || d.scope === 'detection' ? d.id : null) || null) as string | null;
   }
 
   open(row: AdminRun) {

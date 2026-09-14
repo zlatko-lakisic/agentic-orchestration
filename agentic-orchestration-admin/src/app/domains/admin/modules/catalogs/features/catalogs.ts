@@ -263,9 +263,17 @@ const KINDS = [
                     mat-cell
                     *matCellDef="let e"
                   >
-                    <span class="font-mono text-sm text-neutral-500">{{
-                      e.type || '—'
-                    }}</span>
+                    @if (typeBadge(e.type); as badge) {
+                      <span
+                        class="inline-flex items-center rounded px-1.5 py-0.5 font-mono text-xs"
+                        [class]="badge.class"
+                        >{{ e.type }}</span
+                      >
+                    } @else {
+                      <span class="font-mono text-sm text-neutral-500">{{
+                        e.type || '—'
+                      }}</span>
+                    }
                   </td>
                 </ng-container>
 
@@ -467,6 +475,13 @@ export class CatalogsPage implements OnInit {
 
   fixRoute(key: string): string {
     if (
+      key.includes('DETECTION') ||
+      key.toLowerCase().includes('object_detection') ||
+      key.includes('ONNX')
+    ) {
+      return '/components/detection';
+    }
+    if (
       key.includes('API_KEY') ||
       key.includes('TOKEN') ||
       key.includes('OLLAMA') ||
@@ -482,5 +497,22 @@ export class CatalogsPage implements OnInit {
       return '/components';
     }
     return '/settings';
+  }
+
+  typeBadge(type: string | null | undefined): { class: string } | null {
+    const t = String(type || '').toLowerCase();
+    if (t === 'object_detection') {
+      return {
+        class:
+          'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+      };
+    }
+    if (t === 'deterministic') {
+      return {
+        class:
+          'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+      };
+    }
+    return null;
   }
 }

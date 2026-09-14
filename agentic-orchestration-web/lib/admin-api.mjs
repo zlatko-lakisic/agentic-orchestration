@@ -697,6 +697,16 @@ function readYamlSimpleFields(filePath, keys) {
   return out;
 }
 
+function readYamlWeightsSha256(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const m = raw.match(/^\s*sha256\s*:\s*["']?([a-fA-F0-9]{64})["']?/m);
+    return m ? String(m[1]).toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 function listYamlCatalog(dir, kind) {
   if (!dir || !fs.existsSync(dir)) return [];
   const names = fs
@@ -718,8 +728,10 @@ function listYamlCatalog(dir, kind) {
       "planner_hint",
       "harness_profile",
       "min_vram_gb",
+      "runtime",
     ]);
     const id = fields.id || path.basename(n, path.extname(n));
+    const weightsSha256 = readYamlWeightsSha256(filePath);
     entries.push({
       id,
       kind,
@@ -728,9 +740,11 @@ function listYamlCatalog(dir, kind) {
       role: fields.role || null,
       model: fields.model || null,
       mode: fields.mode || null,
+      runtime: fields.runtime || null,
       description: fields.description || fields.planner_hint || null,
       plannerHint: fields.planner_hint || null,
       harnessProfile: fields.harness_profile || null,
+      weightsSha256,
       minVramGb: fields.min_vram_gb != null ? Number(fields.min_vram_gb) : null,
       status: "available",
       gateReason: null,
@@ -1621,6 +1635,76 @@ async function probeEngineHealth(engineScheme, enginePort, configuredHost) {
   return last;
 }
 
+/**
+ * Overview/Components row for object detection (engine /health.detection preferred).
+ * @param {{ ok?: boolean, json?: any, error?: string }} engineHealth
+ * @param {string} toolRoot
+ */
+function buildDetectionTopologyComponent(engineHealth, toolRoot) {
+  const det = engineHealth?.ok && engineHealth.json?.detection
+    ? engineHealth.json.detection
+    : null;
+  let catalogCount = 0;
+  try {
+    const catalog = buildCatalogs("agents", { toolRoot });
+    catalogCount = (catalog?.entries || []).filter(
+      (e) => String(e.type || "").toLowerCase() === "object_detection",
+    ).length;
+  } catch {
+    /* ignore */
+  }
+
+  if (!det && catalogCount === 0) {
+    return {
+      id: "detection",
+      label: "Object detection",
+      status: "unset",
+      fact: "no object_detection providers in catalog",
+    };
+  }
+
+  if (!engineHealth?.ok) {
+    return {
+      id: "detection",
+      label: "Object detection",
+      status: "degraded",
+      fact: `engine unreachable; catalog has ${catalogCount || "?"} detector(s)`,
+    };
+  }
+
+  if (!det) {
+    return {
+      id: "detection",
+      label: "Object detection",
+      status: catalogCount > 0 ? "degraded" : "unset",
+      fact:
+        catalogCount > 0
+          ? `${catalogCount} object_detection provider(s) · engine health missing detection block`
+          : "no object_detection providers in catalog",
+    };
+  }
+
+  const count = Number(det.providerCount || 0);
+  const ortOk = Boolean(det.onnxruntime?.ok);
+  const ep = String(det.preferredProvider || "").replace(/ExecutionProvider$/, "") || "—";
+  const cached = Number(det.weightsCached || 0);
+  const missing = Number(det.weightsMissing || 0);
+  const ver = det.onnxruntime?.version ? `ORT ${det.onnxruntime.version}` : "ORT";
+  const fact = `${count} provider(s) · ${ver} · EP ${ep} · weights ${cached}/${cached + missing} cached`;
+
+  let status = "healthy";
+  if (count === 0) status = "unset";
+  else if (!ortOk) status = "failed";
+  else if (det.degraded || missing > 0) status = "degraded";
+
+  return {
+    id: "detection",
+    label: "Object detection",
+    status,
+    fact: count === 0 ? "no object_detection providers in catalog" : fact,
+  };
+}
+
 async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
   const webPort = Number(process.env.AGENTIC_WEB_PORT || 3847);
   const enginePort = Number(process.env.AGENTIC_SERVE_PORT || 8765);
@@ -1677,6 +1761,8 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
     },
   ];
 
+  components.push(buildDetectionTopologyComponent(engineHealth, toolRoot));
+
   // hrefs are routerLink paths under baseHref=/admin/ (no /admin prefix).
   const attention = [];
   if (!engineHealth.ok && process.env.AGENTIC_JETSON_ENABLE_ENGINE !== "0") {
@@ -1684,6 +1770,14 @@ async function buildTopology({ toolRoot, webRoot, webInstanceId, webPid }) {
       severity: "warning",
       message: "Engine daemon is not reachable on :8765",
       href: "/components/engine",
+    });
+  }
+  const detectionComp = components.find((c) => c.id === "detection");
+  if (detectionComp && (detectionComp.status === "failed" || detectionComp.status === "degraded")) {
+    attention.push({
+      severity: detectionComp.status === "failed" ? "warning" : "info",
+      message: detectionComp.fact || "Object detection not fully ready",
+      href: "/components/detection",
     });
   }
   if (
@@ -1815,6 +1909,48 @@ function listRecentRuns({ toolRoot, limit = 50 }) {
 
   walkRunStore(runStore);
 
+  const tracesDir = path.join(toolRoot, "__orchestrator_run_traces__");
+  if (fs.existsSync(tracesDir)) {
+    let ents;
+    try {
+      ents = fs.readdirSync(tracesDir);
+    } catch {
+      ents = [];
+    }
+    for (const name of ents) {
+      if (!name.endsWith(".detection.json")) continue;
+      const p = path.join(tracesDir, name);
+      const runId = name.slice(0, -".detection.json".length);
+      if (!runId || runs.some((r) => r.id === runId)) continue;
+      let mtime = null;
+      let excerpt = null;
+      try {
+        const st = fs.statSync(p);
+        mtime = st.mtime.toISOString();
+        const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+        excerpt = raw.lastAnswerExcerpt
+          ? String(raw.lastAnswerExcerpt).slice(0, 160)
+          : null;
+      } catch {
+        /* ignore */
+      }
+      pushRun({
+        id: runId,
+        scope: "detection",
+        userId: null,
+        started: mtime,
+        updatedAt: mtime,
+        steps: null,
+        mode: "object_detection",
+        outcome: "completed",
+        ok: true,
+        lastGoal: "object_detection",
+        lastAnswerExcerpt: excerpt,
+        path: p,
+      });
+    }
+  }
+
   if (fs.existsSync(sessionsDir)) {
     const walkSessions = (dir, userId = null) => {
       let ents;
@@ -1943,12 +2079,42 @@ function buildRunDetail({ toolRoot }, id) {
       /* ignore */
     }
   }
+  if (entry.scope === "detection" && entry.path && fs.existsSync(entry.path)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(entry.path, "utf8"));
+      detail.lastAnswerExcerpt = raw.lastAnswerExcerpt || null;
+      detail.detectionPreview = raw.detectionPreview || null;
+      detail.mode = "object_detection";
+      detail.outcome = detail.outcome || "completed";
+      detail.ok = detail.ok ?? true;
+    } catch {
+      /* ignore */
+    }
+  }
+  // Merge detection sidecar for engine run ids (session lastRunId or direct id).
+  const previewIds = [id, detail.lastRunId].filter(Boolean);
+  for (const rid of previewIds) {
+    const safe = safeTraceFileName(rid);
+    const detPath = path.join(toolRoot, "__orchestrator_run_traces__", `${safe}.detection.json`);
+    if (!fs.existsSync(detPath)) continue;
+    try {
+      const raw = JSON.parse(fs.readFileSync(detPath, "utf8"));
+      if (!detail.lastAnswerExcerpt && raw.lastAnswerExcerpt) {
+        detail.lastAnswerExcerpt = raw.lastAnswerExcerpt;
+      }
+      if (!detail.detectionPreview && raw.detectionPreview) {
+        detail.detectionPreview = raw.detectionPreview;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   return detail;
 }
 
 function safeTraceFileName(runId) {
   return String(runId || "")
-    .replace(/[^A-Za-z0-9._-]/g, "_")
+    .replace(/[^A-Za-z0-9_-]/g, "_")
     .slice(0, 128);
 }
 
@@ -3319,6 +3485,7 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/control/restart") return { name: "control_restart" };
   if (p === "/api/v1/admin/ollama/tags") return { name: "ollama_tags" };
   if (p === "/api/v1/admin/ollama/pull") return { name: "ollama_pull" };
+  if (p === "/api/v1/admin/detection/ensure-ready") return { name: "detection_ensure_ready" };
   if (p === "/api/v1/admin/background-activity/cancel") return { name: "background_activity_cancel" };
   return null;
 }
@@ -3362,6 +3529,7 @@ function isTokenWriteRoute(route, method) {
   if (route.name === "mtls_enroll_tokens" && method === "POST") return true;
   if (route.name === "control_restart" && method === "POST") return true;
   if (route.name === "ollama_pull" && method === "POST") return true;
+  if (route.name === "detection_ensure_ready" && method === "POST") return true;
   if (route.name === "background_activity_cancel" && method === "POST") return true;
   return false;
 }
@@ -3392,7 +3560,7 @@ async function handleAdminApi(req, res, ctx) {
     if (route.name === "meta") {
       send(200, {
         phase: 0,
-        writeApi: { tokens: true, appPrefs: true, mtlsClients: true, control: true, ollamaPull: true },
+        writeApi: { tokens: true, appPrefs: true, mtlsClients: true, control: true, ollamaPull: true, detectionEnsureReady: true },
         title: "AO Administration",
         readOnlyMessage:
           "Read-only except API tokens, app prefs, mTLS client revoke, AO control restarts, and Ollama model pulls",
@@ -3855,6 +4023,39 @@ async function handleAdminApi(req, res, ctx) {
         return true;
       }
       send(200, pulled.json || { ok: true });
+      return true;
+    }
+    if (route.name === "detection_ensure_ready" && method === "POST") {
+      let body;
+      try {
+        body = await readAdminJsonBody(req);
+      } catch (err) {
+        const code = err?.code === "too_large" ? 413 : 400;
+        send(code, { error: err instanceof Error ? err.message : "Invalid body" });
+        return true;
+      }
+      const resolved = await resolveEngineBase();
+      if (!resolved.ok) {
+        send(502, { error: resolved.error || "engine unreachable" });
+        return true;
+      }
+      const result = await fetchJsonRequest(
+        `${resolved.base}/api/v1/admin/detection/ensure-ready`,
+        {
+          method: "POST",
+          body: body && typeof body === "object" ? body : {},
+          timeoutMs: 300000,
+          tlsInsecure: resolved.tlsInsecure,
+        },
+      );
+      if (!result.ok) {
+        send(result.status || 502, {
+          error: result.error || `HTTP ${result.status || "?"}`,
+          ...(result.json && typeof result.json === "object" ? result.json : {}),
+        });
+        return true;
+      }
+      send(200, result.json || { ok: true });
       return true;
     }
     if (route.name === "background_activity_cancel" && method === "POST") {

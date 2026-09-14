@@ -92,6 +92,10 @@ export interface CatalogEntry {
   fixKey?: string | null;
   planner_hint?: string | null;
   plannerHint?: string | null;
+  harnessProfile?: string | null;
+  harness_profile?: string | null;
+  runtime?: string | null;
+  weightsSha256?: string | null;
   min_vram_gb?: number | null;
   file?: string | null;
   availabilityTrace?: Array<{
@@ -247,6 +251,7 @@ export interface AdminRun {
   lastRunId?: string | null;
   error?: string | null;
   lastGoal?: string | null;
+  lastAnswerExcerpt?: string | null;
   path?: string;
 }
 
@@ -268,6 +273,13 @@ export interface RunDetail extends AdminRun {
   }>;
   plannerHistory?: unknown[];
   lastAnswerExcerpt?: string | null;
+  detectionPreview?: {
+    mimeType?: string;
+    dataBase64?: string;
+    width?: number;
+    height?: number;
+    name?: string | null;
+  } | null;
   k8sJobs?: Array<{
     job_name?: string;
     namespace?: string;

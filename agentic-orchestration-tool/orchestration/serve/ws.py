@@ -1781,6 +1781,20 @@ class WsConnection:
             images=images,
             on_progress=lambda line: self._progress_to_status(line, tag),
         )
+        preview = None
+        try:
+            from orchestration.detection_preview import persist_detection_run_artifacts
+
+            artifacts = persist_detection_run_artifacts(
+                self.tool_root,
+                run_id,
+                answer=result,
+                images=images,
+            )
+            if artifacts:
+                preview = artifacts.get("detectionPreview")
+        except Exception:  # noqa: BLE001
+            pass
         try:
             import json
 
@@ -1803,6 +1817,8 @@ class WsConnection:
                     "execution_provider": (model or {}).get("execution_provider"),
                     "input_width": (model or {}).get("input_width"),
                     "input_height": (model or {}).get("input_height"),
+                    "detection_preview": bool(preview),
+                    "answer_excerpt": str(result or "")[:2000],
                 },
             )
         except Exception:  # noqa: BLE001

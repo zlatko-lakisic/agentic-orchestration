@@ -73,6 +73,7 @@ const MODEL_LANE: Record<string, number> = {
   'models/backends': 3,
   'models/ollama': 4,
   'models/remote': 5,
+  'models/onnxruntime': 6,
 };
 
 const NODE_W = 140;

@@ -57,6 +57,7 @@ const DEPENDENCY_ORDER = [
   'engine',
   'execution',
   'ollama',
+  'detection',
   'mcp',
   'speech',
   'openclaw',

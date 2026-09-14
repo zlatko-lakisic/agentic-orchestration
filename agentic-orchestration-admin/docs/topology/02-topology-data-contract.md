@@ -149,7 +149,8 @@ This is what lets the UI be honest without hardcoding assumptions. If `nodeProbe
 | Application and Reach bands | Engine connection registry — connected Reach sessions, their negotiated capabilities, active overlays, registered local MCP hosts |
 | Engine and endpoints | Engine health endpoint plus per-endpoint request counters |
 | Web UI, planner, catalogs | Web process |
-| Model backends and runtimes | Catalog resolution plus Ollama's model list and remote provider credential state |
+| Model backends and runtimes | Catalog resolution plus Ollama's model list, remote provider credential state, and engine `/health.detection` for ONNX Runtime (`models/onnxruntime`) when `type: object_detection` entries exist |
+
 | Backends, workers, sidecars | Execution backend; k8s API for pods and jobs |
 | Platform, PVCs, GPU | k8s API, node metrics |
 

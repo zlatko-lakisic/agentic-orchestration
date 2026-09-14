@@ -105,10 +105,25 @@ export class CommandPalette {
   readonly visible = signal(false);
   readonly query = signal('');
 
+  private readonly componentHits: PaletteHit[] = [
+    {
+      kind: 'nav',
+      label: 'Ollama',
+      detail: '/components/ollama',
+      route: '/components/ollama',
+    },
+    {
+      kind: 'nav',
+      label: 'Object detection',
+      detail: '/components/detection',
+      route: '/components/detection',
+    },
+  ];
+
   readonly hits = computed(() => {
     const q = this.query().trim().toLowerCase();
     const out: PaletteHit[] = [];
-    for (const hit of this.flattenNav(NAVIGATION)) {
+    for (const hit of [...this.flattenNav(NAVIGATION), ...this.componentHits]) {
       if (
         !q ||
         hit.label.toLowerCase().includes(q) ||

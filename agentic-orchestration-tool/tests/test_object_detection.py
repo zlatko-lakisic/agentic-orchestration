@@ -318,3 +318,71 @@ def test_weights_spec_from_entry() -> None:
     )
     assert spec["uri"].startswith("https://")
     assert len(spec["sha256"]) == 64
+
+
+def test_detection_runtime_health_empty_and_cached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestration.object_detection_runtime import detection_runtime_health
+
+    empty = detection_runtime_health([])
+    assert empty["providerCount"] == 0
+    assert empty["ok"] is True
+
+    blob = b"weights-bytes"
+    path = tmp_path / "w.onnx"
+    path.write_bytes(blob)
+    digest = sha256_file(path)
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AGENTIC_DETECTION_ARTIFACT_CACHE", str(cache))
+    entry = _sample_entry(path, digest)
+    # Not yet copied to cache
+    snap = detection_runtime_health([entry])
+    assert snap["providerCount"] == 1
+    assert snap["weightsMissing"] == 1
+    assert snap["degraded"] is True
+
+    ensure_detection_weights(entry)
+    snap2 = detection_runtime_health([entry])
+    assert snap2["weightsCached"] == 1
+    assert snap2["weightsMissing"] == 0
+
+
+def test_detection_preview_downscales_and_persists(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from orchestration.detection_preview import (
+        build_detection_preview,
+        load_detection_run_artifacts,
+        persist_detection_run_artifacts,
+    )
+    from orchestration.reach_multimodal import ReachImage
+
+    img = Image.new("RGB", (2000, 1500), color=(40, 80, 120))
+    buf = __import__("io").BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    raw = buf.getvalue()
+    assert len(raw) > 10_000
+    reach = ReachImage(mime_type="image/jpeg", data=raw, name="bus.jpg")
+    preview = build_detection_preview([reach])
+    assert preview is not None
+    assert preview["mimeType"] == "image/jpeg"
+    assert preview["width"] <= 1280
+    assert preview["height"] <= 1280
+    decoded = base64.standard_b64decode(preview["dataBase64"])
+    assert len(decoded) <= 256 * 1024
+
+    answer = json.dumps(
+        {
+            "detections": [{"label": "bus", "confidence": 0.9, "box_xyxy": [1, 2, 3, 4]}],
+            "image": {"width": 2000, "height": 1500, "name": "bus.jpg"},
+        }
+    )
+    out = persist_detection_run_artifacts(
+        tmp_path, "run-det-1", answer=answer, preview=preview
+    )
+    assert out is not None
+    loaded = load_detection_run_artifacts(tmp_path, "run-det-1")
+    assert loaded is not None
+    assert loaded["detectionPreview"]["name"] == "bus.jpg"
+    assert "detections" in loaded["lastAnswerExcerpt"]

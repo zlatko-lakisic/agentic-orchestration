@@ -1204,6 +1204,53 @@ export async function buildTopologyGraph(ctx) {
     }),
   );
 
+  const detectionEntries = agentList.filter(
+    (e) => String(e.type || "").toLowerCase() === "object_detection",
+  );
+  const detHealth =
+    engineOk && engineJson.detection && typeof engineJson.detection === "object"
+      ? engineJson.detection
+      : null;
+  const detectionCount = detHealth?.providerCount ?? detectionEntries.length;
+  if (detectionCount > 0 || detectionEntries.length > 0) {
+    const ep = String(detHealth?.preferredProvider || "")
+      .replace(/ExecutionProvider$/, "") || "—";
+    const cached = Number(detHealth?.weightsCached ?? 0);
+    const missing = Number(detHealth?.weightsMissing ?? 0);
+    const totalW = cached + missing;
+    let detStatus = "healthy";
+    let detReason = `${detectionCount} detector(s)`;
+    if (!engineOk) {
+      detStatus = "degraded";
+      detReason = "engine unreachable";
+    } else if (detHealth && !detHealth.onnxruntime?.ok) {
+      detStatus = "failed";
+      detReason = detHealth.onnxruntime?.error || "onnxruntime missing";
+    } else if (detHealth?.degraded || missing > 0) {
+      detStatus = "degraded";
+      detReason =
+        totalW > 0
+          ? `EP ${ep} · weights ${cached}/${totalW} cached`
+          : `EP ${ep} · weights missing`;
+    } else if (detHealth) {
+      detReason = `EP ${ep} · weights ${cached}/${totalW || cached} cached`;
+    }
+    nodes.push(
+      node({
+        id: "models/onnxruntime",
+        kind: "model-runtime",
+        band: "ao",
+        label: "ONNX Runtime",
+        sublabel: `${detectionCount} detector${detectionCount === 1 ? "" : "s"}`,
+        status: detStatus,
+        instrumented: Boolean(detHealth),
+        deployed: true,
+        statusReason: detReason,
+        lastProbeAt: detHealth ? nowIso() : undefined,
+      }),
+    );
+  }
+
   // Live k8s inventory when running in-cluster (pod SA).
   const k8sProbe = await probeK8sTopology();
   const useK8sBand =
@@ -1733,6 +1780,16 @@ export async function buildTopologyGraph(ctx) {
         id: "models/backends->models/remote",
         from: "models/backends",
         to: "models/remote",
+        kind: "request",
+      }),
+    );
+  }
+  if (nodes.some((n) => n.id === "models/onnxruntime")) {
+    edges.push(
+      edge({
+        id: "models/backends->models/onnxruntime",
+        from: "models/backends",
+        to: "models/onnxruntime",
         kind: "request",
       }),
     );

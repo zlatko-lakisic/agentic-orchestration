@@ -572,9 +572,11 @@ describe('topology.layout', () => {
       n({ id: 'catalog/skills', kind: 'catalog', band: 'ao' }),
       n({ id: 'models/backends', kind: 'model-backend', band: 'ao' }),
       n({ id: 'models/ollama', kind: 'model-runtime', band: 'ao' }),
+      n({ id: 'models/onnxruntime', kind: 'model-runtime', band: 'ao' }),
       n({ id: 'models/remote', kind: 'model-runtime', band: 'ao' }),
     ];
     const layout = layoutTopology(nodes, []);
+    expect(layout.nodes.map((x) => x.id)).toContain('models/onnxruntime');
     for (let i = 0; i < layout.nodes.length; i++) {
       for (let j = i + 1; j < layout.nodes.length; j++) {
         expect(nodesOverlap(layout.nodes[i], layout.nodes[j])).toBe(false);
