@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-13
+
 ### Added
 
 - **Object detection provider (`type: object_detection`)** — first-class catalog
