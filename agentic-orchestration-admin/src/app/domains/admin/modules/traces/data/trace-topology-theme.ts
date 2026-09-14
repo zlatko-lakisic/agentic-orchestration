@@ -61,9 +61,19 @@ export function topologyKindForTraceActor(actor: string): string {
   if (id === 'mcp' || id.startsWith('mcp')) return 'mcp-sidecar';
   if (id === 'skills' || id.startsWith('skills')) return 'catalog';
   if (id.startsWith('agent:') || id.startsWith('agent_')) {
-    return id.includes('ollama') ? 'model-runtime' : 'catalog';
+    return id.includes('ollama') || id.includes('detect')
+      ? 'model-runtime'
+      : 'catalog';
   }
-  if (id.includes('ollama') || id.includes('model')) return 'model-runtime';
+  if (
+    id.includes('ollama') ||
+    id.includes('model') ||
+    id.includes('detect') ||
+    id.includes('onnx') ||
+    id.includes('detection')
+  ) {
+    return 'model-runtime';
+  }
   if (id.includes('inprocess') || id.includes('worker')) return 'worker';
   return 'platform';
 }

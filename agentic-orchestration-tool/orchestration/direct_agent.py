@@ -677,7 +677,20 @@ def run_direct_agent(
         if is_object_detection_entry(entry):
             if on_progress is not None:
                 on_progress(f"object_detection:{pid}")
-            return run_object_detection(entry, images=images, on_progress=on_progress)
+            answer = run_object_detection(entry, images=images, on_progress=on_progress)
+            try:
+                import os
+
+                from orchestration.detection_preview import persist_detection_run_artifacts
+                from orchestration.run_store import new_run_id
+
+                rid = str(os.environ.get("AGENTIC_RUN_ID") or "").strip() or new_run_id()
+                persist_detection_run_artifacts(
+                    root, rid, answer=answer, images=images
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return answer
 
     if not text:
         raise ValueError("goal is required")

@@ -207,6 +207,11 @@ const NODE_BY_ID: Record<string, TopologyHelp> = {
     wikiKey: 'models-remote',
     blurb: 'Remote LLM providers (OpenAI, Anthropic, …) when credentials exist.',
   },
+  'models/onnxruntime': {
+    wikiKey: 'models-onnxruntime',
+    blurb:
+      'ONNX Runtime for type: object_detection providers — EP preference (TensorRT→CUDA→CPU) and sha256-verified weight cache.',
+  },
   'platform/k3s': {
     wikiKey: 'platform-expand',
     blurb:

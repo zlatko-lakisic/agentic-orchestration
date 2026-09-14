@@ -49,6 +49,13 @@ const CATALOG: Array<{
     notes: 'Local model runtime; resource-sharing broker unloads idle models and queues VRAM contention.',
   },
   {
+    id: 'detection',
+    label: 'Object detection',
+    kind: 'runtime',
+    notes:
+      'ONNX Runtime detectors (type: object_detection). Ensure ready pulls weights and warms sessions.',
+  },
+  {
     id: 'mcp',
     label: 'MCP servers',
     kind: 'integration',

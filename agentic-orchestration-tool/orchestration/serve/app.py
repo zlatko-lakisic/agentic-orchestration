@@ -228,12 +228,26 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 "resourceSharing": sharing,
             },
         }
+        payload["detection"] = await run_in_threadpool(_detection_health_snapshot, root)
         mtls = mtls_hello_payload(root)
         if mtls is not None:
             payload["mtls"] = mtls
         elif ca_exists(root):
             payload["mtls"] = {"enroll": True, "required": mtls_required()}
         return payload
+
+    def _detection_health_snapshot(tool_root: Path) -> dict[str, Any]:
+        from orchestration.dynamic_run import catalog_paths
+        from orchestration.object_detection_runtime import detection_runtime_health
+
+        try:
+            from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+
+            paths = catalog_paths(tool_root)
+            entries = load_agent_providers_catalog_merged(paths.agent_providers)
+        except Exception:  # noqa: BLE001
+            entries = []
+        return detection_runtime_health(entries)
 
     def _resource_sharing_health() -> dict[str, Any]:
         from orchestration.ollama_resource_manager import resource_sharing_enabled
@@ -327,6 +341,30 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "sessions": sessions,
             "count": len(sessions),
         }
+
+    @app.post("/api/v1/admin/detection/ensure-ready")
+    async def api_detection_ensure_ready(request: Request) -> dict[str, Any]:
+        """Download detection weights + warm ORT sessions (Admin ensure-ready)."""
+        body: dict[str, Any] = {}
+        try:
+            raw = await request.json()
+            if isinstance(raw, dict):
+                body = raw
+        except Exception:  # noqa: BLE001
+            body = {}
+        provider_id = str(body.get("providerId") or body.get("provider_id") or "").strip() or None
+
+        def _run() -> dict[str, Any]:
+            from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+            from orchestration.dynamic_run import catalog_paths
+            from orchestration.object_detection_runtime import ensure_detection_providers_ready
+
+            paths = catalog_paths(root)
+            entries = load_agent_providers_catalog_merged(paths.agent_providers)
+            return ensure_detection_providers_ready(entries, provider_id=provider_id)
+
+        result = await run_in_threadpool(_run)
+        return {"ok": bool(result.get("ok")), **result}
 
     @app.get("/api/v1/admin/custom-tool-sandboxes")
     async def api_custom_tool_sandboxes() -> dict[str, Any]:

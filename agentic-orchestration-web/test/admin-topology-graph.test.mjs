@@ -312,3 +312,93 @@ test("sandbox cluster hidden when feature off", async () => {
   assert.equal(cluster.deployed, false);
   assert.equal(cluster.status, "offline");
 });
+
+test("object_detection catalog adds ONNX Runtime node and edge", async () => {
+  const graph = await buildTopologyGraph({
+    toolRoot,
+    webRoot,
+    webInstanceId: "test",
+    webPid: 1,
+    fetchJson: async () => ({ ok: false, error: "skip" }),
+    buildCatalogs: (kind) =>
+      kind === "agents"
+        ? {
+            entries: [
+              { id: "detect_yolox_nano", type: "object_detection" },
+              { id: "a" },
+            ],
+          }
+        : { entries: [] },
+    probeEngineForGraphFn: async () => ({
+      health: {
+        ok: true,
+        json: {
+          version: "test",
+          catalogs: { ok: true, agentProviders: 2 },
+          detection: {
+            ok: true,
+            providerCount: 1,
+            onnxruntime: { ok: true, version: "1.28.0" },
+            availableProviders: ["CPUExecutionProvider"],
+            preferredProvider: "CPUExecutionProvider",
+            gpuDevice: false,
+            weightsCached: 1,
+            weightsMissing: 0,
+            providers: [{ id: "detect_yolox_nano", weightsCached: true }],
+          },
+        },
+      },
+      sessions: { ok: true, sessions: [], sessionOverlayEnabled: true },
+      probeHost: "test",
+      engineLatencyMs: 3,
+    }),
+  });
+  const ort = graph.nodes.find((n) => n.id === "models/onnxruntime");
+  assert.ok(ort, "ONNX Runtime node missing");
+  assert.equal(ort.status, "healthy");
+  assert.match(String(ort.statusReason || ""), /weights/i);
+  assert.ok(
+    graph.edges.some((e) => e.from === "models/backends" && e.to === "models/onnxruntime"),
+  );
+});
+
+test("object_detection weights missing marks ONNX node degraded", async () => {
+  const graph = await buildTopologyGraph({
+    toolRoot,
+    webRoot,
+    webInstanceId: "test",
+    webPid: 1,
+    fetchJson: async () => ({ ok: false, error: "skip" }),
+    buildCatalogs: (kind) =>
+      kind === "agents"
+        ? { entries: [{ id: "detect_yolox_nano", type: "object_detection" }] }
+        : { entries: [] },
+    probeEngineForGraphFn: async () => ({
+      health: {
+        ok: true,
+        json: {
+          version: "test",
+          catalogs: { ok: true, agentProviders: 1 },
+          detection: {
+            ok: true,
+            providerCount: 1,
+            onnxruntime: { ok: true, version: "1.28.0" },
+            availableProviders: ["CPUExecutionProvider"],
+            preferredProvider: "CPUExecutionProvider",
+            gpuDevice: false,
+            weightsCached: 0,
+            weightsMissing: 1,
+            degraded: true,
+            providers: [{ id: "detect_yolox_nano", weightsCached: false }],
+          },
+        },
+      },
+      sessions: { ok: true, sessions: [], sessionOverlayEnabled: true },
+      probeHost: "test",
+      engineLatencyMs: 3,
+    }),
+  });
+  const ort = graph.nodes.find((n) => n.id === "models/onnxruntime");
+  assert.ok(ort);
+  assert.equal(ort.status, "degraded");
+});

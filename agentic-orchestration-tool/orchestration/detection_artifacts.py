@@ -72,9 +72,25 @@ def weights_spec_from_entry(entry: dict[str, Any]) -> dict[str, str]:
     return {"uri": uri, "sha256": digest, "format": fmt}
 
 
+def cache_path_for_weights(digest: str, fmt: str = "onnx") -> Path:
+    """Public path for a verified artifact in the detection cache."""
+    return _cache_path_for(digest, fmt)
+
+
 def _cache_path_for(digest: str, fmt: str) -> Path:
     safe_fmt = "".join(c for c in fmt if c.isalnum()) or "bin"
     return detection_artifact_cache_dir() / f"{digest}.{safe_fmt}"
+
+
+def weights_cached(entry: dict[str, Any]) -> tuple[bool, str, Path | None]:
+    """Return ``(cached, sha256, path)`` without downloading."""
+    try:
+        spec = weights_spec_from_entry(entry)
+    except Exception:  # noqa: BLE001
+        return False, "", None
+    digest = spec["sha256"]
+    path = _cache_path_for(digest, spec["format"])
+    return path.is_file(), digest, path
 
 
 def _is_local_uri(uri: str) -> bool:

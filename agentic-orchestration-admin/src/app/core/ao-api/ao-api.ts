@@ -318,6 +318,20 @@ export class AoApi {
     return this.post<OllamaPullResponse>('/api/v1/admin/ollama/pull', body);
   }
 
+  detectionEnsureReady(body: { providerId?: string } = {}) {
+    return this.post<{
+      ok?: boolean;
+      count?: number;
+      providers?: Array<{
+        id?: string;
+        ready?: boolean;
+        executionProvider?: string;
+        weightsCached?: boolean;
+        error?: string;
+      }>;
+    }>('/api/v1/admin/detection/ensure-ready', body);
+  }
+
   cancelBackgroundActivity() {
     return this.post<{
       ok?: boolean;

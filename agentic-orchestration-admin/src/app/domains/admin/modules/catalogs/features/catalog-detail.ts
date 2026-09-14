@@ -52,6 +52,29 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
                 <span>{{ e.type || '—' }}</span>
               </div>
               <mat-divider />
+              @if (e.runtime) {
+                <div class="flex justify-between gap-4">
+                  <span class="text-neutral-500">runtime</span>
+                  <span>{{ e.runtime }}</span>
+                </div>
+                <mat-divider />
+              }
+              @if (e.harnessProfile || e.harness_profile) {
+                <div class="flex justify-between gap-4">
+                  <span class="text-neutral-500">harness</span>
+                  <span>{{ e.harnessProfile || e.harness_profile }}</span>
+                </div>
+                <mat-divider />
+              }
+              @if (e.weightsSha256) {
+                <div class="flex justify-between gap-4">
+                  <span class="text-neutral-500">weights.sha256</span>
+                  <span class="truncate text-right" [title]="e.weightsSha256">{{
+                    truncateSha(e.weightsSha256)
+                  }}</span>
+                </div>
+                <mat-divider />
+              }
               <div class="flex justify-between gap-4">
                 <span class="text-neutral-500">file</span>
                 <span class="truncate text-right">{{ e.file || '—' }}</span>
@@ -121,5 +144,10 @@ export class CatalogDetailPage implements OnInit {
 
   close() {
     this.router.navigate(['/capabilities', this.kind()]);
+  }
+
+  truncateSha(sha: string): string {
+    const s = String(sha || '');
+    return s.length > 16 ? `${s.slice(0, 12)}…` : s;
   }
 }

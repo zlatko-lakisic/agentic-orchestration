@@ -7,12 +7,14 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from orchestration.detection_artifacts import (
     DetectionUnavailableError,
     WeightsVerifyError,
     ensure_detection_weights,
+    weights_cached,
     weights_spec_from_entry,
 )
 
@@ -26,6 +28,8 @@ __all__ = [
     "unload_detection_session",
     "reset_detection_sessions_for_tests",
     "resolve_execution_providers",
+    "detection_runtime_health",
+    "ensure_detection_providers_ready",
 ]
 
 
@@ -160,6 +164,140 @@ def resolve_execution_providers(entry: dict[str, Any] | None = None) -> list[str
     if "CPUExecutionProvider" not in out:
         out.append("CPUExecutionProvider")
     return out
+
+
+def _gpu_device_present() -> bool:
+    if os.name == "nt":
+        # Presence of nvidia-smi is a weak signal; prefer CUDA EP listing for Windows.
+        return False
+    return Path("/dev/nvidia0").exists()
+
+
+def detection_runtime_health(
+    entries: Sequence[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Read-only detection readiness for ``GET /health`` (no download / no session)."""
+    detectors = [
+        e
+        for e in (entries or [])
+        if is_object_detection_entry(e)
+    ]
+    ort_ok = False
+    ort_version: str | None = None
+    available: list[str] = []
+    ort_error: str | None = None
+    try:
+        import onnxruntime as ort  # type: ignore[import-untyped]
+
+        ort_ok = True
+        ort_version = str(getattr(ort, "__version__", "") or "") or None
+        available = list(ort.get_available_providers())
+    except Exception as exc:  # noqa: BLE001
+        ort_error = str(exc)
+
+    preferred: str | None = None
+    if detectors:
+        want = resolve_execution_providers(detectors[0])
+        avail_set = set(available)
+        for name in want:
+            if name in avail_set:
+                preferred = name
+                break
+        if preferred is None and available:
+            preferred = available[0]
+
+    providers_out: list[dict[str, Any]] = []
+    weights_cached_n = 0
+    weights_missing_n = 0
+    for entry in detectors:
+        pid = str(entry.get("id") or "").strip()
+        cached, digest, path = weights_cached(entry)
+        if cached:
+            weights_cached_n += 1
+        else:
+            weights_missing_n += 1
+        providers_out.append(
+            {
+                "id": pid,
+                "sha256": digest[:12] + "…" if len(digest) == 64 else digest,
+                "sha256Full": digest or None,
+                "weightsCached": cached,
+                "cachePath": str(path) if path is not None else None,
+            }
+        )
+
+    ok = True
+    if detectors and not ort_ok:
+        ok = False
+
+    wants_gpu = any(
+        ep in ("CUDAExecutionProvider", "TensorrtExecutionProvider")
+        for ep in (resolve_execution_providers(detectors[0]) if detectors else [])
+    )
+    gpu_device = _gpu_device_present()
+    # Prefer listing CUDA EP as available even without /dev/nvidia0 (host vs pod).
+    degraded = bool(
+        detectors
+        and ort_ok
+        and (
+            weights_missing_n > 0
+            or (wants_gpu and preferred == "CPUExecutionProvider")
+        )
+    )
+
+    return {
+        "ok": ok,
+        "degraded": degraded,
+        "providerCount": len(detectors),
+        "onnxruntime": {
+            "ok": ort_ok,
+            "version": ort_version,
+            "error": ort_error,
+        },
+        "availableProviders": available,
+        "preferredProvider": preferred,
+        "gpuDevice": gpu_device,
+        "weightsCached": weights_cached_n,
+        "weightsMissing": weights_missing_n,
+        "providers": providers_out,
+    }
+
+
+def ensure_detection_providers_ready(
+    entries: Sequence[dict[str, Any]],
+    *,
+    provider_id: str | None = None,
+    on_progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Download weights + warm ORT for detection catalog entries (Admin ensure-ready)."""
+    wanted = str(provider_id or "").strip()
+    selected = [
+        e
+        for e in entries
+        if is_object_detection_entry(e)
+        and (not wanted or str(e.get("id") or "").strip() == wanted)
+    ]
+    results: list[dict[str, Any]] = []
+    for entry in selected:
+        pid = str(entry.get("id") or "").strip()
+        row: dict[str, Any] = {"id": pid, "ready": False}
+        try:
+            path = ensure_detection_weights(entry, on_progress=on_progress)
+            row["weightsCached"] = True
+            row["cachePath"] = str(path)
+            meta = ensure_object_detection_ready(entry, on_progress=on_progress)
+            row["ready"] = True
+            row["executionProvider"] = meta.get("execution_provider")
+            row["sha256"] = meta.get("sha256")
+        except Exception as exc:  # noqa: BLE001
+            row["error"] = str(exc)
+            row["weightsCached"] = weights_cached(entry)[0]
+        results.append(row)
+    return {
+        "ok": all(r.get("ready") for r in results) if results else False,
+        "count": len(results),
+        "providers": results,
+    }
 
 
 def _available_providers() -> list[str]:

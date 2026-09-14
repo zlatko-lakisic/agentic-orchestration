@@ -80,7 +80,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
               (click)="testConnection()"
               [disabled]="!canProbe()"
             >
-              Test connection
+              {{ id() === 'detection' ? 'Ensure ready' : 'Test connection' }}
             </button>
             @if (probeResult()) {
               <div class="text-neutral-600 dark:text-neutral-400">
@@ -149,6 +149,7 @@ export class ComponentDetailPage implements OnInit {
       engine: 'Engine',
       execution: 'Execution backend',
       ollama: 'Ollama',
+      detection: 'Object detection',
       mcp: 'MCP servers',
       speech: 'Speech',
       openclaw: 'OpenClaw bridge',
@@ -174,6 +175,8 @@ export class ComponentDetailPage implements OnInit {
       engine: 'Python FastAPI daemon for Reach clients (/api/v1/*) and mTLS enroll.',
       execution: 'Where crew steps run (in-process, subprocess, or Kubernetes).',
       ollama: 'Local LLM runtime used by planner and agents on edge.',
+      detection:
+        'ONNX Runtime object detectors. Use Ensure ready to download sha256-verified weights and warm sessions. Prefer direct_agent with images[].',
       mcp: 'Browse Capabilities → MCP servers for per-entry gates.',
       speech: 'Optional STT/TTS advertise endpoints.',
       openclaw: 'Bridge posts goals to the web orchestrate API.',
@@ -187,6 +190,7 @@ export class ComponentDetailPage implements OnInit {
     if (id === 'execution') return ['execution'];
     if (id === 'engine') return ['engine', 'security'];
     if (id === 'ollama') return ['models'];
+    if (id === 'detection') return ['models'];
     if (id === 'web') return ['deployments', 'security'];
     if (id === 'speech' || id === 'mcp' || id === 'openclaw')
       return ['integrations'];
@@ -211,7 +215,12 @@ export class ComponentDetailPage implements OnInit {
   }
 
   canProbe(): boolean {
-    return this.id() === 'engine' || this.id() === 'ollama' || this.id() === 'web';
+    return (
+      this.id() === 'engine' ||
+      this.id() === 'ollama' ||
+      this.id() === 'web' ||
+      this.id() === 'detection'
+    );
   }
 
   testConnection() {
@@ -247,6 +256,44 @@ export class ComponentDetailPage implements OnInit {
         this.probeResult.set(
           o ? `${o.status}: ${o.fact}` : r.ok ? 'No ollama component' : r.message
         );
+      });
+      return;
+    }
+    if (this.id() === 'detection') {
+      this.probeResult.set('Ensuring detection ready (download + ORT warm)…');
+      this.api.detectionEnsureReady({}).subscribe((r) => {
+        if (!r.ok) {
+          this.probeResult.set(r.message || 'Ensure ready failed');
+          return;
+        }
+        const data = r.data as {
+          ok?: boolean;
+          count?: number;
+          providers?: Array<{
+            id?: string;
+            ready?: boolean;
+            executionProvider?: string;
+            error?: string;
+          }>;
+        };
+        const lines = (data.providers || []).map((p) => {
+          if (p.ready) {
+            return `${p.id}: ready (${p.executionProvider || 'ORT'})`;
+          }
+          return `${p.id}: ${p.error || 'failed'}`;
+        });
+        this.probeResult.set(
+          lines.length
+            ? lines.join('\n')
+            : data.ok
+              ? 'OK — no detectors in catalog'
+              : 'Ensure ready returned no providers'
+        );
+        this.api.topology().subscribe((tr) => {
+          if (!tr.ok) return;
+          const match = tr.data.components?.find((c) => c.id === 'detection');
+          this.topo.set(match || null);
+        });
       });
     }
   }
