@@ -68,6 +68,7 @@ class DirectAgentRequest(BaseModel):
         default=None, alias="responseFormat"
     )
     json_schema: dict[str, Any] | None = Field(default=None, alias="jsonSchema")
+    images: list[dict[str, Any]] | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -528,6 +529,11 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     user_id=identity.user_id,
                     session_id=payload.session_id or identity.session_id,
                 ):
+                    parsed_images = None
+                    if payload.images:
+                        from orchestration.reach_multimodal import parse_reach_images
+
+                        parsed_images = parse_reach_images(payload.images)
                     return run_direct_agent(
                         tool_root=root,
                         agent_provider_id=payload.agent_provider_id,
@@ -538,6 +544,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                         mcp_provider_ids=payload.mcp_provider_ids,
                         response_format=response_format,
                         json_schema=payload.json_schema,
+                        images=parsed_images,
                     )
 
             answer = await run_in_threadpool(_run)

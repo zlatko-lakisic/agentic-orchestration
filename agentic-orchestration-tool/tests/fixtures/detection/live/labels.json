@@ -1,0 +1,18 @@
+{
+  "positive.jpg": {
+    "objects": [
+      {
+        "label": "person",
+        "box_xyxy": [
+          100,
+          60,
+          180,
+          180
+        ]
+      }
+    ]
+  },
+  "negative.jpg": {
+    "objects": []
+  }
+}

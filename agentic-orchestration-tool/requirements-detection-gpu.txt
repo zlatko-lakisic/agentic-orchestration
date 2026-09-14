@@ -1,0 +1,16 @@
+# GPU extras for object_detection on NVIDIA hosts (Ada, desktop CUDA).
+# Installs onnxruntime-gpu plus NVIDIA pip wheels for CUDA runtime + cuDNN 9
+# (required for CUDAExecutionProvider). TensorRT EP still needs system TensorRT.
+#
+# Do NOT also install the CPU `onnxruntime` wheel — it shadows CUDA EPs.
+#
+#   pip uninstall -y onnxruntime onnxruntime-gpu
+#   pip install -r requirements-detection-gpu.txt
+#
+# Then verify:
+#   python -c "import onnxruntime as ort; ort.preload_dlls(); print(ort.get_available_providers())"
+#
+# Licenses: onnxruntime MIT; nvidia-* CUDA/cuDNN redistributables (NVIDIA EULA).
+numpy>=1.24.0
+Pillow>=10.0.0
+onnxruntime-gpu[cuda,cudnn]>=1.17.0,<2

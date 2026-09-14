@@ -636,6 +636,7 @@ def run_direct_agent(
     on_progress: Callable[[str], None] | None = None,
     response_format: dict[str, Any] | None = None,
     json_schema: dict[str, Any] | None = None,
+    images: list[Any] | None = None,
 ) -> str:
     """Ask one catalog agent one question and return its answer text.
 
@@ -645,6 +646,9 @@ def run_direct_agent(
     When ``response_format`` is ``{"type": "json_object"}``, uses native JSON mode
     (no CrewAI, no prose sanitize, no KB persist). Invalid JSON raises
     ``DirectAgentFormatError``.
+
+    When ``images`` is non-empty and the agent is ``type: object_detection``, runs the
+    detection fast path and returns typed detection JSON.
     """
     if wants_json_object(response_format):
         return run_direct_agent_json(
@@ -657,15 +661,28 @@ def run_direct_agent(
         )
 
     text = str(goal or "").strip()
+    root = tool_root or _tool_root_default()
+    from orchestration.dynamic_run import catalog_paths
+
+    paths = catalog_paths(root)
+    pid = str(agent_provider_id or "").strip()
+
+    if images:
+        entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
+        from orchestration.object_detection_runtime import (
+            is_object_detection_entry,
+            run_object_detection,
+        )
+
+        if is_object_detection_entry(entry):
+            if on_progress is not None:
+                on_progress(f"object_detection:{pid}")
+            return run_object_detection(entry, images=images, on_progress=on_progress)
+
     if not text:
         raise ValueError("goal is required")
 
-    from orchestration.dynamic_run import catalog_paths
     from orchestration.progress_sink import progress_callback
-
-    root = tool_root or _tool_root_default()
-    paths = catalog_paths(root)
-    pid = str(agent_provider_id or "").strip()
 
     # Fast path: deterministic providers skip CrewAI entirely.
     entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
@@ -682,6 +699,13 @@ def run_direct_agent(
             text=text,
             context=str(context or ""),
             mcp_tool_results_or_handles=mcp_provider_ids,
+        )
+
+    from orchestration.object_detection_runtime import is_object_detection_entry
+
+    if is_object_detection_entry(entry):
+        raise ValueError(
+            "object_detection providers require images; use WS/direct_agent with an images payload"
         )
 
     # Resolve the catalog entry before importing the CrewAI runner so unknown ids

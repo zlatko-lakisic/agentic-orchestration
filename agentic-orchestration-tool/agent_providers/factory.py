@@ -194,6 +194,15 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "harness_profile",
         "harness",
         "entrypoint",
+        "weights",
+        "runtime",
+        "execution_providers",
+        "input",
+        "confidence_min",
+        "iou_threshold",
+        "classes",
+        "class_names",
+        "residency",
     }
     provider_options = {k: v for k, v in data.items() if k not in known_keys}
     provider_type = str(data.get("type", "crewai")).strip().lower()
@@ -203,10 +212,26 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
             **provider_options,
             "entrypoint": str(data.get("entrypoint") or "").strip(),
         }
+    # Keep detection fields on provider_options for ObjectDetectionProvider.
+    for det_key in (
+        "weights",
+        "runtime",
+        "execution_providers",
+        "input",
+        "confidence_min",
+        "iou_threshold",
+        "classes",
+        "class_names",
+        "residency",
+    ):
+        if det_key in data and data.get(det_key) is not None:
+            provider_options = {**provider_options, det_key: data.get(det_key)}
 
     model_raw = str(data.get("model", default_model)).strip()
     if provider_type == "deterministic" and not model_raw:
         model_raw = "deterministic"
+    if provider_type == "object_detection" and not model_raw:
+        model_raw = "object_detection"
 
     config = AgentProviderConfig(
         id=provider_id,
@@ -237,6 +262,16 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         if not str(provider_options.get("entrypoint") or "").strip():
             raise ValueError(
                 f"Agent provider '{config.id}' (type deterministic) is missing 'entrypoint'."
+            )
+    elif provider_type == "object_detection":
+        weights = provider_options.get("weights")
+        if not isinstance(weights, dict) or not str(weights.get("uri") or "").strip():
+            raise ValueError(
+                f"Agent provider '{config.id}' (type object_detection) is missing 'weights.uri'."
+            )
+        if not str(weights.get("sha256") or "").strip():
+            raise ValueError(
+                f"Agent provider '{config.id}' (type object_detection) is missing 'weights.sha256'."
             )
     elif not config.model:
         raise ValueError(f"Agent provider '{config.id}' is missing 'model'.")

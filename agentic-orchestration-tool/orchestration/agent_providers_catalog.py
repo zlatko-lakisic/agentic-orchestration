@@ -157,6 +157,10 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
         (p for p in entries if str(p.get("type", "")).strip().lower() == "deterministic"),
         key=_id_key,
     )
+    detection_list = sorted(
+        (p for p in entries if str(p.get("type", "")).strip().lower() == "object_detection"),
+        key=_id_key,
+    )
     other = sorted(
         (
             p
@@ -171,6 +175,7 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
                     "vllm",
                     "jetstream",
                     "deterministic",
+                    "object_detection",
                 }
             )
         ),
@@ -221,6 +226,13 @@ def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
             "### Deterministic (`type: deterministic`)\n"
             "Fixed Python entrypoints (no LLM). Prefer for scoring, rules, calibrated probabilities, and pure transforms.\n"
             + "\n".join(_format_agent_provider_entry(p) for p in deterministic_list)
+        )
+    if detection_list:
+        sections.append(
+            "### Object detection (`type: object_detection`)\n"
+            "ONNX detectors returning typed pixel boxes (not chat). Prefer ``direct_agent`` with images; "
+            "sensing step, not free-form deliberation.\n"
+            + "\n".join(_format_agent_provider_entry(p) for p in detection_list)
         )
     if other:
         sections.append(

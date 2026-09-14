@@ -1,0 +1,8 @@
+# Optional deps for type: object_detection (Apache-2.0 / BSD / HPND — no ultralytics).
+# CPU (default / CI):
+#   pip install -r requirements-detection.txt
+# GPU hosts (Ada / CUDA desktop): also install GPU extras so CUDA EP can load cuDNN:
+#   pip install -r requirements-detection-gpu.txt
+onnxruntime>=1.17.0,<2
+numpy>=1.24.0
+Pillow>=10.0.0

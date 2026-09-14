@@ -7,6 +7,36 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Object detection provider (`type: object_detection`)** — first-class catalog
+  provider for ONNX Runtime detectors (permissive weights e.g. YOLOX; no
+  Ultralytics AGPL in the default tree). Engine-owned artifact cache with
+  sha256 verify, warmup-before-ready, declared residency, TensorRT→CUDA→CPU
+  execution providers, typed detection JSON (empty list = success), WS/image
+  routing by agent type (detection vs vision), `direct_agent` / `execute_step`
+  fast paths, session-overlay ensure, MCP `detect_objects` tool
+  (`AGENTIC_MCP_DETECTION_ENABLED`), Reach overlay packer rules, harness
+  profile `detection`, and opt-in live e2e (`AGENTIC_DETECTION_E2E=1`,
+  `scripts/detection-e2e.ps1` / `.sh`). Answer cache bypasses detection JSON.
+  GPU hosts: `requirements-detection-gpu.txt` installs
+  `onnxruntime-gpu[cuda,cudnn]` (cuDNN 9 via pip); runtime calls
+  `ort.preload_dlls()` before session create.
+- **Jetson/Ada catalog** `detect_yolox_nano` — YOLOX-nano ONNX entry under
+  `config/agent_providers_jetson/`.
+- **HTTP `direct_agent` images** — `DirectAgentRequest.images` so detection (and
+  vision) can run without WS-only payloads.
+
+### Fixed
+
+- **YOLOX ONNX postprocess** — top-left letterbox, 0–255 input (no `/255`), and
+  official stride grid decode so live frames return boxes instead of empty lists.
+- **WS image routing without catalog** — missing/unknown agent catalog falls through
+  to the vision path instead of failing the run (detection only when entry resolves).
+- **Reach vision empty/thinking replies** — coalesce `thinking` / `reasoning_content`
+  when `content` is empty (Qwen3-VL); preserve JSON object/array answers instead of
+  sanitizing them into prose.
+
 ## [2.10.1] - 2026-09-11
 
 ### Fixed

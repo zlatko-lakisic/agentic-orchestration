@@ -1,0 +1,37 @@
+# First-party object detection MCP (stdio) — typed boxes via engine ONNX runtime.
+# Runs: python -m mcp_servers.object_detection
+# Opt-in: AGENTIC_MCP_DETECTION_ENABLED=1
+# Default detector: AGENTIC_MCP_DETECTION_DEFAULT_PROVIDER=<catalog id>
+id: object_detection
+description: >-
+  Detect objects in a local image or base64 frame and return typed pixel boxes
+  (label, confidence, box_xyxy) plus image dimensions. Empty detections is success.
+capabilities: >-
+  detect_objects — path or data_base64 + optional agent_provider_id; returns JSON
+  with ok/error plus detections[], image{}, model{}.
+good_for: >-
+  “Where is the button?”, UI element localization, per-frame sensing, click targets,
+  and any goal that needs pixel boxes rather than vision-model prose.
+planner_hint: >-
+  Attach when the goal needs object locations/boxes. Prefer over asking a VLM for
+  coordinates. Requires AGENTIC_MCP_DETECTION_ENABLED=1 and a catalog
+  type: object_detection provider (or AGENTIC_MCP_DETECTION_DEFAULT_PROVIDER).
+
+user_goal_keywords:
+  - detect objects
+  - object detection
+  - bounding box
+  - find the button
+  - pixel location
+  - where is the
+  - localize UI
+  - click target
+
+required_env:
+  - AGENTIC_MCP_DETECTION_ENABLED
+
+stdio:
+  command: python
+  args: ["-m", "mcp_servers.object_detection"]
+  env:
+    PYTHONPATH: "/app/tool:/app:${PYTHONPATH}"

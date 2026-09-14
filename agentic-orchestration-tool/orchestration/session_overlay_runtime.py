@@ -273,3 +273,51 @@ def ensure_client_agent_ollama_runtime(
             )
         except Exception as exc:  # noqa: BLE001
             log(f"ollama prewarm skipped for {model}: {exc}")
+
+
+def collect_overlay_detection_entries(agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Overlay agents with ``type: object_detection`` (order-preserving, unique by id)."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for raw in agents:
+        if not isinstance(raw, dict):
+            continue
+        typ = str(raw.get("type") or raw.get("provider_type") or "").strip().lower()
+        if typ != "object_detection":
+            continue
+        pid = str(raw.get("id") or "").strip()
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(raw)
+    return out
+
+
+def ensure_session_overlay_detection_models(
+    agents: list[dict[str, Any]],
+    *,
+    on_progress: Callable[[str], None] | None = None,
+    on_lifecycle: Callable[[str, dict[str, Any]], None] | None = None,
+) -> None:
+    """Fetch/verify/load/warmup detection weights before overlay ``ready``.
+
+    Ready means weights resident and warmup inference completed (not merely on disk).
+    """
+    entries = collect_overlay_detection_entries(agents)
+    if not entries:
+        return
+    from orchestration.object_detection_runtime import ensure_object_detection_ready
+
+    for entry in entries:
+        pid = str(entry.get("id") or "")
+        def _life(state: str, detail: dict[str, Any], _pid: str = pid) -> None:
+            if on_lifecycle is not None:
+                payload = dict(detail)
+                payload["agentProviderId"] = _pid
+                on_lifecycle(state, payload)
+
+        ensure_object_detection_ready(
+            entry,
+            on_progress=on_progress,
+            on_lifecycle=_life,
+        )

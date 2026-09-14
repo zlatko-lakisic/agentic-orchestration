@@ -701,7 +701,10 @@ class WsConnection:
             clear_overlay,
             register_overlay,
         )
-        from orchestration.session_overlay_runtime import ensure_session_overlay_ollama_models
+        from orchestration.session_overlay_runtime import (
+            ensure_session_overlay_detection_models,
+            ensure_session_overlay_ollama_models,
+        )
 
         if self.identity is None:
             await self.send_error("identity required for session_overlay_register")
@@ -877,6 +880,12 @@ class WsConnection:
                     on_progress=progress,
                     cancel_event=self._overlay_cancel,
                     connection_id=self.connection_id,
+                    on_lifecycle=on_lifecycle,
+                )
+                await asyncio.to_thread(
+                    ensure_session_overlay_detection_models,
+                    overlay.agents,
+                    on_progress=progress,
                     on_lifecycle=on_lifecycle,
                 )
         except OllamaPullCancelled as exc:
@@ -1698,8 +1707,107 @@ class WsConnection:
         images: list[Any] | None = None,
     ) -> str:
         if images:
+            agent_provider_id = str(
+                message.get("agent_provider_id") or message.get("agentProviderId") or ""
+            ).strip()
+            selected = message.get("selectedAgentProviderIds")
+            if selected is None:
+                selected = message.get("selected_agent_provider_ids")
+            if not agent_provider_id and isinstance(selected, list) and selected:
+                agent_provider_id = str(selected[0] or "").strip()
+            if agent_provider_id:
+                from orchestration.direct_agent import load_agent_entry
+                from orchestration.dynamic_run import catalog_paths
+                from orchestration.object_detection_runtime import is_object_detection_entry
+
+                paths = catalog_paths(self.tool_root)
+                try:
+                    entry = load_agent_entry(
+                        agent_provider_id=agent_provider_id,
+                        catalog_path=paths.agent_providers,
+                    )
+                except (LookupError, FileNotFoundError, OSError, ValueError):
+                    # Missing/unknown catalog → vision path (prior behavior).
+                    entry = None
+                if entry is not None and is_object_detection_entry(entry):
+                    return self._execute_detection(
+                        message, kind, text, tag, run_id, images, entry
+                    )
             return self._execute_multimodal(message, kind, text, tag, run_id, images)
         return self._execute_text(message, kind, text, tag, user_id, session_slug, run_id)
+
+    def _execute_detection(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        run_id: str,
+        images: list[Any],
+        entry: dict[str, Any],
+    ) -> str:
+        """Object-detection turn: typed boxes JSON, no VLM."""
+        from orchestration.object_detection_runtime import run_object_detection
+        from orchestration.structured_logging import emit_log
+
+        del message, text
+        agent_provider_id = str(entry.get("id") or "").strip()
+        emit_log(
+            f"engine {kind} detection start images={len(images)}",
+            run_id=run_id,
+            component="engine",
+            extra={"question_id": tag["question_id"]} if tag.get("question_id") else None,
+        )
+        try:
+            from orchestration.run_trace import append_run_event
+
+            append_run_event(
+                self.tool_root,
+                run_id,
+                "agent_start",
+                actor="engine",
+                message=agent_provider_id or "object_detection",
+                detail={
+                    "mode": "object_detection",
+                    "agent_provider_id": agent_provider_id or None,
+                    "images": len(images),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+        result = run_object_detection(
+            entry,
+            images=images,
+            on_progress=lambda line: self._progress_to_status(line, tag),
+        )
+        try:
+            import json
+
+            from orchestration.run_trace import append_run_event
+
+            parsed = json.loads(result)
+            model = parsed.get("model") if isinstance(parsed, dict) else {}
+            append_run_event(
+                self.tool_root,
+                run_id,
+                "agent_end",
+                actor="engine",
+                message=agent_provider_id or "object_detection",
+                detail={
+                    "mode": "object_detection",
+                    "images": len(images),
+                    "detection_count": (model or {}).get("detection_count"),
+                    "inference_ms": (model or {}).get("inference_ms"),
+                    "weights_resident": (model or {}).get("weights_resident"),
+                    "execution_provider": (model or {}).get("execution_provider"),
+                    "input_width": (model or {}).get("input_width"),
+                    "input_height": (model or {}).get("input_height"),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return result
 
     def _execute_multimodal(
         self,
