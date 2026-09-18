@@ -80,6 +80,12 @@ spec:
               value: agentic-run-store
             - name: AGENTIC_K8S_RUN_STORE_MOUNT
               value: /run/store
+            # Required for AGENTIC_EXECUTION_BACKEND=kubernetes (same as coordinator).
+            # jetson-enable-engine.sh rewrites the image tag from the live coordinator.
+            - name: AGENTIC_K8S_ENV_SECRET
+              value: agentic-orchestrator-env
+            - name: AGENTIC_K8S_WORKER_IMAGE
+              value: agentic-orchestrator-worker:local
             # One-writer story: this pod owns KB SQLite for Reach clients; Node web spawn
             # still writes its own emptyDir KB. Do not point Reach clients at :30487.
             - name: PYTHONUNBUFFERED

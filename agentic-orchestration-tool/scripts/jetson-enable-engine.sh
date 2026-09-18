@@ -42,17 +42,45 @@ else
   echo "=== engine image (from coordinator): ${COORD_IMAGE} ==="
 fi
 
+# Keep worker image in lockstep with the coordinator (required for k8s execution).
+WORKER_IMAGE="${AGENTIC_K8S_WORKER_IMAGE:-}"
+if [[ -z "${WORKER_IMAGE}" ]]; then
+  WORKER_IMAGE="$(
+    kubectl get deployment agentic-coordinator -n "${NS}" -o yaml 2>/dev/null \
+      | awk '/name: AGENTIC_K8S_WORKER_IMAGE/{getline; sub(/^[[:space:]]*value:[[:space:]]*/,""); print; exit}' \
+      || true
+  )"
+fi
+if [[ -z "${WORKER_IMAGE}" ]]; then
+  WORKER_IMAGE="agentic-orchestrator-worker:local"
+  echo "warning: AGENTIC_K8S_WORKER_IMAGE not found on coordinator; using ${WORKER_IMAGE}" >&2
+else
+  echo "=== engine worker image (from coordinator): ${WORKER_IMAGE} ==="
+fi
+
 TMP_DEPLOY="$(mktemp)"
 trap 'rm -f "${TMP_DEPLOY}"' EXIT
-python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" <<'PY'
+python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" "${WORKER_IMAGE}" <<'PY'
 import sys
-src, dst, image = sys.argv[1], sys.argv[2], sys.argv[3]
+src, dst, image, worker_image = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 text = open(src, encoding="utf-8").read()
 old = "image: agentic-orchestrator-coordinator:local"
 new = f"image: {image}"
 if old not in text:
     raise SystemExit(f"expected {old!r} in {src}")
-open(dst, "w", encoding="utf-8").write(text.replace(old, new, 1))
+text = text.replace(old, new, 1)
+old_w = "value: agentic-orchestrator-worker:local"
+new_w = f"value: {worker_image}"
+# Only rewrite the WORKER_IMAGE placeholder (first match after AGENTIC_K8S_WORKER_IMAGE).
+marker = "name: AGENTIC_K8S_WORKER_IMAGE"
+idx = text.find(marker)
+if idx < 0:
+    raise SystemExit(f"expected {marker!r} in {src}")
+tail = text[idx:]
+if old_w not in tail:
+    raise SystemExit(f"expected {old_w!r} after {marker} in {src}")
+text = text[:idx] + tail.replace(old_w, new_w, 1)
+open(dst, "w", encoding="utf-8").write(text)
 PY
 
 echo "=== apply agentic-engine Deployment + Services ==="
