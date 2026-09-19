@@ -56,6 +56,19 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/terminal_tunnel_tool.py
               subPath: terminal_tunnel_tool.py
+            # Execution queue recovery (ghost active slots) — too large for ConfigMap.
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/execution_queue.py
+              subPath: execution_queue.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/execution_queue_store.py
+              subPath: execution_queue_store.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
+              subPath: backends/kubernetes_warm_pool.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/rag_sources_catalog.py
+              subPath: rag_sources_catalog.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:
