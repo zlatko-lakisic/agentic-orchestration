@@ -198,3 +198,25 @@ def test_keepalive_disabled_when_sharing(monkeypatch: pytest.MonkeyPatch) -> Non
     from orchestration import ollama_keepalive as ok
 
     assert ok.ollama_keepalive_enabled() is False
+
+
+@pytest.mark.unit
+def test_orphan_active_lease_cleared_when_not_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ghost active counts (model not in /api/ps) must not block other models forever."""
+    monkeypatch.delenv("AGENTIC_VRAM_GB", raising=False)
+    monkeypatch.delenv("AGENTIC_ASSUME_VRAM_GB", raising=False)
+    monkeypatch.setenv("AGENTIC_OLLAMA_ORPHAN_LEASE_SECONDS", "0.05")
+    monkeypatch.setattr(
+        "orchestration.hardware_profile.detect_vram_gb_available", lambda: None
+    )
+    client = _FakeClient()
+    mgr = orm.OllamaResourceManager(upstream_base="http://u", http_client=client)
+    stuck = mgr.acquire("llama3.2:latest")
+    assert mgr.local_status()["active"].get("llama3.2:latest") == 1
+    mgr._last_used["llama3.2:latest"] = time.time() - 10.0
+    client.loaded = []
+    other = mgr.acquire("qwen2.5:14b-instruct", timeout_seconds=2.0)
+    assert other.model == "qwen2.5:14b-instruct"
+    assert "llama3.2:latest" not in mgr.local_status()["active"]
+    mgr.release(other)
+    mgr.release(stuck)

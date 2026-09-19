@@ -147,6 +147,9 @@ spec:
               # The broker + resource manager modules are newer than the pinned
               # coordinator image, so orchestration/ is mounted from the git
               # checkout; fastapi is only in requirements-serve.txt.
+              if [ -x /host-nvidia-bin/nvidia-smi ]; then
+                ln -sfn /host-nvidia-bin/nvidia-smi /usr/bin/nvidia-smi
+              fi
               if ! python -c "import fastapi" >/dev/null 2>&1; then
                 echo "Installing fastapi for the Ollama resource broker ..."
                 pip install -q "fastapi>=0.115.0,<1"
@@ -170,6 +173,12 @@ spec:
               value: "600"
             - name: AGENTIC_OLLAMA_QUEUE_MAX
               value: "32"
+            - name: AGENTIC_OLLAMA_ORPHAN_LEASE_SECONDS
+              value: "45"
+            # Fallback when nvidia-smi is unavailable in this container; live
+            # detection via host-nvidia-bin wins when present (Ada ~20 GiB).
+            - name: AGENTIC_ASSUME_VRAM_GB
+              value: "20"
             - name: AGENTIC_RESIDENT_HEADROOM_GB
               value: "1"
           readinessProbe:
@@ -191,6 +200,9 @@ spec:
           volumeMounts:
             - name: orchestration-src
               mountPath: /app/tool/orchestration
+              readOnly: true
+            - name: host-nvidia-bin
+              mountPath: /host-nvidia-bin
               readOnly: true
           resources:
             requests:
