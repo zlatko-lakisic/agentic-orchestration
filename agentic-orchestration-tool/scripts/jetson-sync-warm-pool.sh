@@ -46,8 +46,48 @@ _tool_venv_ready() {
   [[ -x "${py}" ]] && "${py}" -c "import fastapi" >/dev/null 2>&1
 }
 
+# Strategic merge cannot delete volumeMounts. Drop leftover jetson-orch-hostpath
+# *file* mounts (…/orchestration/foo.py) so the full-directory mount can take over.
+_strip_piecemeal_orch_hostpath_mounts() {
+  local idx
+  local -a patch=()
+  local mounts
+  mounts="$(
+    kubectl get deployment agentic-warm-pool -n "${NS}" \
+      -o jsonpath='{range .spec.template.spec.containers[0].volumeMounts[*]}{.name}{"|"}{.mountPath}{"|"}{.subPath}{"\n"}{end}' \
+      2>/dev/null || true
+  )"
+  [[ -z "${mounts}" ]] && return 0
+
+  # Build JSON patch ops in reverse index order so removals stay valid.
+  idx=0
+  local -a to_remove=()
+  while IFS='|' read -r name mpath sub; do
+    if [[ "${name}" == "jetson-orch-hostpath" && "${mpath}" == /app/orchestration/* ]]; then
+      to_remove+=("${idx}")
+    fi
+    idx=$((idx + 1))
+  done <<< "${mounts}"
+
+  if [[ ${#to_remove[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  local i
+  for ((i = ${#to_remove[@]} - 1; i >= 0; i--)); do
+    patch+=("{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/${to_remove[i]}\"}")
+  done
+
+  local payload
+  payload="[$(IFS=,; echo "${patch[*]}")]"
+  echo "=== strip ${#to_remove[@]} piecemeal jetson-orch-hostpath file mount(s) ==="
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --type=json -p "${payload}"
+}
+
 _reapply_warm_pool_patches() {
   local patch venv_patch="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml"
+
+  _strip_piecemeal_orch_hostpath_mounts
 
   for patch in \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml" \
