@@ -46,9 +46,19 @@ spec:
               mountPath: /app/orchestration/terminal_tunnel_tool.py
               subPath: terminal_tunnel_tool.py
             # Execution queue recovery — claim reclaim + failure results (ConfigMap at 1 MiB).
+            # Host-mount queue package deps so unify_warm_pool_enabled import works.
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue.py
+              subPath: execution_queue.py
             - name: jetson-orch-hostpath
               mountPath: /app/orchestration/execution_queue_store.py
               subPath: execution_queue_store.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue_fair_share.py
+              subPath: execution_queue_fair_share.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue_preempt.py
+              subPath: execution_queue_preempt.py
             - name: jetson-orch-hostpath
               mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
               subPath: backends/kubernetes_warm_pool.py
