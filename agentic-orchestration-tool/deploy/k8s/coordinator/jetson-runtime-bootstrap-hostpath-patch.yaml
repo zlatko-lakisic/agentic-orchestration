@@ -57,12 +57,20 @@ spec:
               mountPath: /app/tool/orchestration/terminal_tunnel_tool.py
               subPath: terminal_tunnel_tool.py
             # Execution queue recovery (ghost active slots) — too large for ConfigMap.
+            # fair_share / preempt are required imports of execution_queue.py and are
+            # absent from the coordinator image; mount them with the queue modules.
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue.py
               subPath: execution_queue.py
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue_store.py
               subPath: execution_queue_store.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/execution_queue_fair_share.py
+              subPath: execution_queue_fair_share.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/execution_queue_preempt.py
+              subPath: execution_queue_preempt.py
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
               subPath: backends/kubernetes_warm_pool.py
