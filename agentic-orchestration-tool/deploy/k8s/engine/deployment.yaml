@@ -28,6 +28,9 @@ spec:
         app.kubernetes.io/name: agentic-engine
         app.kubernetes.io/component: engine
     spec:
+      # Same SA as coordinator — needs batch/jobs (+ pods/log) to spawn worker Jobs.
+      # Default SA gets 403 on jobs.batch create (Comstar/Reach dynamic execution).
+      serviceAccountName: agentic-coordinator
       # Single-node Jetson: hostPort 8765 → http://<jetson>:8765 for Reach clients.
       # Recreate avoids hostPort conflicts during rollout.
       containers:
