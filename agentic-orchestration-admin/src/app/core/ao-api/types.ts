@@ -359,6 +359,8 @@ export interface RunTraceResponse {
   mermaidTokenHelps?: Array<{
     messageIndex: number;
     tooltip: string;
+    /** Full text for inspect modal (not hover-truncated). */
+    detail?: string;
     kind?: string;
   }>;
   durationMs?: number | null;

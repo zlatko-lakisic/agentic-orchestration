@@ -2175,6 +2175,21 @@ function shortMermaidLabel(...parts) {
   return text.length <= 40 ? text : `${text.slice(0, 39).trimEnd()}…`;
 }
 
+/** Full + diagram-safe shown form; records tip when truncated. */
+function pushMermaidLabelTip(tips, ...parts) {
+  const clean = parts
+    .map((p) => String(p || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\n/g, " ")
+    .replace(/"/g, "'")
+    .trim();
+  const full = clean || "event";
+  const shown = full.length <= 40 ? full : `${full.slice(0, 39).trimEnd()}…`;
+  if (shown !== full) tips.push({ shown, full });
+  return shown;
+}
+
 /** Coerce trace detail token fields to a finite int (or null). */
 function coerceTokenInt(value) {
   if (value == null || value === "") return null;
@@ -2419,8 +2434,11 @@ function traceInstrumentation(events) {
 function eventsToMermaid(events) {
   const lines = ["sequenceDiagram"];
   const declared = new Set();
-  /** @type {Array<{ messageIndex: number, tooltip: string, kind: string }>} */
+  /** @type {Array<{ messageIndex: number, tooltip: string, detail?: string, kind: string }>} */
   const tokenHelps = [];
+  /** @type {Array<{ shown: string, full: string }>} */
+  const tips = [];
+  const diagLabel = (...parts) => pushMermaidLabelTip(tips, ...parts);
   let messageIndex = 0;
   const pushMsg = (line) => {
     lines.push(line);
@@ -2432,21 +2450,25 @@ function eventsToMermaid(events) {
     if (!declared.has(pid)) {
       declared.add(pid);
       const raw = a.replace(/"/g, "'");
-      const label = raw.toLowerCase().startsWith("agent:")
-        ? raw.slice(6).slice(0, 22)
-        : raw.slice(0, 28);
-      lines.push(`  participant ${pid} as ${label}`);
+      const isAgent = raw.toLowerCase().startsWith("agent:");
+      const fullLabel = isAgent ? raw.slice(6) : raw;
+      const shownLabel = isAgent ? fullLabel.slice(0, 22) : fullLabel.slice(0, 28);
+      if (shownLabel !== fullLabel && fullLabel) {
+        tips.push({ shown: shownLabel, full: fullLabel });
+      }
+      lines.push(`  participant ${pid} as ${shownLabel}`);
     }
     return pid;
   };
   // Keep participant id `client` for arrow/stack stability, but label it with
   // the requesting app (ao-chat, comstar-ai, …) when request_start stamped one.
   const ident = detailIdentity(events);
-  const clientLabel =
+  const clientFull =
     String(ident.appId || ident.userName || "client")
       .trim()
-      .replace(/"/g, "'")
-      .slice(0, 28) || "client";
+      .replace(/"/g, "'") || "client";
+  const clientLabel = clientFull.slice(0, 28) || "client";
+  if (clientLabel !== clientFull) tips.push({ shown: clientLabel, full: clientFull });
   if ((events || []).length) {
     declared.add("client");
     lines.push(`  participant client as ${clientLabel}`);
@@ -2461,13 +2483,13 @@ function eventsToMermaid(events) {
     const provider = String(detail.agent_provider_id || detail.provider_id || "").trim();
     const caller = stack.length ? stack[stack.length - 1] : "client";
     if (kind === "request_start") {
-      pushMsg(`  client->>${actor}: ${shortMermaidLabel(mode || "request")}`);
+      pushMsg(`  client->>${actor}: ${diagLabel(mode || "request")}`);
       stack = ["client", actor];
     } else if (kind === "plan") {
       // Plan intent only — do not synthesize agent/mcp/skill call arrows.
       // Actual invocations appear as agent_start / step_start / model_call / tool_call / mcp_call.
       pushMsg(`  ${caller}->>${actor}: plan`);
-      const note = shortMermaidLabel(ev.message || "");
+      const note = diagLabel(ev.message || "");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       const planned = [];
       const agents = Array.isArray(detail.agents) ? detail.agents : [];
@@ -2481,13 +2503,13 @@ function eventsToMermaid(events) {
         planned.push(`skill ${(detail.skills || []).slice(0, 3).join(", ")}`);
       }
       if (planned.length) {
-        lines.push(`  Note over ${actor}: ${shortMermaidLabel(planned.join(" · "))}`);
+        lines.push(`  Note over ${actor}: ${diagLabel(planned.join(" · "))}`);
       }
       if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "decision") {
       // Decision intent only — step/agent rows are planned, not executed yet.
       pushMsg(`  ${caller}->>${actor}: decision`);
-      const note = shortMermaidLabel(ev.message || detail.reason || "decision");
+      const note = diagLabel(ev.message || detail.reason || "decision");
       if (note && note !== "event") lines.push(`  Note over ${actor}: ${note}`);
       const stepNotes = [];
       for (const step of (detail.steps || []).slice(0, 8)) {
@@ -2506,36 +2528,36 @@ function eventsToMermaid(events) {
         stepNotes.push(bits.join(" "));
       }
       if (stepNotes.length) {
-        lines.push(`  Note over ${actor}: ${shortMermaidLabel(stepNotes.join(" · "))}`);
+        lines.push(`  Note over ${actor}: ${diagLabel(stepNotes.join(" · "))}`);
       }
       if (caller !== actor) pushMsg(`  ${actor}-->>${caller}: ok`);
     } else if (kind === "agent_start") {
-      pushMsg(`  ${caller}->>${actor}: ${shortMermaidLabel(provider || ev.message || "agent")}`);
+      pushMsg(`  ${caller}->>${actor}: ${diagLabel(provider || ev.message || "agent")}`);
       stack.push(actor);
     } else if (kind === "agent_end") {
       if (stack.length && stack[stack.length - 1] === actor) stack.pop();
       const retTo = stack.length ? stack[stack.length - 1] : "client";
-      pushMsg(`  ${actor}-->>${retTo}: ${shortMermaidLabel(ev.message || "done")}`);
+      pushMsg(`  ${actor}-->>${retTo}: ${diagLabel(ev.message || "done")}`);
     } else if (kind === "step_start") {
       pushMsg(
-        `  ${caller}->>${actor}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
+        `  ${caller}->>${actor}: ${diagLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
       );
       stack.push(actor);
     } else if (kind === "step_end" || kind === "step_fail") {
       if (stack.length && stack[stack.length - 1] === actor) stack.pop();
       const retTo = stack.length ? stack[stack.length - 1] : "client";
       pushMsg(
-        `  ${actor}-->>${retTo}: ${shortMermaidLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
+        `  ${actor}-->>${retTo}: ${diagLabel(kind.replace(/_/g, " "), provider || ev.message || "")}`,
       );
     } else if (kind === "tool_call") {
       const phase = String(detail.phase || "");
-      const name = shortMermaidLabel(detail.name || ev.message || "tool");
+      const name = diagLabel(detail.name || ev.message || "tool");
       const tid = ensure(`tool:${detail.name || "tool"}`);
       if (phase === "end") pushMsg(`  ${tid}-->>${caller}: ${name}`);
       else pushMsg(`  ${caller}->>${tid}: ${name}`);
     } else if (kind === "mcp_call") {
       const mid = ensure(`mcp:${detail.mcp_id || "mcp"}`);
-      const label = shortMermaidLabel(detail.method || detail.path || "mcp");
+      const label = diagLabel(detail.method || detail.path || "mcp");
       const phase = String(detail.phase || "");
       if (phase === "end" || detail.status != null) pushMsg(`  ${mid}-->>${caller}: ${label}`);
       else pushMsg(`  ${caller}->>${mid}: ${label}`);
@@ -2545,31 +2567,38 @@ function eventsToMermaid(events) {
       const mid = ensure(`model:${modelName}`);
       const agent = String(detail.agent_provider_id || detail.provider_id || "").trim();
       const reqFull = agent ? `${modelName} · agent ${agent}` : modelName;
-      const reqLabel = shortMermaidLabel(reqFull);
+      const reqLabel = diagLabel(reqFull);
       const reqIdx = pushMsg(`  ${caller}->>${mid}: ${reqLabel}`);
       const previewRaw =
         detail.promptPreview ?? detail.prompt_preview ?? detail.input_preview ?? "";
-      const preview = String(previewRaw || "")
+      // Full text for the modal (preserve newlines); hover tip stays short / one-line.
+      const previewFull = String(previewRaw || "")
         .trim()
-        .replace(/\s+/g, " ")
         .replace(/"/g, "'");
-      const previewShown =
-        preview && preview.length > 220
-          ? preview.slice(0, 219).trimEnd() + "…"
-          : preview;
+      const previewOneLine = previewFull.replace(/\s+/g, " ");
+      const previewTip =
+        previewOneLine && previewOneLine.length > 120
+          ? previewOneLine.slice(0, 119).trimEnd() + "…"
+          : previewOneLine;
       const prompt = coerceTokenInt(detail.prompt_tokens);
       if (prompt != null) {
+        const tip = previewTip
+          ? `prompt=${prompt} · input=${previewTip}`
+          : `prompt=${prompt}`;
+        const detailText = previewFull
+          ? `prompt=${prompt}\n\ninput:\n${previewFull}`
+          : `prompt=${prompt}`;
         tokenHelps.push({
           messageIndex: reqIdx,
-          tooltip: previewShown
-            ? `prompt=${prompt} · input=${previewShown}`
-            : `prompt=${prompt}`,
+          tooltip: tip,
+          detail: detailText,
           kind: "prompt",
         });
-      } else if (previewShown) {
+      } else if (previewTip || previewFull) {
         tokenHelps.push({
           messageIndex: reqIdx,
-          tooltip: `input=${previewShown}`,
+          tooltip: previewTip ? `input=${previewTip}` : "input",
+          detail: previewFull ? `input:\n${previewFull}` : previewTip,
           kind: "prompt_preview",
         });
       }
@@ -2579,20 +2608,21 @@ function eventsToMermaid(events) {
         tokenHelps.push({
           messageIndex: retIdx,
           tooltip: `completion=${completion}`,
+          detail: `completion=${completion}`,
           kind: "completion",
         });
       }
     } else if (kind === "qa") {
       lines.push(
-        `  Note over ${actor}: ${shortMermaidLabel("qa", ev.message || detail.verdict || "")}`,
+        `  Note over ${actor}: ${diagLabel("qa", ev.message || detail.verdict || "")}`,
       );
     } else if (kind === "run_end" || kind === "run_error") {
       pushMsg(
-        `  ${actor}-->>client: ${shortMermaidLabel(ev.message || kind.replace(/_/g, " "))}`,
+        `  ${actor}-->>client: ${diagLabel(ev.message || kind.replace(/_/g, " "))}`,
       );
       stack = ["client"];
     } else {
-      pushMsg(`  ${caller}->>${actor}: ${shortMermaidLabel(kind, ev.message || "")}`);
+      pushMsg(`  ${caller}->>${actor}: ${diagLabel(kind, ev.message || "")}`);
       if (actor !== caller) stack.push(actor);
     }
   }
@@ -2601,7 +2631,7 @@ function eventsToMermaid(events) {
     lines.push(`  participant client as ${clientLabel}`);
     lines.push("  Note over client: No events recorded for this run_id");
   }
-  return { mermaid: lines.join("\n"), tokenHelps };
+  return { mermaid: lines.join("\n"), tokenHelps, tips };
 }
 
 function readRunTraceEvents(toolRoot, runId) {
@@ -2698,6 +2728,7 @@ function buildRunTrace({ toolRoot }, id, { depth } = {}) {
     eventCount: filtered.length,
     events: filtered,
     mermaid: diagram.mermaid,
+    mermaidTips: diagram.tips,
     mermaidTokenHelps: diagram.tokenHelps,
     durationMs: traceDurationMs(events),
     instrumentation: traceInstrumentation(events),

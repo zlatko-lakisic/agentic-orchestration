@@ -1046,7 +1046,8 @@ def install_litellm_usage_callback() -> None:
                         preview = build_prompt_preview(
                             messages=kwargs.get("messages"),
                             tools=kwargs.get("tools"),
-                            max_chars=220,
+                            # Long enough for Admin Traces modal; hover tip truncates separately.
+                            max_chars=8000,
                         )
                 except Exception:  # noqa: BLE001
                     preview = ""

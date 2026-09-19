@@ -95,6 +95,7 @@ declare global {
 
       :host ::ng-deep .ao-mermaid-host {
         display: block;
+        position: relative;
         width: 100%;
         max-width: 100%;
         min-width: 0;
@@ -102,6 +103,27 @@ declare global {
         overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
         overscroll-behavior-x: contain;
+      }
+
+      :host ::ng-deep .ao-mermaid-float-tip {
+        position: fixed;
+        z-index: 1200;
+        max-width: min(36rem, calc(100vw - 24px));
+        max-height: min(50vh, 24rem);
+        overflow: auto;
+        padding: 0.5rem 0.65rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgb(64 64 64 / 0.45);
+        background: rgb(23 23 23 / 0.96);
+        color: rgb(245 245 245);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.75rem;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+        pointer-events: none;
       }
 
       /* Keep SVG at natural diagram width so the host scrolls when wider than the card. */
@@ -883,7 +905,7 @@ export class TracesPage implements OnInit, OnDestroy {
           /* diagram still visible without topology polish */
         }
         try {
-          applyMermaidTextTooltips(svg, d.mermaidTips);
+          applyMermaidTextTooltips(svg, d.mermaidTips, host);
         } catch {
           /* tooltips optional */
         }
@@ -933,9 +955,9 @@ export class TracesPage implements OnInit, OnDestroy {
     this.openId(rid);
   }
 
-  openTokenHelpDialog(help: { tooltip: string; kind?: string }) {
-    const tip = String(help?.tooltip || '').trim();
-    if (!tip) return;
+  openTokenHelpDialog(help: { tooltip: string; detail?: string; kind?: string }) {
+    const body = String(help?.detail || help?.tooltip || '').trim();
+    if (!body) return;
     const kind = String(help?.kind || '').trim();
     const title =
       kind === 'completion'
@@ -944,7 +966,7 @@ export class TracesPage implements OnInit, OnDestroy {
           ? 'Prompt tokens'
           : 'Token help';
     this.dialog.open(TokenHelpDialog, {
-      data: { title, body: tip } satisfies TokenHelpDialogData,
+      data: { title, body } satisfies TokenHelpDialogData,
       maxWidth: '40rem',
       width: 'min(40rem, 92vw)',
     });
