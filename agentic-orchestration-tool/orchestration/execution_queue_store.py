@@ -260,6 +260,96 @@ def clear_grant(ticket_id: str, *, run_store_mount: str | None = None) -> None:
         pass
 
 
+def clear_stale_grants(
+    *,
+    max_age_seconds: float = 3600.0,
+    run_store_mount: str | None = None,
+) -> int:
+    """Delete ``granted/*.json`` older than ``max_age_seconds``. Returns count removed."""
+    root = ensure_queue_dirs(run_store_mount)
+    granted = _granted_dir(root)
+    if not granted.is_dir():
+        return 0
+    now = time.time()
+    removed = 0
+    for path in granted.glob("*.json"):
+        try:
+            age = now - path.stat().st_mtime
+        except OSError:
+            continue
+        if age < max_age_seconds:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def reclaim_stale_claims(
+    phase: str,
+    *,
+    max_age_seconds: float = 120.0,
+    run_store_mount: str | None = None,
+) -> int:
+    """Rename stale ``*.claimed`` / ``*.claimed-*`` back to ``*.json`` for re-claim.
+
+    Warm-pool workers rename pending tickets while working; if the worker dies the
+    ticket vanishes from ``list_pending`` forever unless reclaimed.
+    """
+    root = ensure_queue_dirs(run_store_mount)
+    phase_dir = _pending_dir(root, phase)
+    if not phase_dir.is_dir():
+        return 0
+    now = time.time()
+    reclaimed = 0
+    for path in list(phase_dir.iterdir()):
+        name = path.name
+        if not path.is_file():
+            continue
+        if not (name.endswith(".claimed") or ".claimed-" in name):
+            continue
+        try:
+            age = now - path.stat().st_mtime
+        except OSError:
+            continue
+        if age < max_age_seconds:
+            continue
+        # foo.json.claimed-worker -> foo.json ; foo.claimed -> foo.json
+        if ".claimed-" in name:
+            base = name.split(".claimed-", 1)[0]
+            if not base.endswith(".json"):
+                base = f"{base}.json"
+        elif name.endswith(".claimed"):
+            base = name[: -len(".claimed")]
+            if not base.endswith(".json"):
+                base = f"{base}.json"
+        else:
+            continue
+        dest = phase_dir / base
+        if dest.exists():
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        try:
+            path.rename(dest)
+            reclaimed += 1
+        except OSError:
+            continue
+    return reclaimed
+
+
+def count_pending_tickets(
+    phase: str,
+    *,
+    run_store_mount: str | None = None,
+) -> int:
+    return len(list_pending_tickets(phase, run_store_mount=run_store_mount))
+
+
 def write_preempt_signal(run_id: str, *, run_store_mount: str | None = None) -> Path:
     root = ensure_queue_dirs(run_store_mount)
     path = _preempt_dir(root) / f"{run_id.replace('/', '_')}.json"

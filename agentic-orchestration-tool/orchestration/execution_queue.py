@@ -28,10 +28,13 @@ from orchestration.execution_queue_preempt import (
 from orchestration.execution_queue_store import (
     StoredTicket,
     clear_grant,
+    clear_stale_grants,
+    count_pending_tickets,
     list_pending_tickets,
     poll_grant,
     poll_preempt_signal,
     read_state,
+    reclaim_stale_claims,
     remove_pending,
     submit_pending_ticket,
     write_grant,
@@ -628,6 +631,10 @@ class ExecutionQueueManager:
             return
         with self._cond:
             self._release_lease_obj(lease)
+        try:
+            clear_grant(lease.ticket_id, run_store_mount=self._run_store_mount)
+        except Exception:  # noqa: BLE001
+            pass
         self._drain()
         with self._cond:
             self._cond.notify_all()
@@ -663,47 +670,94 @@ class ExecutionQueueManager:
         if queue_backend() == "inprocess":
             return
         usage = self._usage()
+        file_steps = 0
+        try:
+            file_steps = count_pending_tickets("step", run_store_mount=self._run_store_mount)
+        except Exception:  # noqa: BLE001
+            file_steps = 0
         write_state(
             {
                 "active": usage,
                 "pending": {
                     "planning": sum(1 for w in self._pending if w.ticket.phase == "planning"),
                     "execution": sum(1 for w in self._pending if w.ticket.phase == "execution"),
-                    "steps": sum(1 for w in self._pending if w.ticket.phase == "step"),
+                    "steps": sum(1 for w in self._pending if w.ticket.phase == "step") + file_steps,
                 },
             },
             run_store_mount=self._run_store_mount,
         )
 
     def reconcile_file_pending(self) -> None:
-        """Hybrid/file mode: admit file-backed pending tickets when capacity allows."""
+        """Hybrid/file mode: recover claims, GC grants, sync state; never invent ghost leases.
+
+        Warm-pool step tickets live under ``pending/step`` and are claimed by workers —
+        they must **not** be admitted into in-memory ``_active`` (that created ghost
+        ``active.steps`` slots with no Job/pod). Planning/execution file tickets are
+        only granted when a matching in-process waiter already owns them.
+        """
         if queue_backend() == "inprocess":
             return
-        for phase in ("planning", "execution", "steps"):
+        try:
+            reclaim_stale_claims(
+                "step",
+                max_age_seconds=float(os.getenv("AGENTIC_EXEC_QUEUE_CLAIM_STALE_SECONDS", "120") or 120),
+                run_store_mount=self._run_store_mount,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            clear_stale_grants(
+                max_age_seconds=float(os.getenv("AGENTIC_EXEC_QUEUE_GRANT_STALE_SECONDS", "3600") or 3600),
+                run_store_mount=self._run_store_mount,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+        for phase in ("planning", "execution"):
             pending = list_pending_tickets(phase, run_store_mount=self._run_store_mount)
             for path, stored in pending:
-                if not self._can_admit(stored):
-                    continue
                 with self._cond:
-                    if self._can_admit(stored):
-                        lease = self._grant(stored)
-                        remove_pending(path)
-                        write_grant(
-                            stored.ticket_id,
-                            {"run_id": stored.run_id, "lease_id": lease.lease_id},
-                            run_store_mount=self._run_store_mount,
-                        )
-                        self._cond.notify_all()
+                    waiter = next(
+                        (w for w in self._pending if w.ticket.ticket_id == stored.ticket_id),
+                        None,
+                    )
+                    if waiter is None:
+                        # Orphan file ticket with no in-process waiter — leave on disk.
+                        continue
+                    if not self._can_admit(stored):
+                        continue
+                    lease = self._grant(stored)
+                    remove_pending(path)
+                    write_grant(
+                        stored.ticket_id,
+                        {"run_id": stored.run_id, "lease_id": lease.lease_id},
+                        run_store_mount=self._run_store_mount,
+                    )
+                    waiter.lease_id = lease.lease_id
+                    waiter.done = True
+                    waiter.event.set()
+                    try:
+                        self._pending.remove(waiter)
+                        self._fair_share.record_pending(waiter.ticket.client_id, delta=-1)
+                    except ValueError:
+                        pass
+                    self._cond.notify_all()
         self._drain()
         self._sync_state()
 
     def queue_status(self) -> dict[str, Any]:
         usage = self._usage()
         with self._lock:
+            # Prefer live file pending for steps (warm-pool), in-memory for the rest.
+            file_steps = 0
+            try:
+                file_steps = count_pending_tickets("step", run_store_mount=self._run_store_mount)
+            except Exception:  # noqa: BLE001
+                file_steps = 0
             pending = {
                 "planning": sum(1 for w in self._pending if w.ticket.phase == "planning"),
                 "execution": sum(1 for w in self._pending if w.ticket.phase == "execution"),
-                "steps": sum(1 for w in self._pending if w.ticket.phase == "step"),
+                "steps": sum(1 for w in self._pending if w.ticket.phase == "step") + file_steps,
             }
             return {
                 "enabled": execution_queue_enabled(),
@@ -741,6 +795,14 @@ def get_execution_queue() -> ExecutionQueueManager:
             from orchestration.run_store import shared_run_store_mount_path
 
             _manager = ExecutionQueueManager(run_store_mount=shared_run_store_mount_path())
+            # Wipe stale state.json from prior process lives (ghost active slots).
+            try:
+                _manager.reconcile_file_pending()
+            except Exception:  # noqa: BLE001
+                try:
+                    _manager._sync_state()
+                except Exception:  # noqa: BLE001
+                    pass
         return _manager
 
 
@@ -948,7 +1010,14 @@ def acquire_step(
         step_id=step_id,
     )
     mgr = get_execution_queue()
-    if unify_warm_pool_enabled() and queue_backend() in ("file", "hybrid"):
+    # When unify is on, warm-pool workers claim the ticket written by
+    # ``_enqueue_global_step`` (with ``spec_container_path``). Do **not** also
+    # submit a bare step ticket here — workers silently deleted those and the
+    # real ticket could be stranded / racey.
+    if (
+        queue_backend() in ("file", "hybrid")
+        and not unify_warm_pool_enabled()
+    ):
         submit_pending_ticket(ticket, run_store_mount=mgr._run_store_mount)
     lease = mgr.acquire(
         ticket,
