@@ -19,6 +19,7 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatIconModule, MatIconRegistry } from '@angular/material/icon';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
@@ -48,6 +49,10 @@ import {
   topologyPanelSurface,
   topologyPanelText,
 } from '@/app/domains/admin/modules/traces/data/trace-topology-theme';
+import {
+  TokenHelpDialog,
+  type TokenHelpDialogData,
+} from '@/app/domains/admin/modules/traces/ui/token-help-dialog';
 
 declare global {
   interface Window {
@@ -69,6 +74,7 @@ declare global {
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
+    MatDialogModule,
     FormsModule,
     RouterLink,
     EmptyState,
@@ -571,7 +577,8 @@ declare global {
               </span>
             }
             <span class="w-full text-center text-neutral-400 sm:w-auto"
-              >Hover ? for prompt (outbound) / completion (return) tokens</span
+              >Hover ? for prompt (outbound) / completion (return) tokens; click when truncated for
+              full text</span
             >
           </div>
         } @else {
@@ -675,6 +682,7 @@ export class TracesPage implements OnInit, OnDestroy {
   private router = inject(Router);
   private injector = inject(Injector);
   private iconRegistry = inject(MatIconRegistry);
+  private dialog = inject(MatDialog);
   readonly clock = inject(AoClock);
   private readonly mermaidHost = viewChild<ElementRef<HTMLElement>>('mermaidHost');
   private mermaidGen = 0;
@@ -880,7 +888,9 @@ export class TracesPage implements OnInit, OnDestroy {
           /* tooltips optional */
         }
         try {
-          applyMermaidTokenHelpIcons(svg, d.mermaidTokenHelps);
+          applyMermaidTokenHelpIcons(svg, d.mermaidTokenHelps, (help) =>
+            this.openTokenHelpDialog(help)
+          );
         } catch {
           /* token help chips optional */
         }
@@ -921,6 +931,23 @@ export class TracesPage implements OnInit, OnDestroy {
       return;
     }
     this.openId(rid);
+  }
+
+  openTokenHelpDialog(help: { tooltip: string; kind?: string }) {
+    const tip = String(help?.tooltip || '').trim();
+    if (!tip) return;
+    const kind = String(help?.kind || '').trim();
+    const title =
+      kind === 'completion'
+        ? 'Completion tokens'
+        : kind === 'prompt' || kind === 'prompt_preview'
+          ? 'Prompt tokens'
+          : 'Token help';
+    this.dialog.open(TokenHelpDialog, {
+      data: { title, body: tip } satisfies TokenHelpDialogData,
+      maxWidth: '40rem',
+      width: 'min(40rem, 92vw)',
+    });
   }
 
   openId(id: string) {

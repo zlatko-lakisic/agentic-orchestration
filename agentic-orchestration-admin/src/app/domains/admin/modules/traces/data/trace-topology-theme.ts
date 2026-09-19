@@ -358,13 +358,34 @@ export type MermaidTokenHelp = {
   kind?: string;
 };
 
+export type MermaidTokenHelpClick = (help: {
+  messageIndex: number;
+  tooltip: string;
+  kind?: string;
+}) => void;
+
+/** Browsers often clip native ``<title>`` tooltips past roughly this length. */
+export const MERMAID_TOKEN_HELP_TRUNCATE_CHARS = 80;
+
+export function mermaidTokenHelpLikelyTruncated(tooltip: string): boolean {
+  const tip = String(tooltip || '').trim();
+  if (!tip) return false;
+  return (
+    tip.length > MERMAID_TOKEN_HELP_TRUNCATE_CHARS ||
+    tip.includes('…') ||
+    tip.endsWith('...')
+  );
+}
+
 /**
  * Place topology-style ``?`` help chips to the right of Mermaid message labels.
  * Prompt tokens annotate the outbound model_call; completion tokens the ``ok`` return.
+ * When ``onClick`` is set and the tip is likely truncated, click / Enter / Space opens a detail view.
  */
 export function applyMermaidTokenHelpIcons(
   svg: SVGSVGElement,
-  helps: MermaidTokenHelp[] | null | undefined
+  helps: MermaidTokenHelp[] | null | undefined,
+  onClick?: MermaidTokenHelpClick
 ): void {
   const list = (helps || []).filter(
     (h) =>
@@ -416,10 +437,11 @@ export function applyMermaidTokenHelpIcons(
     const cy = by + bh / 2;
     maxRight = Math.max(maxRight, cx + r + 4);
 
+    const clickable = !!onClick && mermaidTokenHelpLikelyTruncated(tip);
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('data-ao-token-help', String(idx));
     g.setAttribute('data-ao-token-kind', String(help.kind || ''));
-    g.style.cursor = 'help';
+    g.style.cursor = clickable ? 'pointer' : 'help';
 
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = tip;
@@ -444,7 +466,28 @@ export function applyMermaidTokenHelpIcons(
     q.setAttribute('font-family', 'system-ui, sans-serif');
     q.setAttribute('font-weight', '600');
     q.textContent = '?';
+    // Keep the ``?`` glyph from stealing hit-testing / focus from the group.
+    q.style.pointerEvents = 'none';
     g.appendChild(q);
+
+    if (clickable && onClick) {
+      g.setAttribute('role', 'button');
+      g.setAttribute('tabindex', '0');
+      g.setAttribute('aria-label', 'View full token help text');
+      const open = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        onClick({
+          messageIndex: idx,
+          tooltip: tip,
+          kind: help.kind,
+        });
+      };
+      g.addEventListener('click', open);
+      g.addEventListener('keydown', (ev: KeyboardEvent) => {
+        if (ev.key === 'Enter' || ev.key === ' ') open(ev);
+      });
+    }
 
     const parent = el.parentNode || svg;
     parent.appendChild(g);
