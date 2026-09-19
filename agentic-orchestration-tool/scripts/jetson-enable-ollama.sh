@@ -203,6 +203,9 @@ broker = f"""        - name: resource-broker
               # orchestration/ is mounted from the git checkout because the
               # broker modules are newer than the pinned coordinator image, and
               # fastapi ships only in requirements-serve.txt.
+              if [ -x /host-nvidia-bin/nvidia-smi ]; then
+                ln -sfn /host-nvidia-bin/nvidia-smi /usr/bin/nvidia-smi
+              fi
               if ! python -c "import fastapi" >/dev/null 2>&1; then
                 echo "Installing fastapi for the Ollama resource broker ..."
                 pip install -q "fastapi>=0.115.0,<1"
@@ -222,6 +225,8 @@ broker = f"""        - name: resource-broker
               value: "11434"
             - name: AGENTIC_OLLAMA_IDLE_UNLOAD_SECONDS
               value: "120"
+            - name: AGENTIC_OLLAMA_ORPHAN_LEASE_SECONDS
+              value: "45"
             - name: AGENTIC_ASSUME_VRAM_GB
               value: "48"
             - name: AGENTIC_RESIDENT_HEADROOM_GB

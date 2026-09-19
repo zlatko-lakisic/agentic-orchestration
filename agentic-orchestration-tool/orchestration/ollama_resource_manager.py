@@ -93,6 +93,20 @@ def queue_max() -> int:
     return max(1, min(value, 256))
 
 
+def orphan_lease_seconds() -> float:
+    """Drop in-memory active leases when Ollama no longer has the model loaded.
+
+    Client disconnects / crashed workers can leave ``_active`` counts that block
+    admission forever when ``budgetGb`` is unknown (one-model-at-a-time mode).
+    """
+    raw = os.getenv("AGENTIC_OLLAMA_ORPHAN_LEASE_SECONDS", "45").strip() or "45"
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 45.0
+    return max(5.0, min(value, 3600.0))
+
+
 def broker_listen_host() -> str:
     return os.getenv("AGENTIC_OLLAMA_BROKER_HOST", "0.0.0.0").strip() or "0.0.0.0"
 
@@ -273,6 +287,37 @@ class OllamaResourceManager:
     def _active_models(self) -> set[str]:
         return {m for m, n in self._active.items() if n > 0}
 
+    def _reconcile_orphan_actives(self, loaded: list[dict[str, Any]]) -> int:
+        """Clear active lease counts for models that are not resident in Ollama.
+
+        Returns the number of model keys cleared. Safe to call under admission
+        pressure; notifies waiters when anything is dropped.
+        """
+        loaded_keys = {
+            normalize_model_tag(str(x.get("name") or "")).casefold()
+            for x in loaded
+            if str(x.get("name") or "").strip()
+        }
+        now = self._clock()
+        stale_after = orphan_lease_seconds()
+        cleared = 0
+        with self._cond:
+            for key in list(self._active.keys()):
+                if int(self._active.get(key, 0)) <= 0:
+                    self._active.pop(key, None)
+                    continue
+                if key in loaded_keys:
+                    continue
+                last = float(self._last_used.get(key, 0.0) or 0.0)
+                age = now - last if last > 0 else stale_after + 1.0
+                if age < stale_after:
+                    continue
+                self._active.pop(key, None)
+                cleared += 1
+            if cleared:
+                self._cond.notify_all()
+        return cleared
+
     def _resident_used_gb(
         self,
         loaded: list[dict[str, Any]],
@@ -411,6 +456,7 @@ class OllamaResourceManager:
         timeout = idle_unload_seconds()
         unloaded: list[str] = []
         loaded = self.list_loaded_models()
+        self._reconcile_orphan_actives(loaded)
         with self._lock:
             active = {a.casefold() for a in self._active_models()}
         for item in loaded:
@@ -447,9 +493,11 @@ class OllamaResourceManager:
                     raise RuntimeError("resource manager is closed")
 
             loaded = self.list_loaded_models()
+            self._reconcile_orphan_actives(loaded)
             if self.can_admit(tag, loaded=loaded):
                 self._evict_idle_for(tag, loaded)
                 loaded2 = self.list_loaded_models()
+                self._reconcile_orphan_actives(loaded2)
                 if self.can_admit(tag, loaded=loaded2):
                     with self._cond:
                         lease = self._grant(tag)
@@ -523,10 +571,12 @@ class OllamaResourceManager:
                 model = head.model
 
             loaded = self.list_loaded_models()
+            self._reconcile_orphan_actives(loaded)
             if not self.can_admit(model, loaded=loaded):
                 return
             self._evict_idle_for(model, loaded)
             loaded2 = self.list_loaded_models()
+            self._reconcile_orphan_actives(loaded2)
             if not self.can_admit(model, loaded=loaded2):
                 return
 

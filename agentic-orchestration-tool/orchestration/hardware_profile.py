@@ -171,7 +171,7 @@ def _heuristic_min_vram_gb_for_ollama_model(model: str) -> float | None:
         return 14.0
     if any(x in m for x in ("vision", "vl-", "-vl", "llava", "moondream", "minicpm-v", "qwen2.5vl", "qwen3-vl")):
         return 10.0
-    if any(x in m for x in ("codestral", "qwen3-coder-next", "devstral", "15b", "13b")):
+    if any(x in m for x in ("codestral", "qwen3-coder-next", "devstral", "15b", "14b", "13b")):
         return 12.0
     if any(x in m for x in ("tinyllama", "smollm", "1b", "2b", "3b")):
         return 4.0
