@@ -149,9 +149,7 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/workflow_materializer.py
               subPath: workflow_materializer.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/orchestration/rag_sources_catalog.py
-              subPath: rag_sources_catalog.py
+            # rag_sources_catalog.py is hostPath-mounted (not in ConfigMap — 1MiB limit)
             - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/rag_retrieve.py
               subPath: rag_retrieve.py

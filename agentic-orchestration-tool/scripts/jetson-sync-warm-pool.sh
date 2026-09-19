@@ -47,7 +47,8 @@ _tool_venv_ready() {
 }
 
 # Strategic merge cannot delete volumeMounts. Drop leftover jetson-orch-hostpath
-# *file* mounts (…/orchestration/foo.py) so the full-directory mount can take over.
+# mounts under /app/orchestration (file subPaths *or* a full-dir mount) before
+# re-applying the current hostPath patch.
 _strip_piecemeal_orch_hostpath_mounts() {
   local idx
   local -a patch=()
@@ -63,7 +64,7 @@ _strip_piecemeal_orch_hostpath_mounts() {
   idx=0
   local -a to_remove=()
   while IFS='|' read -r name mpath sub; do
-    if [[ "${name}" == "jetson-orch-hostpath" && "${mpath}" == /app/orchestration/* ]]; then
+    if [[ "${name}" == "jetson-orch-hostpath" && ( "${mpath}" == "/app/orchestration" || "${mpath}" == /app/orchestration/* ) ]]; then
       to_remove+=("${idx}")
     fi
     idx=$((idx + 1))
@@ -80,7 +81,7 @@ _strip_piecemeal_orch_hostpath_mounts() {
 
   local payload
   payload="[$(IFS=,; echo "${patch[*]}")]"
-  echo "=== strip ${#to_remove[@]} piecemeal jetson-orch-hostpath file mount(s) ==="
+  echo "=== strip ${#to_remove[@]} jetson-orch-hostpath mount(s) under /app/orchestration ==="
   kubectl patch deployment agentic-warm-pool -n "${NS}" --type=json -p "${payload}"
 }
 

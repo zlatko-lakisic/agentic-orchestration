@@ -1,11 +1,6 @@
-# Mount the full git-synced orchestration package into warm-pool workers.
-# Piecemeal subPath mounts left the worker image missing modules that execute_step
-# imports (e.g. deterministic_runtime) while the engine mounts the entire tool tree.
-#
-# jetson-sync-warm-pool.sh strips leftover jetson-orch-hostpath *file* mounts before
-# applying this patch so strategic-merge does not leave conflicting subPaths.
-#
-# ConfigMap tool-hotfix file overlays still apply on top for paths they list.
+# Mount git-synced orchestration modules that no longer fit in the 1MiB ConfigMap hotfix.
+# Keep file-level subPaths (not a full /app/orchestration dir mount): ConfigMap
+# tool-hotfix overlays cannot bind-mount files over a directory volume mount.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +13,63 @@ spec:
         - name: worker
           volumeMounts:
             - name: jetson-orch-hostpath
-              mountPath: /app/orchestration
+              mountPath: /app/orchestration/runtime_bootstrap.py
+              subPath: runtime_bootstrap.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/ollama_ownership.py
+              subPath: ollama_ownership.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/ollama_catalog_filter.py
+              subPath: ollama_catalog_filter.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/ollama_resource_manager.py
+              subPath: ollama_resource_manager.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/mcp_stdio_hygiene.py
+              subPath: mcp_stdio_hygiene.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/mcp_stdio_jsonrpc_filter.py
+              subPath: mcp_stdio_jsonrpc_filter.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/background_activity.py
+              subPath: background_activity.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/run_status.py
+              subPath: run_status.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/crewai_template.py
+              subPath: crewai_template.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/filesystem_tunnel_tool.py
+              subPath: filesystem_tunnel_tool.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/terminal_tunnel_tool.py
+              subPath: terminal_tunnel_tool.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue.py
+              subPath: execution_queue.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue_store.py
+              subPath: execution_queue_store.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue_fair_share.py
+              subPath: execution_queue_fair_share.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/execution_queue_preempt.py
+              subPath: execution_queue_preempt.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/backends/kubernetes_warm_pool.py
+              subPath: backends/kubernetes_warm_pool.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/rag_sources_catalog.py
+              subPath: rag_sources_catalog.py
+            # execute_step imports these; absent from worker image v1.27.x
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/deterministic_runtime.py
+              subPath: deterministic_runtime.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/orchestration/object_detection_runtime.py
+              subPath: object_detection_runtime.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:
