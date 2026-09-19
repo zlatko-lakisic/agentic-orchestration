@@ -74,9 +74,6 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=session_overlay.py="${ORCH_ROOT}/session_overlay.py" \
   --from-file=session_overlay_runtime.py="${ORCH_ROOT}/session_overlay_runtime.py" \
   --from-file=mcp_tunnel.py="${ORCH_ROOT}/mcp_tunnel.py" \
-  --from-file=kubernetes_warm_pool.py="${ORCH_ROOT}/backends/kubernetes_warm_pool.py" \
-  --from-file=execution_queue_store.py="${ORCH_ROOT}/execution_queue_store.py" \
-  --from-file=execution_queue.py="${ORCH_ROOT}/execution_queue.py" \
   --from-file=kubernetes_runner.py="${ORCH_ROOT}/backends/kubernetes_runner.py" \
   --from-file=execute_step.py="${ORCH_ROOT}/execute_step.py" \
   --from-file=k8s_delegation_tool.py="${ORCH_ROOT}/k8s_delegation_tool.py" \
@@ -130,7 +127,6 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=workflow_ollama.py="${ORCH_ROOT}/workflow_ollama.py" \
   --from-file=metrics.py="${ORCH_ROOT}/metrics.py" \
   --from-file=run_store_backends.py="${ORCH_ROOT}/run_store_backends.py" \
-  --from-file=rag_sources_catalog.py="${ORCH_ROOT}/rag_sources_catalog.py" \
   --from-file=rag_retrieve.py="${ORCH_ROOT}/rag_retrieve.py" \
   --from-file=rag_embeddings.py="${ORCH_ROOT}/rag_embeddings.py" \
   --from-file=rag_context.py="${ORCH_ROOT}/rag_context.py" \

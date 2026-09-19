@@ -30,15 +30,6 @@ spec:
               mountPath: /app/tool/orchestration/mcp_tunnel.py
               subPath: mcp_tunnel.py
             - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
-              subPath: kubernetes_warm_pool.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/execution_queue_store.py
-              subPath: execution_queue_store.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/execution_queue.py
-              subPath: execution_queue.py
-            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/backends/kubernetes_runner.py
               subPath: kubernetes_runner.py
             - name: tool-hotfix-orchestration
@@ -179,9 +170,6 @@ spec:
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/run_store_backends.py
               subPath: run_store_backends.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/rag_sources_catalog.py
-              subPath: rag_sources_catalog.py
             - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/rag_retrieve.py
               subPath: rag_retrieve.py
