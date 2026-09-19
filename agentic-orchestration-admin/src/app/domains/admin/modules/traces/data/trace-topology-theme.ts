@@ -297,19 +297,21 @@ export async function applyTopologyStylesToMermaidSvg(
 function setSvgTitle(el: SVGElement, full: string): void {
   const text = String(full || '').trim();
   if (!text) return;
+  // Prefer custom hover overlay (native <title> truncates long strings).
+  el.setAttribute('data-ao-tip', text);
   el.querySelectorAll('title').forEach((n) => n.remove());
-  const tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-  tip.textContent = text;
-  el.insertBefore(tip, el.firstChild);
+  el.style.cursor = el.style.cursor || 'help';
 }
 
 /**
- * Apply native SVG tooltips for truncated Mermaid labels.
- * Prefer ``tips`` from the API (shown→full); also title any text that still ends with ….
+ * Apply hover tips for truncated Mermaid labels.
+ * Prefer ``tips`` from the API (shown→full). Uses a host overlay so the full
+ * text is never clipped by the browser's native tooltip limit.
  */
 export function applyMermaidTextTooltips(
   svg: SVGSVGElement,
-  tips: Array<{ shown?: string; full?: string }> | null | undefined
+  tips: Array<{ shown?: string; full?: string }> | null | undefined,
+  host?: HTMLElement | null
 ): void {
   const byShown = new Map<string, string>();
   for (const tip of tips || []) {
@@ -319,6 +321,8 @@ export function applyMermaidTextTooltips(
   }
 
   svg.querySelectorAll('text').forEach((el) => {
+    if (el.closest('[data-ao-token-help]')) return;
+
     // Prefer text nodes only (ignore nested <title> when reading)
     const own = Array.from(el.childNodes)
       .filter((n) => n.nodeType === Node.TEXT_NODE)
@@ -326,41 +330,125 @@ export function applyMermaidTextTooltips(
       .join('')
       .trim();
     const visible = own || (el.textContent || '').trim();
-    if (!visible) return;
+    if (!visible || visible === '?') return;
 
-    const mapped = byShown.get(visible);
-    if (mapped) {
-      setSvgTitle(el, mapped);
+    let full = byShown.get(visible) || '';
+    if (!full) {
+      // Topology restyle may further shorten a tip's shown form.
+      for (const [shown, mapped] of byShown) {
+        if (visible.endsWith('…') && shown.startsWith(visible.slice(0, -1))) {
+          full = mapped;
+          break;
+        }
+      }
+    }
+    if (!full) {
+      full = el.getAttribute('data-ao-tip') || '';
+    }
+    if (!full && visible.includes('…')) {
+      // No mapping — still avoid a useless native title equal to truncated text.
       return;
     }
+    if (!full || full === visible) return;
 
-    // Topology restyle may further shorten a tip's shown form.
-    for (const [shown, full] of byShown) {
-      if (visible.endsWith('…') && shown.startsWith(visible.slice(0, -1))) {
-        setSvgTitle(el, full);
+    setSvgTitle(el, full);
+  });
+
+  if (host) bindMermaidHoverOverlay(svg, host);
+}
+
+/** Floating overlay tip — full text, scrollable, not browser-clipped. */
+function bindMermaidHoverOverlay(svg: SVGSVGElement, host: HTMLElement): void {
+  const TIP_CLASS = 'ao-mermaid-float-tip';
+  let tipEl = host.querySelector<HTMLDivElement>(`:scope > .${TIP_CLASS}`);
+  if (!tipEl) {
+    tipEl = document.createElement('div');
+    tipEl.className = TIP_CLASS;
+    tipEl.hidden = true;
+    tipEl.setAttribute('role', 'tooltip');
+    host.appendChild(tipEl);
+  }
+
+  const prev = (svg as SVGSVGElement & { __aoTipAbort?: AbortController }).__aoTipAbort;
+  if (prev) prev.abort();
+  const ac = new AbortController();
+  (svg as SVGSVGElement & { __aoTipAbort?: AbortController }).__aoTipAbort = ac;
+  const { signal } = ac;
+
+  const hide = () => {
+    tipEl!.hidden = true;
+    tipEl!.textContent = '';
+  };
+
+  const place = (clientX: number, clientY: number) => {
+    const pad = 12;
+    const tw = tipEl!.offsetWidth || 240;
+    const th = tipEl!.offsetHeight || 40;
+    let left = clientX + 14;
+    let top = clientY + 16;
+    if (left + tw + pad > window.innerWidth) left = clientX - tw - 12;
+    if (top + th + pad > window.innerHeight) top = clientY - th - 12;
+    tipEl!.style.left = `${Math.max(pad, left)}px`;
+    tipEl!.style.top = `${Math.max(pad, top)}px`;
+  };
+
+  const tipFor = (target: EventTarget | null): string => {
+    const el =
+      target instanceof Element
+        ? target.closest<SVGElement>('[data-ao-tip]')
+        : null;
+    if (!el || !svg.contains(el)) return '';
+    if (el.closest('[data-ao-token-help]')) return '';
+    return String(el.getAttribute('data-ao-tip') || '').trim();
+  };
+
+  svg.addEventListener(
+    'pointerover',
+    (ev) => {
+      const text = tipFor(ev.target);
+      if (!text) return;
+      tipEl!.hidden = false;
+      tipEl!.textContent = text;
+      place(ev.clientX, ev.clientY);
+    },
+    { signal }
+  );
+  svg.addEventListener(
+    'pointermove',
+    (ev) => {
+      if (tipEl!.hidden) return;
+      const text = tipFor(ev.target);
+      if (!text) {
+        hide();
         return;
       }
-    }
-
-    if (visible.includes('…')) {
-      const existing = el.querySelector('title')?.textContent?.trim();
-      if (!existing || existing === visible) {
-        // Keep any better title already set; otherwise at least expose visible.
-        if (!existing) setSvgTitle(el, visible);
-      }
-    }
-  });
+      place(ev.clientX, ev.clientY);
+    },
+    { signal }
+  );
+  svg.addEventListener(
+    'pointerout',
+    (ev) => {
+      const next = tipFor(ev.relatedTarget);
+      if (!next) hide();
+    },
+    { signal }
+  );
+  host.addEventListener('scroll', hide, { signal, passive: true });
 }
 
 export type MermaidTokenHelp = {
   messageIndex?: number;
   tooltip?: string;
+  /** Full text for the inspect modal (may be longer than ``tooltip``). */
+  detail?: string;
   kind?: string;
 };
 
 export type MermaidTokenHelpClick = (help: {
   messageIndex: number;
   tooltip: string;
+  detail?: string;
   kind?: string;
 }) => void;
 
@@ -375,6 +463,14 @@ export function mermaidTokenHelpLikelyTruncated(tooltip: string): boolean {
     tip.includes('…') ||
     tip.endsWith('...')
   );
+}
+
+/** Prefer opening the modal when detail is richer than the hover tip. */
+export function mermaidTokenHelpExpandable(help: MermaidTokenHelp): boolean {
+  const tip = String(help?.tooltip || '').trim();
+  const detail = String(help?.detail || '').trim();
+  if (detail && detail !== tip) return true;
+  return mermaidTokenHelpLikelyTruncated(tip);
 }
 
 /**
@@ -416,6 +512,7 @@ export function applyMermaidTokenHelpIcons(
     if (!help) continue;
     const tip = String(help.tooltip || '').trim();
     if (!tip) continue;
+    const detail = String(help.detail || '').trim();
 
     let bx = 0;
     let by = 0;
@@ -437,7 +534,7 @@ export function applyMermaidTokenHelpIcons(
     const cy = by + bh / 2;
     maxRight = Math.max(maxRight, cx + r + 4);
 
-    const clickable = !!onClick && mermaidTokenHelpLikelyTruncated(tip);
+    const clickable = !!onClick && mermaidTokenHelpExpandable(help);
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('data-ao-token-help', String(idx));
     g.setAttribute('data-ao-token-kind', String(help.kind || ''));
@@ -480,6 +577,7 @@ export function applyMermaidTokenHelpIcons(
         onClick({
           messageIndex: idx,
           tooltip: tip,
+          detail: detail || undefined,
           kind: help.kind,
         });
       };

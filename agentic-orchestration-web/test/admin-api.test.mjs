@@ -54,9 +54,56 @@ test("eventsToMermaid puts token helps on model_call arrows and restores ok retu
   assert.equal(tokenHelps.length, 2);
   assert.equal(tokenHelps[0].kind, "prompt");
   assert.equal(tokenHelps[0].tooltip, "prompt=2050");
+  assert.equal(tokenHelps[0].detail, "prompt=2050");
   assert.equal(tokenHelps[1].kind, "completion");
   assert.equal(tokenHelps[1].tooltip, "completion=140");
+  assert.equal(tokenHelps[1].detail, "completion=140");
   assert.ok(tokenHelps[0].messageIndex < tokenHelps[1].messageIndex);
+});
+
+test("eventsToMermaid keeps full promptPreview in detail while truncating tooltip", () => {
+  const longInput = `${"word ".repeat(80)}END_MARKER`;
+  const { tokenHelps } = eventsToMermaid([
+    { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
+    {
+      kind: "model_call",
+      actor: "planner",
+      detail: {
+        model: "ollama/llama3.2:latest",
+        prompt_tokens: 99,
+        completion_tokens: 10,
+        promptPreview: longInput,
+      },
+    },
+  ]);
+  const promptHelp = tokenHelps.find((h) => h.kind === "prompt");
+  assert.ok(promptHelp);
+  assert.match(promptHelp.tooltip, /^prompt=99 · input=/);
+  assert.ok(promptHelp.tooltip.includes("…"), "hover tip should truncate");
+  assert.ok(!promptHelp.tooltip.includes("END_MARKER"), "hover tip should not include tail");
+  assert.match(promptHelp.detail, /^prompt=99\n\ninput:\n/);
+  assert.ok(promptHelp.detail.includes("END_MARKER"), "modal detail keeps full preview");
+  assert.ok(!promptHelp.detail.trimEnd().endsWith("…"), "modal detail must not end with ellipsis");
+});
+
+test("eventsToMermaid emits mermaidTips for truncated step labels", () => {
+  const longMsg = `step start with a very long provider name that exceeds forty chars`;
+  const { mermaid, tips } = eventsToMermaid([
+    { kind: "request_start", actor: "engine", detail: { mode: "chat" } },
+    {
+      kind: "step_start",
+      actor: "crew",
+      message: longMsg,
+      detail: { agent_provider_id: "very_long_agent_provider_identifier" },
+    },
+  ]);
+  assert.ok(Array.isArray(tips) && tips.length > 0);
+  const tip = tips.find((t) => t.full.includes("very_long_agent_provider_identifier"));
+  assert.ok(tip, "expected tip for truncated step label");
+  assert.ok(tip.shown.endsWith("…"));
+  assert.ok(tip.full.length > tip.shown.length);
+  assert.ok(!tip.full.endsWith("…"));
+  assert.match(mermaid, new RegExp(tip.shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("eventsToMermaid labels client participant with appId (ao-chat)", () => {
