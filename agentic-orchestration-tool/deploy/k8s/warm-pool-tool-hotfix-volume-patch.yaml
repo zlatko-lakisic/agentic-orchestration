@@ -27,6 +27,9 @@ spec:
               mountPath: /app/orchestration/execution_queue_store.py
               subPath: execution_queue_store.py
             - name: tool-hotfix-orchestration
+              mountPath: /app/orchestration/execution_queue.py
+              subPath: execution_queue.py
+            - name: tool-hotfix-orchestration
               mountPath: /app/orchestration/execute_step.py
               subPath: execute_step.py
             - name: tool-hotfix-orchestration

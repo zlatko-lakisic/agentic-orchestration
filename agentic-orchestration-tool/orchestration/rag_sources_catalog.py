@@ -241,6 +241,21 @@ def resolve_rag_ids(
         out.append(dict(by_id[sid]))
     if unknown:
         known = ", ".join(sorted(by_id)) or "(empty catalog)"
+        # Job/warm-pool workers often lack the host catalog mount — hard-failing
+        # with an empty catalog turns research runs into opaque "unexpected format"
+        # client errors. Soft-drop unknown ids when the catalog is empty.
+        if not by_id:
+            try:
+                from orchestration.structured_logging import emit_log
+
+                emit_log(
+                    f"dropping unknown rag_id(s) (empty catalog) in {context}: {unknown!r}",
+                    level="warning",
+                    component="rag",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return out
         raise ValueError(
             f"Unknown rag_id(s) in {context}: {unknown!r}. Known: {known}",
         )

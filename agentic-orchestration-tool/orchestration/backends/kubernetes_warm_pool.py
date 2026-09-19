@@ -310,24 +310,80 @@ def _enqueue_global_step(
 
 
 def claim_next_global_step(run_store_mount: str) -> tuple[Path, StoredTicket] | None:
-    """Worker pull: claim highest-priority pending step ticket."""
+    """Worker pull: claim highest-priority pending step ticket.
+
+    Skips tickets that lack ``spec_container_path`` (leave them for GC) and uses a
+    worker-scoped ``.claimed-<id>`` suffix so dead workers can be reclaimed.
+    """
     from orchestration.execution_queue_store import ExecutionQueueStore, StoredTicket
 
     store = ExecutionQueueStore(Path(run_store_mount.rstrip("/")) / "execution-queue")
     pending = store.list_pending("step")
     if not pending:
         return None
-    path, ticket = pending[0]
-    claimed = path.with_suffix(".claimed")
+    worker = _worker_identity().replace("/", "_").replace("\\", "_")
+    for path, ticket in pending:
+        spec_raw = ticket.requirements.get("spec_container_path")
+        if not spec_raw:
+            # Bare tickets (legacy acquire_step double-enqueue) — drop with a log.
+            emit_log(
+                f"dropping step ticket without spec {path.name}",
+                level="warning",
+                run_id=ticket.run_id,
+                step_id=ticket.step_id or "",
+                component="warm-pool-worker",
+            )
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        claimed = path.with_name(f"{path.name}.claimed-{worker}")
+        try:
+            path.rename(claimed)
+        except OSError:
+            continue
+        try:
+            data = json.loads(claimed.read_text(encoding="utf-8"))
+            return claimed, StoredTicket.from_dict(data)
+        except (OSError, json.JSONDecodeError, KeyError):
+            try:
+                claimed.rename(path)
+            except OSError:
+                pass
+            return None
+    return None
+
+
+def _write_warm_pool_failure_result(
+    *,
+    run_store_mount: str,
+    run_id: str,
+    step_id: str,
+    error: str,
+    exit_code: int = 1,
+) -> None:
+    """Ensure the coordinator waiter unblocks even when the worker crashes mid-step."""
+    from orchestration.backends.base import StepResult
+
+    path = warm_pool_result_path(
+        run_store_mount=run_store_mount,
+        run_id=run_id,
+        step_id=step_id,
+    )
     try:
-        path.rename(claimed)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = StepResult(
+            run_id=run_id,
+            step_id=step_id,
+            exit_code=exit_code,
+            error=error,
+        ).to_dict()
+        # Parent wait_for_warm_pool_result reads exit_code / error keys.
+        payload["exit_code"] = exit_code
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError:
-        return None
-    try:
-        data = json.loads(claimed.read_text(encoding="utf-8"))
-        return claimed, StoredTicket.from_dict(data)
-    except (OSError, json.JSONDecodeError, KeyError):
-        return None
+        pass
 
 
 def _worker_identity() -> str:
@@ -353,6 +409,7 @@ def claim_next_warm_pool_request(run_store_mount: str) -> tuple[Path, WarmPoolRe
 def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.5) -> None:
     """Long-running loop: claim queue requests and execute step specs."""
     from orchestration.execute_step import execute_step_from_spec_file
+    from orchestration.execution_queue_store import reclaim_stale_claims
     from orchestration.ollama_keepalive import start_ollama_keepalive_loop
 
     mount = str(run_store_mount).rstrip("/") or "/run/store"
@@ -363,6 +420,16 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
         "off",
     ):
         start_ollama_keepalive_loop(log_prefix="(warm-pool) ollama keep-alive")
+    # Recover tickets left as ``.claimed`` by previous worker pods before we poll.
+    try:
+        n = reclaim_stale_claims("step", max_age_seconds=30.0, run_store_mount=mount)
+        if n:
+            emit_log(
+                f"reclaimed {n} stale step claim(s) on warm-pool start",
+                component="warm-pool-worker",
+            )
+    except Exception:  # noqa: BLE001
+        pass
     emit_log(
         f"warm pool worker started (mount={mount})",
         component="warm-pool-worker",
@@ -381,8 +448,16 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
         "off",
     )
     use_global_queue = queue_enabled and unify_global
+    last_reclaim = 0.0
 
     while True:
+        now = time.time()
+        if use_global_queue and now - last_reclaim >= 30.0:
+            last_reclaim = now
+            try:
+                reclaim_stale_claims("step", max_age_seconds=120.0, run_store_mount=mount)
+            except Exception:  # noqa: BLE001
+                pass
         if use_global_queue:
             claimed = claim_next_global_step(mount)
             if claimed is None:
@@ -390,9 +465,6 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
                 continue
             path, ticket = claimed
             spec_raw = ticket.requirements.get("spec_container_path")
-            if not spec_raw:
-                path.unlink(missing_ok=True)
-                continue
             emit_log(
                 f"claimed global step {path.name}",
                 run_id=ticket.run_id,
@@ -409,6 +481,34 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
                         step_id=ticket.step_id or "",
                         component="warm-pool-worker",
                     )
+                    # Parent waits on result.json — ensure a failure marker exists.
+                    result = warm_pool_result_path(
+                        run_store_mount=mount,
+                        run_id=ticket.run_id,
+                        step_id=str(ticket.step_id or "step"),
+                    )
+                    if not result.is_file():
+                        _write_warm_pool_failure_result(
+                            run_store_mount=mount,
+                            run_id=ticket.run_id,
+                            step_id=str(ticket.step_id or "step"),
+                            error=f"step exited {exit_code}",
+                            exit_code=exit_code,
+                        )
+            except Exception as exc:  # noqa: BLE001
+                emit_log(
+                    f"step crashed: {exc}",
+                    level="error",
+                    run_id=ticket.run_id,
+                    step_id=ticket.step_id or "",
+                    component="warm-pool-worker",
+                )
+                _write_warm_pool_failure_result(
+                    run_store_mount=mount,
+                    run_id=ticket.run_id,
+                    step_id=str(ticket.step_id or "step"),
+                    error=str(exc),
+                )
             finally:
                 path.unlink(missing_ok=True)
             continue
@@ -434,5 +534,32 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
                     step_id=req.step_id,
                     component="warm-pool-worker",
                 )
+                result = warm_pool_result_path(
+                    run_store_mount=mount,
+                    run_id=req.run_id,
+                    step_id=req.step_id,
+                )
+                if not result.is_file():
+                    _write_warm_pool_failure_result(
+                        run_store_mount=mount,
+                        run_id=req.run_id,
+                        step_id=req.step_id,
+                        error=f"step exited {exit_code}",
+                        exit_code=exit_code,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            emit_log(
+                f"step crashed: {exc}",
+                level="error",
+                run_id=req.run_id,
+                step_id=req.step_id,
+                component="warm-pool-worker",
+            )
+            _write_warm_pool_failure_result(
+                run_store_mount=mount,
+                run_id=req.run_id,
+                step_id=req.step_id,
+                error=str(exc),
+            )
         finally:
             path.unlink(missing_ok=True)
