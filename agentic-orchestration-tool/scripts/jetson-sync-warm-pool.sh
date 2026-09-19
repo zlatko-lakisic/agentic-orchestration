@@ -47,47 +47,8 @@ _tool_venv_ready() {
 }
 
 # Strategic merge cannot delete volumeMounts. Drop leftover jetson-orch-hostpath
-# mounts under /app/orchestration (file subPaths *or* a full-dir mount) before
-# re-applying the current hostPath patch.
-_strip_piecemeal_orch_hostpath_mounts() {
-  local idx
-  local -a patch=()
-  local mounts
-  mounts="$(
-    kubectl get deployment agentic-warm-pool -n "${NS}" \
-      -o jsonpath='{range .spec.template.spec.containers[0].volumeMounts[*]}{.name}{"|"}{.mountPath}{"|"}{.subPath}{"\n"}{end}' \
-      2>/dev/null || true
-  )"
-  [[ -z "${mounts}" ]] && return 0
-
-  # Build JSON patch ops in reverse index order so removals stay valid.
-  idx=0
-  local -a to_remove=()
-  while IFS='|' read -r name mpath sub; do
-    if [[ "${name}" == "jetson-orch-hostpath" && ( "${mpath}" == "/app/orchestration" || "${mpath}" == /app/orchestration/* ) ]]; then
-      to_remove+=("${idx}")
-    fi
-    idx=$((idx + 1))
-  done <<< "${mounts}"
-
-  if [[ ${#to_remove[@]} -eq 0 ]]; then
-    return 0
-  fi
-
-  local i
-  for ((i = ${#to_remove[@]} - 1; i >= 0; i--)); do
-    patch+=("{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/${to_remove[i]}\"}")
-  done
-
-  local payload
-  payload="[$(IFS=,; echo "${patch[*]}")]"
-  echo "=== strip ${#to_remove[@]} jetson-orch-hostpath mount(s) under /app/orchestration ==="
-  kubectl patch deployment agentic-warm-pool -n "${NS}" --type=json -p "${payload}"
-}
-
-# ConfigMap no longer ships rag_sources_catalog.py (hostPath instead). Remove a
-# stale ConfigMap file mount that would create an empty directory and CrashLoop.
-_strip_stale_configmap_rag_catalog_mount() {
+# mounts under /app/orchestration (file subPaths *or* a prior full-dir mount).
+_strip_orch_hostpath_mounts() {
   local idx=0
   local -a to_remove=()
   local mounts
@@ -98,7 +59,7 @@ _strip_stale_configmap_rag_catalog_mount() {
   )"
   [[ -z "${mounts}" ]] && return 0
   while IFS='|' read -r name mpath; do
-    if [[ "${name}" == "tool-hotfix-orchestration" && "${mpath}" == "/app/orchestration/rag_sources_catalog.py" ]]; then
+    if [[ "${name}" == "jetson-orch-hostpath" && ( "${mpath}" == "/app/orchestration" || "${mpath}" == /app/orchestration/* ) ]]; then
       to_remove+=("${idx}")
     fi
     idx=$((idx + 1))
@@ -109,23 +70,50 @@ _strip_stale_configmap_rag_catalog_mount() {
   for ((i = ${#to_remove[@]} - 1; i >= 0; i--)); do
     patch+=("{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/${to_remove[i]}\"}")
   done
-  echo "=== strip stale ConfigMap rag_sources_catalog mount ==="
+  echo "=== strip ${#to_remove[@]} jetson-orch-hostpath mount(s) ==="
+  kubectl patch deployment agentic-warm-pool -n "${NS}" --type=json -p "[$(IFS=,; echo "${patch[*]}")]"
+}
+
+# Full orchestration hostPath dir cannot coexist with ConfigMap file overlays on
+# /app/orchestration/*.py (OCI: mount file over directory). Keep agent-providers
+# ConfigMap mounts; drop all tool-hotfix-orchestration mounts.
+_strip_configmap_orch_mounts() {
+  local idx=0
+  local -a to_remove=()
+  local mounts
+  mounts="$(
+    kubectl get deployment agentic-warm-pool -n "${NS}" \
+      -o jsonpath='{range .spec.template.spec.containers[0].volumeMounts[*]}{.name}{"|"}{.mountPath}{"\n"}{end}' \
+      2>/dev/null || true
+  )"
+  [[ -z "${mounts}" ]] && return 0
+  while IFS='|' read -r name mpath; do
+    if [[ "${name}" == "tool-hotfix-orchestration" ]]; then
+      to_remove+=("${idx}")
+    fi
+    idx=$((idx + 1))
+  done <<< "${mounts}"
+  [[ ${#to_remove[@]} -eq 0 ]] && return 0
+  local -a patch=()
+  local i
+  for ((i = ${#to_remove[@]} - 1; i >= 0; i--)); do
+    patch+=("{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/volumeMounts/${to_remove[i]}\"}")
+  done
+  echo "=== strip ${#to_remove[@]} ConfigMap tool-hotfix-orchestration mount(s) ==="
   kubectl patch deployment agentic-warm-pool -n "${NS}" --type=json -p "[$(IFS=,; echo "${patch[*]}")]"
 }
 
 _reapply_warm_pool_patches() {
   local patch venv_patch="${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-tool-venv-hostpath-patch.yaml"
 
-  _strip_piecemeal_orch_hostpath_mounts
-  _strip_stale_configmap_rag_catalog_mount
-
+  # Apply ConfigMap + hostPaths, then remove orchestration ConfigMap file overlays
+  # and ensure a single full-dir hostPath at /app/orchestration.
   for patch in \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-tool-hotfix-volume-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" \
-    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
   do
@@ -134,6 +122,15 @@ _reapply_warm_pool_patches() {
       kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${patch}"
     fi
   done
+
+  _strip_configmap_orch_mounts
+  _strip_orch_hostpath_mounts
+
+  if [[ -f "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml" ]]; then
+    echo "=== warm-pool patch warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml (full orch dir) ==="
+    kubectl patch deployment agentic-warm-pool -n "${NS}" \
+      --patch-file "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-runtime-bootstrap-hostpath-patch.yaml"
+  fi
 
   # Optional PYTHONPATH fallback only. Never required — Jetson often has no host venv.
   # Do not create .venv here (DirectoryOrCreate left an empty stub on Ada).
