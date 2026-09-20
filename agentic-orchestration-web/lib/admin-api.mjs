@@ -2205,10 +2205,9 @@ function pushMermaidLabelTip(tips, ...parts) {
   return shown;
 }
 
-/** Quote a participant alias so special chars cannot break the diagram. */
+/** Participant alias text — keep unquoted; Mermaid embeds quote chars into SVG labels. */
 function mermaidParticipantAlias(label) {
-  const safe = sanitizeMermaidLabelText(label).slice(0, 28) || "actor";
-  return `"${safe}"`;
+  return sanitizeMermaidLabelText(label).slice(0, 28) || "actor";
 }
 
 /** Coerce trace detail token fields to a finite int (or null). */

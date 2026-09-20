@@ -100,11 +100,12 @@ def test_mermaid_sanitizes_model_colons_and_skips_dead_actors(tmp_path: Path) ->
     mermaid, _tips = events_to_mermaid(read_run_events(tmp_path, "m1"))
     assert "sequenceDiagram" in mermaid
     assert "model:llama3.2:latest" not in mermaid
-    assert 'as "model/llama3.2/latest"' in mermaid
+    assert "as model/llama3.2/latest" in mermaid
     assert "participant crew_litellm" not in mermaid
     assert "llama3.2/latest" in mermaid
     # Arrow labels also strip colons
     assert "->>model_" in mermaid or "model_llama3_2_latest" in mermaid
+    assert 'as "' not in mermaid
 
 
 @pytest.mark.unit
