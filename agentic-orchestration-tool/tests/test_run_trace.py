@@ -327,15 +327,42 @@ def test_build_run_trace_includes_client_exchange(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_extract_falls_back_to_preview(tmp_path: Path) -> None:
+def test_mermaid_includes_mcp_request_and_response_tips(tmp_path: Path) -> None:
+    append_run_event(tmp_path, "m1", "request_start", actor="engine", detail={"mode": "chat"})
     append_run_event(
         tmp_path,
-        "ex2",
-        "request_start",
-        actor="engine",
-        detail={"preview": "legacy preview only"},
+        "m1",
+        "mcp_call",
+        actor="mcp",
+        message="weather_mcp POST",
+        detail={
+            "mcp_id": "weather_mcp",
+            "method": "POST",
+            "path": "/tools/call",
+            "phase": "start",
+            "request_preview": '{"name":"get_weather","arguments":{"city":"Toronto"}}',
+        },
     )
-    payload = build_run_trace_payload(tmp_path, "ex2")
-    assert payload is not None
-    assert payload["clientPrompt"] == "legacy preview only"
-    assert payload["finalResponse"] is None
+    append_run_event(
+        tmp_path,
+        "m1",
+        "mcp_call",
+        actor="mcp",
+        message="weather_mcp done",
+        detail={
+            "mcp_id": "weather_mcp",
+            "method": "POST",
+            "path": "/tools/call",
+            "phase": "end",
+            "status": 200,
+            "latency_ms": 42.0,
+            "response_preview": '{"temp_c": 12, "summary": "cloudy"}',
+        },
+    )
+    append_run_event(tmp_path, "m1", "run_end", actor="engine", message="ok")
+    mermaid, tips = events_to_mermaid(read_run_events(tmp_path, "m1"))
+    assert "mcp:weather_mcp" in mermaid or "weather_mcp" in mermaid
+    assert "->>" in mermaid and "-->>" in mermaid
+    joined = " ".join(t.get("full", "") for t in tips)
+    assert "Toronto" in joined or "get_weather" in mermaid
+    assert "cloudy" in joined or "status=200" in mermaid

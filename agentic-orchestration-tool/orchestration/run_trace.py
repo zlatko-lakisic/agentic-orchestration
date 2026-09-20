@@ -18,6 +18,25 @@ RUN_TRACES_DIR_NAME = "__orchestrator_run_traces__"
 _DEFAULT_EXCHANGE_CHARS = 15_000
 
 
+def clip_payload_preview(value: Any, *, max_chars: int | None = None) -> str:
+    """Clip tool/MCP request or response payloads for trace detail / Mermaid tips."""
+    if value is None:
+        return ""
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            text = bytes(value).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            text = repr(bytes(value)[:200])
+    elif isinstance(value, (dict, list, tuple)):
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:  # noqa: BLE001
+            text = str(value)
+    else:
+        text = str(value)
+    return clip_exchange_text(text, max_chars=max_chars or min(8000, exchange_max_chars()))
+
+
 def exchange_max_chars() -> int:
     raw = os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "").strip()
     try:
@@ -81,6 +100,8 @@ DEPTH_KINDS: dict[str, set[str]] = {
         "agent_start",
         "agent_end",
         "model_call",
+        "tool_call",
+        "mcp_call",
     },
     "tools": {
         "request_start",
@@ -687,21 +708,49 @@ def events_to_mermaid(
             lines.append(f"  {actor}-->>{ret_to}: {label}")
         elif kind == "tool_call":
             phase = str(detail.get("phase") or "")
-            name = _label_with_tip(tips, detail.get("name") or ev.get("message") or "tool")
-            tid = ensure(f"tool:{detail.get('name') or 'tool'}")
+            name = str(detail.get("name") or ev.get("message") or "tool").strip() or "tool"
+            tid = ensure(f"tool:{name}")
             if phase == "end":
-                lines.append(f"  {tid}-->>{caller}: {name}")
+                bits = [name]
+                if detail.get("ok") is False:
+                    bits.append("fail")
+                elif detail.get("ok") is True:
+                    bits.append("ok")
+                if detail.get("latency_ms") is not None:
+                    bits.append(f"{detail.get('latency_ms')}ms")
+                label = _label_with_tip(
+                    tips,
+                    " ".join(bits),
+                    detail.get("response_preview") or detail.get("error") or "",
+                )
+                lines.append(f"  {tid}-->>{caller}: {label}")
             else:
-                lines.append(f"  {caller}->>{tid}: {name}")
+                label = _label_with_tip(tips, name, detail.get("request_preview") or "")
+                lines.append(f"  {caller}->>{tid}: {label}")
         elif kind == "mcp_call":
-            mid = ensure(f"mcp:{detail.get('mcp_id') or 'mcp'}")
-            label = _label_with_tip(
-                tips, detail.get("method") or detail.get("path") or "mcp"
-            )
+            mcp_id = str(detail.get("mcp_id") or "mcp").strip() or "mcp"
+            mid = ensure(f"mcp:{mcp_id}")
+            method = str(detail.get("method") or "").strip()
+            path_part = str(detail.get("path") or "").strip()
             phase = str(detail.get("phase") or "")
             if phase == "end" or detail.get("status") is not None:
+                bits = [b for b in (method or "mcp", path_part) if b]
+                if detail.get("status") is not None:
+                    bits.append(f"status={detail.get('status')}")
+                if detail.get("latency_ms") is not None:
+                    bits.append(f"{detail.get('latency_ms')}ms")
+                label = _label_with_tip(
+                    tips,
+                    " ".join(bits) or mcp_id,
+                    detail.get("response_preview") or "",
+                )
                 lines.append(f"  {mid}-->>{caller}: {label}")
             else:
+                label = _label_with_tip(
+                    tips,
+                    " ".join(b for b in (method or "mcp", path_part or mcp_id) if b),
+                    detail.get("request_preview") or "",
+                )
                 lines.append(f"  {caller}->>{mid}: {label}")
         elif kind == "model_call":
             mid = ensure(f"model:{detail.get('model') or actor}")

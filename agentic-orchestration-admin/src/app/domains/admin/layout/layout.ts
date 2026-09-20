@@ -103,7 +103,7 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
           </div>
         </div>
 
-        <div class="flex flex-col lg:min-h-0 lg:flex-auto lg:overflow-auto">
+        <div class="ao-admin-main-scroll flex flex-col lg:min-h-0 lg:flex-auto lg:overflow-auto">
           <router-outlet />
         </div>
       </mat-sidenav-content>
