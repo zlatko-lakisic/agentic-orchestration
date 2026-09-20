@@ -483,8 +483,8 @@ def _label_with_tip(
 
 
 def _participant_alias(label: str) -> str:
-    safe = _sanitize_mermaid_label(label)[:28] or "actor"
-    return f'"{safe}"'
+    """Unquoted alias; Mermaid embeds quote characters into actor SVG text when quoted."""
+    return _sanitize_mermaid_label(label)[:28] or "actor"
 
 def trace_duration_ms(events: list[dict[str, Any]]) -> float | None:
     times = [float(e["ts"]) for e in events if isinstance(e.get("ts"), (int, float))]

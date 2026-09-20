@@ -691,6 +691,9 @@ export class TracesPage implements OnInit, OnDestroy {
   private mermaidScrollLeft = 0;
   private mermaidScrollTop = 0;
   private lastMermaidSource = '';
+  /** Serialize Mermaid runs — overlapping run()+replaceChildren causes getBBox failures. */
+  private mermaidRenderChain: Promise<void> = Promise.resolve();
+  private mermaidInitialized = false;
   private scrollBoundHost: HTMLElement | null = null;
   private readonly onMermaidScroll = () => {
     const host = this.mermaidHost()?.nativeElement;
@@ -876,6 +879,14 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   private async renderMermaid() {
+    // Queue renders so a newer open/effect cannot detach the node mid-layout.
+    this.mermaidRenderChain = this.mermaidRenderChain
+      .catch(() => undefined)
+      .then(() => this.renderMermaidOnce());
+    await this.mermaidRenderChain;
+  }
+
+  private async renderMermaidOnce() {
     if (this.viewMode() !== 'diagram') return;
     const host = this.mermaidHost()?.nativeElement;
     const d = this.detail();
@@ -942,7 +953,9 @@ export class TracesPage implements OnInit, OnDestroy {
       this.bindMermaidScroll(host);
       this.restoreMermaidScroll(host);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Mermaid render failed';
+      // Stale run lost the race — do not clobber a newer success/error.
+      if (gen !== this.mermaidGen) return;
+      const msg = this.mermaidErrorMessage(err);
       host.replaceChildren();
       const fail = document.createElement('div');
       fail.className = 'p-4 text-sm text-red-400 whitespace-pre-wrap';
@@ -950,6 +963,20 @@ export class TracesPage implements OnInit, OnDestroy {
       host.appendChild(fail);
       this.lastMermaidSource = '';
     }
+  }
+
+  /** Mermaid often rejects with a plain `{ message, str }` object, not `Error`. */
+  private mermaidErrorMessage(err: unknown): string {
+    if (err instanceof Error && err.message) return err.message;
+    if (err && typeof err === 'object') {
+      const o = err as { message?: unknown; str?: unknown };
+      const message = typeof o.message === 'string' ? o.message.trim() : '';
+      if (message) return message;
+      const str = typeof o.str === 'string' ? o.str.trim() : '';
+      if (str) return str;
+    }
+    if (typeof err === 'string' && err.trim()) return err.trim();
+    return 'Mermaid render failed';
   }
 
   toggleRow(row: TraceListItem) {
@@ -1301,7 +1328,10 @@ export class TracesPage implements OnInit, OnDestroy {
 
   private initMermaid() {
     if (!window.mermaid) return;
+    // Re-init only once — re-initialize during an in-flight run() races getBBox.
+    if (this.mermaidInitialized) return;
     window.mermaid.initialize(this.fuseMermaidTheme());
+    this.mermaidInitialized = true;
   }
 
   private loadTopologyIcon(name: string): Promise<SVGElement | null> {
