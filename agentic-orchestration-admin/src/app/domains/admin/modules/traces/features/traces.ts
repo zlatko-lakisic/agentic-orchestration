@@ -149,33 +149,9 @@ declare global {
         ry: 8;
       }
 
-      /* Colspanned detail cell must respect table width or the SVG expands the row. */
-      :host ::ng-deep tr.ao-trace-detail-row > td {
-        padding: 0 !important;
-        border-bottom-width: 0;
-        max-width: 0;
-      }
-
-      .ao-trace-expand {
-        display: grid;
-        grid-template-rows: 0fr;
-        transition: grid-template-rows 280ms ease;
-      }
-
-      .ao-trace-expand--open {
-        grid-template-rows: 1fr;
-      }
-
-      .ao-trace-expand__inner {
-        overflow: hidden;
-        min-height: 0;
+      /* Detail panel is outside MatTable so live list refreshes cannot remount it. */
+      .ao-trace-detail-panel {
         min-width: 0;
-      }
-
-      /* Grow vertically for Mermaid; keep horizontal scroll on the diagram host. */
-      .ao-trace-expand--open .ao-trace-expand__inner {
-        overflow: visible;
-        min-height: auto;
       }
 
       .ao-trace-sequence {
@@ -247,13 +223,11 @@ declare global {
       }
 
       @if (detail(); as d) {
-        @if (detailOutsideFiltered()) {
-          <section
-            class="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none"
-          >
-            <ng-container *ngTemplateOutlet="traceDetailTpl; context: { $implicit: d }" />
-          </section>
-        }
+        <section
+          class="ao-trace-detail-panel min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-none"
+        >
+          <ng-container *ngTemplateOutlet="traceDetailTpl; context: { $implicit: d }" />
+        </section>
       }
 
       @if (live.feedLoading('traces') && !allRuns().length) {
@@ -282,7 +256,7 @@ declare global {
               }
             </span>
           </div>
-          <table mat-table [dataSource]="dataSource" multiTemplateDataRows class="w-full">
+          <table mat-table [dataSource]="dataSource" class="w-full">
             <ng-container matColumnDef="runId">
               <th mat-header-cell *matHeaderCellDef>run_id</th>
               <td mat-cell *matCellDef="let r">
@@ -362,32 +336,6 @@ declare global {
               </td>
             </ng-container>
 
-            <ng-container matColumnDef="expandedDetail">
-              <td mat-cell *matCellDef="let r" [attr.colspan]="columns.length">
-                <div
-                  class="ao-trace-expand"
-                  [class.ao-trace-expand--open]="
-                    detail()?.runId === r.runId && expandOpen()
-                  "
-                  (click)="$event.stopPropagation()"
-                >
-                  <div class="ao-trace-expand__inner">
-                    @if (detail(); as d) {
-                      @if (d.runId === r.runId) {
-                        <div
-                          class="border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
-                        >
-                          <ng-container
-                            *ngTemplateOutlet="traceDetailTpl; context: { $implicit: d }"
-                          />
-                        </div>
-                      }
-                    }
-                  </div>
-                </div>
-              </td>
-            </ng-container>
-
             <tr mat-header-row *matHeaderRowDef="columns"></tr>
             <tr
               mat-row
@@ -398,11 +346,6 @@ declare global {
                 detail()?.runId === row.runId ? 'bg-neutral-50 dark:bg-white/5' : ''
               "
               (click)="toggleRow(row)"
-            ></tr>
-            <tr
-              mat-row
-              *matRowDef="let row; columns: ['expandedDetail']; when: isExpandedRow; trackBy: trackByRunId"
-              class="ao-trace-detail-row"
             ></tr>
           </table>
         </section>
@@ -744,15 +687,11 @@ export class TracesPage implements OnInit, OnDestroy {
   readonly clock = inject(AoClock);
   private readonly mermaidHost = viewChild<ElementRef<HTMLElement>>('mermaidHost');
   private mermaidGen = 0;
-  /** Preserve horizontal scroll across live-feed MatTable remounts / Mermaid rebuilds. */
+  /** Preserve horizontal scroll across Mermaid rebuilds. */
   private mermaidScrollLeft = 0;
   private mermaidScrollTop = 0;
   private lastMermaidSource = '';
   private scrollBoundHost: HTMLElement | null = null;
-  /** Main admin content scroller + nested overflow panels (live feed must not jump to top). */
-  private pageScrollTop = 0;
-  private pageScrollLeft = 0;
-  private nestedScrolls: Array<{ el: WeakRef<HTMLElement>; top: number; left: number }> = [];
   private readonly onMermaidScroll = () => {
     const host = this.mermaidHost()?.nativeElement;
     if (host) {
@@ -807,13 +746,6 @@ export class TracesPage implements OnInit, OnDestroy {
     });
   });
 
-  /** Detail open for a run not in the current filtered table (lookup / filter miss). */
-  readonly detailOutsideFiltered = computed(() => {
-    const d = this.detail();
-    if (!d?.runId) return false;
-    return !this.filteredRuns().some((r) => r.runId === d.runId);
-  });
-
   readonly outcomeChip = computed(() => {
     const events = this.detail()?.events || [];
     const last = events[events.length - 1];
@@ -821,12 +753,10 @@ export class TracesPage implements OnInit, OnDestroy {
     return { status: this.kindStatus(last.kind), label: String(last.kind || 'event') };
   });
 
-  isExpandedRow = (_: number, row: TraceListItem) => this.detail()?.runId === row.runId;
-
   trackByRunId = (_: number, row: TraceListItem) => String(row?.runId || '');
 
-  /** Drives CSS expand after the detail row mounts. */
-  readonly expandOpen = signal(false);
+  /** Skip MatTable data reassignment when the live snapshot is unchanged. */
+  private lastListFingerprint = '';
 
   constructor() {
     afterNextRender(() => this.scheduleMermaidRender());
@@ -848,29 +778,30 @@ export class TracesPage implements OnInit, OnDestroy {
       }
     });
     effect(() => {
-      this.captureScrollPositions();
-      this.dataSource.data = this.filteredRuns();
-      // Live feed refreshes may remount MatTable expand cells. Only rebuild Mermaid
-      // if the SVG was lost; otherwise keep the diagram and restore scroll.
-      if (this.detail()?.runId && this.viewMode() === 'diagram') {
-        if (!this.expandOpen()) this.expandOpen.set(true);
-        afterNextRender(
-          () => {
-            this.restoreScrollPositions();
-            const host = this.mermaidHost()?.nativeElement;
-            if (!host) return;
-            if (!host.querySelector('svg')) {
-              void this.renderMermaid();
-              return;
-            }
-            this.bindMermaidScroll(host);
-            this.restoreMermaidScroll(host);
-          },
-          { injector: this.injector },
-        );
-      } else {
-        afterNextRender(() => this.restoreScrollPositions(), { injector: this.injector });
-      }
+      const runs = this.filteredRuns();
+      const fp = this.listFingerprint(runs);
+      if (fp === this.lastListFingerprint) return;
+      this.lastListFingerprint = fp;
+      const main = this.mainScroller();
+      const top = main?.scrollTop ?? 0;
+      const left = main?.scrollLeft ?? 0;
+      this.dataSource.data = runs;
+      afterNextRender(
+        () => {
+          const scroller = this.mainScroller();
+          if (!scroller) return;
+          scroller.scrollTop = top;
+          scroller.scrollLeft = left;
+        },
+        { injector: this.injector },
+      );
+    });
+    effect(() => {
+      // Rebuild Mermaid only when detail payload / view mode changes — not on list ticks.
+      const d = this.detail();
+      const mode = this.viewMode();
+      if (!d?.runId || mode !== 'diagram') return;
+      afterNextRender(() => void this.renderMermaid(), { injector: this.injector });
     });
   }
 
@@ -917,56 +848,20 @@ export class TracesPage implements OnInit, OnDestroy {
     return document.documentElement;
   }
 
-  private captureScrollPositions() {
-    const main = this.mainScroller();
-    if (main) {
-      this.pageScrollTop = main.scrollTop;
-      this.pageScrollLeft = main.scrollLeft;
-    }
-    const host = this.mermaidHost()?.nativeElement;
-    if (host) {
-      this.mermaidScrollLeft = host.scrollLeft;
-      this.mermaidScrollTop = host.scrollTop;
-    }
-    this.nestedScrolls = [];
-    const root =
-      document.querySelector<HTMLElement>('tr.ao-trace-detail-row') ||
-      document.querySelector<HTMLElement>('.ao-trace-expand--open');
-    if (!root) return;
-    root.querySelectorAll<HTMLElement>('*').forEach((el) => {
-      const style = getComputedStyle(el);
-      const canY = /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1;
-      const canX = /(auto|scroll)/.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1;
-      if (!canY && !canX) return;
-      this.nestedScrolls.push({
-        el: new WeakRef(el),
-        top: el.scrollTop,
-        left: el.scrollLeft,
-      });
-    });
-  }
-
-  private restoreScrollPositions() {
-    const apply = () => {
-      const main = this.mainScroller();
-      if (main) {
-        main.scrollTop = this.pageScrollTop;
-        main.scrollLeft = this.pageScrollLeft;
-      }
-      for (const entry of this.nestedScrolls) {
-        const el = entry.el.deref();
-        if (!el) continue;
-        el.scrollTop = entry.top;
-        el.scrollLeft = entry.left;
-      }
-      const host = this.mermaidHost()?.nativeElement;
-      if (host) this.restoreMermaidScroll(host);
-    };
-    apply();
-    requestAnimationFrame(() => {
-      apply();
-      requestAnimationFrame(apply);
-    });
+  private listFingerprint(runs: TraceListItem[]): string {
+    return (runs || [])
+      .map((r) =>
+        [
+          r.runId,
+          r.updatedAt ?? '',
+          r.eventCount ?? '',
+          r.lastKind ?? '',
+          r.lastMessage ?? '',
+          r.totalTokens ?? '',
+          r.durationMs ?? '',
+        ].join('\u001f'),
+      )
+      .join('\u001e');
   }
 
   private restoreMermaidScroll(host: HTMLElement) {
@@ -1096,9 +991,8 @@ export class TracesPage implements OnInit, OnDestroy {
     const rid = String(id || '').trim();
     if (!rid) return;
     this.lookupId.set(rid);
-    const alreadyOpen = this.detail()?.runId === rid && this.expandOpen();
+    const alreadyOpen = this.detail()?.runId === rid;
     if (!alreadyOpen) {
-      this.expandOpen.set(false);
       this.mermaidScrollLeft = 0;
       this.mermaidScrollTop = 0;
       this.lastMermaidSource = '';
@@ -1118,31 +1012,23 @@ export class TracesPage implements OnInit, OnDestroy {
       this.detail.set(r.data);
       this.eventRows.data = r.data.events || [];
       afterNextRender(() => {
-        requestAnimationFrame(() => {
-          this.expandOpen.set(true);
-          // Mermaid needs a laid-out, non-clipped host — render after expand opens.
-          window.setTimeout(() => this.scheduleMermaidRender(), 50);
-        });
-        document
-          .getElementById(`trace-row-${rid}`)
-          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        this.scheduleMermaidRender();
+        if (!alreadyOpen) {
+          document
+            .querySelector('.ao-trace-detail-panel')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
       }, { injector: this.injector });
     });
   }
 
   clearDetail() {
-    const closingId = this.detail()?.runId || null;
-    this.expandOpen.set(false);
     this.mermaidScrollLeft = 0;
     this.mermaidScrollTop = 0;
     this.lastMermaidSource = '';
     this.unbindMermaidScroll();
-    // Allow collapse animation before removing the detail row.
-    window.setTimeout(() => {
-      if (this.detail()?.runId !== closingId) return;
-      this.detail.set(null);
-      this.eventRows.data = [];
-    }, 280);
+    this.detail.set(null);
+    this.eventRows.data = [];
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { runId: null },
