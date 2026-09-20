@@ -296,3 +296,46 @@ def test_crew_log_and_dynamic_planning_flags(tmp_path: Path) -> None:
     listed = list_recent_trace_runs(tmp_path, limit=5)
     assert listed[0]["dynamicPlanning"] is True
     assert listed[0]["runMode"] == "dynamic"
+
+
+@pytest.mark.unit
+def test_build_run_trace_includes_client_exchange(tmp_path: Path) -> None:
+    append_run_event(
+        tmp_path,
+        "ex1",
+        "request_start",
+        actor="engine",
+        message="chat",
+        detail={
+            "mode": "chat",
+            "preview": "short…",
+            "client_prompt": "how are you doing today\n\nfull wrapper",
+        },
+    )
+    append_run_event(
+        tmp_path,
+        "ex1",
+        "run_end",
+        actor="engine",
+        message="ok",
+        detail={"exit_code": 0, "chars": 12, "final_response": "Doing well."},
+    )
+    payload = build_run_trace_payload(tmp_path, "ex1")
+    assert payload is not None
+    assert payload["clientPrompt"] == "how are you doing today\n\nfull wrapper"
+    assert payload["finalResponse"] == "Doing well."
+
+
+@pytest.mark.unit
+def test_extract_falls_back_to_preview(tmp_path: Path) -> None:
+    append_run_event(
+        tmp_path,
+        "ex2",
+        "request_start",
+        actor="engine",
+        detail={"preview": "legacy preview only"},
+    )
+    payload = build_run_trace_payload(tmp_path, "ex2")
+    assert payload is not None
+    assert payload["clientPrompt"] == "legacy preview only"
+    assert payload["finalResponse"] is None

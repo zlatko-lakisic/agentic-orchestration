@@ -2066,13 +2066,20 @@ def main() -> None:
         result_text = _finalize_dynamic_result_text(
             result_text, media_grounding_bundle, user_goal=cache_goal
         )
+        from orchestration.run_trace import clip_exchange_text
+
+        _final = clip_exchange_text(result_text)
         append_run_event(
             tool_root,
             cli_run_id,
             "run_end",
             actor="orchestrator",
             message="ok",
-            detail={"exit_code": 0, "chars": len(str(result_text or ""))},
+            detail={
+                "exit_code": 0,
+                "chars": len(str(result_text or "")),
+                "final_response": _final or None,
+            },
         )
         _update_session_after_crew(
             orchestrator_session_path,

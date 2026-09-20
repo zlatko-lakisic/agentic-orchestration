@@ -2261,6 +2261,109 @@ function sumModelTokens(events) {
   return { promptTokens: prompt, completionTokens: completion, totalTokens: total };
 }
 
+function extractClientExchange(events) {
+  let clientPrompt = null;
+  let finalResponse = null;
+  for (const ev of events || []) {
+    const d = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+    const kind = String(ev?.kind || "");
+    if (clientPrompt == null && kind === "request_start") {
+      for (const key of ["client_prompt", "clientPrompt", "preview"]) {
+        const raw = d[key];
+        if (raw != null && String(raw).trim()) {
+          clientPrompt = String(raw);
+          break;
+        }
+      }
+    }
+    if (finalResponse == null && (kind === "run_end" || kind === "run_error" || kind === "agent_end")) {
+      for (const key of [
+        "final_response",
+        "finalResponse",
+        "answer_excerpt",
+        "answerExcerpt",
+        "text",
+      ]) {
+        const raw = d[key];
+        if (raw != null && String(raw).trim()) {
+          finalResponse = String(raw);
+          break;
+        }
+      }
+    }
+  }
+  return { clientPrompt, finalResponse };
+}
+
+function hydrateTraceExchange(toolRoot, runId, exchange) {
+  let clientPrompt = exchange?.clientPrompt || null;
+  let finalResponse = exchange?.finalResponse || null;
+  const safe = safeTraceFileName(runId);
+  const detPath = path.join(toolRoot, "__orchestrator_run_traces__", `${safe}.detection.json`);
+  if ((!finalResponse || !clientPrompt) && fs.existsSync(detPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(detPath, "utf8"));
+      if (!finalResponse && raw.lastAnswerExcerpt) {
+        finalResponse = String(raw.lastAnswerExcerpt);
+      }
+      if (!clientPrompt && raw.lastGoal) {
+        clientPrompt = String(raw.lastGoal);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!finalResponse) {
+    const runStore = String(process.env.AGENTIC_RUN_STORE_PATH || "/run/store").trim();
+    const runDir = path.join(runStore, String(runId || "").trim());
+    if (runDir && fs.existsSync(runDir)) {
+      try {
+        const parts = [];
+        for (const ent of fs.readdirSync(runDir, { withFileTypes: true })) {
+          if (!ent.isDirectory()) continue;
+          const resultPath = path.join(runDir, ent.name, "result.json");
+          if (!fs.existsSync(resultPath)) continue;
+          try {
+            const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+            const text = result?.result_text ?? result?.resultText ?? null;
+            if (text != null && String(text).trim()) parts.push(String(text).trim());
+          } catch {
+            /* ignore */
+          }
+        }
+        if (parts.length) finalResponse = parts[parts.length - 1];
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (!clientPrompt || !finalResponse) {
+    const sessionsDir = path.join(toolRoot, "__orchestrator_sessions__");
+    if (fs.existsSync(sessionsDir)) {
+      try {
+        for (const name of fs.readdirSync(sessionsDir)) {
+          if (!name.endsWith(".json")) continue;
+          let raw;
+          try {
+            raw = JSON.parse(fs.readFileSync(path.join(sessionsDir, name), "utf8"));
+          } catch {
+            continue;
+          }
+          if (String(raw?.last_run_id || "").trim() !== String(runId || "").trim()) continue;
+          if (!clientPrompt && raw.last_user_goal) clientPrompt = String(raw.last_user_goal);
+          if (!finalResponse && raw.last_final_answer_excerpt) {
+            finalResponse = String(raw.last_final_answer_excerpt);
+          }
+          break;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return { clientPrompt, finalResponse };
+}
+
 function detailIdentity(events) {
   let clientIp = null;
   let appId = null;
@@ -2723,6 +2826,7 @@ function buildRunTrace({ toolRoot }, id, { depth } = {}) {
   const ident = detailIdentity(events);
   const tokens = sumModelTokens(events);
   const diagram = eventsToMermaid(filtered);
+  const exchange = hydrateTraceExchange(toolRoot, runId, extractClientExchange(events));
   return {
     runId,
     eventCount: filtered.length,
@@ -2736,6 +2840,8 @@ function buildRunTrace({ toolRoot }, id, { depth } = {}) {
     ...ident,
     crewLog: extractCrewLog(events),
     ...tokens,
+    clientPrompt: exchange.clientPrompt,
+    finalResponse: exchange.finalResponse,
   };
 }
 
