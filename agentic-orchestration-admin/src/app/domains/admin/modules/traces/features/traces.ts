@@ -945,8 +945,8 @@ export class TracesPage implements OnInit, OnDestroy {
       const msg = err instanceof Error ? err.message : 'Mermaid render failed';
       host.replaceChildren();
       const fail = document.createElement('div');
-      fail.className = 'p-4 text-sm text-red-400';
-      fail.textContent = msg;
+      fail.className = 'p-4 text-sm text-red-400 whitespace-pre-wrap';
+      fail.textContent = `Mermaid render error: ${msg}`;
       host.appendChild(fail);
       this.lastMermaidSource = '';
     }

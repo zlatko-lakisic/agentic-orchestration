@@ -80,6 +80,34 @@ def test_mermaid_omits_unused_orchestrator_and_truncates_labels(tmp_path: Path) 
 
 
 @pytest.mark.unit
+def test_mermaid_sanitizes_model_colons_and_skips_dead_actors(tmp_path: Path) -> None:
+    """Ollama tags like llama3.2:latest must not break Mermaid participant aliases."""
+    append_run_event(tmp_path, "m1", "request_start", actor="engine", detail={"mode": "chat"})
+    append_run_event(
+        tmp_path,
+        "m1",
+        "model_call",
+        actor="crew_litellm",
+        detail={
+            "model": "llama3.2:latest",
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "total_tokens": 12,
+            "ok": True,
+        },
+    )
+    append_run_event(tmp_path, "m1", "run_end", actor="engine", message="ok")
+    mermaid, _tips = events_to_mermaid(read_run_events(tmp_path, "m1"))
+    assert "sequenceDiagram" in mermaid
+    assert "model:llama3.2:latest" not in mermaid
+    assert 'as "model/llama3.2/latest"' in mermaid
+    assert "participant crew_litellm" not in mermaid
+    assert "llama3.2/latest" in mermaid
+    # Arrow labels also strip colons
+    assert "->>model_" in mermaid or "model_llama3_2_latest" in mermaid
+
+
+@pytest.mark.unit
 def test_identity_filter_and_token_sum(tmp_path: Path) -> None:
     append_run_event(
         tmp_path,
@@ -203,7 +231,8 @@ def test_mermaid_model_call_shows_token_charge(tmp_path: Path) -> None:
     append_run_event(tmp_path, "tok1", "run_end", actor="engine", message="ok")
     mermaid, tips = events_to_mermaid(read_run_events(tmp_path, "tok1"))
     assert "120↑80↓=200" in mermaid
-    assert "qwen2.5:14b" in mermaid
+    assert "qwen2.5/14b" in mermaid
+    assert "qwen2.5:14b" not in mermaid
     assert any("prompt=120" in t.get("full", "") for t in tips)
     filtered = filter_events_by_depth(read_run_events(tmp_path, "tok1"), "tokens")
     assert [e["kind"] for e in filtered] == ["request_start", "model_call", "run_end"]
