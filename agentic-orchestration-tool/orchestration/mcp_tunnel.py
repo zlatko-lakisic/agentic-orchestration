@@ -104,12 +104,14 @@ class _TunnelBridge:
             "bodyBase64": base64.b64encode(body).decode("ascii") if body else "",
         }
         _mcp_trace_start = time.monotonic()
+        request_preview = ""
         try:
             from orchestration.llm_usage import current_tool_root, current_usage_identity
-            from orchestration.run_trace import append_run_event
+            from orchestration.run_trace import append_run_event, clip_payload_preview
 
             _root = current_tool_root()
             _rid = current_usage_identity().get("runId") or ""
+            request_preview = clip_payload_preview(body, max_chars=8000) if body else ""
             if _root is not None and _rid:
                 append_run_event(
                     _root,
@@ -122,11 +124,13 @@ class _TunnelBridge:
                         "method": method.upper(),
                         "path": path,
                         "phase": "start",
+                        "request_preview": request_preview or None,
                     },
                 )
         except Exception:  # noqa: BLE001
             _root = None
             _rid = ""
+            request_preview = ""
         try:
             self._send_request(payload)
         except Exception as exc:  # noqa: BLE001
@@ -138,11 +142,21 @@ class _TunnelBridge:
             result = fut.result(timeout=timeout_s)
             try:
                 if _root is not None and _rid:
-                    from orchestration.run_trace import append_run_event
+                    from orchestration.run_trace import append_run_event, clip_payload_preview
 
                     status = None
+                    response_preview = ""
                     if isinstance(result, dict):
                         status = result.get("status") or result.get("statusCode")
+                        b64 = str(result.get("bodyBase64") or result.get("body_base64") or "")
+                        if b64:
+                            try:
+                                raw = base64.b64decode(b64)
+                                response_preview = clip_payload_preview(raw, max_chars=8000)
+                            except Exception:  # noqa: BLE001
+                                response_preview = ""
+                        elif result.get("body") is not None:
+                            response_preview = clip_payload_preview(result.get("body"), max_chars=8000)
                     append_run_event(
                         _root,
                         _rid,
@@ -156,6 +170,8 @@ class _TunnelBridge:
                             "phase": "end",
                             "status": status,
                             "latency_ms": round((time.monotonic() - _mcp_trace_start) * 1000.0, 1),
+                            "request_preview": request_preview or None,
+                            "response_preview": response_preview or None,
                         },
                     )
             except Exception:  # noqa: BLE001

@@ -2144,6 +2144,9 @@ const TRACE_DEPTH_KINDS = {
     "step_start",
     "step_end",
     "step_fail",
+    "tool_call",
+    "mcp_call",
+    "model_call",
   ]),
   tools: new Set([
     "request_start",
@@ -2654,16 +2657,102 @@ function eventsToMermaid(events) {
       );
     } else if (kind === "tool_call") {
       const phase = String(detail.phase || "");
-      const name = diagLabel(detail.name || ev.message || "tool");
-      const tid = ensure(`tool:${detail.name || "tool"}`);
-      if (phase === "end") pushMsg(`  ${tid}-->>${caller}: ${name}`);
-      else pushMsg(`  ${caller}->>${tid}: ${name}`);
+      const name = String(detail.name || ev.message || "tool").trim() || "tool";
+      const tid = ensure(`tool:${name}`);
+      const reqPreview = String(
+        detail.request_preview || detail.requestPreview || detail.args || "",
+      ).trim();
+      const resPreview = String(
+        detail.response_preview || detail.responsePreview || detail.result || "",
+      ).trim();
+      const latency = detail.latency_ms ?? detail.latencyMs;
+      if (phase === "end") {
+        const statusBits = [];
+        if (detail.ok === false) statusBits.push("fail");
+        else if (detail.ok === true) statusBits.push("ok");
+        if (latency != null && Number.isFinite(Number(latency))) {
+          statusBits.push(`${Number(latency)}ms`);
+        }
+        const label = diagLabel(statusBits.length ? `${name} ${statusBits.join(" · ")}` : name);
+        const idx = pushMsg(`  ${tid}-->>${caller}: ${label}`);
+        const body = resPreview || (detail.error ? String(detail.error) : "");
+        if (body) {
+          const tip =
+            body.replace(/\s+/g, " ").length > 120
+              ? body.replace(/\s+/g, " ").slice(0, 119).trimEnd() + "…"
+              : body.replace(/\s+/g, " ");
+          tokenHelps.push({
+            messageIndex: idx,
+            tooltip: tip ? `response=${tip}` : "response",
+            detail: `tool=${name}\n\nresponse:\n${body}`,
+            kind: "tool_response",
+          });
+        }
+      } else {
+        const label = diagLabel(name);
+        const idx = pushMsg(`  ${caller}->>${tid}: ${label}`);
+        if (reqPreview) {
+          const tip =
+            reqPreview.replace(/\s+/g, " ").length > 120
+              ? reqPreview.replace(/\s+/g, " ").slice(0, 119).trimEnd() + "…"
+              : reqPreview.replace(/\s+/g, " ");
+          tokenHelps.push({
+            messageIndex: idx,
+            tooltip: tip ? `request=${tip}` : "request",
+            detail: `tool=${name}\n\nrequest:\n${reqPreview}`,
+            kind: "tool_request",
+          });
+        }
+      }
     } else if (kind === "mcp_call") {
-      const mid = ensure(`mcp:${detail.mcp_id || "mcp"}`);
-      const label = diagLabel(detail.method || detail.path || "mcp");
+      const mid = ensure(`mcp:${detail.mcp_id || detail.mcpId || "mcp"}`);
+      const mcpId = String(detail.mcp_id || detail.mcpId || "mcp").trim() || "mcp";
+      const method = String(detail.method || "").trim();
+      const pathPart = String(detail.path || "").trim();
       const phase = String(detail.phase || "");
-      if (phase === "end" || detail.status != null) pushMsg(`  ${mid}-->>${caller}: ${label}`);
-      else pushMsg(`  ${caller}->>${mid}: ${label}`);
+      const reqPreview = String(
+        detail.request_preview || detail.requestPreview || "",
+      ).trim();
+      const resPreview = String(
+        detail.response_preview || detail.responsePreview || "",
+      ).trim();
+      const latency = detail.latency_ms ?? detail.latencyMs;
+      if (phase === "end" || detail.status != null) {
+        const bits = [method || "mcp", pathPart].filter(Boolean);
+        if (detail.status != null) bits.push(`status=${detail.status}`);
+        if (latency != null && Number.isFinite(Number(latency))) {
+          bits.push(`${Number(latency)}ms`);
+        }
+        const label = diagLabel(bits.join(" ") || mcpId);
+        const idx = pushMsg(`  ${mid}-->>${caller}: ${label}`);
+        if (resPreview) {
+          const tip =
+            resPreview.replace(/\s+/g, " ").length > 120
+              ? resPreview.replace(/\s+/g, " ").slice(0, 119).trimEnd() + "…"
+              : resPreview.replace(/\s+/g, " ");
+          tokenHelps.push({
+            messageIndex: idx,
+            tooltip: tip ? `response=${tip}` : "response",
+            detail: `mcp=${mcpId}\n${method} ${pathPart}\n\nresponse:\n${resPreview}`,
+            kind: "mcp_response",
+          });
+        }
+      } else {
+        const label = diagLabel([method || "mcp", pathPart || mcpId].filter(Boolean).join(" "));
+        const idx = pushMsg(`  ${caller}->>${mid}: ${label}`);
+        if (reqPreview) {
+          const tip =
+            reqPreview.replace(/\s+/g, " ").length > 120
+              ? reqPreview.replace(/\s+/g, " ").slice(0, 119).trimEnd() + "…"
+              : reqPreview.replace(/\s+/g, " ");
+          tokenHelps.push({
+            messageIndex: idx,
+            tooltip: tip ? `request=${tip}` : "request",
+            detail: `mcp=${mcpId}\n${method} ${pathPart}\n\nrequest:\n${reqPreview}`,
+            kind: "mcp_request",
+          });
+        }
+      }
     } else if (kind === "model_call") {
       let modelName = String(detail.model || "model").trim() || "model";
       if (modelName.includes("/")) modelName = modelName.split("/", 2)[1] || modelName;

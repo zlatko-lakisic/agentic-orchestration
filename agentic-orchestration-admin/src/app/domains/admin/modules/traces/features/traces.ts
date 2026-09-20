@@ -746,11 +746,19 @@ export class TracesPage implements OnInit, OnDestroy {
   private mermaidGen = 0;
   /** Preserve horizontal scroll across live-feed MatTable remounts / Mermaid rebuilds. */
   private mermaidScrollLeft = 0;
+  private mermaidScrollTop = 0;
   private lastMermaidSource = '';
   private scrollBoundHost: HTMLElement | null = null;
+  /** Main admin content scroller + nested overflow panels (live feed must not jump to top). */
+  private pageScrollTop = 0;
+  private pageScrollLeft = 0;
+  private nestedScrolls: Array<{ el: WeakRef<HTMLElement>; top: number; left: number }> = [];
   private readonly onMermaidScroll = () => {
     const host = this.mermaidHost()?.nativeElement;
-    if (host) this.mermaidScrollLeft = host.scrollLeft;
+    if (host) {
+      this.mermaidScrollLeft = host.scrollLeft;
+      this.mermaidScrollTop = host.scrollTop;
+    }
   };
   private iconCache = new Map<string, Promise<SVGElement | null>>();
   private openedFromQuery = false;
@@ -840,13 +848,15 @@ export class TracesPage implements OnInit, OnDestroy {
       }
     });
     effect(() => {
+      this.captureScrollPositions();
       this.dataSource.data = this.filteredRuns();
       // Live feed refreshes may remount MatTable expand cells. Only rebuild Mermaid
       // if the SVG was lost; otherwise keep the diagram and restore scroll.
       if (this.detail()?.runId && this.viewMode() === 'diagram') {
-        this.expandOpen.set(true);
+        if (!this.expandOpen()) this.expandOpen.set(true);
         afterNextRender(
           () => {
+            this.restoreScrollPositions();
             const host = this.mermaidHost()?.nativeElement;
             if (!host) return;
             if (!host.querySelector('svg')) {
@@ -858,6 +868,8 @@ export class TracesPage implements OnInit, OnDestroy {
           },
           { injector: this.injector },
         );
+      } else {
+        afterNextRender(() => this.restoreScrollPositions(), { injector: this.injector });
       }
     });
   }
@@ -897,11 +909,74 @@ export class TracesPage implements OnInit, OnDestroy {
     this.scrollBoundHost = null;
   }
 
+  private mainScroller(): HTMLElement | null {
+    const tagged = document.querySelector<HTMLElement>('.ao-admin-main-scroll');
+    if (tagged) return tagged;
+    const scrolling = document.scrollingElement;
+    if (scrolling instanceof HTMLElement) return scrolling;
+    return document.documentElement;
+  }
+
+  private captureScrollPositions() {
+    const main = this.mainScroller();
+    if (main) {
+      this.pageScrollTop = main.scrollTop;
+      this.pageScrollLeft = main.scrollLeft;
+    }
+    const host = this.mermaidHost()?.nativeElement;
+    if (host) {
+      this.mermaidScrollLeft = host.scrollLeft;
+      this.mermaidScrollTop = host.scrollTop;
+    }
+    this.nestedScrolls = [];
+    const root =
+      document.querySelector<HTMLElement>('tr.ao-trace-detail-row') ||
+      document.querySelector<HTMLElement>('.ao-trace-expand--open');
+    if (!root) return;
+    root.querySelectorAll<HTMLElement>('*').forEach((el) => {
+      const style = getComputedStyle(el);
+      const canY = /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1;
+      const canX = /(auto|scroll)/.test(style.overflowX) && el.scrollWidth > el.clientWidth + 1;
+      if (!canY && !canX) return;
+      this.nestedScrolls.push({
+        el: new WeakRef(el),
+        top: el.scrollTop,
+        left: el.scrollLeft,
+      });
+    });
+  }
+
+  private restoreScrollPositions() {
+    const apply = () => {
+      const main = this.mainScroller();
+      if (main) {
+        main.scrollTop = this.pageScrollTop;
+        main.scrollLeft = this.pageScrollLeft;
+      }
+      for (const entry of this.nestedScrolls) {
+        const el = entry.el.deref();
+        if (!el) continue;
+        el.scrollTop = entry.top;
+        el.scrollLeft = entry.left;
+      }
+      const host = this.mermaidHost()?.nativeElement;
+      if (host) this.restoreMermaidScroll(host);
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }
+
   private restoreMermaidScroll(host: HTMLElement) {
     const left = this.mermaidScrollLeft;
+    const top = this.mermaidScrollTop;
     host.scrollLeft = left;
+    host.scrollTop = top;
     requestAnimationFrame(() => {
       host.scrollLeft = left;
+      host.scrollTop = top;
     });
   }
 
@@ -922,6 +997,7 @@ export class TracesPage implements OnInit, OnDestroy {
       return;
     }
     this.mermaidScrollLeft = host.scrollLeft || this.mermaidScrollLeft;
+    this.mermaidScrollTop = host.scrollTop || this.mermaidScrollTop;
     const gen = ++this.mermaidGen;
     this.initMermaid();
     // Always rebuild from source — Mermaid mutates the node and won't re-run stale DOM.
@@ -1000,7 +1076,15 @@ export class TracesPage implements OnInit, OnDestroy {
         ? 'Completion tokens'
         : kind === 'prompt' || kind === 'prompt_preview'
           ? 'Prompt tokens'
-          : 'Token help';
+          : kind === 'mcp_request'
+            ? 'MCP tool request'
+            : kind === 'mcp_response'
+              ? 'MCP tool response'
+              : kind === 'tool_request'
+                ? 'Tool request'
+                : kind === 'tool_response'
+                  ? 'Tool response'
+                  : 'Token help';
     this.dialog.open(TokenHelpDialog, {
       data: { title, body } satisfies TokenHelpDialogData,
       maxWidth: '40rem',
@@ -1016,6 +1100,7 @@ export class TracesPage implements OnInit, OnDestroy {
     if (!alreadyOpen) {
       this.expandOpen.set(false);
       this.mermaidScrollLeft = 0;
+      this.mermaidScrollTop = 0;
       this.lastMermaidSource = '';
     }
     void this.router.navigate([], {
@@ -1049,6 +1134,7 @@ export class TracesPage implements OnInit, OnDestroy {
     const closingId = this.detail()?.runId || null;
     this.expandOpen.set(false);
     this.mermaidScrollLeft = 0;
+    this.mermaidScrollTop = 0;
     this.lastMermaidSource = '';
     this.unbindMermaidScroll();
     // Allow collapse animation before removing the detail row.

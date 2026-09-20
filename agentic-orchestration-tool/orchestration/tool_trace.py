@@ -105,7 +105,7 @@ def apply_tool_call_trace_wrap() -> None:
         started = time.monotonic()
         from orchestration.llm_usage import current_tool_root, current_usage_identity
         from orchestration.progress_sink import emit_progress
-        from orchestration.run_trace import append_run_event
+        from orchestration.run_trace import append_run_event, clip_payload_preview
 
         try:
             emit_progress(_tool_progress_line(name, *args, **kwargs))
@@ -113,6 +113,17 @@ def apply_tool_call_trace_wrap() -> None:
             pass
         root = current_tool_root()
         rid = current_usage_identity().get("runId") or ""
+        request_preview = ""
+        try:
+            if kwargs:
+                request_preview = clip_payload_preview(kwargs, max_chars=8000)
+            elif args:
+                request_preview = clip_payload_preview(
+                    args[0] if len(args) == 1 else list(args),
+                    max_chars=8000,
+                )
+        except Exception:  # noqa: BLE001
+            request_preview = ""
         if root is not None and rid:
             try:
                 append_run_event(
@@ -121,14 +132,20 @@ def apply_tool_call_trace_wrap() -> None:
                     "tool_call",
                     actor="tool",
                     message=f"{name} start",
-                    detail={"name": name, "phase": "start"},
+                    detail={
+                        "name": name,
+                        "phase": "start",
+                        "request_preview": request_preview or None,
+                    },
                 )
             except Exception:  # noqa: BLE001
                 pass
         ok = True
         err: str | None = None
+        result: Any = None
         try:
-            return cap_tool_result(original(self, *args, **kwargs))
+            result = cap_tool_result(original(self, *args, **kwargs))
+            return result
         except Exception as exc:
             ok = False
             err = str(exc)[:500]
@@ -137,6 +154,11 @@ def apply_tool_call_trace_wrap() -> None:
             if root is not None and rid:
                 try:
                     latency_ms = round((time.monotonic() - started) * 1000.0, 1)
+                    response_preview = ""
+                    if ok and result is not None:
+                        response_preview = clip_payload_preview(result, max_chars=8000)
+                    elif err:
+                        response_preview = clip_payload_preview(err, max_chars=2000)
                     append_run_event(
                         root,
                         rid,
@@ -149,6 +171,8 @@ def apply_tool_call_trace_wrap() -> None:
                             "ok": ok,
                             "latency_ms": latency_ms,
                             "error": err,
+                            "request_preview": request_preview or None,
+                            "response_preview": response_preview or None,
                         },
                     )
                 except Exception:  # noqa: BLE001
