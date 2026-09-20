@@ -1309,6 +1309,9 @@ class WsConnection:
                 run_mode = None
                 dynamic_planning = None
 
+            from orchestration.run_trace import clip_exchange_text
+
+            client_prompt = clip_exchange_text(text)
             append_run_event(
                 self.tool_root,
                 run_id,
@@ -1322,6 +1325,7 @@ class WsConnection:
                     "dynamicPlanningSticky": sticky_dynamic if kind == "chat" else None,
                     "question_id": question_id,
                     "preview": (text[:120] + ("…" if len(text) > 120 else "")),
+                    "client_prompt": client_prompt or None,
                     "client_ip": self.client_ip or None,
                     "app_id": app_id_s or None,
                     "user_id": user_id_s or None,
@@ -1413,10 +1417,20 @@ class WsConnection:
                 extra=log_extra,
             )
             try:
-                from orchestration.run_trace import append_run_event
+                from orchestration.run_trace import append_run_event, clip_exchange_text
 
+                final_response = clip_exchange_text(answer)
                 append_run_event(
-                    self.tool_root, run_id, "run_end", actor="engine", message="ok"
+                    self.tool_root,
+                    run_id,
+                    "run_end",
+                    actor="engine",
+                    message="ok",
+                    detail={
+                        "exit_code": 0,
+                        "chars": len(str(answer or "")),
+                        "final_response": final_response or None,
+                    },
                 )
             except Exception:  # noqa: BLE001
                 pass

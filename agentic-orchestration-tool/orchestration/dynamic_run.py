@@ -542,7 +542,7 @@ def _execute_planned_dynamic(
 ) -> str:
     from orchestration.backends.crewai import run_options_from_legacy
     from orchestration.execution_dispatch import execute_workflow_config_resolved
-    from orchestration.run_trace import append_run_event
+    from orchestration.run_trace import append_run_event, clip_exchange_text
     from orchestration.structured_logging import emit_log
 
     summary = plan.get("plan_summary") if isinstance(plan, dict) else None
@@ -654,7 +654,11 @@ def _execute_planned_dynamic(
         "run_end",
         actor="orchestrator",
         message="ok",
-        detail={"exit_code": 0, "chars": len(result_text)},
+        detail={
+            "exit_code": 0,
+            "chars": len(result_text),
+            "final_response": clip_exchange_text(result_text) or None,
+        },
     )
     _record_dynamic_run_state(
         tool_root=root,

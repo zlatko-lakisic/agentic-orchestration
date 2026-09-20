@@ -377,6 +377,10 @@ export interface RunTraceResponse {
   promptTokens?: number | null;
   completionTokens?: number | null;
   totalTokens?: number | null;
+  /** Incoming client prompt (full when stored; may be truncated preview on older traces). */
+  clientPrompt?: string | null;
+  /** Final response returned to the client when recorded / hydratable. */
+  finalResponse?: string | null;
 }
 
 export interface LlmUsageRollupRow {

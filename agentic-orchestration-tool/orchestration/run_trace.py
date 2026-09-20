@@ -7,11 +7,34 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 RUN_TRACES_DIR_NAME = "__orchestrator_run_traces__"
+
+# Cap stored client prompt / final response on trace events (Admin Traces panels).
+_DEFAULT_EXCHANGE_CHARS = 15_000
+
+
+def exchange_max_chars() -> int:
+    raw = os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "").strip()
+    try:
+        cap = int(raw) if raw else _DEFAULT_EXCHANGE_CHARS
+    except ValueError:
+        cap = _DEFAULT_EXCHANGE_CHARS
+    return max(500, min(120_000, cap))
+
+
+def clip_exchange_text(text: Any, *, max_chars: int | None = None) -> str:
+    body = str(text or "")
+    if not body:
+        return ""
+    cap = exchange_max_chars() if max_chars is None else max(500, min(120_000, int(max_chars)))
+    if len(body) <= cap:
+        return body
+    return body[: cap - 1] + "…"
 
 # Short arrow labels for Mermaid (full text stays in the event log / modal).
 _MERMAID_LABEL_MAX = 40
@@ -153,6 +176,35 @@ def filter_events_by_depth(events: list[dict[str, Any]], depth: str | None) -> l
     if not allowed:
         return list(events)
     return [e for e in events if str(e.get("kind") or "") in allowed]
+
+
+def extract_client_exchange(events: list[dict[str, Any]]) -> dict[str, str | None]:
+    """Pull incoming client prompt + final response from trace events when present."""
+    client_prompt: str | None = None
+    final_response: str | None = None
+    for ev in events:
+        detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
+        kind = str(ev.get("kind") or "")
+        if client_prompt is None and kind == "request_start":
+            for key in ("client_prompt", "clientPrompt", "preview"):
+                raw = detail.get(key)
+                if raw is not None and str(raw).strip():
+                    client_prompt = str(raw)
+                    break
+        if final_response is None:
+            if kind in ("run_end", "run_error", "agent_end"):
+                for key in (
+                    "final_response",
+                    "finalResponse",
+                    "answer_excerpt",
+                    "answerExcerpt",
+                    "text",
+                ):
+                    raw = detail.get(key)
+                    if raw is not None and str(raw).strip():
+                        final_response = str(raw)
+                        break
+    return {"clientPrompt": client_prompt, "finalResponse": final_response}
 
 
 def _detail_identity(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -714,6 +766,7 @@ def build_run_trace_payload(
     filtered = filter_events_by_depth(events, depth)
     ident = _detail_identity(events)
     tokens = sum_model_tokens(events)
+    exchange = extract_client_exchange(events)
     mermaid, mermaid_tips = events_to_mermaid(filtered)
     return {
         "runId": rid,
@@ -735,4 +788,6 @@ def build_run_trace_payload(
         "promptTokens": tokens["promptTokens"],
         "completionTokens": tokens["completionTokens"],
         "totalTokens": tokens["totalTokens"],
+        "clientPrompt": exchange["clientPrompt"],
+        "finalResponse": exchange["finalResponse"],
     }

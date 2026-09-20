@@ -503,6 +503,42 @@ declare global {
         </div>
       }
 
+      @if (d.clientPrompt || d.finalResponse) {
+        <div class="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+          <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+            Client exchange
+          </div>
+          <div class="grid gap-3 lg:grid-cols-2">
+            <div class="min-w-0 space-y-1.5">
+              <div class="text-2xs font-semibold tracking-wide text-neutral-500 uppercase">
+                Incoming prompt
+              </div>
+              @if (d.clientPrompt) {
+                <pre
+                  class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs leading-relaxed text-neutral-800 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200"
+                  >{{ d.clientPrompt }}</pre
+                >
+              } @else {
+                <p class="text-xs text-neutral-500">Not recorded on this trace.</p>
+              }
+            </div>
+            <div class="min-w-0 space-y-1.5">
+              <div class="text-2xs font-semibold tracking-wide text-neutral-500 uppercase">
+                Final response
+              </div>
+              @if (d.finalResponse) {
+                <pre
+                  class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs leading-relaxed text-neutral-800 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200"
+                  >{{ d.finalResponse }}</pre
+                >
+              } @else {
+                <p class="text-xs text-neutral-500">Not recorded or run did not finish.</p>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
       @if (crewLog(d); as steps) {
         <div class="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
           <div class="mb-3 text-xs font-semibold tracking-wide text-neutral-500 uppercase">
