@@ -443,9 +443,23 @@ def list_recent_trace_runs(
     return out
 
 
+def _sanitize_mermaid_label(raw: str) -> str:
+    """Make text safe for Mermaid sequenceDiagram labels / aliases."""
+    text = (
+        str(raw or "")
+        .replace("\r\n", " ")
+        .replace("\n", " ")
+        .replace('"', "'")
+    )
+    for ch in "{}`<>#;":
+        text = text.replace(ch, " ")
+    text = text.replace(":", "/")
+    return " ".join(text.split()).strip()
+
+
 def _full_label(*parts: object) -> str:
     raw = " ".join(str(p).strip() for p in parts if p is not None and str(p).strip())
-    return raw.replace("\n", " ").replace('"', "'").strip() or "event"
+    return _sanitize_mermaid_label(raw) or "event"
 
 
 def _short_label(*parts: object, limit: int = _MERMAID_LABEL_MAX) -> str:
@@ -467,6 +481,10 @@ def _label_with_tip(
         tips.append({"shown": shown, "full": full})
     return shown
 
+
+def _participant_alias(label: str) -> str:
+    safe = _sanitize_mermaid_label(label)[:28] or "actor"
+    return f'"{safe}"'
 
 def trace_duration_ms(events: list[dict[str, Any]]) -> float | None:
     times = [float(e["ts"]) for e in events if isinstance(e.get("ts"), (int, float))]
@@ -605,21 +623,26 @@ def events_to_mermaid(
                 label = _label_with_tip(tips, raw[6:], limit=22)
             else:
                 label = _label_with_tip(tips, raw, limit=28)
-            lines.append(f"  participant {pid} as {label}")
+            lines.append(f"  participant {pid} as {_participant_alias(label)}")
         return pid
 
     if events:
         ensure("client")
 
     stack: list[str] = ["client"]
+    skip_actor_ensure = {"model_call", "tool_call", "mcp_call"}
 
     for ev in events:
-        actor = ensure(str(ev.get("actor") or "orchestrator"))
         kind = str(ev.get("kind") or "event")
         detail = ev.get("detail") if isinstance(ev.get("detail"), dict) else {}
         mode = str(detail.get("mode") or "").strip()
         provider = str(detail.get("agent_provider_id") or detail.get("provider_id") or "").strip()
         caller = stack[-1] if stack else "client"
+        actor = (
+            None
+            if kind in skip_actor_ensure
+            else ensure(str(ev.get("actor") or "orchestrator"))
+        )
 
         if kind == "request_start":
             label = _label_with_tip(tips, mode or "request")

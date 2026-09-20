@@ -2166,31 +2166,49 @@ function filterEventsByDepth(events, depth) {
   return (events || []).filter((e) => allowed.has(String(e?.kind || "")));
 }
 
-function shortMermaidLabel(...parts) {
-  const clean = parts
-    .map((p) => String(p || "").trim())
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\n/g, " ")
+/**
+ * Strip Mermaid sequenceDiagram metacharacters from label text.
+ * Colons in unquoted participant aliases / notes break Mermaid parsing.
+ */
+function sanitizeMermaidLabelText(raw) {
+  return String(raw || "")
+    .replace(/\r?\n/g, " ")
     .replace(/"/g, "'")
+    .replace(/[{}`<>#;]/g, " ")
+    .replace(/:/g, "/")
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+function shortMermaidLabel(...parts) {
+  const clean = sanitizeMermaidLabelText(
+    parts
+      .map((p) => String(p || "").trim())
+      .filter(Boolean)
+      .join(" "),
+  );
   const text = clean || "event";
   return text.length <= 40 ? text : `${text.slice(0, 39).trimEnd()}…`;
 }
 
 /** Full + diagram-safe shown form; records tip when truncated. */
 function pushMermaidLabelTip(tips, ...parts) {
-  const clean = parts
-    .map((p) => String(p || "").trim())
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\n/g, " ")
-    .replace(/"/g, "'")
-    .trim();
+  const clean = sanitizeMermaidLabelText(
+    parts
+      .map((p) => String(p || "").trim())
+      .filter(Boolean)
+      .join(" "),
+  );
   const full = clean || "event";
   const shown = full.length <= 40 ? full : `${full.slice(0, 39).trimEnd()}…`;
   if (shown !== full) tips.push({ shown, full });
   return shown;
+}
+
+/** Quote a participant alias so special chars cannot break the diagram. */
+function mermaidParticipantAlias(label) {
+  const safe = sanitizeMermaidLabelText(label).slice(0, 28) || "actor";
+  return `"${safe}"`;
 }
 
 /** Coerce trace detail token fields to a finite int (or null). */
@@ -2557,12 +2575,13 @@ function eventsToMermaid(events) {
       declared.add(pid);
       const raw = a.replace(/"/g, "'");
       const isAgent = raw.toLowerCase().startsWith("agent:");
-      const fullLabel = isAgent ? raw.slice(6) : raw;
-      const shownLabel = isAgent ? fullLabel.slice(0, 22) : fullLabel.slice(0, 28);
+      const fullLabel = sanitizeMermaidLabelText(isAgent ? raw.slice(6) : raw);
+      const limit = isAgent ? 22 : 28;
+      const shownLabel = fullLabel.slice(0, limit) || "actor";
       if (shownLabel !== fullLabel && fullLabel) {
         tips.push({ shown: shownLabel, full: fullLabel });
       }
-      lines.push(`  participant ${pid} as ${shownLabel}`);
+      lines.push(`  participant ${pid} as ${mermaidParticipantAlias(shownLabel)}`);
     }
     return pid;
   };
@@ -2570,24 +2589,26 @@ function eventsToMermaid(events) {
   // the requesting app (ao-chat, comstar-ai, …) when request_start stamped one.
   const ident = detailIdentity(events);
   const clientFull =
-    String(ident.appId || ident.userName || "client")
-      .trim()
-      .replace(/"/g, "'") || "client";
+    sanitizeMermaidLabelText(ident.appId || ident.userName || "client") || "client";
   const clientLabel = clientFull.slice(0, 28) || "client";
   if (clientLabel !== clientFull) tips.push({ shown: clientLabel, full: clientFull });
   if ((events || []).length) {
     declared.add("client");
-    lines.push(`  participant client as ${clientLabel}`);
+    lines.push(`  participant client as ${mermaidParticipantAlias(clientLabel)}`);
   }
+  /** Kinds that use dedicated lifelines (model/tool/mcp) — do not declare the actor. */
+  const skipActorEnsure = new Set(["model_call", "tool_call", "mcp_call"]);
   /** Call stack so dashed returns (-->>) target the real caller. */
   let stack = ["client"];
   for (const ev of events || []) {
-    const actor = ensure(ev.actor || "orchestrator");
     const kind = String(ev.kind || "event");
     const detail = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
     const mode = String(detail.mode || "").trim();
     const provider = String(detail.agent_provider_id || detail.provider_id || "").trim();
     const caller = stack.length ? stack[stack.length - 1] : "client";
+    const actor = skipActorEnsure.has(kind)
+      ? null
+      : ensure(ev.actor || "orchestrator");
     if (kind === "request_start") {
       pushMsg(`  client->>${actor}: ${diagLabel(mode || "request")}`);
       stack = ["client", actor];
@@ -2820,7 +2841,7 @@ function eventsToMermaid(events) {
   }
   if (lines.length === 1) {
     declared.add("client");
-    lines.push(`  participant client as ${clientLabel}`);
+    lines.push(`  participant client as ${mermaidParticipantAlias(clientLabel)}`);
     lines.push("  Note over client: No events recorded for this run_id");
   }
   return { mermaid: lines.join("\n"), tokenHelps, tips };
