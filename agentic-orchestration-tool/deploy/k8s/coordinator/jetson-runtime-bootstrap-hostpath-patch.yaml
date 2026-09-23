@@ -77,6 +77,19 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/rag_sources_catalog.py
               subPath: rag_sources_catalog.py
+            # Planner contamination isolation (dynamic_planner imports these).
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/current_turn.py
+              subPath: current_turn.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/social_turn.py
+              subPath: social_turn.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/followup.py
+              subPath: followup.py
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/plan_validation.py
+              subPath: plan_validation.py
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

@@ -135,12 +135,24 @@ def test_orchestration_hotfix_keys_and_mounts_agree() -> None:
 def test_hostpath_patches_reference_real_modules(patch_name: str) -> None:
     """These bypass the 1 MiB ConfigMap limit, so a typo fails the pod's mount."""
     patch = _K8S / patch_name
-    subpaths = _subpaths_for(patch, "jetson-orch-hostpath")
-    assert subpaths, f"{patch_name} mounts nothing"
-    for subpath in sorted(subpaths):
-        assert (_TOOL_ROOT / "orchestration" / subpath).is_file(), (
-            f"{patch_name} mounts orchestration/{subpath}, which does not exist"
-        )
+    mounts = [m for m in _mounts(patch) if m.get("name") == "jetson-orch-hostpath"]
+    assert mounts, f"{patch_name} mounts nothing"
+    subpaths = {m["subPath"] for m in mounts if "subPath" in m}
+    if subpaths:
+        for subpath in sorted(subpaths):
+            assert (_TOOL_ROOT / "orchestration" / subpath).is_file(), (
+                f"{patch_name} mounts orchestration/{subpath}, which does not exist"
+            )
+        return
+    # Full-directory mount (warm-pool): no subPath; hostPath must be the orch tree.
+    doc = yaml.safe_load(patch.read_text(encoding="utf-8"))
+    volumes = doc["spec"]["template"]["spec"].get("volumes") or []
+    orch_vol = next((v for v in volumes if v.get("name") == "jetson-orch-hostpath"), None)
+    assert orch_vol is not None, f"{patch_name} missing jetson-orch-hostpath volume"
+    host = str((orch_vol.get("hostPath") or {}).get("path") or "")
+    assert host.rstrip("/").endswith("/orchestration"), (
+        f"{patch_name} hostPath should be the orchestration directory, got {host!r}"
+    )
 
 
 @pytest.mark.unit
