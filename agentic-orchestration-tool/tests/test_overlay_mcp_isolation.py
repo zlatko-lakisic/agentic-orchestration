@@ -137,7 +137,8 @@ def test_prune_keeps_overlay_filesystem_without_keywords() -> None:
     assert out.mcp_providers == ["client.filesystem_local"]
 
 
-def test_apply_cap_fills_empty_task_from_overlay_agent_yaml() -> None:
+def test_apply_cap_fills_omitted_task_mcp_from_overlay_agent_yaml() -> None:
+    """None = omitted → fill from agent YAML. Explicit [] must stay empty."""
     cfg = WorkflowConfig(
         name="dynamic-plan",
         process="sequential",
@@ -157,7 +158,7 @@ def test_apply_cap_fills_empty_task_from_overlay_agent_yaml() -> None:
                 agent_provider_id="client.code_reviewer",
                 description="read {{topic}}",
                 expected_output="text",
-                mcp_providers=[],
+                mcp_providers=None,
             )
         ],
         task_sequence=["t1"],
@@ -170,3 +171,38 @@ def test_apply_cap_fills_empty_task_from_overlay_agent_yaml() -> None:
     )
     assert out.tasks[0].mcp_providers == ["client.filesystem_local"]
     assert out.mcp_providers == ["client.filesystem_local"]
+
+
+def test_apply_cap_respects_explicit_empty_task_mcp() -> None:
+    cfg = WorkflowConfig(
+        name="dynamic-plan",
+        process="sequential",
+        topic="How are you?",
+        instance_key="k",
+        agent_providers=[
+            {
+                "id": "client.text_responder",
+                "mcp_providers": ["home_assistant", "client.google_workspace"],
+            }
+        ],
+        mcp_providers=[],
+        skills=[],
+        tasks=[
+            TaskDefinition(
+                id="t1",
+                agent_provider_id="client.text_responder",
+                description="say hi {{topic}}",
+                expected_output="hi",
+                mcp_providers=[],
+            )
+        ],
+        task_sequence=["t1"],
+    )
+    overlay = SimpleNamespace(allowed_mcp_provider_ids=[], allowed_skill_ids=[])
+    out = apply_overlay_client_tool_cap(
+        cfg,
+        agent_entries=list(cfg.agent_providers),
+        overlay=overlay,
+    )
+    assert out.tasks[0].mcp_providers == []
+    assert out.mcp_providers == []
