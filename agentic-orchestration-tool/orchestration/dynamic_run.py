@@ -300,6 +300,7 @@ def run_dynamic_goal(
             tool_root=root,
             max_steps=max_steps,
             quiet=quiet,
+            client_app_id=app_id,
         )
         plan_holder["plan"] = plan
         return config
@@ -482,6 +483,7 @@ def run_dynamic_plan_execute_queued(
             tool_root=root,
             max_steps=max_steps,
             quiet=quiet,
+            client_app_id=None,
         )
         plan_holder["plan"] = plan if isinstance(plan, dict) else {}
         if on_planned is not None:

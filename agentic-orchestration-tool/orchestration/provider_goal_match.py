@@ -36,26 +36,13 @@ def user_prompt_for_goal_matching(user_prompt: str) -> str:
     """
     When hosts prepend context, keep MCP/goal matching on the real user turn.
 
-    Recognized markers (last occurrence in document order wins):
-    - ``Current request:`` (Comstar / Reach memory+history wrappers)
-    - ``User message:`` (OpenClaw)
+    Delegates to :func:`orchestration.current_turn.extract_current_turn` so
+    COMSTAR guard suffixes, ``Current request:``, ``User message:``, and
+    ``<user>`` blocks share one extractor with simple-chat / social detection.
     """
-    text = (user_prompt or "").strip()
-    if not text:
-        return text
-    markers = ("Current request:", "User message:")
-    last_pos = -1
-    last_marker = ""
-    for marker in markers:
-        pos = text.rfind(marker)
-        if pos > last_pos:
-            last_pos = pos
-            last_marker = marker
-    if last_pos >= 0 and last_marker:
-        tail = text[last_pos + len(last_marker) :].strip()
-        if tail:
-            return tail
-    return text
+    from orchestration.current_turn import extract_current_turn
+
+    return extract_current_turn(user_prompt) or (user_prompt or "").strip()
 
 
 def _entry_text_blob(entry: dict[str, Any]) -> str:

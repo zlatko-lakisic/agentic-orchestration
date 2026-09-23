@@ -9,6 +9,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Planner contamination isolation** — hallway/social turns no longer feed the
+  dynamic planner a replay of prior plan JSON, a 15k crew excerpt, or KB hits
+  matched on the COMSTAR guard suffix. New helpers
+  (`current_turn`, `social_turn`, `followup`, `plan_validation`): extract the
+  real current utterance once; short-circuit social turns before the planner
+  LLM; attach history/excerpt/KB only on follow-ups (goals-only replay by
+  default); skip persisting social/garbled ASR into `planner_history`; reject
+  contaminated plans and replan clean. Trace emits `planner_context` /
+  `planner_short_circuit` / `plan_contamination_rejected`. Env:
+  `AGENTIC_PLANNER_SOCIAL_SHORT_CIRCUIT` (default on),
+  `AGENTIC_PLANNER_CONTEXT_MODE` (`followup`|`always`|`never`),
+  `AGENTIC_PLANNER_HISTORY_REPLAY` (`goals`|`plans`),
+  `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS_VOICE`,
+  `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS_VOICE`,
+  `AGENTIC_PLAN_CONTAMINATION_MIN_FOREIGN`, `AGENTIC_SOCIAL_RESPONDER_ID`.
 - **Admin object-detection UX** — Overview/Components `detection` row from engine
   `GET /health.detection` (ORT providers, preferred EP, weights cache); Topology
   `models/onnxruntime` node; Catalogs badges/detail for `object_detection`;
