@@ -13,6 +13,10 @@ def test_greetings_are_simple_chat() -> None:
     assert is_simple_chat_prompt("hello")
     assert is_simple_chat_prompt("hi!")
     assert is_simple_chat_prompt("hey")
+    assert is_simple_chat_prompt("how are you today?")
+    assert is_simple_chat_prompt(
+        "How are you today?\n\nAnswer ONLY the Current request. Do not recite world news."
+    )
 
 
 def test_long_or_multi_line_not_simple_chat() -> None:

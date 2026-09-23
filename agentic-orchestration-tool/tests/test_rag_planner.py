@@ -37,7 +37,14 @@ def test_planner_unknown_rag_ids_hard_fail() -> None:
             catalog_entries=catalog,
             instance_key="t",
             max_steps=3,
-            rag_catalog_entries=[],
+            # Non-empty catalog so unknown ids hard-fail (empty catalog soft-drops).
+            rag_catalog_entries=[
+                {
+                    "id": "orchestrator_kb",
+                    "backend": "sqlite-fts",
+                    "mode": "inject",
+                }
+            ],
             quiet=True,
         )
 

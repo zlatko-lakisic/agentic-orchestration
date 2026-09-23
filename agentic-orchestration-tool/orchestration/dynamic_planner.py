@@ -564,6 +564,179 @@ def _single_agent_trivial_plan(user_prompt: str, agent_id: str) -> dict[str, Any
     }
 
 
+def _planner_context_mode() -> str:
+    raw = os.getenv("AGENTIC_PLANNER_CONTEXT_MODE", "followup").strip().lower()
+    if raw in ("always", "followup", "never"):
+        return raw
+    return "followup"
+
+
+def _planner_history_replay_mode() -> str:
+    raw = os.getenv("AGENTIC_PLANNER_HISTORY_REPLAY", "goals").strip().lower()
+    if raw in ("goals", "plans"):
+        return raw
+    return "goals"
+
+
+def _is_voice_client(
+    client_app_id: str | None,
+    session_path: Path | None,
+) -> bool:
+    cid = (
+        (client_app_id or "").strip()
+        or os.getenv("AGENTIC_APP_ID", "").strip()
+        or os.getenv("AGENTIC_USER_ID", "").strip()
+    ).lower()
+    if any(token in cid for token in ("comstar", "reach", "hallway")):
+        return True
+    if session_path is not None and "comstar" in session_path.stem.lower():
+        return True
+    return False
+
+
+def _planner_max_turn_pairs(*, voice: bool) -> int:
+    if voice:
+        raw = os.getenv("AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS_VOICE", "3").strip()
+        try:
+            return max(1, min(64, int(raw)))
+        except ValueError:
+            return 3
+    raw = os.getenv("AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS", "12").strip()
+    try:
+        return max(1, min(64, int(raw)))
+    except ValueError:
+        return 12
+
+
+def _excerpt_chars_cap(*, voice: bool) -> int:
+    if voice:
+        raw = os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS_VOICE", "2000").strip()
+        try:
+            return max(200, min(50_000, int(raw)))
+        except ValueError:
+            return 2000
+    from orchestration.orchestrator_session import excerpt_max_chars
+
+    return excerpt_max_chars()
+
+
+def _clip_excerpt(text: str | None, *, voice: bool) -> str | None:
+    if not text:
+        return None
+    body = str(text)
+    cap = _excerpt_chars_cap(voice=voice)
+    if len(body) <= cap:
+        return body
+    return body[: cap - 1] + "…"
+
+
+def _should_attach_session_context(*, followup: bool) -> bool:
+    mode = _planner_context_mode()
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return followup
+
+
+def _history_for_planner_replay(
+    history: list[dict[str, str]],
+    *,
+    max_turn_pairs: int,
+) -> list[dict[str, str]]:
+    trimmed = trim_planner_history(history, max_turn_pairs=max_turn_pairs)
+    if _planner_history_replay_mode() == "plans":
+        return trimmed
+    # goals-only: prior user goals without assistant plan JSON (few-shot attractor).
+    return [m for m in trimmed if str(m.get("role", "")).strip() == "user"]
+
+
+def _resolve_social_responder_id(entries: list[dict[str, Any]]) -> str | None:
+    preferred = os.getenv("AGENTIC_SOCIAL_RESPONDER_ID", "").strip()
+    ids = [str(e.get("id", "")).strip() for e in entries if str(e.get("id", "")).strip()]
+    id_set = set(ids)
+    if preferred and preferred in id_set:
+        return preferred
+    if "client.text_responder" in id_set:
+        return "client.text_responder"
+    for pid in ids:
+        if pid.startswith("client.") and "responder" in pid:
+            return pid
+    for pid in ids:
+        if pid.startswith("client."):
+            return pid
+    for e in entries:
+        pid = str(e.get("id", "")).strip()
+        if not pid:
+            continue
+        typ = str(e.get("type", "")).strip().lower()
+        if typ and typ not in ("deterministic", "object_detection"):
+            return pid
+    return ids[0] if ids else None
+
+
+def _social_plan(user_prompt: str, agent_id: str) -> dict[str, Any]:
+    return {
+        "plan_summary": (
+            f"Social short-circuit: `{agent_id}` replies briefly without tools or prior context."
+        ),
+        "mcp_provider_ids": [],
+        "skill_ids": [],
+        "rag_ids": [],
+        "steps": [
+            {
+                "agent_provider_id": agent_id,
+                "description": (
+                    "{topic}\n\n"
+                    "Reply briefly and warmly to this social message only. "
+                    "Do not bring up home status, devices, news, prior topics, or tasks "
+                    "unless the user asked. No tools."
+                ),
+                "expected_output": "One or two short spoken sentences.",
+            }
+        ],
+    }
+
+
+def _looks_like_garbled_asr(turn: str) -> bool:
+    """Conservative: obviously empty/repetitive ASR junk, not long coherent speech."""
+    words = re.findall(r"[A-Za-z]{3,}", turn or "")
+    if len(words) < 2:
+        return True
+    from collections import Counter
+
+    counts = Counter(w.lower() for w in words)
+    top = counts.most_common(1)[0][1]
+    if top >= 3 and (top / len(words)) >= 0.5:
+        return True
+    return False
+
+
+def _emit_planner_trace(
+    *,
+    tool_root: Path | None,
+    kind: str,
+    message: str = "",
+    detail: dict[str, Any] | None = None,
+) -> None:
+    try:
+        from orchestration.run_trace import append_run_event
+
+        rid = os.getenv("AGENTIC_RUN_ID", "").strip()
+        if not rid or tool_root is None:
+            return
+        append_run_event(
+            tool_root,
+            rid,
+            kind,
+            actor="planner",
+            message=message,
+            detail=detail,
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
 def _planner_system_prompt(
     *,
     catalog_doc: str,
@@ -1621,6 +1794,7 @@ def build_dynamic_workflow_config(
     session_path: Path | None = None,
     tool_root: Path | None = None,
     quiet: bool = False,
+    client_app_id: str | None = None,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_agent_providers_catalog_merged(catalog_path)
     entries, _skipped_cred = filter_entries_by_api_credentials(
@@ -1760,12 +1934,23 @@ def build_dynamic_workflow_config(
             "offline/private/ollama-only wording from the goal."
         )
 
+    from orchestration.current_turn import extract_current_turn
+    from orchestration.followup import is_followup_turn
+    from orchestration.social_turn import is_social_turn, social_short_circuit_enabled
+
+    current_turn = extract_current_turn(user_prompt)
+    social = is_social_turn(user_prompt)
+    followup = is_followup_turn(user_prompt)
+    voice_client = _is_voice_client(client_app_id, session_path)
+    attach_ctx = _should_attach_session_context(followup=followup)
+    context_mode = _planner_context_mode()
+
     sess: OrchestratorSessionFile | None = None
-    history: list[dict[str, str]] = []
+    history_raw: list[dict[str, str]] = []
     last_excerpt: str | None = None
     if session_path is not None:
         sess = load_session(session_path)
-        history = trim_planner_history(sess.planner_history)
+        history_raw = list(sess.planner_history or [])
         last_excerpt = sess.last_crew_output_excerpt
 
     if instance_key:
@@ -1778,6 +1963,58 @@ def build_dynamic_workflow_config(
             key = stable_instance_key_for_session(session_path.stem)
     else:
         key = _dynamic_instance_key(user_prompt)
+
+    # --- Fix B: social short-circuit before history/KB/planner LLM ---
+    if social_short_circuit_enabled() and social:
+        responder = _resolve_social_responder_id(entries)
+        if responder:
+            if not quiet:
+                print(
+                    f"(dynamic) social short-circuit: trivial plan for {responder!r} "
+                    f"(turn={current_turn!r})",
+                    file=sys.stderr,
+                )
+            plan = _social_plan(user_prompt, responder)
+            plan["_planner_context"] = {
+                "messages": 0,
+                "history_pairs": 0,
+                "excerpt_chars": 0,
+                "kb_hits": 0,
+                "learning_chars": 0,
+                "catalog_chars": 0,
+                "context_mode": context_mode,
+                "followup": followup,
+                "social": True,
+                "short_circuit": "social",
+            }
+            cfg = workflow_config_from_plan(
+                user_prompt=user_prompt,
+                plan=plan,
+                catalog_entries=entries,
+                instance_key=key,
+                max_steps=limit,
+                mcp_catalog_entries=[],
+                skill_catalog_entries=[],
+                rag_catalog_entries=[],
+                quiet=quiet,
+            )
+            _emit_planner_trace(
+                tool_root=tool_root,
+                kind="planner_short_circuit",
+                message="social",
+                detail={"reason": "social", "responder": responder, "turn": current_turn[:200]},
+            )
+            # Do not persist social turns into planner_history.
+            return cfg, plan
+
+    max_pairs = _planner_max_turn_pairs(voice=voice_client)
+    history: list[dict[str, str]] = []
+    if attach_ctx and history_raw:
+        history = _history_for_planner_replay(history_raw, max_turn_pairs=max_pairs)
+    if not attach_ctx:
+        last_excerpt = None
+    else:
+        last_excerpt = _clip_excerpt(last_excerpt, voice=voice_client)
 
     mcp_entries: list[dict[str, Any]] = []
     if mcp_catalog_path is not None:
@@ -1860,6 +2097,7 @@ def build_dynamic_workflow_config(
     doc = catalog_for_planner_prompt(entries)
     learning_summary = ""
     kb_context = ""
+    kb_hits = 0
     try:
         from orchestration.learning_store import (
             consume_pending_ratings,
@@ -1875,7 +2113,10 @@ def build_dynamic_workflow_config(
             st = load_stats(tool_root)
             st = consume_pending_ratings(tool_root, st)
             save_stats(tool_root, st)
-            learning_summary = planner_performance_summary(stats=st, user_prompt=user_prompt)
+            # Learning is provider stats only — always safe; match on current turn.
+            learning_summary = planner_performance_summary(
+                stats=st, user_prompt=current_turn or user_prompt
+            )
             learning_summary += harness_performance_summary(stats=st)
             learning_summary += user_harness_performance_summary(stats=st)
     except Exception:  # noqa: BLE001
@@ -1883,8 +2124,14 @@ def build_dynamic_workflow_config(
     try:
         from orchestration.knowledge_base import kb_enabled, planner_kb_context
 
-        if tool_root is not None and kb_enabled():
-            kb_context = planner_kb_context(tool_root=tool_root, user_prompt=user_prompt)
+        # Fix C: KB only on follow-up (or always/never per mode). Match on current turn
+        # so the COMSTAR guard suffix cannot dominate lexical similarity.
+        if tool_root is not None and kb_enabled() and attach_ctx:
+            kb_context = planner_kb_context(
+                tool_root=tool_root, user_prompt=current_turn or user_prompt
+            )
+            if kb_context.strip():
+                kb_hits = kb_context.count("\n- ") or (1 if kb_context.strip() else 0)
     except Exception:  # noqa: BLE001
         kb_context = ""
     system_text = _planner_system_prompt(
@@ -1902,6 +2149,20 @@ def build_dynamic_workflow_config(
         planner_history=history,
         user_prompt=user_prompt,
     )
+    history_pairs = sum(1 for m in history if m.get("role") == "user")
+    planner_context = {
+        "messages": len(messages),
+        "history_pairs": history_pairs,
+        "excerpt_chars": len(last_excerpt or ""),
+        "kb_hits": kb_hits,
+        "learning_chars": len(learning_summary or ""),
+        "catalog_chars": len(doc or ""),
+        "context_mode": context_mode,
+        "followup": followup,
+        "social": social,
+        "history_replay": _planner_history_replay_mode(),
+        "voice_client": voice_client,
+    }
     known_agent_ids = ", ".join(
         sorted(str(e.get("id", "")).strip() for e in entries if str(e.get("id", "")).strip())
     )
@@ -1945,6 +2206,49 @@ def build_dynamic_workflow_config(
                 exc=exc,
             )
             raise
+        return raw2, plan2, cfg2
+
+    def _clean_context_replan(reason: str) -> tuple[str, dict[str, Any], WorkflowConfig]:
+        """Replan once with no history/excerpt/KB (contamination recovery)."""
+        clean_system = _planner_system_prompt(
+            catalog_doc=doc,
+            max_steps=limit,
+            last_crew_excerpt=None,
+            mcp_catalog_doc=mcp_doc,
+            skills_catalog_doc=skills_doc,
+            rag_catalog_doc=rag_doc,
+            learning_summary=learning_summary,
+            kb_context="",
+        )
+        clean_msgs = _compose_planner_messages(
+            system_text=clean_system,
+            planner_history=[],
+            user_prompt=user_prompt,
+        )
+        clean_msgs.append(
+            {
+                "role": "user",
+                "content": (
+                    "Your previous plan imported topics from prior conversation that are "
+                    f"unrelated to the current request. Problem: {reason}\n"
+                    f"Current request only: {current_turn!r}\n"
+                    "Return a corrected JSON plan that addresses ONLY that request."
+                ),
+            }
+        )
+        raw2 = _planner_chat_completion(messages=clean_msgs, model=model)
+        plan2 = _extract_json_object(raw2)
+        cfg2 = workflow_config_from_plan(
+            user_prompt=user_prompt,
+            plan=plan2,
+            catalog_entries=entries,
+            instance_key=key,
+            max_steps=limit,
+            mcp_catalog_entries=mcp_entries,
+            skill_catalog_entries=skill_entries,
+            rag_catalog_entries=rag_entries,
+            quiet=quiet,
+        )
         return raw2, plan2, cfg2
 
     used_trivial_plan = False
@@ -2005,6 +2309,66 @@ def build_dynamic_workflow_config(
                 raw_content, plan, cfg = _repair_and_retry(str(exc))
             else:
                 raise
+
+    # --- Fix E: post-plan contamination validator ---
+    try:
+        from orchestration.plan_validation import plan_contamination
+
+        context_texts: list[str] = []
+        for m in history_raw:
+            context_texts.append(str(m.get("content") or ""))
+        if sess is not None and sess.last_crew_output_excerpt:
+            context_texts.append(str(sess.last_crew_output_excerpt))
+        if kb_context:
+            context_texts.append(kb_context)
+        foreign = plan_contamination(plan, current_turn, context_texts)
+        if foreign:
+            _emit_planner_trace(
+                tool_root=tool_root,
+                kind="plan_contamination_rejected",
+                message=",".join(foreign[:12]),
+                detail={"foreign_words": foreign[:24], "turn": current_turn[:200]},
+            )
+            if not quiet:
+                print(
+                    f"(dynamic) plan contamination: foreign={foreign[:8]!r}; replanning clean",
+                    file=sys.stderr,
+                )
+            try:
+                raw_content, plan, cfg = _clean_context_replan(
+                    f"foreign words from prior context: {', '.join(foreign[:12])}"
+                )
+                foreign2 = plan_contamination(plan, current_turn, context_texts)
+                if foreign2:
+                    responder = _resolve_social_responder_id(entries) or str(
+                        entries[0].get("id", "")
+                    ).strip()
+                    if responder:
+                        plan = _single_agent_trivial_plan(user_prompt, responder)
+                        # Prefer social wording when turn is social; else trivial.
+                        if social:
+                            plan = _social_plan(user_prompt, responder)
+                        raw_content = json.dumps(plan)
+                        cfg = workflow_config_from_plan(
+                            user_prompt=user_prompt,
+                            plan=plan,
+                            catalog_entries=entries,
+                            instance_key=key,
+                            max_steps=limit,
+                            mcp_catalog_entries=[],
+                            skill_catalog_entries=[],
+                            rag_catalog_entries=[],
+                            quiet=quiet,
+                        )
+            except Exception as exc:  # noqa: BLE001
+                if not quiet:
+                    print(
+                        f"(dynamic) contamination replan failed: {exc}",
+                        file=sys.stderr,
+                    )
+    except Exception:  # noqa: BLE001
+        pass
+
     cfg = _prune_irrelevant_mcp_from_user_goal(
         cfg,
         user_prompt=user_prompt,
@@ -2037,22 +2401,48 @@ def build_dynamic_workflow_config(
         quiet=quiet,
     )
 
+    if isinstance(plan, dict):
+        plan["_planner_context"] = planner_context
+    _emit_planner_trace(
+        tool_root=tool_root,
+        kind="planner_context",
+        message=context_mode,
+        detail=dict(planner_context),
+    )
+
+    # --- Fix D: persistence rules ---
     if session_path is not None:
         assert sess is not None
         sess.instance_key = key
-        assistant_content = raw_content.strip() + _workflow_snapshot_for_planner_history(cfg)
-        # Tier 2: scrub PII before persisting planner history (may re-enter cloud prompts).
-        stored_user = maybe_redact_for_cloud_provider(user_prompt.strip())
-        stored_assistant = maybe_redact_for_cloud_provider(assistant_content)
-        merged = trim_planner_history(
-            history
-            + [
-                {"role": "user", "content": stored_user},
-                {"role": "assistant", "content": stored_assistant},
-            ]
-        )
-        sess.planner_history = merged
-        save_session(session_path, sess)
+        persist = True
+        if social:
+            persist = False
+        elif _looks_like_garbled_asr(current_turn):
+            persist = False
+            if not quiet:
+                print(
+                    "(dynamic) skip planner_history persist: garbled/short ASR turn",
+                    file=sys.stderr,
+                )
+        if persist:
+            assistant_content = raw_content.strip() + _workflow_snapshot_for_planner_history(cfg)
+            stored_user = maybe_redact_for_cloud_provider(
+                (current_turn or user_prompt).strip()
+            )
+            stored_assistant = maybe_redact_for_cloud_provider(assistant_content)
+            merged = trim_planner_history(
+                history_raw
+                + [
+                    {"role": "user", "content": stored_user},
+                    {"role": "assistant", "content": stored_assistant},
+                ],
+                max_turn_pairs=max_pairs if voice_client else None,
+            )
+            sess.planner_history = merged
+            save_session(session_path, sess)
+        else:
+            # Still refresh instance_key / updated_at without growing history.
+            save_session(session_path, sess)
 
     return cfg, plan
 
