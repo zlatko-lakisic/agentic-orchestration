@@ -19,9 +19,32 @@ def test_social_positives() -> None:
         "are you there",
         "hi",
         "hello",
+        "No, I'm good for now.",
+        "I'm good",
+        "no thanks",
+        "nothing else",
+        "that's all",
     ):
         assert is_social_turn(t), t
         assert is_social_turn(t + COMSTAR_GUARD), f"guarded {t}"
+
+
+def test_closing_ack_and_reply_to_question() -> None:
+    from orchestration.social_turn import (
+        is_closing_ack,
+        is_reply_to_assistant_question,
+        should_short_circuit_turn,
+    )
+
+    assert is_closing_ack("No, I'm good for now.")
+    assert should_short_circuit_turn("No, I'm good for now.")
+    prior = "I'm doing well, thank you for asking! How about you?"
+    assert is_reply_to_assistant_question("I'm fine", prior)
+    assert should_short_circuit_turn("I'm fine", prior_assistant=prior)
+    assert not is_reply_to_assistant_question(
+        "turn on the porch light",
+        prior,
+    )
 
 
 def test_social_negatives() -> None:

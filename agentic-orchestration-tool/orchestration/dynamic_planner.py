@@ -1936,10 +1936,15 @@ def build_dynamic_workflow_config(
 
     from orchestration.current_turn import extract_current_turn
     from orchestration.followup import is_followup_turn
-    from orchestration.social_turn import is_social_turn, social_short_circuit_enabled
+    from orchestration.social_turn import (
+        is_closing_ack,
+        is_social_turn,
+        should_short_circuit_turn,
+        social_short_circuit_enabled,
+    )
 
     current_turn = extract_current_turn(user_prompt)
-    social = is_social_turn(user_prompt)
+    social = is_social_turn(user_prompt) or is_closing_ack(user_prompt)
     followup = is_followup_turn(user_prompt)
     voice_client = _is_voice_client(client_app_id, session_path)
     attach_ctx = _should_attach_session_context(followup=followup)
@@ -1948,10 +1953,20 @@ def build_dynamic_workflow_config(
     sess: OrchestratorSessionFile | None = None
     history_raw: list[dict[str, str]] = []
     last_excerpt: str | None = None
+    prior_assistant: str | None = None
     if session_path is not None:
         sess = load_session(session_path)
         history_raw = list(sess.planner_history or [])
         last_excerpt = sess.last_crew_output_excerpt
+        prior_assistant = (
+            sess.last_final_answer_excerpt
+            or sess.last_crew_output_excerpt
+        )
+    short_circuit = should_short_circuit_turn(
+        user_prompt, prior_assistant=prior_assistant
+    )
+    if short_circuit:
+        social = True
 
     if instance_key:
         key = instance_key
@@ -1964,8 +1979,8 @@ def build_dynamic_workflow_config(
     else:
         key = _dynamic_instance_key(user_prompt)
 
-    # --- Fix B: social short-circuit before history/KB/planner LLM ---
-    if social_short_circuit_enabled() and social:
+    # --- Fix B: social / closing-ack / answer-to-assistant short-circuit ---
+    if social_short_circuit_enabled() and short_circuit:
         responder = _resolve_social_responder_id(entries)
         if responder:
             if not quiet:
@@ -2002,7 +2017,13 @@ def build_dynamic_workflow_config(
                 tool_root=tool_root,
                 kind="planner_short_circuit",
                 message="social",
-                detail={"reason": "social", "responder": responder, "turn": current_turn[:200]},
+                detail={
+                    "reason": "social",
+                    "responder": responder,
+                    "turn": current_turn[:200],
+                    "closing_ack": is_closing_ack(user_prompt),
+                    "prior_assistant_question": bool(prior_assistant and "?" in (prior_assistant[-80:] if prior_assistant else "")),
+                },
             )
             # Do not persist social turns into planner_history.
             return cfg, plan

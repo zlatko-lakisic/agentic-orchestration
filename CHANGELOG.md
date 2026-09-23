@@ -24,6 +24,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
   `AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS_VOICE`,
   `AGENTIC_ORCHESTRATOR_EXCERPT_CHARS_VOICE`,
   `AGENTIC_PLAN_CONTAMINATION_MIN_FOREIGN`, `AGENTIC_SOCIAL_RESPONDER_ID`.
+- **Closing / answer-to-assistant short-circuit** — treat declines and short
+  answers ("No, I'm good for now.", "I'm fine") as social when the prior
+  assistant turn asked a question (e.g. "How about you?"), so they never become
+  research plans.
 - **Admin object-detection UX** — Overview/Components `detection` row from engine
   `GET /health.detection` (ORT providers, preferred EP, weights cache); Topology
   `models/onnxruntime` node; Catalogs badges/detail for `object_detection`;
