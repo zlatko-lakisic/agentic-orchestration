@@ -160,7 +160,8 @@ def test_social_short_circuit_ignores_poisoned_history(planner_env: dict[str, Pa
     blob = f"{step.description}\n{step.expected_output}\n{json.dumps(plan)}".lower()
     for banned in ("ethnic", "irrigation", "security", "climate", "appliance", "network"):
         assert banned not in blob, banned
-    assert step.mcp_providers == [] or step.mcp_providers is None or list(step.mcp_providers) == []
+    assert list(step.mcp_providers or []) == []
+    assert list(cfg.mcp_providers or []) == []
     assert (step.skills or []) == []
     assert plan.get("_planner_context", {}).get("social") is True
     assert plan.get("_planner_context", {}).get("short_circuit") == "social"

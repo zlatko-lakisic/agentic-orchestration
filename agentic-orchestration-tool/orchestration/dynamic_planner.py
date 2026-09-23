@@ -686,6 +686,11 @@ def _social_plan(user_prompt: str, agent_id: str) -> dict[str, Any]:
         "steps": [
             {
                 "agent_provider_id": agent_id,
+                # Explicit empty lists (not omitted): overlay must not reattach
+                # packed client MCP/skills (HA, Google, …) onto social turns.
+                "mcp_provider_ids": [],
+                "skill_ids": [],
+                "rag_ids": [],
                 "description": (
                     "{topic}\n\n"
                     "Reply briefly and warmly to this social message only. "
@@ -1118,9 +1123,10 @@ def apply_overlay_client_tool_cap(
         declared = _mcp_ids_from_agent_entry(entry) if entry.get("mcp_providers") is not None else None
         mcps = task.mcp_providers
         if pid.startswith("client.") and declared:
-            # Overlay YAML is the source of truth: if the planner omitted MCP ids,
-            # still attach packed tools (COMSTAR filesystem tunnel).
-            if not mcps:
+            # Overlay YAML is the source of truth: if the planner *omitted*
+            # MCP ids (None), still attach packed tools (COMSTAR tunnel).
+            # Explicit [] means "no tools for this task" (social short-circuit).
+            if mcps is None:
                 mcps = list(declared)
             mcps = filter_client_agent_tool_ids(
                 list(mcps),
@@ -2013,6 +2019,18 @@ def build_dynamic_workflow_config(
                 rag_catalog_entries=[],
                 quiet=quiet,
             )
+            # Belt-and-suspenders: never ship tools on a social short-circuit
+            # (overlay/agent YAML used to reattach HA/Google and balloon prompts).
+            cfg = replace(
+                cfg,
+                mcp_providers=[],
+                skills=[],
+                rag_sources=[],
+                tasks=[
+                    replace(t, mcp_providers=[], skills=[], rag_sources=[])
+                    for t in cfg.tasks
+                ],
+            )
             _emit_planner_trace(
                 tool_root=tool_root,
                 kind="planner_short_circuit",
@@ -2023,6 +2041,7 @@ def build_dynamic_workflow_config(
                     "turn": current_turn[:200],
                     "closing_ack": is_closing_ack(user_prompt),
                     "prior_assistant_question": bool(prior_assistant and "?" in (prior_assistant[-80:] if prior_assistant else "")),
+                    "tools_stripped": True,
                 },
             )
             # Do not persist social turns into planner_history.

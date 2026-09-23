@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Social short-circuit still loaded COMSTAR tools** — `planner_short_circuit`
+  correctly skipped the planner LLM, but `apply_overlay_client_tool_cap` treated
+  explicit empty `mcp_providers: []` like "omitted" and reattached agent YAML
+  tools (`home_assistant`, `client.google_workspace`). Hallway "How are you?"
+  then ran qwen with ~8k tool tokens for minutes. Explicit `[]` now means no
+  tools; social plans set per-step empty MCP/skill/RAG lists and strip again
+  after materialization.
+
 ### Added
 
 - **Planner contamination isolation** — hallway/social turns no longer feed the
