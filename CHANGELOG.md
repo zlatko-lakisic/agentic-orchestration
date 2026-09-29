@@ -19,6 +19,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Admin deployed revision** — the sidebar, Overview, and Edge deploy page show the published `VERSION`. When the checkout is ahead of that tag, the label includes how many commits ahead it is and whether the target is a branch, a short commit id, or a pull request id. Edge deploy writes `public/admin/deploy-stamp.json` because the coordinator pod has no `.git`.
 - **Planner contamination isolation** — hallway/social turns no longer feed the
   dynamic planner a replay of prior plan JSON, a 15k crew excerpt, or KB hits
   matched on the COMSTAR guard suffix. New helpers

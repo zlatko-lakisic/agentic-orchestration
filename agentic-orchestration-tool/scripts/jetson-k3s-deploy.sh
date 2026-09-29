@@ -57,6 +57,11 @@ else
   exit 1
 fi
 
+if command -v python3 >/dev/null 2>&1; then
+  python3 "${TOOL_ROOT}/scripts/write-deploy-stamp.py" "${PROJECT_ROOT}" \
+    || echo "warn: deploy stamp was not written"
+fi
+
 log "Ensure run-store host directory"
 mkdir -p "${RUN_STORE_HOST}/mcp-fs-workspace"
 chmod 1777 "${RUN_STORE_HOST}" || true

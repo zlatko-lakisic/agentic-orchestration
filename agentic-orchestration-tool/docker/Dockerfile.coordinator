@@ -28,6 +28,7 @@ COPY agentic-orchestration-tool/agent_providers /app/tool/agent_providers
 COPY agentic-orchestration-tool/config /app/tool/config
 COPY agentic-orchestration-tool/orchestration /app/tool/orchestration
 COPY agentic-orchestration-tool/main.py /app/tool/main.py
+COPY VERSION /app/VERSION
 
 COPY agentic-orchestration-web/package.json agentic-orchestration-web/package-lock.json /app/web/
 WORKDIR /app/web

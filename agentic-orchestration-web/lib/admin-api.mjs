@@ -32,6 +32,7 @@ import {
 import { getAppPrefs, listAppPrefs, setAppPrefs } from "./app-prefs.mjs";
 import { ollamaBaseUrl, rewriteLoopbackForCluster } from "./admin-topology-probes.mjs";
 import { sampleAoResources } from "./ao-resource-usage.mjs";
+import { loadDeployRevision } from "./deploy-revision.mjs";
 import { sampleMemoryAndGpu } from "../host-metrics.mjs";
 
 // Path-like TLS keys are not secrets — operators need to see the path + existence.
@@ -3697,6 +3698,7 @@ function matchAdminRoute(pathname) {
   if (m) return { name: "topology_edge_metrics", id: decodeURIComponent(m[1]) };
   if (p === "/api/v1/admin/storage") return { name: "storage" };
   if (p === "/api/v1/admin/meta") return { name: "meta" };
+  if (p === "/api/v1/admin/revision") return { name: "revision" };
   if (p === "/api/v1/admin/access/posture") return { name: "access_posture" };
   if (p === "/api/v1/admin/web-auth") return { name: "web_auth" };
   if (p === "/api/v1/admin/chat-auth") return { name: "chat_auth" };
@@ -3815,6 +3817,16 @@ async function handleAdminApi(req, res, ctx) {
         webUiAssigned: isWebUiAssigned(ctx.toolRoot),
         chatUiAssigned: isChatUiAssigned(ctx.toolRoot),
       });
+      return true;
+    }
+    if (route.name === "revision" && (method === "GET" || method === "HEAD")) {
+      const repoRoot = path.resolve(ctx.toolRoot || "", "..");
+      const stampPaths = [
+        process.env.AGENTIC_DEPLOY_STAMP,
+        ctx.webRoot ? path.join(ctx.webRoot, "public", "admin", "deploy-stamp.json") : "",
+        path.join(repoRoot, "agentic-orchestration-web", "public", "admin", "deploy-stamp.json"),
+      ].filter(Boolean);
+      send(200, loadDeployRevision({ repoRoot, stampPaths }));
       return true;
     }
     if (route.name === "web_auth" && (method === "GET" || method === "HEAD")) {

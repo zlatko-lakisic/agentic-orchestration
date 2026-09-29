@@ -18,6 +18,7 @@ import {
   EffectiveConfigEntry,
   EffectiveConfigResponse,
   HostMetrics,
+  DeployRevision,
   PingResponse,
   RunDetail,
   RunsListResponse,
@@ -88,6 +89,10 @@ export class AoApi {
 
   ping() {
     return this.get<PingResponse>('/api/ping');
+  }
+
+  revision() {
+    return this.get<DeployRevision>('/api/v1/admin/revision');
   }
 
   session() {
