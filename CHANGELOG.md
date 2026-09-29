@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-29
+
 ### Fixed
 
 - **Social short-circuit still loaded COMSTAR tools** — `planner_short_circuit`
