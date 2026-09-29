@@ -42,6 +42,7 @@ import {
 } from 'ng-apexcharts';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import {
+  DeployRevision,
   PingResponse,
   SessionResponse,
   TopologyComponent,
@@ -242,6 +243,12 @@ const DEPENDENCY_ORDER = [
             </div>
             <div class="mt-0.5 text-sm text-neutral-500">
               Coordinator web UI and Admin API process
+            </div>
+            <div
+              class="mt-2 break-words font-mono text-sm font-medium"
+              [title]="revisionTitle()"
+            >
+              {{ revision()?.label || '—' }}
             </div>
             <div class="mt-4 flex flex-col gap-y-3">
               <div class="flex items-center gap-x-1">
@@ -496,6 +503,7 @@ export class OverviewPage implements OnInit, OnDestroy {
   readonly topology = signal<TopologyResponse | null>(null);
   readonly ping = signal<PingResponse | null>(null);
   readonly session = signal<SessionResponse | null>(null);
+  readonly revision = signal<DeployRevision | null>(null);
   readonly error = signal<string | null>(null);
   readonly selectedSources = signal<string[]>([]);
   readonly followLogs = signal(true);
@@ -650,15 +658,22 @@ export class OverviewPage implements OnInit, OnDestroy {
       feeds: ['topology'],
       feedIntervalMs: 5000,
     });
-    // Session / ping are relatively static identity context (one-shot HTTP).
+    // Session / ping / revision are relatively static identity context (one-shot HTTP).
     this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
     this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
+    this.api.revision().subscribe((r) => r.ok && this.revision.set(r.data));
     const qRun =
       String(this.route.snapshot.queryParamMap.get('runId') || '').trim() ||
       String(this.route.snapshot.queryParamMap.get('q') || '').trim();
     if (qRun) {
       this.applyRunIdFilter(qRun);
     }
+  }
+
+  revisionTitle() {
+    const rev = this.revision();
+    if (!rev) return '';
+    return [rev.sha, rev.subject].filter(Boolean).join(' — ');
   }
 
   onRunIdFilterChange(value: string) {
@@ -716,6 +731,7 @@ export class OverviewPage implements OnInit, OnDestroy {
     this.live.setFeedParams({});
     this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
     this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
+    this.api.revision().subscribe((r) => r.ok && this.revision.set(r.data));
   }
 
   componentHref(c: TopologyComponent): string | null {

@@ -18,6 +18,13 @@ git -C "${PROJECT_ROOT}" fetch "${GIT_REMOTE}"
 echo "=== git pull ${GIT_REMOTE} ${GIT_BRANCH} ==="
 git -C "${PROJECT_ROOT}" pull "${GIT_REMOTE}" "${GIT_BRANCH}"
 
+if command -v python3 >/dev/null 2>&1; then
+  python3 "${TOOL_ROOT}/scripts/write-deploy-stamp.py" "${PROJECT_ROOT}" \
+    || echo "warn: deploy stamp was not written"
+else
+  echo "warn: python3 missing; Admin will not show the deployed revision"
+fi
+
 bash "${TOOL_ROOT}/scripts/jetson-apply-env.sh"
 
 bash "${TOOL_ROOT}/scripts/edge-clone-reach.sh" || true

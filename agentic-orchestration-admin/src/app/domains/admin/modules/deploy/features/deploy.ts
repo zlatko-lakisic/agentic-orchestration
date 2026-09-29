@@ -12,8 +12,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
+import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
-import { TopologyResponse } from '@/app/core/ao-api/types';
+import { DeployRevision, TopologyResponse } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
@@ -44,6 +45,72 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
           Profile, tracked env, endpoints, and rollout path
         </div>
       </div>
+
+      <mat-card appearance="outlined">
+        <mat-card-header>
+          <div class="font-medium">Deployed revision</div>
+        </mat-card-header>
+        <mat-card-content class="pt-2">
+          <div
+            class="break-words font-mono text-2xl font-semibold tracking-tight"
+            [title]="revisionTitle()"
+          >
+            {{ revision()?.label || '…' }}
+          </div>
+          <div class="mt-4 flex flex-col gap-y-2 text-sm">
+            <div class="flex items-center gap-x-3">
+              <div class="w-28 text-neutral-500">Version</div>
+              <div class="font-mono font-medium">
+                {{ revision()?.version ? 'v' + revision()?.version : '—' }}
+              </div>
+            </div>
+            @if (revision()?.ahead) {
+              <div class="flex items-center gap-x-3">
+                <div class="w-28 text-neutral-500">Ahead</div>
+                <div class="font-medium">
+                  {{ revision()?.ahead }}
+                  {{ revision()?.ahead === 1 ? 'commit' : 'commits' }}
+                  past the published version
+                </div>
+              </div>
+            }
+            @if (revision()?.kind === 'branch' && revision()?.branch) {
+              <div class="flex items-center gap-x-3">
+                <div class="w-28 text-neutral-500">Branch</div>
+                <div class="font-mono font-medium">{{ revision()?.branch }}</div>
+              </div>
+            }
+            @if (
+              (revision()?.kind === 'pull_request' ||
+                revision()?.kind === 'merge_request') &&
+              revision()?.prId
+            ) {
+              <div class="flex items-center gap-x-3">
+                <div class="w-28 text-neutral-500">
+                  {{ revision()?.kind === 'merge_request' ? 'Merge request' : 'Pull request' }}
+                </div>
+                <div class="font-mono font-medium">
+                  {{ revision()?.target }}
+                </div>
+              </div>
+            }
+            @if (revision()?.kind === 'commit' && revision()?.shortSha) {
+              <div class="flex items-center gap-x-3">
+                <div class="w-28 text-neutral-500">Commit</div>
+                <div class="font-mono font-medium">{{ revision()?.shortSha }}</div>
+              </div>
+            }
+            @if (revision()?.sha) {
+              <div class="flex items-center gap-x-3">
+                <div class="w-28 text-neutral-500">Commit id</div>
+                <div class="min-w-0 break-all font-mono text-xs">
+                  {{ revision()?.sha }}
+                </div>
+              </div>
+            }
+          </div>
+        </mat-card-content>
+      </mat-card>
 
       <mat-card appearance="outlined">
         <mat-card-header>
@@ -189,8 +256,10 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 })
 export class DeployPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private api = inject(AoApi);
   private config = inject(EffectiveConfigStore);
   private clipboard = inject(Clipboard);
+  readonly revision = signal<DeployRevision | null>(null);
 
   readonly platform = computed(() => {
     const e = this.config.byKey().get('AGENTIC_EDGE_PLATFORM');
@@ -263,7 +332,14 @@ export class DeployPage implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.config.load();
+    this.api.revision().subscribe((r) => r.ok && this.revision.set(r.data));
     this.live.acquire({ feeds: ['topology'], feedIntervalMs: 5000 });
+  }
+
+  revisionTitle() {
+    const rev = this.revision();
+    if (!rev) return '';
+    return [rev.sha, rev.subject].filter(Boolean).join(' — ');
   }
 
   ngOnDestroy() {

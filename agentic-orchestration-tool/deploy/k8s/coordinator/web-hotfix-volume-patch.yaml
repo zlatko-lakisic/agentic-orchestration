@@ -130,6 +130,10 @@ spec:
             - name: web-hotfix-root
               mountPath: /app/web/lib/irrigation-chat.mjs
               subPath: irrigation-chat.mjs
+            # admin-api.mjs imports this at module load.
+            - name: web-hotfix-root
+              mountPath: /app/web/lib/deploy-revision.mjs
+              subPath: deploy-revision.mjs
       volumes:
         - name: web-hotfix-public
           configMap:

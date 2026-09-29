@@ -499,6 +499,20 @@ export interface PingResponse {
   instance?: string;
 }
 
+/** Checkout identity relative to the published VERSION file. */
+export interface DeployRevision {
+  version: string | null;
+  label: string;
+  kind: 'release' | 'branch' | 'commit' | 'pull_request' | 'merge_request';
+  ahead: number | null;
+  branch: string | null;
+  sha: string | null;
+  shortSha: string | null;
+  prId: string | null;
+  subject: string | null;
+  target: string | null;
+}
+
 export interface SessionResponse {
   userName?: string | null;
   sessionId?: string | null;

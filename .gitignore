@@ -49,6 +49,9 @@ docs/vendor/config/env.host
 # Host-written live metrics (Jetson jtop/tegrastats, etc.)
 /var/
 
+# Written on deploy into the Admin hostPath (not a source file).
+agentic-orchestration-web/public/admin/deploy-stamp.json
+
 # Custom tool sandbox runtime (local dev)
 agentic-orchestration-tool/_tool_artifacts/
 agentic-orchestration-tool/_tool_sandbox/

@@ -2,7 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { SessionResponse } from '@/app/core/ao-api/types';
+import { DeployRevision, SessionResponse } from '@/app/core/ao-api/types';
 import { logoutFromSession } from '@/app/core/auth/warpgate-logout';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
@@ -68,6 +68,14 @@ import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
       <div class="font-mono font-medium">
         {{ hostname() || 'unknown-host' }} · {{ profile() || 'local' }}
       </div>
+      @if (revision()?.label) {
+        <div
+          class="mt-1 break-words font-mono text-xs leading-snug text-neutral-700 dark:text-neutral-200"
+          [title]="revisionTitle()"
+        >
+          {{ revision()?.label }}
+        </div>
+      }
       @if (session()?.userName) {
         <div class="mt-1 font-medium">{{ session()?.userName }}</div>
       }
@@ -105,6 +113,7 @@ export class AdminSidebar implements OnInit {
   readonly hostname = signal<string | null>(null);
   readonly profile = signal<string | null>(null);
   readonly session = signal<SessionResponse | null>(null);
+  readonly revision = signal<DeployRevision | null>(null);
 
   ngOnInit() {
     this.api.topology().subscribe((r) => {
@@ -115,6 +124,15 @@ export class AdminSidebar implements OnInit {
     this.api.session().subscribe((r) => {
       if (r.ok) this.session.set(r.data);
     });
+    this.api.revision().subscribe((r) => {
+      if (r.ok) this.revision.set(r.data);
+    });
+  }
+
+  revisionTitle() {
+    const rev = this.revision();
+    if (!rev) return '';
+    return [rev.sha, rev.subject].filter(Boolean).join(' — ');
   }
 
   logout() {
