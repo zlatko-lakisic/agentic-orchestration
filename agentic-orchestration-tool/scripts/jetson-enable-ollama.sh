@@ -208,7 +208,7 @@ broker = f"""        - name: resource-broker
               fi
               if ! python -c "import fastapi" >/dev/null 2>&1; then
                 echo "Installing fastapi for the Ollama resource broker ..."
-                pip install -q "fastapi>=0.115.0,<1"
+                pip install -q "fastapi>=0.115.0,<0.142" "opentelemetry-api~=1.34.0"
               fi
               exec python -m orchestration.ollama_resource_broker
           ports:

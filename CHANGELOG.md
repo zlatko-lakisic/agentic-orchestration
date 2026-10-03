@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Warm pool CrashLoop after FastAPI bootstrap** — startup `pip install "fastapi>=0.115.0,<1"` resolved to 0.142, which requires `opentelemetry-api>=1.44` and replaced CrewAI 1.12.2's 1.34 API (`_ExtendedAttributes`). FastAPI stays below 0.142, and worker, engine, and Ollama bootstraps keep `opentelemetry-api~=1.34.0`.
+
 ## [2.12.0] - 2026-09-29
 
 ### Fixed
