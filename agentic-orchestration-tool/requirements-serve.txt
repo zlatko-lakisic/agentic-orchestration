@@ -2,7 +2,8 @@
 # fastapi is also required by worker pods that kick off CrewAI agents with MCP
 # (litellm MCP handler → litellm.proxy → fastapi). Kept here so serve installs
 # stay self-contained; workers get it via requirements.txt.
-fastapi>=0.115.0,<1
+# Below 0.142 so this install cannot upgrade opentelemetry-api past CrewAI 1.12.2.
+fastapi>=0.115.0,<0.142
 uvicorn[standard]>=0.30.0,<1
 websockets>=12.0,<16
 cryptography>=42.0.0,<47
