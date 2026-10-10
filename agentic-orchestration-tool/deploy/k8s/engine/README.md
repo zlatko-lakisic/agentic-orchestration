@@ -24,6 +24,13 @@
 # Prerequisite: run-store PVC already applied (`scripts/k8s-apply-run-store.sh` or
 # `jetson-k3s-deploy.sh`).
 #
+# ## RBAC
+#
+# The engine creates worker `batch/jobs` when `AGENTIC_EXECUTION_BACKEND=kubernetes`.
+# It uses `serviceAccountName: agentic-coordinator` (same Role as the web coordinator:
+# jobs create/get/list/watch/delete + pods/log). Leaving the default SA causes
+# `403 Forbidden` on `jobs.batch` create.
+#
 # ## Apply (edge)
 #
 # ```bash
