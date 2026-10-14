@@ -1,8 +1,15 @@
 crewai==1.12.2
-# CrewAI 1.12.2 imports opentelemetry.util.types._ExtendedAttributes, removed in
-# opentelemetry-api 1.45. FastAPI 0.142+ requires opentelemetry-api>=1.44, so a
-# warm-pool `pip install fastapi` was upgrading this out from under CrewAI.
-opentelemetry-api~=1.34.0
+# CrewAI 1.12.2's OTLP exporter (1.34.1) imports
+# opentelemetry.util.types._ExtendedAttributes, removed in opentelemetry-api 1.45.
+# FastAPI 0.142+ requires opentelemetry-api>=1.44. Pin the whole 1.34.1 set so
+# an image build cannot mix a new API with the 1.34 SDK/exporters.
+opentelemetry-api==1.34.1
+opentelemetry-sdk==1.34.1
+opentelemetry-exporter-otlp-proto-common==1.34.1
+opentelemetry-exporter-otlp-proto-grpc==1.34.1
+opentelemetry-exporter-otlp-proto-http==1.34.1
+opentelemetry-proto==1.34.1
+opentelemetry-semantic-conventions==0.55b1
 # Intel macOS (x86_64): lancedb>=0.29 has no wheels — install with:
 #   pip install -r requirements.txt || pip install --no-deps 'crewai==1.12.2' && pip install 'mcp~=1.26.0'
 litellm

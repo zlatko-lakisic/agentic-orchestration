@@ -8,4 +8,13 @@ uvicorn[standard]>=0.30.0,<1
 websockets>=12.0,<16
 cryptography>=42.0.0,<47
 prometheus_client>=0.20.0,<1
+# Same 1.34.1 set as requirements.txt. The engine startup install uses this
+# file to downgrade a drifted image (API 1.45 next to exporter 1.34).
+opentelemetry-api==1.34.1
+opentelemetry-sdk==1.34.1
+opentelemetry-exporter-otlp-proto-common==1.34.1
+opentelemetry-exporter-otlp-proto-grpc==1.34.1
+opentelemetry-exporter-otlp-proto-http==1.34.1
+opentelemetry-proto==1.34.1
+opentelemetry-semantic-conventions==0.55b1
 # Opt-in error reporting: pip install sentry-sdk && set AGENTIC_SENTRY_DSN

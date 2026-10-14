@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Engine overlay register ImportError (`_ExtendedAttributes`)** — the coordinator image can ship FastAPI ≥0.142, which upgrades `opentelemetry-api` to 1.45 while CrewAI's OTLP exporter stays on 1.34.1. That exporter imports `opentelemetry.util.types._ExtendedAttributes`, removed in API 1.45, so session overlay registration fails. `requirements.txt` and `requirements-serve.txt` pin the whole OpenTelemetry 1.34.1 set, and the engine startup install downgrades a drifted image before `orchestration.serve`.
+
 ## [2.12.1] - 2026-10-03
 
 ### Fixed

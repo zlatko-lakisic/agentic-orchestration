@@ -6,7 +6,8 @@
 # the git checkout so jetson-deploy.sh pull is enough — no docker rebuild for serve code.
 # That mount includes __orchestrator_llm_usage__ and __orchestrator_run_traces__ so Admin
 # (coordinator hostPath mounts of the same dirs) sees every local client's ledger/traces.
-# FastAPI/uvicorn install at start from requirements-serve.txt (optional extras).
+# FastAPI/uvicorn and the OpenTelemetry 1.34.1 set install at start from
+# requirements-serve.txt when the image is missing them or has drifted.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,9 +41,16 @@ spec:
             - |
               set -euo pipefail
               cd /app/tool
-              if ! python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
-                echo "Installing optional serve extras from requirements-serve.txt ..."
-                pip install -q -r requirements-serve.txt
+              # Reconcile even when fastapi already imports. Image site-packages
+              # survive a git pull; FastAPI >=0.142 upgrades opentelemetry-api to
+              # 1.45, and CrewAI's 1.34 OTLP exporter then cannot import
+              # _ExtendedAttributes. requirements-serve.txt pins the 1.34.1 set.
+              if ! python -c 'import fastapi, uvicorn
+              from opentelemetry.util.types import _ExtendedAttributes
+              parts = fastapi.__version__.split(".")
+              raise SystemExit(0 if (int(parts[0]), int(parts[1])) < (0, 142) else 1)'; then
+                echo "Aligning FastAPI (<0.142) and OpenTelemetry 1.34.1 ..."
+                pip install -q --upgrade -r requirements-serve.txt
               fi
               exec python -m orchestration.serve
           ports:
