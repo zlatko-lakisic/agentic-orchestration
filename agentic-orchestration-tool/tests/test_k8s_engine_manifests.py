@@ -29,3 +29,34 @@ def test_engine_deployment_shares_run_store_with_warm_pool() -> None:
     assert env["AGENTIC_K8S_RUN_STORE_MOUNT"] == "/run/store"
     assert env["AGENTIC_K8S_RUN_STORE_PVC"] == "agentic-run-store"
     assert env["AGENTIC_EXECUTION_BACKEND"] == "kubernetes"
+
+
+_OTEL_134_PINS = (
+    "opentelemetry-api==1.34.1",
+    "opentelemetry-sdk==1.34.1",
+    "opentelemetry-exporter-otlp-proto-common==1.34.1",
+    "opentelemetry-exporter-otlp-proto-grpc==1.34.1",
+    "opentelemetry-exporter-otlp-proto-http==1.34.1",
+    "opentelemetry-proto==1.34.1",
+    "opentelemetry-semantic-conventions==0.55b1",
+)
+
+
+@pytest.mark.unit
+def test_engine_and_image_pin_the_same_opentelemetry_set() -> None:
+    """CrewAI 1.12.2's OTLP exporter and opentelemetry-api must stay on 1.34.1."""
+    root = Path(__file__).resolve().parents[1]
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    serve = (root / "requirements-serve.txt").read_text(encoding="utf-8")
+    for pin in _OTEL_134_PINS:
+        assert pin in requirements
+        assert pin in serve
+
+
+@pytest.mark.unit
+def test_engine_startup_realigns_drifted_opentelemetry() -> None:
+    doc = _load_yaml("deployment.yaml")
+    script = doc["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    assert "_ExtendedAttributes" in script
+    assert "requirements-serve.txt" in script
+    assert "(0, 142)" in script
