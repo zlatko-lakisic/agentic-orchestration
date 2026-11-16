@@ -193,6 +193,18 @@ def build_direct_task_description(*, goal: str, context: str = "") -> str:
     return "\n\n".join(parts)
 
 
+def build_raw_user_prompt(*, goal: str, context: str = "") -> str:
+    """Return only caller-provided content, with context before the requested text."""
+    parts: list[str] = []
+    ctx = str(context or "").strip()
+    if ctx:
+        cap = int(os.getenv("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", "20000"))
+        cap = max(500, min(200000, cap))
+        parts.append(ctx[:cap])
+    parts.append(str(goal or "").strip())
+    return "\n\n".join(parts)
+
+
 def build_direct_agent_config(
     *,
     agent_provider_id: str,
@@ -375,6 +387,8 @@ def _ollama_chat_json(
     json_schema: dict[str, Any] | None,
     on_progress: Callable[[str], None] | None,
     cancel_event: threading.Event | None = None,
+    raw_prompt: bool = False,
+    force_json: bool = True,
 ) -> str:
     from agent_providers.ollama_provider import (
         ensure_ollama_runtime,
@@ -413,14 +427,19 @@ def _ollama_chat_json(
 
     body = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": JSON_EXPECTED_OUTPUT},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": (
+            [{"role": "user", "content": prompt}]
+            if raw_prompt
+            else [
+                {"role": "system", "content": JSON_EXPECTED_OUTPUT},
+                {"role": "user", "content": prompt},
+            ]
+        ),
         "stream": False,
-        "format": fmt,
         "think": _ollama_json_think_value(entry),
     }
+    if force_json:
+        body["format"] = fmt
     # Overlay agents may pin sampling / context (e.g. campaign_director
     # temperature: 0, num_ctx: 8192). Without this, Ollama uses defaults
     # (temperature 0.8) and silent front-truncation can drop ROLE/OBJECTIVES.
@@ -540,7 +559,7 @@ def _ollama_chat_json(
         ):
             _raise_ollama_http_error(exc, detail)
         # Schema-as-format may be unsupported; retry with plain "json".
-        if isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
+        if force_json and isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
             body["format"] = "json"
             try:
                 payload = _request(body)
@@ -750,27 +769,71 @@ def run_direct_agent(
 
     When ``images`` is non-empty and the agent is ``type: object_detection``, runs the
     detection fast path and returns typed detection JSON.
+
+    Agent entries with ``prompt_mode: raw`` bypass CrewAI and tools. Ollama receives
+    caller context and text as its sole user message, without generated instructions.
     """
+    text = str(goal or "").strip()
+    if not text:
+        raise ValueError("goal is required")
+
+    root = tool_root or _tool_root_default()
+    from orchestration.dynamic_run import catalog_paths
+
+    paths = catalog_paths(root)
+    pid = str(agent_provider_id or "").strip()
+    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
+
+    if str(entry.get("prompt_mode") or "").strip().casefold() == "raw":
+        ptype = str(entry.get("type") or "").strip().lower()
+        if ptype != "ollama" and not str(entry.get("model") or "").lower().startswith(
+            "ollama/"
+        ):
+            raise ValueError("prompt_mode: raw currently requires an Ollama agent")
+
+        if on_progress is not None:
+            on_progress(f"starting {pid}")
+        json_mode = wants_json_object(response_format)
+        schema = json_schema if json_mode and isinstance(json_schema, dict) else None
+        answer = _ollama_chat_json(
+            entry=entry,
+            prompt=build_raw_user_prompt(goal=text, context=context),
+            json_schema=schema,
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+            raw_prompt=True,
+            force_json=json_mode,
+        )
+        if json_mode:
+            answer = _finalize_json_text(answer, json_schema=schema)
+        if not str(answer or "").strip():
+            raise DirectAgentEmptyAnswerError(
+                "raw direct_agent produced an empty answer",
+                raw=answer or None,
+            )
+        if persist:
+            _persist_direct_answer(
+                tool_root=root,
+                session_slug=session_slug,
+                goal=text,
+                answer=answer,
+                provider_id=pid,
+                user_id=user_id,
+            )
+        return answer
+
     if wants_json_object(response_format):
         return run_direct_agent_json(
-            tool_root=tool_root,
-            agent_provider_id=agent_provider_id,
-            goal=goal,
+            tool_root=root,
+            agent_provider_id=pid,
+            goal=text,
             context=context,
             json_schema=json_schema if isinstance(json_schema, dict) else None,
             on_progress=on_progress,
             cancel_event=cancel_event,
         )
 
-    text = str(goal or "").strip()
-    root = tool_root or _tool_root_default()
-    from orchestration.dynamic_run import catalog_paths
-
-    paths = catalog_paths(root)
-    pid = str(agent_provider_id or "").strip()
-
     if images:
-        entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
         from orchestration.object_detection_runtime import (
             is_object_detection_entry,
             run_object_detection,
@@ -794,13 +857,9 @@ def run_direct_agent(
                 pass
             return answer
 
-    if not text:
-        raise ValueError("goal is required")
-
     from orchestration.progress_sink import progress_callback
 
     # Fast path: deterministic providers skip CrewAI entirely.
-    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
     from orchestration.deterministic_runtime import (
         is_deterministic_entry,
         run_deterministic_step,

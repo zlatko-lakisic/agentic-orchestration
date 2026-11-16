@@ -24,6 +24,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 ### Added
 
 - **Opt-in Jetson Ollama memory tuning** — `jetson-ollama-memory-tune.sh` raises Linux VFS cache pressure and the free-memory reserve for unified-memory GPU/NvMap allocations. Deploy integration is gated by `AGENTIC_JETSON_MEMORY_TUNE=1`; cache dropping requires the separate `AGENTIC_JETSON_DROP_CACHES=1` gate plus low available memory or an explicit one-shot model-load recovery.
+- **Raw direct-agent prompts (#60)** — agent YAML can set `prompt_mode: raw` to send caller context and text to Ollama as the sole user message, bypassing role/backstory instructions, CrewAI task wrappers, and tools while retaining broker routing, timeouts, cancellation, and optional native JSON formatting.
 - **mirrord edge configs** — `agentic-orchestration-tool/.mirrord/{ada,jetson}-{engine,warm-pool}.json` for local debug against Ada/Jetson k3s.
 
 ## [2.12.1] - 2026-10-03
