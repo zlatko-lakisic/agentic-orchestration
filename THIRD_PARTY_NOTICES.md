@@ -12,7 +12,7 @@ identified from:
 
 ## Python (agentic-orchestration-tool)
 
-- **crewai** (v1.12.2 installed in local `.venv`)
+- **crewai** (v1.15.41)
   - License: **MIT** (from upstream repository license file)
   - Source: [https://github.com/crewAIInc/crewAI](https://github.com/crewAIInc/crewAI)
   - License text source: [https://raw.githubusercontent.com/crewAIInc/crewAI/main/LICENSE](https://raw.githubusercontent.com/crewAIInc/crewAI/main/LICENSE)

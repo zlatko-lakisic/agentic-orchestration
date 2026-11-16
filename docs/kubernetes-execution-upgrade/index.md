@@ -440,7 +440,7 @@ subprocess_runner.py          kubernetes_runner.py
 
 - [x] **5.1** Warm pool: idle worker pods + coordinator dispatch (`deploy/k8s/warm-pool.yaml`, `kubernetes_warm_pool.py`).
 - [x] **5.2** Centralized logging contract (`deploy/k8s/LOGGING.md`, `AGENTIC_LOG_FORMAT=json`).
-- [x] **5.3** Pin CrewAI in worker image; document upgrade runbook (`crewai==1.12.2`, `docker/CREWAI_UPGRADE.md`).
+- [x] **5.3** Pin CrewAI in worker image; document upgrade runbook (`crewai==1.15.41`, `docker/CREWAI_UPGRADE.md`).
 - [x] **5.4** Load test: `scripts/k8s-load-test.ps1` / `.sh` (N concurrent runs, p50/p95).
 - [x] **5.5** Delegation RPC: worker `k8s_delegate_task` tool + `delegation-broker` Deployment spawns child Jobs (`kubernetes_delegation.py`).
 

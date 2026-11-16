@@ -5,8 +5,6 @@ updates:
     directory: /agentic-orchestration-tool
     schedule:
       interval: weekly
-    ignore:
-      - dependency-name: opentelemetry-*
 
   - package-ecosystem: npm
     directory: /agentic-orchestration-web
