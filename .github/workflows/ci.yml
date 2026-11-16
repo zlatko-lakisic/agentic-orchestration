@@ -85,7 +85,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Check connectivity prerequisites
+        id: connectivity
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ "${{ github.actor }}" = "dependabot[bot]" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping credentialed connectivity checks for Dependabot"
+          elif [ -z "$OPENAI_API_KEY" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::OPENAI_API_KEY is not configured; skipping credentialed connectivity checks"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: L1 connectivity (credentialed cloud subset)
+        if: steps.connectivity.outputs.run == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

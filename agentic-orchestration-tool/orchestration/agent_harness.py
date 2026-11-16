@@ -107,7 +107,11 @@ def _harness_block(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def should_skip_live(entry: dict[str, Any], *, tier: HarnessTier) -> str | None:
-    if tier in ("static", "connectivity"):
+    if tier == "static":
+        return None
+    if tier == "connectivity":
+        if not catalog_entry_has_api_credentials(entry):
+            return credential_skip_reason(entry)
         return None
     block = _harness_block(entry)
     if block.get("skip_live") is True:
@@ -349,7 +353,7 @@ def run_harness(
     exec_backend = (backend or os.getenv("AGENTIC_EXECUTION_BACKEND", "inprocess")).strip() or "inprocess"
 
     skip_reason = should_skip_live(entry, tier=tier)
-    if skip_reason and tier in ("smoke", "capability"):
+    if skip_reason and tier in ("connectivity", "smoke", "capability"):
         return HarnessResult(
             provider_id=pid,
             tier=tier,
