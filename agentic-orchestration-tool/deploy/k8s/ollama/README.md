@@ -23,3 +23,18 @@
 # To put the broker in front of an external daemon, set
 # AGENTIC_OLLAMA_RESOURCE_SHARING=1 and AGENTIC_OLLAMA_UPSTREAM to the daemon URL,
 # then run: python -m orchestration.ollama_resource_broker
+#
+# Jetson unified-memory tuning (optional):
+# Set AGENTIC_JETSON_MEMORY_TUNE=1 for jetson-deploy.sh to raise
+# vm.vfs_cache_pressure to 200 and vm.min_free_kbytes to 262144 (256 MiB).
+# Existing higher values are preserved; the reserve helps GPU/NvMap model loads.
+# AGENTIC_JETSON_DROP_CACHES=1 additionally permits a cache drop only when
+# MemAvailable is below 1 GiB (override with
+# AGENTIC_JETSON_DROP_CACHES_THRESHOLD_KB). For a one-shot recovery after an
+# Ollama model_load failure:
+#   sudo -v
+#   AGENTIC_JETSON_DROP_CACHES=1 \
+#     bash agentic-orchestration-tool/scripts/jetson-ollama-memory-tune.sh \
+#       --after-model-load-failure
+# The script uses sudo for kernel changes and harmlessly skips non-Linux hosts.
+# Sysctl changes are runtime-only and revert on reboot unless managed separately.

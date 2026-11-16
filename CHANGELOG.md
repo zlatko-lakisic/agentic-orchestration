@@ -16,6 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
+- **Opt-in Jetson Ollama memory tuning** — `jetson-ollama-memory-tune.sh` raises Linux VFS cache pressure and the free-memory reserve for unified-memory GPU/NvMap allocations. Deploy integration is gated by `AGENTIC_JETSON_MEMORY_TUNE=1`; cache dropping requires the separate `AGENTIC_JETSON_DROP_CACHES=1` gate plus low available memory or an explicit one-shot model-load recovery.
 - **mirrord edge configs** — `agentic-orchestration-tool/.mirrord/{ada,jetson}-{engine,warm-pool}.json` for local debug against Ada/Jetson k3s.
 
 ## [2.12.1] - 2026-10-03
