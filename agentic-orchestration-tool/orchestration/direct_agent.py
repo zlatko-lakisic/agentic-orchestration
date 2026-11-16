@@ -115,13 +115,17 @@ def _looks_like_ollama_model_load_failure(detail: str) -> bool:
     )
 
 
-def _raise_ollama_http_error(exc: urllib.error.HTTPError, detail: str) -> None:
-    if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
+def _raise_ollama_http_error(exc: BaseException, detail: str) -> None:
+    status = getattr(exc, "code", None)
+    response = getattr(exc, "response", None)
+    if status is None and response is not None:
+        status = getattr(response, "status_code", None)
+    if status == 500 and _looks_like_ollama_model_load_failure(detail):
         raise RuntimeError(
             "Ollama could not load the model into GPU memory "
             f"(HTTP 500): {detail}"
         ) from exc
-    raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
+    raise RuntimeError(f"Ollama /api/chat failed ({status}): {detail}") from exc
 
 
 def _tool_root_default() -> Path:
@@ -432,11 +436,7 @@ def _ollama_chat_json(
             ]
         ),
         "stream": False,
-<<<<<<< HEAD
-        "format": fmt,
         "think": _ollama_json_think_value(entry),
-=======
->>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
     }
     if force_json:
         body["format"] = fmt
@@ -483,34 +483,6 @@ def _ollama_chat_json(
             return True
         return "timed out" in str(exc).casefold()
 
-<<<<<<< HEAD
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
-        if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
-            _raise_ollama_http_error(exc, detail)
-        # Schema-as-format may be unsupported; retry with plain "json".
-        if fmt != "json":
-            body["format"] = "json"
-            req2 = urllib.request.Request(
-                f"{host}/api/chat",
-                data=json.dumps(body).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req2, timeout=timeout_s) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc2:
-                detail2 = (
-                    exc2.read().decode("utf-8", errors="replace")
-                    if exc2.fp
-                    else str(exc2)
-                )
-                _raise_ollama_http_error(exc2, detail2)
-=======
     def _request(request_body: dict[str, Any]) -> dict[str, Any]:
         import httpx
 
@@ -575,29 +547,34 @@ def _ollama_chat_json(
     except Exception as exc:
         import httpx
 
-        detail = str(exc)
+        detail = (
+            exc.response.text
+            if isinstance(exc, httpx.HTTPStatusError)
+            else str(exc)
+        )
+        if (
+            isinstance(exc, httpx.HTTPStatusError)
+            and exc.response.status_code == 500
+            and _looks_like_ollama_model_load_failure(detail)
+        ):
+            _raise_ollama_http_error(exc, detail)
         # Schema-as-format may be unsupported; retry with plain "json".
         if force_json and isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
             body["format"] = "json"
             try:
                 payload = _request(body)
->>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
             except Exception as exc2:  # noqa: BLE001
                 if _is_timeout(exc2):
                     _raise_chat_timeout(exc2)
+                if isinstance(exc2, httpx.HTTPStatusError):
+                    _raise_ollama_http_error(exc2, exc2.response.text)
                 raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
         else:
-<<<<<<< HEAD
-            _raise_ollama_http_error(exc, detail)
-    except Exception as exc:  # noqa: BLE001
-        if _is_timeout(exc):
-            _raise_chat_timeout(exc)
-        raise RuntimeError(f"Ollama /api/chat failed: {exc}") from exc
-=======
             if _is_timeout(exc):
                 _raise_chat_timeout(exc)
+            if isinstance(exc, httpx.HTTPStatusError):
+                _raise_ollama_http_error(exc, detail)
             raise RuntimeError(f"Ollama /api/chat failed: {detail}") from exc
->>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
 
     message = payload.get("message") if isinstance(payload, dict) else None
     content = ""

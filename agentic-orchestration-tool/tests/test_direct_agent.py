@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -122,6 +123,7 @@ def test_raw_prompt_mode_bypasses_instruction_wrapper_and_tools(
         return "Rezervišite obilazak"
 
     monkeypatch.setattr(direct_agent, "_ollama_chat_json", fake_chat)
+    cancel_event = threading.Event()
 
     answer = run_direct_agent(
         tool_root=tmp_path,
@@ -130,12 +132,14 @@ def test_raw_prompt_mode_bypasses_instruction_wrapper_and_tools(
         context="Translate to Bosnian",
         mcp_provider_ids=["also_forbidden"],
         persist=False,
+        cancel_event=cancel_event,
     )
 
     assert answer == "Rezervišite obilazak"
     assert captured["prompt"] == "Translate to Bosnian\n\nBook your tour"
     assert captured["raw_prompt"] is True
     assert captured["force_json"] is False
+    assert captured["cancel_event"] is cancel_event
     prompt = str(captured["prompt"])
     assert "## Provided context" not in prompt
     assert "## Question" not in prompt
@@ -194,6 +198,7 @@ def test_ollama_raw_prompt_sends_one_user_message(
     ]
     assert "format" not in captured
     assert "tools" not in captured
+    assert captured["think"] is False
 
 
 def test_config_is_a_single_task_with_no_planner_involved(catalog: Path) -> None:

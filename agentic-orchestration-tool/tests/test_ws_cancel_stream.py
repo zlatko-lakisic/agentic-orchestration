@@ -69,8 +69,11 @@ async def test_cancel_cancels_tagged_run(monkeypatch: pytest.MonkeyPatch) -> Non
     await conn.handle_run({"type": "chat", "text": "hello", "questionId": "q-1"}, "chat")
     await asyncio.wait_for(started.wait(), timeout=2)
     assert "q-1" in conn._runs_by_question
+    cancel_event = conn._run_cancel_events["q-1"]
+    assert not cancel_event.is_set()
     await conn.handle_cancel({"type": "cancel", "questionId": "q-1"})
     await asyncio.sleep(0.05)
+    assert cancel_event.is_set()
     assert any(f.get("code") == "cancelled" and f.get("type") == "run_end" for f in ws.sent)
 
 

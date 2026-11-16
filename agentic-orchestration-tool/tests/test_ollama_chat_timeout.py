@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import io
 import sys
+import threading
 import types
 import urllib.error
 
 import pytest
 
+from orchestration import direct_agent
 from orchestration.direct_agent import (
     _litellm_chat_json,
     _ollama_json_think_value,
@@ -129,6 +131,84 @@ def test_litellm_json_chat_forwards_timeout(monkeypatch: pytest.MonkeyPatch) -> 
         == '{"ok":true}'
     )
     assert captured["timeout"] == 750.0
+
+
+@pytest.mark.unit
+def test_ollama_json_cancel_closes_inflight_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    released = threading.Event()
+    closed = threading.Event()
+
+    class FakeResponse:
+        def __enter__(self):
+            started.set()
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            released.wait(timeout=2)
+            raise RuntimeError("connection closed")
+            yield b""  # pragma: no cover
+
+        def close(self) -> None:
+            closed.set()
+            released.set()
+
+    class FakeClient:
+        def __init__(self, **_kwargs) -> None:
+            self.response = FakeResponse()
+
+        def stream(self, *_args, **_kwargs):
+            return self.response
+
+        def close(self) -> None:
+            closed.set()
+            released.set()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        "orchestration.runtime_bootstrap.should_ensure_ollama",
+        lambda **_kwargs: False,
+    )
+    cancel_event = threading.Event()
+    errors: list[BaseException] = []
+
+    def call() -> None:
+        try:
+            direct_agent._ollama_chat_json(
+                entry={
+                    "id": "local",
+                    "type": "ollama",
+                    "model": "test-model",
+                    "ollama_host": "http://ollama.test",
+                },
+                prompt="answer",
+                json_schema=None,
+                on_progress=None,
+                cancel_event=cancel_event,
+            )
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    worker = threading.Thread(target=call)
+    worker.start()
+    assert started.wait(timeout=1)
+    cancel_event.set()
+    worker.join(timeout=2)
+
+    assert closed.is_set()
+    assert not worker.is_alive()
+    assert errors
+    assert "cancel" in str(errors[0]).lower() or "closed" in str(errors[0]).lower()
 
 
 @pytest.mark.unit
