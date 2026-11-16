@@ -6,7 +6,7 @@ fastapi>=0.142,<1
 uvicorn[standard]>=0.30.0,<1
 websockets>=12.0,<16
 cryptography>=42.0.0,<47
-prometheus_client>=0.20.0,<1
+prometheus_client>=0.26.0,<1
 # Same aligned set as requirements.txt. The engine startup install uses this
 # file to repair a drifted API/SDK/exporter combination.
 opentelemetry-api==1.45.2
