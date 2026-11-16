@@ -5,14 +5,17 @@ from __future__ import annotations
 import re
 
 # Models routinely emphasise the final answer ("**MINUTES: 20**", "**MINUTES:** 12"),
-# so decoration is stripped before matching.
+# so decoration is stripped before matching. Also strip LaTeX math delimiters
+# (``\[ MINUTES: 15 \]``, ``$$MINUTES: 15$$``) that otherwise fail the match.
 _DECORATION_RE = re.compile(r"[*_`]+")
 _LEADING_MARKUP_RE = re.compile(r"^[#>\s]+")
+_LATEX_MATH_RE = re.compile(r"\\[\[\(]|\\[\]\)]|\$\$?")
 _MINUTES_RE = re.compile(r"(?i)^MINUTES\s*:\s*(\d{1,4})")
 
 
 def _normalize_line(line: str) -> str:
-    return _DECORATION_RE.sub("", _LEADING_MARKUP_RE.sub("", line)).strip()
+    cleaned = _LATEX_MATH_RE.sub("", line)
+    return _DECORATION_RE.sub("", _LEADING_MARKUP_RE.sub("", cleaned)).strip()
 
 
 def extract_irrigation_minutes(text: str) -> int | None:

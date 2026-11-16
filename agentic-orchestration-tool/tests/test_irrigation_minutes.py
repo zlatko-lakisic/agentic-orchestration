@@ -48,3 +48,15 @@ def test_extract_irrigation_minutes_prose_not_parsed() -> None:
     prose = "I would water for **20 minutes** given how dry it is."
     assert extract_irrigation_minutes(prose) is None
     assert not has_irrigation_minutes_line(prose)
+
+
+def test_extract_irrigation_minutes_latex_brackets() -> None:
+    assert extract_irrigation_minutes(r"\[ MINUTES: 15 \]") == 15
+
+
+def test_extract_irrigation_minutes_latex_dollars() -> None:
+    assert extract_irrigation_minutes(r"$$MINUTES: 15$$") == 15
+
+
+def test_extract_irrigation_minutes_latex_parens() -> None:
+    assert extract_irrigation_minutes(r"\( MINUTES: 10 \)") == 10

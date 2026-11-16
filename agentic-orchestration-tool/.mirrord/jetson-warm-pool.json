@@ -1,0 +1,14 @@
+{
+  "target": {
+    "path": "deployment/agentic-warm-pool",
+    "namespace": "agentic-orchestration"
+  },
+  "feature": {
+    "env": true,
+    "fs": "write",
+    "network": {
+      "incoming": "mirror",
+      "outgoing": true
+    }
+  }
+}

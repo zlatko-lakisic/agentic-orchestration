@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from orchestration.backends.kubernetes_warm_pool import claim_next_global_step
+from orchestration.backends.kubernetes_warm_pool import (
+    claim_next_global_step,
+    unlink_step_ticket_siblings,
+)
 from orchestration.execution_queue import (
     ExecutionQueueManager,
     reset_execution_queue_for_tests,
@@ -157,3 +160,63 @@ def test_claim_global_step_skips_bare_tickets(tmp_path: Path, monkeypatch: pytes
     # Bare ticket removed; only the claim file for the real ticket remains.
     remaining = list_pending_tickets("step", run_store_mount=mount)
     assert remaining == []
+
+
+@pytest.mark.unit
+def test_claim_refreshes_mtime_so_reclaim_skips_live_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    mount = str(tmp_path)
+    monkeypatch.setenv("HOSTNAME", "worker-live")
+    ticket = StoredTicket(
+        ticket_id=new_ticket_id(),
+        run_id="r-live",
+        kind="step",
+        phase="step",
+        priority=50,
+        priority_label=None,
+        enqueued_at=time.time() - 600,
+        client_id=None,
+        requirements={"spec_container_path": "/run/store/r-live/step_1-spec.json"},
+        step_id="step_1",
+    )
+    path = submit_pending_ticket(ticket, run_store_mount=mount)
+    old = time.time() - 600
+    os.utime(path, (old, old))
+
+    claimed = claim_next_global_step(mount)
+    assert claimed is not None
+    claimed_path, _ = claimed
+    age = time.time() - claimed_path.stat().st_mtime
+    assert age < 5.0
+    assert reclaim_stale_claims("step", max_age_seconds=120.0, run_store_mount=mount) == 0
+    assert claimed_path.is_file()
+
+
+@pytest.mark.unit
+def test_unlink_step_ticket_siblings_clears_reclaimed_pending(tmp_path: Path) -> None:
+    mount = str(tmp_path)
+    ticket = StoredTicket(
+        ticket_id=new_ticket_id(),
+        run_id="r-clean",
+        kind="step",
+        phase="step",
+        priority=50,
+        priority_label=None,
+        enqueued_at=time.time(),
+        client_id=None,
+        requirements={"spec_container_path": "/x/spec.json"},
+        step_id="step_1",
+    )
+    path = submit_pending_ticket(ticket, run_store_mount=mount)
+    claimed = path.with_name(f"{path.name}.claimed-worker-a")
+    path.rename(claimed)
+    # Simulate reclaim: pending base restored while worker still holds old path name.
+    claimed.rename(path)
+    # Worker finally runs cleanup against the original claimed path name.
+    unlink_step_ticket_siblings(claimed)
+    assert list_pending_tickets("step", run_store_mount=mount) == []
+    assert not path.exists()
+    assert not claimed.exists()
