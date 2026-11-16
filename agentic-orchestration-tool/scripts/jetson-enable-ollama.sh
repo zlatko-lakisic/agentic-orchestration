@@ -155,6 +155,10 @@ spec:
               set -eu
               export OLLAMA_HOST={daemon_host}
               export OLLAMA_KEEP_ALIVE=120
+              # Match managed_k8s Ada knobs: limit concurrent residency and shrink KV.
+              export OLLAMA_MAX_LOADED_MODELS=2
+              export OLLAMA_FLASH_ATTENTION=1
+              export OLLAMA_KV_CACHE_TYPE=q8_0
               # Cap default context so 128k models (e.g. granite-code) do not
               # allocate a ~40 GiB KV cache on Jetson unified memory.
               export OLLAMA_CONTEXT_LENGTH={ctx_len}

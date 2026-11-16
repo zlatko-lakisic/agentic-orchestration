@@ -33,24 +33,9 @@ spec:
               set -euo pipefail
               PY="$(command -v python 2>/dev/null || command -v python3 2>/dev/null || echo python)"
               needs_stack() {
-                "${PY}" - <<'PY' >/dev/null 2>&1
-import fastapi
-import crewai
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter  # noqa: F401
-def _tuple(v: str):
-    parts = []
-    for p in str(v).split("."):
-        n = ""
-        for ch in p:
-            if ch.isdigit():
-                n += ch
-            else:
-                break
-        parts.append(int(n or "0"))
-    return tuple(parts)
-assert _tuple(crewai.__version__) >= (1, 15, 0)
-assert _tuple(fastapi.__version__) >= (0, 142, 0)
-PY
+                # Keep this as python -c (no bash heredoc): YAML literal blocks break if
+                # unindented heredoc body lines fall below the block indent.
+                "${PY}" -c 'import fastapi,crewai; from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as _; t=lambda v:tuple(int("".join(ch for ch in p if ch.isdigit()) or "0") for p in str(v).split(".")); assert t(crewai.__version__)>=(1,15,0); assert t(fastapi.__version__)>=(0,142,0)' >/dev/null 2>&1
               }
               if ! needs_stack; then
                 echo "Aligning warm-pool CrewAI 1.15.41 + FastAPI/OpenTelemetry 1.45 (${PY}) ..."
@@ -60,8 +45,7 @@ PY
                   "opentelemetry-api==1.45.2" \
                   "opentelemetry-sdk==1.45.2" \
                   "opentelemetry-exporter-otlp-proto-http==1.45.2" \
-                  "opentelemetry-exporter-otlp-proto-grpc==1.45.2" \
-                  "packaging" || true
+                  "opentelemetry-exporter-otlp-proto-grpc==1.45.2" || true
               fi
               if ! needs_stack; then
                 shopt -s nullglob
