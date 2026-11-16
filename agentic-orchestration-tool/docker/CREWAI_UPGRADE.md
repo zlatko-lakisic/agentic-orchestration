@@ -5,8 +5,14 @@ The worker and coordinator images install CrewAI from `requirements.txt`. The ve
 ## Current pin
 
 ```text
-crewai==1.12.2
+crewai==1.15.41
 ```
+
+CrewAI 1.15.41 declares `opentelemetry-api`, `opentelemetry-sdk`, and the
+OTLP HTTP exporter as `>=1.45.1,<2`. The image pins the complete OpenTelemetry
+set to 1.45.2 (semantic conventions 0.66b2) so API, SDK, and exporters cannot
+drift independently. This combination imports cleanly with FastAPI 0.142+ and
+does not reference the removed private `_ExtendedAttributes` symbol.
 
 Verify in a built image:
 
