@@ -11,6 +11,7 @@ import pytest
 
 from orchestration.mcp_tunnel import (
     deliver_tunnel_response,
+    mcp_tunnel_timeout_s,
     register_connection_bridge,
     rewrite_tunnel_url_if_needed,
     tunnel_hub,
@@ -104,3 +105,52 @@ def test_tunnel_http_round_trip_via_mocked_ws() -> None:
     assert inbox[0]["tunnelPath"] == "filesystem"
     assert inbox[0]["method"] == "POST"
     assert inbox[0]["path"] == "/mcp"
+
+
+def test_tunnel_timeout_returns_mcp_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_MCP_TUNNEL_TIMEOUT_S", "0.05")
+    register_connection_bridge("conn-1", lambda _payload: None)
+    register_overlay(
+        user_id="ada",
+        session_id="s1",
+        connection_id="conn-1",
+        app_id="testapp",
+        mcps=[
+            {
+                "id": "client.search",
+                "streamable_http": {"url": "tunnel://session-mcp/search", "headers": {}},
+            }
+        ],
+        stock_ids=set(),
+    )
+    with overlay_run_context(user_id="ada", session_id="s1", connection_id="conn-1"):
+        url = rewrite_tunnel_url_if_needed(
+            "tunnel://session-mcp/search",
+            mcp_id="client.search",
+        )
+
+    import urllib.request
+
+    body = b'{"jsonrpc":"2.0","method":"tools/call","params":{},"id":7}'
+    req = urllib.request.Request(
+        url + "/mcp",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=2) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+        assert resp.status == 200
+        assert resp.headers["content-type"] == "application/json"
+    assert payload["id"] == 7
+    assert payload["result"]["isError"] is True
+    assert "timed out after 0.05s" in payload["result"]["content"][0]["text"]
+
+
+def test_tunnel_timeout_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_MCP_TUNNEL_TIMEOUT_S", "123.5")
+    assert mcp_tunnel_timeout_s() == 123.5
+    monkeypatch.setenv("AGENTIC_MCP_TUNNEL_TIMEOUT_S", "invalid")
+    assert mcp_tunnel_timeout_s() == 60.0

@@ -183,6 +183,7 @@ class WsConnection:
         self._busy = False
         self._runs: set[asyncio.Task[None]] = set()
         self._runs_by_question: dict[str, asyncio.Task[None]] = {}
+        self._run_cancel_events: dict[str, threading.Event] = {}
         self._metrics_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         # Latest phase/message so heartbeats repeat what the run is actually doing.
@@ -570,6 +571,8 @@ class WsConnection:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._metrics_task
             self._metrics_task = None
+        for event in self._run_cancel_events.values():
+            event.set()
         for task in list(self._runs):
             task.cancel()
         for task in list(self._runs):
@@ -1051,6 +1054,9 @@ class WsConnection:
             if question_id:
                 task = self._runs_by_question.get(question_id)
                 if task is not None and not task.done():
+                    event = self._run_cancel_events.get(question_id)
+                    if event is not None:
+                        event.set()
                     task.cancel()
             return
         if not question_id:
@@ -1098,6 +1104,9 @@ class WsConnection:
             )
             return
         self._cancel_overlay_prepare(force_pull=False)
+        event = self._run_cancel_events.get(question_id)
+        if event is not None:
+            event.set()
         task.cancel()
 
     async def handle_rate(self, message: dict[str, Any]) -> None:
@@ -1201,6 +1210,8 @@ class WsConnection:
                 return
         if question_id is None:
             self._busy = True
+        if question_id is not None:
+            self._run_cancel_events[question_id] = threading.Event()
         task = asyncio.create_task(self._run(message, kind, text, question_id, images))
         self._runs.add(task)
 
@@ -1208,6 +1219,7 @@ class WsConnection:
             self._runs.discard(t)
             if qid and self._runs_by_question.get(qid) is t:
                 self._runs_by_question.pop(qid, None)
+                self._run_cancel_events.pop(qid, None)
 
         if question_id is not None:
             self._runs_by_question[question_id] = task
@@ -1228,6 +1240,13 @@ class WsConnection:
 
         started = time.monotonic()
         run_id = new_run_id()
+        cancel_event = (
+            self._run_cancel_events.get(question_id)
+            if question_id is not None
+            else threading.Event()
+        )
+        if cancel_event is None:
+            cancel_event = threading.Event()
         tag: dict[str, Any] = {"run_id": run_id}
         if question_id:
             tag["question_id"] = question_id
@@ -1369,12 +1388,20 @@ class WsConnection:
 
                 def _preempt_run(_run_id: str) -> None:
                     if run_task is not None and not run_task.done() and self._loop is not None:
+                        cancel_event.set()
                         self._loop.call_soon_threadsafe(run_task.cancel)
 
                 register_preempt_hook(run_id, _preempt_run)
                 try:
                     answer = await asyncio.to_thread(
-                        self._execute, message, kind, text, tag, run_id, images or []
+                        self._execute,
+                        message,
+                        kind,
+                        text,
+                        tag,
+                        run_id,
+                        images or [],
+                        cancel_event,
                     )
                 finally:
                     unregister_preempt_hook(run_id)
@@ -1440,6 +1467,7 @@ class WsConnection:
                 pass
             self._clear_connection_activity()
         except asyncio.CancelledError:
+            cancel_event.set()
             elapsed_ms = round((time.monotonic() - started) * 1000, 1)
             from orchestration.execution_queue import cancel_run_queue
 
@@ -1635,6 +1663,7 @@ class WsConnection:
         tag: dict[str, Any],
         run_id: str,
         images: list[Any] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
         from orchestration.llm_usage import bind_usage_context, reset_usage_context
@@ -1699,7 +1728,15 @@ class WsConnection:
                 connection_id=self.connection_id,
             ):
                 return self._execute_inner(
-                    message, kind, text, tag, user_id, session_slug, run_id, images or []
+                    message,
+                    kind,
+                    text,
+                    tag,
+                    user_id,
+                    session_slug,
+                    run_id,
+                    images or [],
+                    cancel_event,
                 )
         finally:
             reset_usage_context(usage_tokens)
@@ -1719,6 +1756,7 @@ class WsConnection:
         session_slug: str,
         run_id: str,
         images: list[Any] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> str:
         if images:
             agent_provider_id = str(
@@ -1748,7 +1786,16 @@ class WsConnection:
                         message, kind, text, tag, run_id, images, entry
                     )
             return self._execute_multimodal(message, kind, text, tag, run_id, images)
-        return self._execute_text(message, kind, text, tag, user_id, session_slug, run_id)
+        return self._execute_text(
+            message,
+            kind,
+            text,
+            tag,
+            user_id,
+            session_slug,
+            run_id,
+            cancel_event=cancel_event,
+        )
 
     def _execute_detection(
         self,
@@ -1924,6 +1971,7 @@ class WsConnection:
         user_id: str | None,
         session_slug: str,
         run_id: str,
+        cancel_event: threading.Event | None = None,
     ) -> str:
         if kind == "direct_agent":
             from orchestration.direct_agent import run_direct_agent
@@ -2016,6 +2064,7 @@ class WsConnection:
                     on_progress=progress,
                     response_format=response_format if isinstance(response_format, dict) else None,
                     json_schema=json_schema if isinstance(json_schema, dict) else None,
+                    cancel_event=cancel_event,
                 )
 
             try:

@@ -8,6 +8,9 @@ from typing import Any, cast
 
 _APPLIED = False
 _TOOL_NAME_LINE = re.compile(r"(?m)^Tool Name:\s*.+$")
+_FRAMEWORK_TOOL_ARGUMENT_KEYS = frozenset(
+    {"security_context", "agent_fingerprint", "task_fingerprint"}
+)
 
 
 def _exception_chain_text(exc: BaseException) -> str:
@@ -32,20 +35,36 @@ def _is_crewai_mcp_tools_list_unbound_bug(exc: BaseException) -> bool:
     )
 
 
-def _allow_extra_tool_args(tool: Any) -> None:
+def strip_framework_tool_args(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Remove CrewAI-only metadata before MCP schema validation or dispatch."""
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key not in _FRAMEWORK_TOOL_ARGUMENT_KEYS
+        and not key.startswith(("_crewai_", "__crewai_"))
+    }
+
+
+def _accept_framework_tool_args(tool: Any) -> None:
+    """Add ignored framework fields without weakening the MCP schema's other constraints."""
     schema = getattr(tool, "args_schema", None)
     if schema is None:
         return
-    cfg = getattr(schema, "model_config", None)
-    if isinstance(cfg, dict):
-        cfg["extra"] = "allow"
+    fields = getattr(schema, "model_fields", {})
+    missing = [key for key in _FRAMEWORK_TOOL_ARGUMENT_KEYS if key not in fields]
+    if not missing:
         return
-    extra = getattr(schema, "model_extra", None)
-    if extra is not None:
-        try:
-            schema.model_config = {**dict(getattr(schema, "model_config", {}) or {}), "extra": "allow"}
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        from pydantic import create_model
+
+        additions = {key: (dict[str, Any] | None, None) for key in missing}
+        tool.args_schema = create_model(
+            f"{schema.__name__}Agentic",
+            __base__=schema,
+            **additions,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def shorten_mcp_native_tool_names(tools: list[Any] | None) -> list[Any]:
@@ -82,7 +101,7 @@ def shorten_mcp_native_tool_names(tools: list[Any] | None) -> list[Any]:
                 tool.description = _TOOL_NAME_LINE.sub(f"Tool Name: {short}", desc, count=1)
             except Exception:  # noqa: BLE001
                 pass
-        _allow_extra_tool_args(tool)
+        _accept_framework_tool_args(tool)
     return tools
 
 
@@ -104,10 +123,27 @@ def apply_crewai_mcp_native_resolver_hotfix() -> None:
     )
     try:
         from crewai.mcp.tool_resolver import MCPToolResolver
+        from crewai.tools.mcp_native_tool import MCPNativeTool
         from crewai.tools.base_tool import BaseTool
     except ImportError:
         _APPLIED = True
         return
+
+    native_run = MCPNativeTool._run
+    if not getattr(native_run, "_agentic_framework_args_hotfix", False):
+        def _filtered_run(self: Any, **kwargs: Any) -> str:
+            return native_run(self, **strip_framework_tool_args(kwargs))
+
+        setattr(_filtered_run, "_agentic_framework_args_hotfix", True)
+        MCPNativeTool._run = _filtered_run  # type: ignore[method-assign]
+
+    native_run_async = MCPNativeTool._run_async
+    if not getattr(native_run_async, "_agentic_framework_args_hotfix", False):
+        async def _filtered_run_async(self: Any, **kwargs: Any) -> str:
+            return await native_run_async(self, **strip_framework_tool_args(kwargs))
+
+        setattr(_filtered_run_async, "_agentic_framework_args_hotfix", True)
+        MCPNativeTool._run_async = _filtered_run_async  # type: ignore[method-assign]
 
     orig = MCPToolResolver._resolve_native
     if getattr(orig, "_agentic_mcp_hotfix", False):
