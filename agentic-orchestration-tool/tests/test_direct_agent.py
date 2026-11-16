@@ -58,6 +58,16 @@ def catalog(tmp_path: Path) -> Path:
                         "goal": "Help",
                         "backstory": "Another test double.",
                     },
+                    {
+                        "id": "raw_translator",
+                        "type": "ollama",
+                        "model": "translategemma:12b",
+                        "role": "Translator",
+                        "goal": "Translate everything",
+                        "backstory": "Always explain your translation.",
+                        "prompt_mode": "raw",
+                        "mcp_providers": ["forbidden_tool"],
+                    },
                 ]
             }
         ),
@@ -97,6 +107,93 @@ def test_task_description_caps_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", "500")
     text = build_direct_task_description(goal="q", context="Z" * 5000)
     assert text.count("Z") == 500
+
+
+def test_raw_prompt_mode_bypasses_instruction_wrapper_and_tools(
+    tmp_path: Path,
+    catalog: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_AGENT_PROVIDERS_CATALOG", str(catalog))
+    captured: dict[str, object] = {}
+
+    def fake_chat(**kwargs: object) -> str:
+        captured.update(kwargs)
+        return "Rezervišite obilazak"
+
+    monkeypatch.setattr(direct_agent, "_ollama_chat_json", fake_chat)
+
+    answer = run_direct_agent(
+        tool_root=tmp_path,
+        agent_provider_id="raw_translator",
+        goal="Book your tour",
+        context="Translate to Bosnian",
+        mcp_provider_ids=["also_forbidden"],
+        persist=False,
+    )
+
+    assert answer == "Rezervišite obilazak"
+    assert captured["prompt"] == "Translate to Bosnian\n\nBook your tour"
+    assert captured["raw_prompt"] is True
+    assert captured["force_json"] is False
+    prompt = str(captured["prompt"])
+    assert "## Provided context" not in prompt
+    assert "## Question" not in prompt
+    assert "answer now" not in prompt
+    assert "mcp_provider_ids" not in captured
+
+
+def test_ollama_raw_prompt_sends_one_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    import httpx
+
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"message": {"role": "assistant", "content": "translated"}},
+        )
+
+    real_client = httpx.Client
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    monkeypatch.setattr(
+        "orchestration.runtime_bootstrap.should_ensure_ollama",
+        lambda **_kwargs: False,
+    )
+
+    answer = direct_agent._ollama_chat_json(
+        entry={
+            "id": "raw_translator",
+            "type": "ollama",
+            "model": "translategemma:12b",
+            "ollama_host": "http://ollama.test",
+        },
+        prompt="Translate to Bosnian\n\nBook your tour",
+        json_schema=None,
+        on_progress=None,
+        raw_prompt=True,
+        force_json=False,
+    )
+
+    assert answer == "translated"
+    assert captured["messages"] == [
+        {
+            "role": "user",
+            "content": "Translate to Bosnian\n\nBook your tour",
+        }
+    ]
+    assert "format" not in captured
+    assert "tools" not in captured
 
 
 def test_config_is_a_single_task_with_no_planner_involved(catalog: Path) -> None:

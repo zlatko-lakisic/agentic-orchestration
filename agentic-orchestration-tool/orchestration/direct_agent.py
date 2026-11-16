@@ -17,11 +17,11 @@ Optional ``response_format={"type": "json_object"}`` skips CrewAI and calls Olla
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
+import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -36,6 +36,7 @@ JSON_EXPECTED_OUTPUT = (
 _DEFAULT_OLLAMA_CHAT_TIMEOUT_SEC = 600.0
 _MIN_OLLAMA_CHAT_TIMEOUT_SEC = 30.0
 _MAX_OLLAMA_CHAT_TIMEOUT_SEC = 7200.0
+logger = logging.getLogger(__name__)
 
 
 def _parse_positive_float(raw: Any) -> float | None:
@@ -185,6 +186,18 @@ def build_direct_task_description(*, goal: str, context: str = "") -> str:
         "Say what you do not know instead of inventing it. Do not plan, delegate, or ask "
         "clarifying questions — answer now."
     )
+    return "\n\n".join(parts)
+
+
+def build_raw_user_prompt(*, goal: str, context: str = "") -> str:
+    """Return only caller-provided content, with context before the requested text."""
+    parts: list[str] = []
+    ctx = str(context or "").strip()
+    if ctx:
+        cap = int(os.getenv("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", "20000"))
+        cap = max(500, min(200000, cap))
+        parts.append(ctx[:cap])
+    parts.append(str(goal or "").strip())
     return "\n\n".join(parts)
 
 
@@ -369,6 +382,9 @@ def _ollama_chat_json(
     prompt: str,
     json_schema: dict[str, Any] | None,
     on_progress: Callable[[str], None] | None,
+    cancel_event: threading.Event | None = None,
+    raw_prompt: bool = False,
+    force_json: bool = True,
 ) -> str:
     from agent_providers.ollama_provider import (
         ensure_ollama_runtime,
@@ -407,14 +423,23 @@ def _ollama_chat_json(
 
     body = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": JSON_EXPECTED_OUTPUT},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": (
+            [{"role": "user", "content": prompt}]
+            if raw_prompt
+            else [
+                {"role": "system", "content": JSON_EXPECTED_OUTPUT},
+                {"role": "user", "content": prompt},
+            ]
+        ),
         "stream": False,
+<<<<<<< HEAD
         "format": fmt,
         "think": _ollama_json_think_value(entry),
+=======
+>>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
     }
+    if force_json:
+        body["format"] = fmt
     # Overlay agents may pin sampling / context (e.g. campaign_director
     # temperature: 0, num_ctx: 8192). Without this, Ollama uses defaults
     # (temperature 0.8) and silent front-truncation can drop ROLE/OBJECTIVES.
@@ -442,13 +467,6 @@ def _ollama_chat_json(
     timeout_s = ollama_chat_timeout_sec(entry)
     if on_progress:
         on_progress(f"generating (timeout_s={timeout_s:g})")
-    raw_http = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        f"{host}/api/chat",
-        data=raw_http,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     started = time.monotonic()
 
     def _raise_chat_timeout(exc: BaseException) -> None:
@@ -465,6 +483,7 @@ def _ollama_chat_json(
             return True
         return "timed out" in str(exc).casefold()
 
+<<<<<<< HEAD
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
@@ -491,16 +510,94 @@ def _ollama_chat_json(
                     else str(exc2)
                 )
                 _raise_ollama_http_error(exc2, detail2)
+=======
+    def _request(request_body: dict[str, Any]) -> dict[str, Any]:
+        import httpx
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Ollama /api/chat cancelled")
+
+        client = httpx.Client(timeout=timeout_s)
+        response_holder: list[httpx.Response] = []
+        request_done = threading.Event()
+
+        def _close_on_cancel() -> None:
+            if cancel_event is None:
+                return
+            while not request_done.is_set():
+                if cancel_event.wait(timeout=0.1):
+                    break
+            else:
+                return
+            try:
+                if response_holder:
+                    response_holder[0].close()
+                client.close()
+            except Exception as close_exc:  # noqa: BLE001
+                logger.error(
+                    "orphaned Ollama request: failed to close /api/chat after cancel: %s",
+                    close_exc,
+                )
+                return
+            if not request_done.wait(timeout=1.0):
+                logger.error(
+                    "orphaned Ollama request: /api/chat remained open after cancel close"
+                )
+
+        if cancel_event is not None:
+            threading.Thread(
+                target=_close_on_cancel,
+                name="ollama-chat-cancel",
+                daemon=True,
+            ).start()
+        try:
+            with client.stream(
+                "POST",
+                f"{host}/api/chat",
+                json=request_body,
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                response_holder.append(response)
+                response.raise_for_status()
+                raw = b"".join(response.iter_bytes())
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Ollama /api/chat cancelled")
+            parsed = json.loads(raw.decode("utf-8"))
+            if not isinstance(parsed, dict):
+                raise RuntimeError("Ollama /api/chat returned a non-object response")
+            return parsed
+        finally:
+            request_done.set()
+            client.close()
+
+    try:
+        payload = _request(body)
+    except Exception as exc:
+        import httpx
+
+        detail = str(exc)
+        # Schema-as-format may be unsupported; retry with plain "json".
+        if force_json and isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
+            body["format"] = "json"
+            try:
+                payload = _request(body)
+>>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
             except Exception as exc2:  # noqa: BLE001
                 if _is_timeout(exc2):
                     _raise_chat_timeout(exc2)
                 raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
         else:
+<<<<<<< HEAD
             _raise_ollama_http_error(exc, detail)
     except Exception as exc:  # noqa: BLE001
         if _is_timeout(exc):
             _raise_chat_timeout(exc)
         raise RuntimeError(f"Ollama /api/chat failed: {exc}") from exc
+=======
+            if _is_timeout(exc):
+                _raise_chat_timeout(exc)
+            raise RuntimeError(f"Ollama /api/chat failed: {detail}") from exc
+>>>>>>> 69304a6 (feat: add raw direct-agent prompt mode)
 
     message = payload.get("message") if isinstance(payload, dict) else None
     content = ""
@@ -629,6 +726,7 @@ def run_direct_agent_json(
     context: str = "",
     json_schema: dict[str, Any] | None = None,
     on_progress: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """JSON-mode direct agent: native format + strict ``json.loads`` (+ optional schema)."""
     text = str(goal or "").strip()
@@ -655,6 +753,7 @@ def run_direct_agent_json(
             prompt=prompt,
             json_schema=json_schema if isinstance(json_schema, dict) else None,
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
     else:
         raw = _litellm_chat_json(entry=entry, prompt=prompt, on_progress=on_progress)
@@ -680,6 +779,7 @@ def run_direct_agent(
     response_format: dict[str, Any] | None = None,
     json_schema: dict[str, Any] | None = None,
     images: list[Any] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """Ask one catalog agent one question and return its answer text.
 
@@ -692,26 +792,71 @@ def run_direct_agent(
 
     When ``images`` is non-empty and the agent is ``type: object_detection``, runs the
     detection fast path and returns typed detection JSON.
-    """
-    if wants_json_object(response_format):
-        return run_direct_agent_json(
-            tool_root=tool_root,
-            agent_provider_id=agent_provider_id,
-            goal=goal,
-            context=context,
-            json_schema=json_schema if isinstance(json_schema, dict) else None,
-            on_progress=on_progress,
-        )
 
+    Agent entries with ``prompt_mode: raw`` bypass CrewAI and tools. Ollama receives
+    caller context and text as its sole user message, without generated instructions.
+    """
     text = str(goal or "").strip()
+    if not text:
+        raise ValueError("goal is required")
+
     root = tool_root or _tool_root_default()
     from orchestration.dynamic_run import catalog_paths
 
     paths = catalog_paths(root)
     pid = str(agent_provider_id or "").strip()
+    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
+
+    if str(entry.get("prompt_mode") or "").strip().casefold() == "raw":
+        ptype = str(entry.get("type") or "").strip().lower()
+        if ptype != "ollama" and not str(entry.get("model") or "").lower().startswith(
+            "ollama/"
+        ):
+            raise ValueError("prompt_mode: raw currently requires an Ollama agent")
+
+        if on_progress is not None:
+            on_progress(f"starting {pid}")
+        json_mode = wants_json_object(response_format)
+        schema = json_schema if json_mode and isinstance(json_schema, dict) else None
+        answer = _ollama_chat_json(
+            entry=entry,
+            prompt=build_raw_user_prompt(goal=text, context=context),
+            json_schema=schema,
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+            raw_prompt=True,
+            force_json=json_mode,
+        )
+        if json_mode:
+            answer = _finalize_json_text(answer, json_schema=schema)
+        if not str(answer or "").strip():
+            raise DirectAgentEmptyAnswerError(
+                "raw direct_agent produced an empty answer",
+                raw=answer or None,
+            )
+        if persist:
+            _persist_direct_answer(
+                tool_root=root,
+                session_slug=session_slug,
+                goal=text,
+                answer=answer,
+                provider_id=pid,
+                user_id=user_id,
+            )
+        return answer
+
+    if wants_json_object(response_format):
+        return run_direct_agent_json(
+            tool_root=root,
+            agent_provider_id=pid,
+            goal=text,
+            context=context,
+            json_schema=json_schema if isinstance(json_schema, dict) else None,
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+        )
 
     if images:
-        entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
         from orchestration.object_detection_runtime import (
             is_object_detection_entry,
             run_object_detection,
@@ -735,13 +880,9 @@ def run_direct_agent(
                 pass
             return answer
 
-    if not text:
-        raise ValueError("goal is required")
-
     from orchestration.progress_sink import progress_callback
 
     # Fast path: deterministic providers skip CrewAI entirely.
-    entry = load_agent_entry(agent_provider_id=pid, catalog_path=paths.agent_providers)
     from orchestration.deterministic_runtime import (
         is_deterministic_entry,
         run_deterministic_step,
