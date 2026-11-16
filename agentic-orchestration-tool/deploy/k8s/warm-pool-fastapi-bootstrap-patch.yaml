@@ -14,15 +14,22 @@ spec:
             - |
               set -euo pipefail
               PY="$(command -v python 2>/dev/null || command -v python3 2>/dev/null || echo python)"
-              ensure_fastapi() {
-                "${PY}" -c "import fastapi" >/dev/null 2>&1
+              needs_stack() {
+                # Keep this as python -c (no bash heredoc): YAML literal blocks break if
+                # unindented heredoc body lines fall below the block indent.
+                "${PY}" -c 'import fastapi,crewai; from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as _; t=lambda v:tuple(int("".join(ch for ch in p if ch.isdigit()) or "0") for p in str(v).split(".")); assert t(crewai.__version__)>=(1,15,0); assert t(fastapi.__version__)>=(0,142,0)' >/dev/null 2>&1
               }
-              if ! ensure_fastapi; then
-                echo "Installing fastapi for litellm MCP handler (${PY}) ..."
-                # Keep bootstrap installs compatible with CrewAI 1.15.41.
-                "${PY}" -m pip install --break-system-packages "fastapi>=0.142,<1" "opentelemetry-api~=1.45.0" || true
+              if ! needs_stack; then
+                echo "Aligning warm-pool CrewAI 1.15.41 + FastAPI/OpenTelemetry 1.45 (${PY}) ..."
+                "${PY}" -m pip install --break-system-packages \
+                  "crewai==1.15.41" \
+                  "fastapi>=0.142,<1" \
+                  "opentelemetry-api==1.45.2" \
+                  "opentelemetry-sdk==1.45.2" \
+                  "opentelemetry-exporter-otlp-proto-http==1.45.2" \
+                  "opentelemetry-exporter-otlp-proto-grpc==1.45.2" || true
               fi
-              if ! ensure_fastapi; then
+              if ! needs_stack; then
                 shopt -s nullglob
                 for d in /app/tool/.venv/lib/python3.*/site-packages; do
                   export PYTHONPATH="${d}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -30,11 +37,11 @@ spec:
                 done
                 shopt -u nullglob
               fi
-              if ! ensure_fastapi; then
-                echo "error: fastapi missing for ${PY} (pip failed; host venv site-packages not usable)" >&2
+              if ! needs_stack; then
+                echo "error: warm-pool CrewAI/FastAPI/OpenTelemetry stack not ready for ${PY}" >&2
                 exit 1
               fi
-              "${PY}" -c "import fastapi,sys; print('fastapi_ok', fastapi.__version__, 'py', sys.executable)"
+              "${PY}" -c "import crewai,fastapi,sys; print('stack_ok', 'crewai', crewai.__version__, 'fastapi', fastapi.__version__, 'py', sys.executable)"
               exec "${PY}" main.py --warm-pool-worker
           env:
             - name: AGENTIC_PYTHON

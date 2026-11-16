@@ -232,7 +232,11 @@ def test_render_host_network_daemon_probes_loopback() -> None:
     spec = doc["spec"]["template"]["spec"]
     assert spec["hostNetwork"] is True
     ollama = next(c for c in spec["containers"] if c["name"] == "ollama")
-    assert "OLLAMA_HOST=127.0.0.1:11435" in _startup_text(ollama)
+    startup = _startup_text(ollama)
+    assert "OLLAMA_HOST=127.0.0.1:11435" in startup
+    assert "OLLAMA_MAX_LOADED_MODELS=2" in startup
+    assert "OLLAMA_FLASH_ATTENTION=1" in startup
+    assert "OLLAMA_KV_CACHE_TYPE=q8_0" in startup
     for probe in ("readinessProbe", "livenessProbe"):
         assert ollama[probe]["httpGet"]["host"] == "127.0.0.1", probe
 
