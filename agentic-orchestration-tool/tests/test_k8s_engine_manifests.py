@@ -18,6 +18,7 @@ def test_engine_deployment_shares_run_store_with_warm_pool() -> None:
     """Engine must enqueue warm-pool jobs on the shared PVC, not pod-local disk."""
     doc = _load_yaml("deployment.yaml")
     spec = doc["spec"]["template"]["spec"]
+    assert spec["serviceAccountName"] == "agentic-coordinator"
     container = spec["containers"][0]
     mounts = {m["mountPath"]: m for m in container["volumeMounts"]}
     assert "/run/store" in mounts
@@ -29,6 +30,8 @@ def test_engine_deployment_shares_run_store_with_warm_pool() -> None:
     assert env["AGENTIC_K8S_RUN_STORE_MOUNT"] == "/run/store"
     assert env["AGENTIC_K8S_RUN_STORE_PVC"] == "agentic-run-store"
     assert env["AGENTIC_EXECUTION_BACKEND"] == "kubernetes"
+    assert env["AGENTIC_K8S_ENV_SECRET"] == "agentic-orchestrator-env"
+    assert env["AGENTIC_K8S_WORKER_IMAGE"] == "agentic-orchestrator-worker:local"
 
 
 _OTEL_134_PINS = (
