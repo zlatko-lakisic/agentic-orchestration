@@ -154,3 +154,24 @@ def test_run_harness_skips_live_when_no_credentials(tool_root: Path, monkeypatch
     profiles = HarnessProfileLoader(tool_root / "config" / "agent_harnesses")
     result = run_harness(entry, tier="smoke", profile_loader=profiles, tool_root=tool_root)
     assert result.status == "skip"
+
+
+@pytest.mark.agent_harness
+def test_run_harness_skips_connectivity_when_no_credentials(
+    tool_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    entry = {
+        "id": "gpt_research",
+        "type": "openai",
+        "role": "Research Analyst",
+        "goal": "Research",
+        "backstory": "Test.",
+        "model": "gpt-4o-mini",
+    }
+    profiles = HarnessProfileLoader(tool_root / "config" / "agent_harnesses")
+    result = run_harness(entry, tier="connectivity", profile_loader=profiles, tool_root=tool_root)
+    assert result.status == "skip"
+    assert "OPENAI_API_KEY" in (result.error or "")

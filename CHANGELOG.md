@@ -17,6 +17,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
   use the configured Ollama chat timeout, and GPU model-load failures surface as
   `model_load_failed`. The Ollama deployment enables flash attention, quantized
   KV cache, and a two-model residency cap to reduce GPU allocation failures.
+- **CI and dependency-update hygiene** — Dependabot now covers the Python, web, admin, and docs dependency manifests while holding the CrewAI-compatible OpenTelemetry 1.34.1 set. Credentialed harness and live-LLM checks soft-skip when secrets are unavailable or rejected, and Dependabot does not attempt the connectivity probe.
 - **Engine overlay register ImportError (`_ExtendedAttributes`)** — the coordinator image can ship FastAPI ≥0.142, which upgrades `opentelemetry-api` to 1.45 while CrewAI's OTLP exporter stays on 1.34.1. That exporter imports `opentelemetry.util.types._ExtendedAttributes`, removed in API 1.45, so session overlay registration fails. `requirements.txt` and `requirements-serve.txt` pin the whole OpenTelemetry 1.34.1 set, and the engine startup install downgrades a drifted image before `orchestration.serve`.
 
 ### Added

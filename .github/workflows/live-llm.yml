@@ -57,6 +57,8 @@ jobs:
 
       - name: Run live LLM pytest
         if: steps.secrets.outputs.skip != 'true'
+        id: live-tests
+        continue-on-error: true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL_NAME: gpt-4o-mini
@@ -66,4 +68,14 @@ jobs:
           AGENTIC_FINAL_QA: "0"
           AGENTIC_LEARNING: "0"
           AGENTIC_LEARNING_EVAL: "0"
-        run: pytest -m live_llm -o addopts="-ra" -v
+        run: pytest -m live_llm -o addopts="-ra" -v 2>&1 | tee live-llm.log
+
+      - name: Classify live LLM failure
+        if: steps.secrets.outputs.skip != 'true' && steps.live-tests.outcome == 'failure'
+        run: |
+          if grep -Eiq 'AuthenticationError|invalid_api_key|Incorrect API key provided|HTTP[^0-9]*401|status[^0-9]*401' live-llm.log; then
+            echo "::notice::Live LLM tests skipped because the configured API credentials were rejected"
+          else
+            echo "::error::Live LLM tests failed for a non-authentication reason"
+            exit 1
+          fi
