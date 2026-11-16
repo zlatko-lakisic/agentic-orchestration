@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-11-16
+
 ### Fixed
 
 - **Jetson NvMap memory tune default (#61)** — env.jetson enables AGENTIC_JETSON_MEMORY_TUNE=1 so deploy applies jetson-ollama-memory-tune.sh (sysctl only; drop_caches remains separately gated).
