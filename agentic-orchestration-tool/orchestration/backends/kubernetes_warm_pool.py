@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -343,6 +344,12 @@ def claim_next_global_step(run_store_mount: str) -> tuple[Path, StoredTicket] | 
             path.rename(claimed)
         except OSError:
             continue
+        # Rename preserves enqueue mtime; refresh so reclaim_stale_claims ages
+        # from claim time (and heartbeats), not enqueue time.
+        try:
+            os.utime(claimed, None)
+        except OSError:
+            pass
         try:
             data = json.loads(claimed.read_text(encoding="utf-8"))
             return claimed, StoredTicket.from_dict(data)
@@ -353,6 +360,47 @@ def claim_next_global_step(run_store_mount: str) -> tuple[Path, StoredTicket] | 
                 pass
             return None
     return None
+
+
+def _pending_ticket_base_name(claimed_path: Path) -> str:
+    """Map ``foo.json.claimed-<worker>`` / ``foo.claimed`` back to the pending basename."""
+    name = claimed_path.name
+    if ".claimed-" in name:
+        return name.split(".claimed-", 1)[0]
+    if name.endswith(".claimed"):
+        return name[: -len(".claimed")] + ".json"
+    return name
+
+
+def unlink_step_ticket_siblings(claimed_path: Path) -> None:
+    """Remove the claimed path and any pending/sibling claim for the same ticket.
+
+    After ``reclaim_stale_claims`` renames a claim back to ``foo.json``, the worker's
+    ``finally: claimed.unlink`` is a no-op and the ticket loops forever. Always clear
+    the base pending file and every ``foo.json.claimed-*`` sibling.
+    """
+    parent = claimed_path.parent
+    base = _pending_ticket_base_name(claimed_path)
+    candidates = {claimed_path, parent / base}
+    try:
+        for sibling in parent.glob(f"{base}.claimed*"):
+            candidates.add(sibling)
+    except OSError:
+        pass
+    for target in candidates:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _heartbeat_claim_path(path: Path, stop: threading.Event) -> None:
+    """Touch claim mtime until ``stop`` is set so reclaim does not steal live work."""
+    while not stop.wait(30.0):
+        try:
+            os.utime(path, None)
+        except OSError:
+            return
 
 
 def _write_warm_pool_failure_result(
@@ -471,6 +519,14 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
                 step_id=ticket.step_id or "",
                 component="warm-pool-worker",
             )
+            stop_hb = threading.Event()
+            hb = threading.Thread(
+                target=_heartbeat_claim_path,
+                args=(path, stop_hb),
+                name="claim-heartbeat",
+                daemon=True,
+            )
+            hb.start()
             try:
                 exit_code = execute_step_from_spec_file(Path(str(spec_raw)))
                 if exit_code != 0:
@@ -510,7 +566,9 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
                     error=str(exc),
                 )
             finally:
-                path.unlink(missing_ok=True)
+                stop_hb.set()
+                hb.join(timeout=2.0)
+                unlink_step_ticket_siblings(path)
             continue
 
         claimed = claim_next_warm_pool_request(mount)

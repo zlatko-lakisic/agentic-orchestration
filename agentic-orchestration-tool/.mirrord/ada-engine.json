@@ -1,0 +1,14 @@
+{
+  "target": {
+    "path": "deployment/agentic-engine",
+    "namespace": "agentic-orchestration"
+  },
+  "feature": {
+    "env": true,
+    "fs": "read",
+    "network": {
+      "incoming": "steal",
+      "outgoing": true
+    }
+  }
+}
