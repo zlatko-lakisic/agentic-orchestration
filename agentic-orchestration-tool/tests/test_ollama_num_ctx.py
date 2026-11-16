@@ -72,6 +72,40 @@ def test_ollama_build_agent_forwards_num_ctx(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["api_base"] == "http://agentic-ollama:11434"
     assert captured["is_litellm"] is True
     assert captured["num_ctx"] == 16384
+    assert captured["timeout"] == 600.0
+
+
+@pytest.mark.unit
+def test_ollama_build_agent_forwards_chat_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_llm(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        return MagicMock(name="LLM")
+
+    _stub_fetch_url_tool(monkeypatch)
+    monkeypatch.setattr("agent_providers.ollama_provider.ThinkingAwareLLM", _fake_llm)
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.Agent", lambda **_k: MagicMock(name="Agent")
+    )
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.litellm_api_base_for_ollama",
+        lambda: "http://agentic-ollama:11434",
+    )
+
+    cfg = AgentProviderConfig(
+        id="ollama_llama",
+        role="Assistant",
+        goal="Help",
+        backstory="Helpful.",
+        model="llama3.2:3b",
+        provider_type="ollama",
+        provider_options={"options": {"chat_timeout_sec": 900}},
+    )
+    OllamaProvider(cfg).build_agent()
+    assert captured["timeout"] == 900.0
 
 
 @pytest.mark.unit

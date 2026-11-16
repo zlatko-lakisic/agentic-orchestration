@@ -459,6 +459,17 @@ def error_code_for_exception(exc: BaseException) -> str:
     explicit = getattr(exc, "code", "")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
+    detail = str(exc or "").casefold()
+    if any(
+        marker in detail
+        for marker in (
+            "cudamalloc",
+            "nvmap",
+            "runner process has terminated",
+            "runner terminated",
+        )
+    ):
+        return "model_load_failed"
     name = exc.__class__.__name__
     mapping = {
         "DirectAgentFormatError": "direct_agent_format",

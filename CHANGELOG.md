@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 - **Warm-pool step tickets re-ran forever (#53)** — claim rename kept enqueue `mtime`, so `reclaim_stale_claims` (120s) stole live claims and completion only unlinked the claimed path. Claims now `utime` on claim, heartbeat every 30s while running, and unlink the pending base plus claim siblings on completion.
 - **Irrigation `MINUTES:` ignored inside LaTeX** — `_normalize_line` now strips `\[ \]`, `\( \)`, and `$`/`$$` so `\[ MINUTES: 15 \]` parses.
 - **Engine Kubernetes Job RBAC and worker image parity** — the engine Deployment now uses the coordinator ServiceAccount, receives the worker image and environment Secret settings required to create worker Jobs, and the Jetson enable script copies the live coordinator's worker image into the engine manifest.
+- **Jetson Ollama JSON reliability** — JSON direct-agent calls disable thinking by
+  default while honoring per-agent `think` overrides, CrewAI and LiteLLM calls
+  use the configured Ollama chat timeout, and GPU model-load failures surface as
+  `model_load_failed`. The Ollama deployment enables flash attention, quantized
+  KV cache, and a two-model residency cap to reduce GPU allocation failures.
 - **Engine overlay register ImportError (`_ExtendedAttributes`)** — the coordinator image can ship FastAPI ≥0.142, which upgrades `opentelemetry-api` to 1.45 while CrewAI's OTLP exporter stays on 1.34.1. That exporter imports `opentelemetry.util.types._ExtendedAttributes`, removed in API 1.45, so session overlay registration fails. `requirements.txt` and `requirements-serve.txt` pin the whole OpenTelemetry 1.34.1 set, and the engine startup install downgrades a drifted image before `orchestration.serve`.
 
 ### Added

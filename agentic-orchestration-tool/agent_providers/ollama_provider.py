@@ -1097,6 +1097,9 @@ class OllamaProvider(AgentProvider):
             "api_base": litellm_api_base_for_ollama(),
             "is_litellm": True,
         }
+        from orchestration.direct_agent import ollama_chat_timeout_sec
+
+        llm_kwargs["timeout"] = ollama_chat_timeout_sec(self.config.provider_options)
         # Optional per-agent context cap from YAML (lands in provider_options).
         # LiteLLM maps num_ctx into Ollama's options payload.
         raw_num_ctx = self.config.provider_options.get("num_ctx")

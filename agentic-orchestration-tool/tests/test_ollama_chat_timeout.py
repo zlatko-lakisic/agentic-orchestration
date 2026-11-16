@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import io
+import sys
+import types
+import urllib.error
+
 import pytest
 
-from orchestration.direct_agent import ollama_chat_timeout_sec
+from orchestration.direct_agent import (
+    _litellm_chat_json,
+    _ollama_json_think_value,
+    _raise_ollama_http_error,
+    ollama_chat_timeout_sec,
+)
 from orchestration.run_status import error_code_for_exception
 from orchestration.session_overlay_runtime import (
     overlay_prewarm_enabled,
@@ -44,6 +54,81 @@ def test_ollama_chat_timeout_clamps(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.unit
 def test_timeout_error_maps_to_timeout_code() -> None:
     assert error_code_for_exception(TimeoutError("Ollama /api/chat timed out after 600s")) == "timeout"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({}, False),
+        ({"think": True}, True),
+        ({"think": "high"}, "high"),
+        ({"options": {"think": True}}, True),
+        ({"think": False, "options": {"think": True}}, False),
+    ],
+)
+def test_ollama_json_think_resolution(entry: dict[str, object], expected: object) -> None:
+    assert _ollama_json_think_value(entry) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "cudaMalloc failed: out of memory",
+        "NvMapMemAllocInternalTagged failed",
+        "llama runner process has terminated",
+        "runner terminated unexpectedly",
+    ],
+)
+def test_model_load_failures_map_to_stable_code(detail: str) -> None:
+    assert error_code_for_exception(RuntimeError(detail)) == "model_load_failed"
+
+
+@pytest.mark.unit
+def test_ollama_http_500_model_load_failure_is_clear() -> None:
+    detail = b'{"error":"cudaMalloc failed: out of memory"}'
+    exc = urllib.error.HTTPError(
+        "http://ollama/api/chat",
+        500,
+        "Internal Server Error",
+        {},
+        io.BytesIO(detail),
+    )
+    with pytest.raises(RuntimeError, match="could not load the model into GPU memory"):
+        _raise_ollama_http_error(exc, detail.decode())
+
+
+@pytest.mark.unit
+def test_litellm_json_chat_forwards_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"ok":true}'}}]}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        types.SimpleNamespace(completion=_completion),
+    )
+    monkeypatch.setattr(
+        "agent_providers.ollama_provider.litellm_api_base_for_ollama",
+        lambda: "http://agentic-ollama:11434",
+    )
+    assert (
+        _litellm_chat_json(
+            entry={
+                "type": "ollama",
+                "model": "qwen3:8b",
+                "chat_timeout_sec": 750,
+            },
+            prompt="return json",
+            on_progress=None,
+        )
+        == '{"ok":true}'
+    )
+    assert captured["timeout"] == 750.0
 
 
 @pytest.mark.unit
