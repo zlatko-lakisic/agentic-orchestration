@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Jetson NvMap memory tune default (#61)** — env.jetson enables AGENTIC_JETSON_MEMORY_TUNE=1 so deploy applies jetson-ollama-memory-tune.sh (sysctl only; drop_caches remains separately gated).
 - **Jetson host-binary Ollama env (#61)** — jetson-enable-ollama.sh now exports OLLAMA_MAX_LOADED_MODELS=2, flash attention, and q8_0 KV cache to match the Ada managed_k8s daemon knobs.
 - **Warm-pool CrashLoop after CrewAI 1.15 upgrade** — bootstrap now installs crewai==1.15.41 with the OpenTelemetry 1.45.2 set (not only FastAPI), so old worker images no longer mix CrewAI 1.12 exporters with API 1.45.
 - **Direct-agent cancellation, MCP tunnel timeout, and strict tool schemas (#55, #57, #59)** — WebSocket cancellation now closes the in-flight JSON-mode Ollama HTTP request; tunnel deadlines are configurable with `AGENTIC_MCP_TUNNEL_TIMEOUT_S` and return HTTP 200 MCP tool-error results; CrewAI framework metadata is accepted separately, then stripped before dispatch to strict client MCP tools.
