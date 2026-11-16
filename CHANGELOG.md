@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Fixed
 
+- **Warm-pool CrashLoop after CrewAI 1.15 upgrade** — bootstrap now installs crewai==1.15.41 with the OpenTelemetry 1.45.2 set (not only FastAPI), so old worker images no longer mix CrewAI 1.12 exporters with API 1.45.
 - **Direct-agent cancellation, MCP tunnel timeout, and strict tool schemas (#55, #57, #59)** — WebSocket cancellation now closes the in-flight JSON-mode Ollama HTTP request; tunnel deadlines are configurable with `AGENTIC_MCP_TUNNEL_TIMEOUT_S` and return HTTP 200 MCP tool-error results; CrewAI framework metadata is accepted separately, then stripped before dispatch to strict client MCP tools.
 - **Warm-pool step tickets re-ran forever (#53)** — claim rename kept enqueue `mtime`, so `reclaim_stale_claims` (120s) stole live claims and completion only unlinked the claimed path. Claims now `utime` on claim, heartbeat every 30s while running, and unlink the pending base plus claim siblings on completion.
 - **Irrigation `MINUTES:` ignored inside LaTeX** — `_normalize_line` now strips `\[ \]`, `\( \)`, and `$`/`$$` so `\[ MINUTES: 15 \]` parses.
