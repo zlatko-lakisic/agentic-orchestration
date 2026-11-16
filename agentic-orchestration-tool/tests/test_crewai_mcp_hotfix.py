@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from orchestration.crewai_mcp_hotfix import shorten_mcp_native_tool_names
+import pytest
+from pydantic import ConfigDict, create_model
+
+from orchestration.crewai_mcp_hotfix import (
+    shorten_mcp_native_tool_names,
+    strip_framework_tool_args,
+)
 
 
 def test_shorten_mcp_native_tool_names_uses_original() -> None:
@@ -23,7 +29,7 @@ def test_shorten_mcp_native_tool_names_uses_original() -> None:
     out = shorten_mcp_native_tool_names([tool])
     assert out[0].name == "read_file"
     assert out[0].description.startswith("Tool Name: read_file\n")
-    assert out[0].args_schema.model_config["extra"] == "allow"
+    assert out[0].args_schema.model_config["extra"] == "forbid"
 
 
 def test_shorten_mcp_native_tool_names_disambiguates_collisions() -> None:
@@ -34,3 +40,30 @@ def test_shorten_mcp_native_tool_names_disambiguates_collisions() -> None:
     shorten_mcp_native_tool_names(tools)
     assert tools[0].name == "read_file"
     assert tools[1].name == "read_file_2"
+
+
+def test_framework_args_are_accepted_without_weakening_strict_schema() -> None:
+    strict_schema = create_model(
+        "StrictMcpArgs",
+        path=(str, ...),
+        __config__=ConfigDict(extra="forbid"),
+    )
+    tool = SimpleNamespace(
+        name="server_read_file",
+        original_tool_name="read_file",
+        description="",
+        args_schema=strict_schema,
+    )
+    shorten_mcp_native_tool_names([tool])
+
+    parsed = tool.args_schema.model_validate(
+        {"path": "/tmp/a", "security_context": {"agent_fingerprint": "secret"}}
+    )
+    assert parsed.path == "/tmp/a"
+    with pytest.raises(ValueError):
+        tool.args_schema.model_validate({"path": "/tmp/a", "unexpected": True})
+
+    assert strip_framework_tool_args(parsed.model_dump()) == {"path": "/tmp/a"}
+    assert strip_framework_tool_args({"path": "x", "_crewai_trace": "hidden"}) == {
+        "path": "x"
+    }

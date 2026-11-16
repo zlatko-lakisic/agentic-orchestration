@@ -9,11 +9,13 @@ any HTTP client) talks to loopback only — the daemon never dials the client LA
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import os
 import threading
 import time
 import uuid
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import unquote
@@ -35,6 +37,46 @@ SendRequestFn = Callable[[dict[str, Any]], None]
 
 class McpTunnelError(RuntimeError):
     """Tunnel proxy failure (timeout, unknown connection, disabled, etc.)."""
+
+
+class McpTunnelTimeout(McpTunnelError):
+    """The client did not answer a tunnel request before its deadline."""
+
+
+def mcp_tunnel_timeout_s() -> float:
+    raw = str(os.getenv("AGENTIC_MCP_TUNNEL_TIMEOUT_S", "") or "").strip()
+    if not raw:
+        return DEFAULT_TUNNEL_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_TUNNEL_TIMEOUT_S
+    return value if value > 0 else DEFAULT_TUNNEL_TIMEOUT_S
+
+
+def _mcp_timeout_response(body: bytes, timeout_s: float) -> bytes:
+    request_id: Any = None
+    try:
+        request = json.loads(body.decode("utf-8"))
+        if isinstance(request, dict):
+            request_id = request.get("id")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    return json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"MCP tunnel tool timed out after {timeout_s:g}s",
+                    }
+                ],
+                "isError": True,
+            },
+        }
+    ).encode("utf-8")
 
 
 class _TunnelBridge:
@@ -177,6 +219,12 @@ class _TunnelBridge:
             except Exception:  # noqa: BLE001
                 pass
             return result
+        except FutureTimeoutError as exc:
+            with self._lock:
+                self._pending.pop(request_id, None)
+            raise McpTunnelTimeout(
+                f"MCP tunnel timed out after {timeout_s:g}s waiting for requestId={request_id}"
+            ) from exc
         except McpTunnelError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -376,14 +424,24 @@ class McpTunnelHub:
             for k, v in handler.headers.items()
             if str(k).lower() not in ("host", "content-length", "transfer-encoding", "connection")
         }
-        response = bridge.exchange(
-            mcp_id=mcp_id,
-            tunnel_path=alias,
-            method=handler.command or "POST",
-            path=rest,
-            headers=headers,
-            body=body,
-        )
+        timeout_s = mcp_tunnel_timeout_s()
+        try:
+            response = bridge.exchange(
+                mcp_id=mcp_id,
+                tunnel_path=alias,
+                method=handler.command or "POST",
+                path=rest,
+                headers=headers,
+                body=body,
+                timeout_s=timeout_s,
+            )
+        except McpTunnelTimeout as exc:
+            logger.warning("%s", exc)
+            return (
+                200,
+                {"content-type": "application/json"},
+                _mcp_timeout_response(body, timeout_s),
+            )
         status = int(response.get("status") or 502)
         resp_headers_raw = response.get("headers") or {}
         resp_headers: dict[str, str] = {}

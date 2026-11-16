@@ -17,11 +17,11 @@ Optional ``response_format={"type": "json_object"}`` skips CrewAI and calls Olla
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
+import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -36,6 +36,7 @@ JSON_EXPECTED_OUTPUT = (
 _DEFAULT_OLLAMA_CHAT_TIMEOUT_SEC = 600.0
 _MIN_OLLAMA_CHAT_TIMEOUT_SEC = 30.0
 _MAX_OLLAMA_CHAT_TIMEOUT_SEC = 7200.0
+logger = logging.getLogger(__name__)
 
 
 def _parse_positive_float(raw: Any) -> float | None:
@@ -114,13 +115,17 @@ def _looks_like_ollama_model_load_failure(detail: str) -> bool:
     )
 
 
-def _raise_ollama_http_error(exc: urllib.error.HTTPError, detail: str) -> None:
-    if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
+def _raise_ollama_http_error(exc: BaseException, detail: str) -> None:
+    status = getattr(exc, "code", None)
+    response = getattr(exc, "response", None)
+    if status is None and response is not None:
+        status = getattr(response, "status_code", None)
+    if status == 500 and _looks_like_ollama_model_load_failure(detail):
         raise RuntimeError(
             "Ollama could not load the model into GPU memory "
             f"(HTTP 500): {detail}"
         ) from exc
-    raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
+    raise RuntimeError(f"Ollama /api/chat failed ({status}): {detail}") from exc
 
 
 def _tool_root_default() -> Path:
@@ -369,6 +374,7 @@ def _ollama_chat_json(
     prompt: str,
     json_schema: dict[str, Any] | None,
     on_progress: Callable[[str], None] | None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     from agent_providers.ollama_provider import (
         ensure_ollama_runtime,
@@ -442,13 +448,6 @@ def _ollama_chat_json(
     timeout_s = ollama_chat_timeout_sec(entry)
     if on_progress:
         on_progress(f"generating (timeout_s={timeout_s:g})")
-    raw_http = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        f"{host}/api/chat",
-        data=raw_http,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     started = time.monotonic()
 
     def _raise_chat_timeout(exc: BaseException) -> None:
@@ -465,42 +464,98 @@ def _ollama_chat_json(
             return True
         return "timed out" in str(exc).casefold()
 
+    def _request(request_body: dict[str, Any]) -> dict[str, Any]:
+        import httpx
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Ollama /api/chat cancelled")
+
+        client = httpx.Client(timeout=timeout_s)
+        response_holder: list[httpx.Response] = []
+        request_done = threading.Event()
+
+        def _close_on_cancel() -> None:
+            if cancel_event is None:
+                return
+            while not request_done.is_set():
+                if cancel_event.wait(timeout=0.1):
+                    break
+            else:
+                return
+            try:
+                if response_holder:
+                    response_holder[0].close()
+                client.close()
+            except Exception as close_exc:  # noqa: BLE001
+                logger.error(
+                    "orphaned Ollama request: failed to close /api/chat after cancel: %s",
+                    close_exc,
+                )
+                return
+            if not request_done.wait(timeout=1.0):
+                logger.error(
+                    "orphaned Ollama request: /api/chat remained open after cancel close"
+                )
+
+        if cancel_event is not None:
+            threading.Thread(
+                target=_close_on_cancel,
+                name="ollama-chat-cancel",
+                daemon=True,
+            ).start()
+        try:
+            with client.stream(
+                "POST",
+                f"{host}/api/chat",
+                json=request_body,
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                response_holder.append(response)
+                response.raise_for_status()
+                raw = b"".join(response.iter_bytes())
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Ollama /api/chat cancelled")
+            parsed = json.loads(raw.decode("utf-8"))
+            if not isinstance(parsed, dict):
+                raise RuntimeError("Ollama /api/chat returned a non-object response")
+            return parsed
+        finally:
+            request_done.set()
+            client.close()
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
-        if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
+        payload = _request(body)
+    except Exception as exc:
+        import httpx
+
+        detail = (
+            exc.response.text
+            if isinstance(exc, httpx.HTTPStatusError)
+            else str(exc)
+        )
+        if (
+            isinstance(exc, httpx.HTTPStatusError)
+            and exc.response.status_code == 500
+            and _looks_like_ollama_model_load_failure(detail)
+        ):
             _raise_ollama_http_error(exc, detail)
         # Schema-as-format may be unsupported; retry with plain "json".
-        if fmt != "json":
+        if isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
             body["format"] = "json"
-            req2 = urllib.request.Request(
-                f"{host}/api/chat",
-                data=json.dumps(body).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
             try:
-                with urllib.request.urlopen(req2, timeout=timeout_s) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc2:
-                detail2 = (
-                    exc2.read().decode("utf-8", errors="replace")
-                    if exc2.fp
-                    else str(exc2)
-                )
-                _raise_ollama_http_error(exc2, detail2)
+                payload = _request(body)
             except Exception as exc2:  # noqa: BLE001
                 if _is_timeout(exc2):
                     _raise_chat_timeout(exc2)
+                if isinstance(exc2, httpx.HTTPStatusError):
+                    _raise_ollama_http_error(exc2, exc2.response.text)
                 raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
         else:
-            _raise_ollama_http_error(exc, detail)
-    except Exception as exc:  # noqa: BLE001
-        if _is_timeout(exc):
-            _raise_chat_timeout(exc)
-        raise RuntimeError(f"Ollama /api/chat failed: {exc}") from exc
+            if _is_timeout(exc):
+                _raise_chat_timeout(exc)
+            if isinstance(exc, httpx.HTTPStatusError):
+                _raise_ollama_http_error(exc, detail)
+            raise RuntimeError(f"Ollama /api/chat failed: {detail}") from exc
 
     message = payload.get("message") if isinstance(payload, dict) else None
     content = ""
@@ -629,6 +684,7 @@ def run_direct_agent_json(
     context: str = "",
     json_schema: dict[str, Any] | None = None,
     on_progress: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """JSON-mode direct agent: native format + strict ``json.loads`` (+ optional schema)."""
     text = str(goal or "").strip()
@@ -655,6 +711,7 @@ def run_direct_agent_json(
             prompt=prompt,
             json_schema=json_schema if isinstance(json_schema, dict) else None,
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
     else:
         raw = _litellm_chat_json(entry=entry, prompt=prompt, on_progress=on_progress)
@@ -680,6 +737,7 @@ def run_direct_agent(
     response_format: dict[str, Any] | None = None,
     json_schema: dict[str, Any] | None = None,
     images: list[Any] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """Ask one catalog agent one question and return its answer text.
 
@@ -701,6 +759,7 @@ def run_direct_agent(
             context=context,
             json_schema=json_schema if isinstance(json_schema, dict) else None,
             on_progress=on_progress,
+            cancel_event=cancel_event,
         )
 
     text = str(goal or "").strip()
