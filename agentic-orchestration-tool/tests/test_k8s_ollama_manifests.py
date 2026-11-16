@@ -31,6 +31,9 @@ def test_ollama_deployment_caps_context_length() -> None:
     env = {e["name"]: e.get("value") for e in ollama["env"]}
     assert env["OLLAMA_HOST"] == "0.0.0.0:11435"
     assert env["OLLAMA_KEEP_ALIVE"] == "120"
+    assert env["OLLAMA_MAX_LOADED_MODELS"] == "2"
+    assert env["OLLAMA_FLASH_ATTENTION"] == "1"
+    assert env["OLLAMA_KV_CACHE_TYPE"] == "q8_0"
     assert env["OLLAMA_CONTEXT_LENGTH"] == "16384"
 
 

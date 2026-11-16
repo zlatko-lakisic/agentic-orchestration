@@ -91,6 +91,38 @@ class DirectAgentEmptyAnswerError(Exception):
         self.message = message
 
 
+def _ollama_json_think_value(entry: dict[str, Any]) -> Any:
+    """Resolve Ollama JSON-mode thinking, defaulting to disabled."""
+    if "think" in entry:
+        return entry["think"]
+    options = entry.get("options")
+    if isinstance(options, dict) and "think" in options:
+        return options["think"]
+    return False
+
+
+def _looks_like_ollama_model_load_failure(detail: str) -> bool:
+    text = str(detail or "").casefold()
+    return any(
+        marker in text
+        for marker in (
+            "cudamalloc",
+            "nvmap",
+            "runner process has terminated",
+            "runner terminated",
+        )
+    )
+
+
+def _raise_ollama_http_error(exc: urllib.error.HTTPError, detail: str) -> None:
+    if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
+        raise RuntimeError(
+            "Ollama could not load the model into GPU memory "
+            f"(HTTP 500): {detail}"
+        ) from exc
+    raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
+
+
 def _tool_root_default() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -381,6 +413,7 @@ def _ollama_chat_json(
         ],
         "stream": False,
         "format": fmt,
+        "think": _ollama_json_think_value(entry),
     }
     # Overlay agents may pin sampling / context (e.g. campaign_director
     # temperature: 0, num_ctx: 8192). Without this, Ollama uses defaults
@@ -437,6 +470,8 @@ def _ollama_chat_json(
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+        if exc.code == 500 and _looks_like_ollama_model_load_failure(detail):
+            _raise_ollama_http_error(exc, detail)
         # Schema-as-format may be unsupported; retry with plain "json".
         if fmt != "json":
             body["format"] = "json"
@@ -449,12 +484,19 @@ def _ollama_chat_json(
             try:
                 with urllib.request.urlopen(req2, timeout=timeout_s) as resp:
                     payload = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc2:
+                detail2 = (
+                    exc2.read().decode("utf-8", errors="replace")
+                    if exc2.fp
+                    else str(exc2)
+                )
+                _raise_ollama_http_error(exc2, detail2)
             except Exception as exc2:  # noqa: BLE001
                 if _is_timeout(exc2):
                     _raise_chat_timeout(exc2)
                 raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
         else:
-            raise RuntimeError(f"Ollama /api/chat failed ({exc.code}): {detail}") from exc
+            _raise_ollama_http_error(exc, detail)
     except Exception as exc:  # noqa: BLE001
         if _is_timeout(exc):
             _raise_chat_timeout(exc)
@@ -518,6 +560,7 @@ def _litellm_chat_json(
         ],
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
+        "timeout": ollama_chat_timeout_sec(entry),
     }
     if clean_model.lower().startswith("ollama/"):
         kwargs["api_base"] = litellm_api_base_for_ollama()
