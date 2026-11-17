@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -21,6 +22,8 @@ from typing import Any, AsyncIterator
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+
+_LOG = logging.getLogger(__name__)
 
 from orchestration.ollama_resource_manager import (
     extract_model_from_body,
@@ -138,24 +141,30 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
             try:
                 # Blocking admission in a thread so the event loop stays responsive.
                 lease = await asyncio.to_thread(mgr.acquire, model)
-            except TimeoutError as exc:
+            except TimeoutError:
+                _LOG.warning("ollama resource acquire timed out for model=%s", model, exc_info=True)
                 return JSONResponse(
                     {
-                        "error": str(exc),
+                        "error": "resource acquire timed out",
                         "code": "ollama_resource_timeout",
                     },
                     status_code=503,
                 )
-            except RuntimeError as exc:
+            except RuntimeError:
+                _LOG.warning("ollama resource busy for model=%s", model, exc_info=True)
                 return JSONResponse(
                     {
-                        "error": str(exc),
+                        "error": "resource busy",
                         "code": "ollama_resource_busy",
                     },
                     status_code=503,
                 )
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
+            except ValueError:
+                _LOG.warning("invalid ollama resource request for model=%s", model, exc_info=True)
+                return JSONResponse(
+                    {"error": "invalid resource request"},
+                    status_code=400,
+                )
 
         headers = {
             k: v
@@ -176,11 +185,12 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
                 content=body if body else None,
             )
             upstream_res = await client.send(req, stream=True)
-        except httpx.HTTPError as exc:
+        except httpx.HTTPError:
             if lease is not None:
                 mgr.release(lease)
+            _LOG.warning("upstream ollama unreachable for path=%s", path, exc_info=True)
             return JSONResponse(
-                {"error": f"upstream ollama unreachable: {exc}"},
+                {"error": "upstream ollama unreachable"},
                 status_code=502,
             )
 

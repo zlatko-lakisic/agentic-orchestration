@@ -3,6 +3,10 @@
     "path": "deployment/agentic-engine",
     "namespace": "agentic-orchestration"
   },
+  "agent": {
+    "privileged": true,
+    "namespace": "agentic-orchestration"
+  },
   "feature": {
     "env": true,
     "fs": "read",

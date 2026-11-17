@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 
@@ -494,7 +495,9 @@ def test_run_sets_api_base_for_ollama_models(
 
     run_reach_multimodal(text="classify", images=parse_reach_images([_image_payload()]))
 
-    assert fake.calls[0]["api_base"].startswith("http://ollama.test:11434")
+    parsed = urlparse(fake.calls[0]["api_base"])
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "ollama.test:11434"
 
 
 def test_run_refuses_when_no_vision_model_is_configured() -> None:

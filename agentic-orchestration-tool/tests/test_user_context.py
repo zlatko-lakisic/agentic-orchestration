@@ -19,6 +19,7 @@ from orchestration.user_context import (
     resolve_auth_display_name,
     resolve_identity,
     resolve_session_id_from_headers,
+    sanitize_email,
     sanitize_logout_url,
     sanitize_session_id,
     sanitize_user_display_name,
@@ -250,3 +251,12 @@ def test_sanitize_logout_method_and_redirect() -> None:
     assert sanitize_logout_redirect("/@warpgate") == "/@warpgate"
     assert sanitize_logout_redirect("https://gate.example/@warpgate") == "https://gate.example/@warpgate"
     assert sanitize_logout_redirect("//evil.example") is None
+
+
+def test_sanitize_email_accepts_simple_addresses_and_rejects_ambiguous() -> None:
+    assert sanitize_email("ada@example.com") == "ada@example.com"
+    assert sanitize_email("  Ada.L+test@sub.example.org ") == "Ada.L+test@sub.example.org"
+    assert sanitize_email("not-an-email") is None
+    assert sanitize_email("a@b") is None
+    assert sanitize_email("bad space@example.com") is None
+    assert sanitize_email("!@!." + ("!." * 40)) is None
