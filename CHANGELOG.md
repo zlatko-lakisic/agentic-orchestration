@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-11-16
+
 ### Fixed
 
 - **CodeQL stack-trace exposure** — Ollama resource broker and web chat-completions health return fixed client error strings; exception details stay in server logs only (including `probeOllamaChatCompletionsHealth` catch path).
