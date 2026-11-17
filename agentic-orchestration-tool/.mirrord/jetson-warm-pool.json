@@ -3,9 +3,13 @@
     "path": "deployment/agentic-warm-pool",
     "namespace": "agentic-orchestration"
   },
+  "agent": {
+    "privileged": true,
+    "namespace": "agentic-orchestration"
+  },
   "feature": {
     "env": true,
-    "fs": "write",
+    "fs": "read",
     "network": {
       "incoming": "mirror",
       "outgoing": true
