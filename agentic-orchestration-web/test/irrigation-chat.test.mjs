@@ -4,6 +4,7 @@ import {
   applyIrrigationMaxTokens,
   goalRequestsIrrigationMinutesLine,
   messagesLookLikeIrrigation,
+  probeOllamaChatCompletionsHealth,
 } from "../lib/irrigation-chat.mjs";
 
 test("goalRequestsIrrigationMinutesLine detects HA watering prompt", () => {
@@ -43,4 +44,21 @@ test("applyIrrigationMaxTokens leaves non-irrigation payloads alone", () => {
   };
   const out = applyIrrigationMaxTokens(payload, { maxTokens: 400 });
   assert.equal(out.max_tokens, 500);
+});
+
+test("probeOllamaChatCompletionsHealth never returns exception text", async () => {
+  const secret = "SECRET_STACK_TRACE_FRAGMENT_xyz";
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error(secret);
+  };
+  try {
+    const body = await probeOllamaChatCompletionsHealth(() => "http://ollama.test:11434");
+    assert.equal(body.ok, false);
+    assert.equal(body.ollama, "unreachable");
+    assert.equal(body.error, "upstream unreachable");
+    assert.equal(JSON.stringify(body).includes(secret), false);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

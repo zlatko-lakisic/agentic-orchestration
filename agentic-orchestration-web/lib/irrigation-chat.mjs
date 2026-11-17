@@ -97,11 +97,16 @@ export async function probeOllamaChatCompletionsHealth(baseUrlFn) {
     }
     return { ok: true, ollama: "healthy", checkedAt };
   } catch (err) {
+    // Log details server-side; never return exception text to clients (CodeQL js/stack-trace-exposure).
+    console.error(
+      "[probeOllamaChatCompletionsHealth]",
+      err instanceof Error ? err.stack || err.message : err,
+    );
     return {
       ok: false,
       ollama: "unreachable",
       checkedAt,
-      error: err instanceof Error ? err.message : String(err),
+      error: "upstream unreachable",
     };
   }
 }
