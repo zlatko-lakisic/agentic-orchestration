@@ -2517,13 +2517,14 @@ function handleHttp(req, res) {
         res.end(JSON.stringify(body));
       })
       .catch((err) => {
+        logServerError("chat-completions health probe failed", err);
         res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
         res.end(
           JSON.stringify({
             ok: false,
             ollama: "unreachable",
             checkedAt: new Date().toISOString(),
-            error: err instanceof Error ? err.message : String(err),
+            error: "upstream unreachable",
           }),
         );
       });

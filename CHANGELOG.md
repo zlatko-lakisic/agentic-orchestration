@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **CodeQL stack-trace exposure** — Ollama resource broker and web chat-completions health return fixed client error strings; exception details stay in server logs only.
+- **CodeQL email ReDoS** — `sanitize_email` uses an unambiguous character-class pattern instead of nested `[^\s@]+` quantifiers.
+- **CodeQL incomplete URL sanitization in tests** — Reach multimodal Ollama base assertion compares `urlparse` scheme/netloc instead of `startswith`.
+
 ## [2.13.0] - 2026-11-16
 
 ### Fixed

@@ -151,3 +151,75 @@ def test_resource_status_still_works_off_event_loop() -> None:
         assert res.status_code == 200
         assert res.json()["enabled"] is True
         assert "/api/ps" in [p for _, p in up.calls]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("exc", "status", "error", "code"),
+    [
+        (TimeoutError("secret timeout detail"), 503, "resource acquire timed out", "ollama_resource_timeout"),
+        (RuntimeError("secret busy detail"), 503, "resource busy", "ollama_resource_busy"),
+        (ValueError("secret invalid detail"), 400, "invalid resource request", None),
+    ],
+)
+def test_broker_admission_errors_are_generic(
+    monkeypatch: pytest.MonkeyPatch,
+    exc: BaseException,
+    status: int,
+    error: str,
+    code: str | None,
+) -> None:
+    """Clients must not receive exception text (CodeQL py/stack-trace-exposure)."""
+    up = _Upstream()
+    app, mgr, transport = _make_app(up)
+
+    def _boom(_model: str) -> Any:
+        raise exc
+
+    monkeypatch.setattr(mgr, "acquire", _boom)
+    with TestClient(app) as client:
+        app.state.http = httpx.AsyncClient(transport=transport)
+        res = client.post(
+            "/api/chat",
+            json={
+                "model": "a:1b",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+        )
+        assert res.status_code == status
+        body = res.json()
+        assert body["error"] == error
+        if code is not None:
+            assert body["code"] == code
+        dumped = json.dumps(body)
+        assert "secret" not in dumped
+        assert "detail" not in dumped
+
+
+@pytest.mark.unit
+def test_broker_upstream_unreachable_is_generic(monkeypatch: pytest.MonkeyPatch) -> None:
+    up = _Upstream()
+    app, _mgr, transport = _make_app(up)
+
+    class _FailClient:
+        def build_request(self, *args: Any, **kwargs: Any) -> httpx.Request:
+            return httpx.Request("POST", "http://upstream.test/api/chat")
+
+        async def send(self, request: httpx.Request, stream: bool = False) -> httpx.Response:
+            raise httpx.ConnectError("secret connect stack", request=request)
+
+    with TestClient(app) as client:
+        app.state.http = _FailClient()  # type: ignore[assignment]
+        res = client.post(
+            "/api/chat",
+            json={
+                "model": "a:1b",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+        )
+        assert res.status_code == 502
+        body = res.json()
+        assert body["error"] == "upstream ollama unreachable"
+        assert "secret" not in json.dumps(body)

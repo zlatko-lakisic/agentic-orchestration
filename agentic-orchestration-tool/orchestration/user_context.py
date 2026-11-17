@@ -162,7 +162,8 @@ def sanitize_email(raw: Any) -> str | None:
         return None
     if _CONTROL_CHARS.search(text):
         return None
-    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", text):
+    # Character-class form avoids ambiguous nested + that CodeQL flags as ReDoS.
+    if not re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", text):
         return None
     return text
 
