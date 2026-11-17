@@ -4,7 +4,7 @@
 # stay self-contained; workers get it via requirements.txt.
 fastapi>=0.142,<1
 uvicorn[standard]>=0.30.0,<1
-websockets>=12.0,<16
+websockets>=17.4,<18
 cryptography>=42.0.0,<47
 prometheus_client>=0.20.0,<1
 # Same aligned set as requirements.txt. The engine startup install uses this
