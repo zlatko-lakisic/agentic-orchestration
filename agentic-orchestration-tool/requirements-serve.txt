@@ -3,7 +3,7 @@
 # (litellm MCP handler → litellm.proxy → fastapi). Kept here so serve installs
 # stay self-contained; workers get it via requirements.txt.
 fastapi>=0.142,<1
-uvicorn[standard]>=0.30.0,<1
+uvicorn[standard]>=0.54.0,<1
 websockets>=17.4,<18
 cryptography>=42.0.0,<47
 prometheus_client>=0.26.0,<1
