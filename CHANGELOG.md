@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-11-20
+
 ### Changed
 
 - **Admin CPU/GPU chart window (#101)** — Overview sparks and Host utilization charts keep only the last ~10 live samples (`HISTORY_MAX`); older points drop off as newer ones arrive.
