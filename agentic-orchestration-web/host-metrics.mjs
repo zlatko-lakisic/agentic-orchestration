@@ -233,6 +233,27 @@ function sampleCpuTempC() {
   }
 }
 
+/**
+ * Parse tegrastats/jtop ramText like "19.3/61.4GB" into GiB used/total.
+ * Used for unified-memory UI (#100) — never copied into portable gpu.vram*.
+ */
+export function parseJetsonRamText(ramText) {
+  const m = String(ramText || "")
+    .trim()
+    .match(/^([\d.]+)\s*\/\s*([\d.]+)\s*(?:GB|GiB)?$/i);
+  if (!m) return null;
+  const usedGb = Number(m[1]);
+  const totalGb = Number(m[2]);
+  if (!Number.isFinite(usedGb) || !Number.isFinite(totalGb) || totalGb <= 0) {
+    return null;
+  }
+  return {
+    usedGb,
+    totalGb,
+    usedPercent: Math.round((usedGb / totalGb) * 1000) / 10,
+  };
+}
+
 function normalizeGpuBlock(gpu, source, extras = {}) {
   if (!gpu || typeof gpu !== "object") return null;
   const percent = typeof gpu.percent === "number" ? gpu.percent : null;
@@ -243,6 +264,25 @@ function normalizeGpuBlock(gpu, source, extras = {}) {
   if (vramTotalGb != null && vramTotalGb > 0 && vramUsedGb != null) {
     vramUsedPercent = Math.round((vramUsedGb / vramTotalGb) * 1000) / 10;
   }
+  const unifiedUsedGb =
+    typeof gpu.unifiedUsedGb === "number" ? gpu.unifiedUsedGb : null;
+  const unifiedTotalGb =
+    typeof gpu.unifiedTotalGb === "number" ? gpu.unifiedTotalGb : null;
+  let unifiedUsedPercent =
+    typeof gpu.unifiedUsedPercent === "number" ? gpu.unifiedUsedPercent : null;
+  if (
+    unifiedUsedPercent == null &&
+    unifiedTotalGb != null &&
+    unifiedTotalGb > 0 &&
+    unifiedUsedGb != null
+  ) {
+    unifiedUsedPercent =
+      Math.round((unifiedUsedGb / unifiedTotalGb) * 1000) / 10;
+  }
+  const memoryKind =
+    typeof gpu.memoryKind === "string" && gpu.memoryKind.trim()
+      ? gpu.memoryKind.trim()
+      : null;
   const name = gpu.name ? String(gpu.name).trim() : null;
   const tempC = asTempC(gpu.tempC);
   if (
@@ -250,6 +290,8 @@ function normalizeGpuBlock(gpu, source, extras = {}) {
     vramTotalGb == null &&
     vramUsedGb == null &&
     vramFreeGb == null &&
+    unifiedUsedGb == null &&
+    unifiedTotalGb == null &&
     !name
   ) {
     return null;
@@ -260,6 +302,10 @@ function normalizeGpuBlock(gpu, source, extras = {}) {
     vramUsedGb,
     vramFreeGb,
     vramUsedPercent,
+    unifiedUsedGb,
+    unifiedTotalGb,
+    unifiedUsedPercent,
+    memoryKind,
     vramSource: gpu.vramSource || source || null,
     vendor: gpu.vendor || extras.vendor || null,
     backend: gpu.backend || extras.backend || source || null,
@@ -365,10 +411,18 @@ export function mergeJetsonIntoMetrics(base, jtop) {
       source,
       { vendor: "nvidia", backend: source },
     );
-    // Keep tegrastats system RAM in jetson.ramText only — do not invent discrete VRAM (#95).
+    // Keep tegrastats system RAM out of portable gpu.vram* (#95). Expose unified*
+    // display fields from ramText so Admin can show Jetson memory without HA
+    // false VRAM-full (#100).
     if (fromJtop) {
       fromJtop.memoryKind = "unified";
       fromJtop.vramSource = null;
+      const unified = parseJetsonRamText(jtop.ramText);
+      if (unified) {
+        fromJtop.unifiedUsedGb = unified.usedGb;
+        fromJtop.unifiedTotalGb = unified.totalGb;
+        fromJtop.unifiedUsedPercent = unified.usedPercent;
+      }
       out.gpu = fromJtop;
     }
   } else if (gpuTemp != null && out.gpu.tempC == null) {

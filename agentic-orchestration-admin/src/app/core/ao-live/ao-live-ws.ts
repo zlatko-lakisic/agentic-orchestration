@@ -82,8 +82,21 @@ export class AoLiveWs implements OnDestroy {
     return roundMetric(jetson?.gpu?.percent);
   });
 
-  readonly latestVram = computed(() =>
-    roundMetric(this.metrics()?.gpu?.vramUsedPercent),
+  readonly latestVram = computed(() => {
+    const g = this.metrics()?.gpu;
+    const discrete = roundMetric(g?.vramUsedPercent);
+    if (discrete != null) return discrete;
+    return roundMetric(g?.unifiedUsedPercent);
+  });
+
+  /** True when the host uses unified memory (Jetson) rather than discrete VRAM. */
+  readonly gpuMemoryIsUnified = computed(
+    () => String(this.metrics()?.gpu?.memoryKind || '').toLowerCase() === 'unified',
+  );
+
+  /** Card/modal label: VRAM on discrete GPUs, Unified on Jetson. */
+  readonly gpuMemoryKindLabel = computed(() =>
+    this.gpuMemoryIsUnified() ? 'Unified' : 'VRAM',
   );
 
   readonly latestCpuTemp = computed(() =>
@@ -131,14 +144,33 @@ export class AoLiveWs implements OnDestroy {
 
   readonly vramLabel = computed(() => {
     const g = this.metrics()?.gpu;
-    if (g?.vramTotalGb == null) return null;
-    const total = roundMetric(g.vramTotalGb);
-    if (total == null) return null;
-    const used = roundMetric(g.vramUsedGb);
-    if (used != null) {
-      return `${used} / ${total} GiB`;
+    if (g?.vramTotalGb != null) {
+      const total = roundMetric(g.vramTotalGb);
+      if (total == null) return null;
+      const used = roundMetric(g.vramUsedGb);
+      if (used != null) {
+        return `${used} / ${total} GiB`;
+      }
+      return `${total} GiB`;
     }
-    return `${total} GiB`;
+    // Jetson unified memory (#100): prefer structured unified* from host-metrics,
+    // then fall back to jetson.ramText (e.g. "19.3/61.4GB").
+    if (g?.unifiedTotalGb != null) {
+      const total = roundMetric(g.unifiedTotalGb);
+      if (total == null) return null;
+      const used = roundMetric(g.unifiedUsedGb);
+      if (used != null) {
+        return `${used} / ${total} GiB`;
+      }
+      return `${total} GiB`;
+    }
+    const ramText = String(
+      (this.metrics()?.jetson as { ramText?: string | null } | null | undefined)
+        ?.ramText || '',
+    ).trim();
+    const m = ramText.match(/^([\d.]+)\s*\/\s*([\d.]+)/);
+    if (!m) return null;
+    return `${m[1]} / ${m[2]} GiB`;
   });
 
   /** Acquire a shared live connection (call from component ngOnInit). */
@@ -482,7 +514,9 @@ export class AoLiveWs implements OnDestroy {
       | null
       | undefined;
     const gpu = roundMetric(sample.gpu?.percent ?? jetson?.gpu?.percent);
-    const vram = roundMetric(sample.gpu?.vramUsedPercent);
+    const vram = roundMetric(
+      sample.gpu?.vramUsedPercent ?? sample.gpu?.unifiedUsedPercent,
+    );
     const cpuTemp = roundMetric(sample.cpu?.tempC);
     let gpuTemp: number | null = roundMetric(sample.gpu?.tempC);
     if (gpuTemp == null) {
