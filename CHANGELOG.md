@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Jetson tegrastats sampler leak** — hard-kill process groups plus `pkill -P` after each timed-out sample, reap stragglers before each tick, and fall back to `/proc/meminfo`+sysfs when tegrastats is wedged in D-state so `jtop-metrics.json` keeps refreshing.
+
 ## [2.15.0] - 2026-11-19
 
 ### Fixed

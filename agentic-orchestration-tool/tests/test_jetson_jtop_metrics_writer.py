@@ -28,6 +28,30 @@ def _load_writer():
 writer = _load_writer()
 
 
+def test_sample_once_sysfs_uses_meminfo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    meminfo = tmp_path / "meminfo"
+    meminfo.write_text(
+        "MemTotal:       62840320 kB\nMemAvailable:   42000000 kB\n",
+        encoding="utf-8",
+    )
+    real_path = writer.Path
+
+    class FakePath(real_path):  # type: ignore[misc,valid-type]
+        def read_text(self, *args, **kwargs):
+            if self.as_posix() == "/proc/meminfo":
+                return meminfo.read_text(encoding="utf-8")
+            return super().read_text(*args, **kwargs)
+
+    monkeypatch.setattr(writer, "Path", FakePath)
+    monkeypatch.setattr(writer, "_sysfs_gpu_freq_mhz", lambda: 600.0)
+    monkeypatch.setattr(writer, "_board_name", lambda: "Orin")
+    hit = writer.sample_once_sysfs()
+    assert hit["source"] == "sysfs"
+    assert hit["ramText"] == "19.9/59.9GB"
+    assert hit["gpu"]["freqMhz"] == 600.0
+    assert "vramUsedGb" not in hit["gpu"]
+
+
 def test_parse_tegrastats_line_keeps_ram_as_ram_text_only() -> None:
     line = (
         "RAM 61276/62840MB (lfb 1x4MB) SWAP 100/1000MB "
