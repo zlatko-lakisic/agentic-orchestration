@@ -111,8 +111,44 @@ def _looks_like_ollama_model_load_failure(detail: str) -> bool:
             "nvmap",
             "runner process has terminated",
             "runner terminated",
+            "unable to create llama context",
+            "failed to allocate buffer for kv cache",
+            "alloc_tensor_range",
         )
     )
+
+
+def _httpx_response_body_text(response: Any) -> str:
+    """Return HTTP body text even when the response was opened via ``stream()``.
+
+    httpx streaming responses raise ``ResponseNotRead`` on ``.text`` / ``.content``
+    until ``read()`` (or ``iter_bytes`` consumption). Callers that catch
+    ``HTTPStatusError`` after ``raise_for_status()`` must use this helper — otherwise
+    Ollama's real 500 body is replaced by ``ResponseNotRead`` and model-load
+    classification / format fallback never run.
+    """
+    import httpx
+
+    try:
+        return response.text
+    except httpx.ResponseNotRead:
+        pass
+    try:
+        response.read()
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
+    try:
+        return response.text
+    except Exception as exc:  # noqa: BLE001
+        return str(exc)
+
+
+def _ollama_load_retry_delay_sec() -> float:
+    """Brief pause before retrying a transient GPU/NvMap load failure (default 2s)."""
+    parsed = _parse_positive_float(os.getenv("AGENTIC_OLLAMA_LOAD_RETRY_DELAY_SEC"))
+    if parsed is None:
+        return 2.0
+    return min(60.0, max(0.0, parsed))
 
 
 def _raise_ollama_http_error(exc: BaseException, detail: str) -> None:
@@ -530,6 +566,11 @@ def _ollama_chat_json(
                 headers={"Content-Type": "application/json"},
             ) as response:
                 response_holder.append(response)
+                # Materialize the body before raise_for_status so HTTPStatusError
+                # handlers can read exc.response.text (streamed responses otherwise
+                # raise httpx.ResponseNotRead and hide Ollama's real error).
+                if response.is_error:
+                    response.read()
                 response.raise_for_status()
                 raw = b"".join(response.iter_bytes())
             if cancel_event is not None and cancel_event.is_set():
@@ -542,39 +583,71 @@ def _ollama_chat_json(
             request_done.set()
             client.close()
 
-    try:
-        payload = _request(body)
-    except Exception as exc:
+    def _detail_for(exc: BaseException) -> str:
         import httpx
 
-        detail = (
-            exc.response.text
-            if isinstance(exc, httpx.HTTPStatusError)
-            else str(exc)
-        )
-        if (
-            isinstance(exc, httpx.HTTPStatusError)
-            and exc.response.status_code == 500
-            and _looks_like_ollama_model_load_failure(detail)
-        ):
-            _raise_ollama_http_error(exc, detail)
-        # Schema-as-format may be unsupported; retry with plain "json".
-        if force_json and isinstance(exc, httpx.HTTPStatusError) and fmt != "json":
-            body["format"] = "json"
+        if isinstance(exc, httpx.HTTPStatusError):
+            return _httpx_response_body_text(exc.response)
+        return str(exc)
+
+    def _wait_load_retry() -> None:
+        delay = _ollama_load_retry_delay_sec()
+        if delay <= 0:
+            return
+        if on_progress:
+            on_progress(
+                f"Ollama GPU/model load failed; retrying once after {delay:g}s"
+            )
+        if cancel_event is not None:
+            if cancel_event.wait(timeout=delay):
+                raise RuntimeError("Ollama /api/chat cancelled")
+            return
+        time.sleep(delay)
+
+    def _request_with_recovery(request_body: dict[str, Any]) -> dict[str, Any]:
+        """Run /api/chat; recover from transient GPU load failures and format rejects."""
+        import httpx
+
+        load_retried = False
+        format_fallback_done = False
+        pending = request_body
+        while True:
             try:
-                payload = _request(body)
-            except Exception as exc2:  # noqa: BLE001
-                if _is_timeout(exc2):
-                    _raise_chat_timeout(exc2)
-                if isinstance(exc2, httpx.HTTPStatusError):
-                    _raise_ollama_http_error(exc2, exc2.response.text)
-                raise RuntimeError(f"Ollama /api/chat failed: {exc2}") from exc2
-        else:
-            if _is_timeout(exc):
-                _raise_chat_timeout(exc)
-            if isinstance(exc, httpx.HTTPStatusError):
-                _raise_ollama_http_error(exc, detail)
-            raise RuntimeError(f"Ollama /api/chat failed: {detail}") from exc
+                return _request(pending)
+            except Exception as exc:
+                detail = _detail_for(exc)
+                is_http = isinstance(exc, httpx.HTTPStatusError)
+                is_load = (
+                    is_http
+                    and exc.response.status_code == 500
+                    and _looks_like_ollama_model_load_failure(detail)
+                )
+                # Jetson NvMap / cudaMalloc load failures are often transient
+                # (fragmentation with GiBs "free"). Retry once after a short pause.
+                if is_load and not load_retried:
+                    load_retried = True
+                    _wait_load_retry()
+                    continue
+                if is_load:
+                    _raise_ollama_http_error(exc, detail)
+                # Schema-as-format may be unsupported; retry with plain "json".
+                if (
+                    force_json
+                    and is_http
+                    and not format_fallback_done
+                    and pending.get("format") != "json"
+                ):
+                    format_fallback_done = True
+                    pending = dict(pending)
+                    pending["format"] = "json"
+                    continue
+                if _is_timeout(exc):
+                    _raise_chat_timeout(exc)
+                if is_http:
+                    _raise_ollama_http_error(exc, detail)
+                raise RuntimeError(f"Ollama /api/chat failed: {detail}") from exc
+
+    payload = _request_with_recovery(body)
 
     message = payload.get("message") if isinstance(payload, dict) else None
     content = ""
