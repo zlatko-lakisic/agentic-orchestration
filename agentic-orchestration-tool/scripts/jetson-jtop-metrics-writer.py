@@ -317,6 +317,47 @@ def cleanup_stale_tegrastats(*, verbose: bool = False) -> int:
     return killed
 
 
+def sample_once_sysfs() -> dict[str, Any]:
+    """
+    Lightweight fallback when tegrastats is wedged (D-state) or unavailable.
+
+    Uses /proc/meminfo for ``ramText`` and sysfs for GPU frequency. GPU util may
+    be null — that is preferable to freezing jtop-metrics.json for minutes (#95).
+    """
+    total_kb = None
+    avail_kb = None
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                total_kb = int(line.split()[1])
+            elif line.startswith("MemAvailable:"):
+                avail_kb = int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    ram_text = None
+    if total_kb and total_kb > 0:
+        total_gb = round(total_kb / (1024.0 * 1024.0), 1)
+        if avail_kb is not None:
+            used_gb = round(max(0, total_kb - avail_kb) / (1024.0 * 1024.0), 1)
+            ram_text = f"{used_gb}/{total_gb}GB"
+        else:
+            ram_text = f"?/{total_gb}GB"
+    return {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "source": "sysfs",
+        "stats": {"fallback": "sysfs"},
+        "cpu": {"percent": None},
+        "gpu": {
+            "percent": None,
+            "freqMhz": _sysfs_gpu_freq_mhz(),
+            "name": _board_name(),
+        },
+        "temperature": {},
+        "powerW": None,
+        "ramText": ram_text,
+    }
+
+
 def sample_once_tegrastats(timeout_sec: float = 3.0) -> dict[str, Any]:
     if not any(
         Path(p).is_file()
@@ -386,14 +427,19 @@ def _run_tegrastats_loop(out_path: Path, interval: float, once: bool) -> int:
 
     Avoids a long-lived stdout pipe that can hang indefinitely while the JSON
     timestamp freezes (#95). Only one tegrastats child should exist at a time.
+    Falls back to ``sample_once_sysfs`` when tegrastats is wedged (D-state).
     """
     sample_timeout = max(3.0, float(interval) + 2.0)
     failures = 0
+    use_sysfs = False
     while True:
         try:
-            # Reap stragglers before each sample so hung children cannot stack.
-            cleanup_stale_tegrastats(verbose=False)
-            write_snapshot(out_path, sample_once_tegrastats(timeout_sec=sample_timeout))
+            if use_sysfs:
+                write_snapshot(out_path, sample_once_sysfs())
+            else:
+                # Reap stragglers before each sample so hung children cannot stack.
+                cleanup_stale_tegrastats(verbose=False)
+                write_snapshot(out_path, sample_once_tegrastats(timeout_sec=sample_timeout))
             failures = 0
         except KeyboardInterrupt:
             cleanup_stale_tegrastats(verbose=False)
@@ -402,7 +448,17 @@ def _run_tegrastats_loop(out_path: Path, interval: float, once: bool) -> int:
             failures += 1
             print(f"warn: tegrastats sample failed ({failures}): {exc}", file=sys.stderr)
             cleanup_stale_tegrastats(verbose=failures >= 2)
-            if once:
+            if failures >= 2:
+                print("warn: switching to sysfs fallback (tegrastats wedged?)", file=sys.stderr)
+                use_sysfs = True
+                try:
+                    write_snapshot(out_path, sample_once_sysfs())
+                    failures = 0
+                except Exception as sysfs_exc:  # noqa: BLE001
+                    print(f"warn: sysfs fallback failed: {sysfs_exc}", file=sys.stderr)
+                    if once:
+                        raise
+            elif once:
                 raise
         if once:
             return 0
