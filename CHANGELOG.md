@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Jetson `/health` false VRAM-full (#95)** — stop promoting tegrastats system `ramText` into portable `gpu.vram*` (unified memory is not discrete VRAM); ignore `jtop-metrics.json` older than 15s like NVIDIA/AMD host writers; tegrastats sampler uses one-shot process-group kills and systemd `KillMode=control-group` so hung children cannot freeze metrics for minutes. Model residency remains `resident.resourceSharing.usedGb`.
+
 ## [2.14.0] - 2026-11-16
 
 ### Fixed

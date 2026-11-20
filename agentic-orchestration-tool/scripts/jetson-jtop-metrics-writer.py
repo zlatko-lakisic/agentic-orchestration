@@ -9,6 +9,13 @@ group required).
   python3 jetson-jtop-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/jtop-metrics.json
 
 Typical deployment: systemd unit agentic-jtop-metrics.service (system or --user).
+
+Notes (#95):
+- ``ramText`` is system RAM from tegrastats/jtop — consumers must not treat it as
+  discrete GPU VRAM.
+- tegrastats is sampled with a hard process-group kill on timeout (no stacked zombies).
+- The daemon prefers one-shot samples per interval (like the NVIDIA writer) instead of
+  a long-lived tegrastats pipe that can hang forever without updating the JSON.
 """
 from __future__ import annotations
 
@@ -16,6 +23,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -233,38 +241,92 @@ def _parse_tegrastats_line(line: str) -> dict[str, Any]:
     }
 
 
-def sample_once_tegrastats(timeout_sec: float = 3.0) -> dict[str, Any]:
-    if not any(
-        Path(p).is_file()
-        for p in ("/usr/bin/tegrastats", "/usr/local/bin/tegrastats")
-    ) and not _which("tegrastats"):
-        raise RuntimeError("tegrastats not found on PATH")
-    # One sample: run briefly and take the last complete line.
-    try:
-        proc = subprocess.run(
-            ["tegrastats", "--interval", "500"],
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            check=False,
-        )
-        text = (proc.stdout or "") + (proc.stderr or "")
-    except subprocess.TimeoutExpired as exc:
-        text = (exc.stdout or "") + (exc.stderr or "")
-        if isinstance(text, bytes):
-            text = text.decode("utf-8", "replace")
-    lines = [ln.strip() for ln in text.splitlines() if "GR3D" in ln or "RAM" in ln]
-    if not lines:
-        raise RuntimeError("tegrastats produced no usable output")
-    return _parse_tegrastats_line(lines[-1])
-
-
 def _which(cmd: str) -> str | None:
     for d in os.environ.get("PATH", "").split(os.pathsep):
         p = Path(d) / cmd
         if p.is_file() and os.access(p, os.X_OK):
             return str(p)
     return None
+
+
+def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
+    """Hard-kill the child and its process group (tegrastats + timeout wrappers)."""
+    if proc.poll() is not None:
+        return
+    # SIGKILL is POSIX-only; Windows unit tests use SIGTERM via kill().
+    sig = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
+    try:
+        if proc.pid and hasattr(os, "killpg"):
+            os.killpg(proc.pid, sig)
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def cleanup_stale_tegrastats(*, verbose: bool = False) -> int:
+    """
+    Best-effort cleanup of leftover tegrastats processes for this user.
+
+    Returns the number of signalled PIDs (best effort; 0 when pkill unavailable).
+    """
+    if os.name != "posix":
+        return 0
+    # Match both bare tegrastats and `timeout N tegrastats` wrappers from older loops.
+    patterns = (r"tegrastats(\s|$)", r"timeout\s+[0-9.]+\s+tegrastats")
+    killed = 0
+    for pattern in patterns:
+        try:
+            proc = subprocess.run(
+                ["pkill", "-u", str(os.getuid()), "-f", pattern],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            # pkill exit 0 = matched, 1 = none; treat both as ok.
+            if proc.returncode == 0:
+                killed += 1
+                if verbose:
+                    print(f"cleanup: signalled processes matching {pattern!r}", file=sys.stderr)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            if verbose:
+                print(f"cleanup: pkill skipped ({exc})", file=sys.stderr)
+    return killed
+
+
+def sample_once_tegrastats(timeout_sec: float = 3.0) -> dict[str, Any]:
+    if not any(
+        Path(p).is_file()
+        for p in ("/usr/bin/tegrastats", "/usr/local/bin/tegrastats")
+    ) and not _which("tegrastats"):
+        raise RuntimeError("tegrastats not found on PATH")
+    # One sample in its own process group so timeout always reaps children (#95).
+    proc = subprocess.Popen(
+        ["tegrastats", "--interval", "500"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, _ = proc.communicate(timeout=timeout_sec)
+        text = stdout or ""
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        stdout, _ = proc.communicate(timeout=2)
+        text = stdout or ""
+    lines = [ln.strip() for ln in text.splitlines() if "GR3D" in ln or "RAM" in ln]
+    if not lines:
+        raise RuntimeError("tegrastats produced no usable output")
+    return _parse_tegrastats_line(lines[-1])
 
 
 def write_snapshot(path: Path, payload: dict[str, Any]) -> None:
@@ -290,32 +352,31 @@ def _run_jtop_loop(out_path: Path, interval: float, once: bool) -> int:
 
 
 def _run_tegrastats_loop(out_path: Path, interval: float, once: bool) -> int:
-    # Streaming mode: keep tegrastats open and parse lines.
-    if once:
-        write_snapshot(out_path, sample_once_tegrastats())
-        return 0
+    """
+    Sample tegrastats once per interval with a hard timeout (nvidia-writer style).
 
-    cmd = ["tegrastats", "--interval", str(max(500, int(interval * 1000)))]
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert proc.stdout is not None
-    try:
-        for line in proc.stdout:
-            if "RAM" not in line and "GR3D" not in line:
-                continue
-            write_snapshot(out_path, _parse_tegrastats_line(line))
-    finally:
-        proc.terminate()
+    Avoids a long-lived stdout pipe that can hang indefinitely while the JSON
+    timestamp freezes (#95).
+    """
+    sample_timeout = max(2.0, float(interval) + 1.5)
+    failures = 0
+    while True:
         try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    return 0
+            write_snapshot(out_path, sample_once_tegrastats(timeout_sec=sample_timeout))
+            failures = 0
+        except KeyboardInterrupt:
+            return 0
+        except Exception as exc:  # noqa: BLE001 — keep daemon alive across transient hangs
+            failures += 1
+            print(f"warn: tegrastats sample failed ({failures}): {exc}", file=sys.stderr)
+            if failures >= 3:
+                cleanup_stale_tegrastats(verbose=True)
+                failures = 0
+            if once:
+                raise
+        if once:
+            return 0
+        time.sleep(max(0.5, interval))
 
 
 def main() -> int:
@@ -335,8 +396,16 @@ def main() -> int:
         default="auto",
         help="Metrics backend (default: auto — jtop then tegrastats)",
     )
+    parser.add_argument(
+        "--no-cleanup",
+        action="store_true",
+        help="Skip startup pkill of leftover tegrastats processes",
+    )
     args = parser.parse_args()
     out_path = Path(args.output)
+
+    if not args.no_cleanup:
+        cleanup_stale_tegrastats(verbose=False)
 
     prefer = args.source
     errors: list[str] = []

@@ -8,7 +8,9 @@ Host CPU / memory sampling for the daemon (Python port of
 - Darwin (Intel + Apple Silicon): Mach ``host_statistics`` CPU + ``sysctl hw.memsize`` /
   ``vm_stat`` memory. Same path under Rosetta; do not fork on ``platform.machine()``.
 - Jetson: optional jtop writer snapshot (``AGENTIC_JETSON_JTOP_METRICS_PATH``) for GPU /
-  power / temperature (additive overlay).
+  power / temperature (additive overlay). ``ramText`` stays under ``jetson.ramText`` —
+  tegrastats system RAM is **not** promoted into portable ``gpu.vram*`` (unified memory
+  is not discrete VRAM; same rule as Apple Silicon).
 - Discrete NVIDIA (k8s engine without GPU devices): optional host writer snapshot
   (``AGENTIC_NVIDIA_HOST_METRICS_PATH``, typically written by
   ``nvidia-host-metrics-writer.py`` on the node) for portable ``gpu.*`` fields.
@@ -504,19 +506,6 @@ def _snapshot_age_ms(raw: dict[str, Any]) -> float | None:
         return None
 
 
-def read_jetson_jtop_snapshot() -> dict[str, Any] | None:
-    path = jtop_metrics_path()
-    if path is None:
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return {**raw, "ageMs": _snapshot_age_ms(raw)}
-
-
 _HOST_SNAPSHOT_MAX_AGE_MS = 15_000.0
 
 
@@ -534,6 +523,11 @@ def _read_host_gpu_snapshot(path: Path | None) -> dict[str, Any] | None:
     if age_ms is not None and age_ms > _HOST_SNAPSHOT_MAX_AGE_MS:
         return None
     return {**raw, "ageMs": age_ms}
+
+
+def read_jetson_jtop_snapshot() -> dict[str, Any] | None:
+    """Read Jetson jtop/tegrastats JSON; ignore stale files (>15s), same as NVIDIA/AMD."""
+    return _read_host_gpu_snapshot(jtop_metrics_path())
 
 
 def read_nvidia_host_snapshot() -> dict[str, Any] | None:
@@ -613,8 +607,12 @@ def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
     """
     Portable ``gpu.*`` from the Jetson jtop/tegrastats host writer.
 
-    Used by ``sample_gpu()`` so catalog VRAM / hardware snapshots see Tegra
-    stats when live ``nvidia-smi`` is unavailable inside the pod.
+    Used by ``sample_gpu()`` so catalog / hardware snapshots see Tegra util + identity
+    when live ``nvidia-smi`` is unavailable inside the pod.
+
+    System RAM from tegrastats (``ramText``) is **not** copied into ``vram*`` — Jetson
+    uses unified memory; inventing discrete VRAM from RAM makes HA dashboards report
+    "VRAM full" while Ollama / broker ``usedGb`` is empty (#95).
     """
     snap = read_jetson_jtop_snapshot()
     if not snap:
@@ -624,23 +622,10 @@ def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
     percent = gpu.get("percent") if isinstance(gpu.get("percent"), (int, float)) else None
     freq = gpu.get("freqMhz") if isinstance(gpu.get("freqMhz"), (int, float)) else None
     name = str(gpu.get("name") or "").strip() or "Jetson GPU"
+    # Only accept explicit discrete VRAM fields from the writer — never ramText.
     vram_total = gpu.get("vramTotalGb") if isinstance(gpu.get("vramTotalGb"), (int, float)) else None
     vram_used = gpu.get("vramUsedGb") if isinstance(gpu.get("vramUsedGb"), (int, float)) else None
     vram_free = gpu.get("vramFreeGb") if isinstance(gpu.get("vramFreeGb"), (int, float)) else None
-    ram_text = snap.get("ramText")
-    if vram_total is None and ram_text:
-        m = re.search(
-            r"([\d.]+)\s*(?:[GM]i?B?)?\s*/\s*([\d.]+)\s*(?:[GM]i?B?)?",
-            str(ram_text),
-            re.I,
-        )
-        if m:
-            used = float(m.group(1))
-            total = float(m.group(2))
-            if total > 0:
-                vram_used = used
-                vram_total = total
-                vram_free = round(max(0.0, total - used), 3)
     if percent is None and vram_total is None and freq is None:
         return None
     temps = snap.get("temperature") if isinstance(snap.get("temperature"), dict) else None
@@ -652,7 +637,8 @@ def sample_jetson_host_file_gpu() -> dict[str, Any] | None:
         "vramTotalGb": float(vram_total) if vram_total is not None else None,
         "vramUsedGb": float(vram_used) if vram_used is not None else None,
         "vramFreeGb": float(vram_free) if vram_free is not None else None,
-        "vramSource": source,
+        "vramSource": source if (vram_total is not None or vram_used is not None) else None,
+        "memoryKind": "unified",
         "vendor": "nvidia",
         "backend": source,
         "name": name,
@@ -703,7 +689,8 @@ def merge_jetson_into_metrics(
         or _temp_from_map(temperature, ("gpu", "GPU", "tj", "Tj", "cpu"))
     )
 
-    # Promote Jetson GPU into top-level gpu when NVIDIA/AMD file is absent (Node parity).
+    # Promote Jetson GPU util into top-level gpu when NVIDIA/AMD file is absent (Node parity).
+    # Do not invent discrete vram* from tegrastats ramText (#95).
     if not out.get("gpu") or (
         isinstance(out.get("gpu"), dict)
         and out["gpu"].get("percent") is None
@@ -717,26 +704,13 @@ def merge_jetson_into_metrics(
             "vramTotalGb": None,
             "vramUsedGb": None,
             "vramFreeGb": None,
-            "vramSource": source,
+            "vramSource": None,
+            "memoryKind": "unified",
             "vendor": "nvidia",
             "backend": source,
             "name": gpu_name,
             "tempC": gpu_temp,
         }
-        ram_text = jtop.get("ramText")
-        if ram_text:
-            m = re.search(
-                r"([\d.]+)\s*(?:[GM]i?B?)?\s*/\s*([\d.]+)\s*(?:[GM]i?B?)?",
-                str(ram_text),
-                re.I,
-            )
-            if m:
-                used = float(m.group(1))
-                total = float(m.group(2))
-                if total > 0:
-                    promoted["vramUsedGb"] = used
-                    promoted["vramTotalGb"] = total
-                    promoted["vramFreeGb"] = round(max(0.0, total - used), 3)
         # Only replace empty/null gpu blocks.
         existing = out.get("gpu")
         if not isinstance(existing, dict) or (
