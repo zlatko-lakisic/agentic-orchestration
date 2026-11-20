@@ -424,6 +424,8 @@ def hardware_snapshot() -> dict[str, Any]:
         "vramUsedGb": (gpu_hit or {}).get("vramUsedGb"),
         "vramFreeGb": (gpu_hit or {}).get("vramFreeGb"),
         "vramSource": (gpu_hit or {}).get("vramSource"),
+        # Jetson/Apple unified memory: present so clients do not treat null vram* as "full".
+        "memoryKind": (gpu_hit or {}).get("memoryKind"),
     }
     return {
         "platform": sys.platform,

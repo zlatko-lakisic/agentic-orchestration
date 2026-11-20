@@ -9,7 +9,7 @@ const modUrl = pathToFileURL(
 
 const { mergeJetsonIntoMetrics } = await import(modUrl);
 
-test("mergeJetsonIntoMetrics adds GPU and jetson scope", () => {
+test("mergeJetsonIntoMetrics adds GPU and jetson scope without inventing VRAM", () => {
   const base = {
     scope: "host",
     cpu: { percent: 10, cores: 12 },
@@ -28,8 +28,10 @@ test("mergeJetsonIntoMetrics adds GPU and jetson scope", () => {
   assert.equal(out.cpu.percent, 22.5);
   assert.equal(out.jetson.gpu.percent, 67);
   assert.equal(out.jetson.powerW, 14.8);
+  assert.equal(out.jetson.ramText, "12.1/61.4GB");
   assert.equal(out.gpu.percent, 67);
-  assert.equal(out.gpu.vramTotalGb, 61.4);
-  assert.equal(out.gpu.vramUsedGb, 12.1);
-  assert.equal(out.gpu.vramUsedPercent, 19.7);
+  // tegrastats system RAM must not become discrete VRAM (#95)
+  assert.equal(out.gpu.vramTotalGb, null);
+  assert.equal(out.gpu.vramUsedGb, null);
+  assert.equal(out.gpu.memoryKind, "unified");
 });

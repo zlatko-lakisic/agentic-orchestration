@@ -151,7 +151,8 @@ function readJsonSnapshot(filePath, maxAgeMs = null) {
 }
 
 function readJetsonJtopSnapshot() {
-  return readJsonSnapshot(JTOP_METRICS_PATH);
+  // Same 15s TTL as NVIDIA/AMD host writers — never serve hung tegrastats samples (#95).
+  return readJsonSnapshot(JTOP_METRICS_PATH, HOST_SNAPSHOT_MAX_AGE_MS);
 }
 
 function asTempC(value) {
@@ -364,22 +365,12 @@ export function mergeJetsonIntoMetrics(base, jtop) {
       source,
       { vendor: "nvidia", backend: source },
     );
-    if (fromJtop && jtop.ramText) {
-      const m = String(jtop.ramText).match(
-        /([\d.]+)\s*(?:[GM]i?B?)?\s*\/\s*([\d.]+)\s*(?:[GM]i?B?)?/i,
-      );
-      if (m) {
-        const used = Number(m[1]);
-        const total = Number(m[2]);
-        if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
-          fromJtop.vramUsedGb = used;
-          fromJtop.vramTotalGb = total;
-          fromJtop.vramFreeGb = Math.max(0, total - used);
-          fromJtop.vramUsedPercent = Math.round((used / total) * 1000) / 10;
-        }
-      }
+    // Keep tegrastats system RAM in jetson.ramText only — do not invent discrete VRAM (#95).
+    if (fromJtop) {
+      fromJtop.memoryKind = "unified";
+      fromJtop.vramSource = null;
+      out.gpu = fromJtop;
     }
-    if (fromJtop) out.gpu = fromJtop;
   } else if (gpuTemp != null && out.gpu.tempC == null) {
     out.gpu = { ...out.gpu, tempC: gpuTemp };
   }

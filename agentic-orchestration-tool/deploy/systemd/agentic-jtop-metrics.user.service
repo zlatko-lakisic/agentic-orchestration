@@ -4,6 +4,9 @@ After=default.target
 
 [Service]
 Type=simple
+# Reap tegrastats children on stop/restart (avoids hung sampler stacks — #95).
+KillMode=control-group
+TimeoutStopSec=10
 ExecStart=/usr/bin/python3 /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/jetson-jtop-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/jtop-metrics.json --interval 1 --source auto
 Restart=always
 RestartSec=3

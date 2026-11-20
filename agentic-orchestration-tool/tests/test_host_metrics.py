@@ -697,13 +697,39 @@ def test_sample_gpu_prefers_jetson_host_file_over_nvidia_smi(
     assert hit is not None
     assert hit["percent"] == 12.0
     assert hit["backend"] == "tegrastats"
-    assert hit["vramTotalGb"] == 61.4
+    # ramText must not become discrete VRAM (#95).
+    assert hit["vramTotalGb"] is None
+    assert hit["vramUsedGb"] is None
+    assert hit.get("memoryKind") == "unified"
 
     ordered = sample_gpu()
     assert ordered is not None
     assert ordered["percent"] == 12.0
     assert ordered["name"] == "Orin"
     assert ordered["backend"] == "tegrastats"
+    assert ordered["vramUsedGb"] is None
+
+
+def test_jetson_jtop_snapshot_ignores_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "jtop-metrics.json"
+    stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    path.write_text(
+        json.dumps(
+            {
+                "ts": stale_ts,
+                "source": "tegrastats",
+                "gpu": {"percent": 99.0, "name": "Orin"},
+                "ramText": "59.8/61.4GB",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTIC_JETSON_JTOP_METRICS_PATH", str(path))
+    assert read_jetson_jtop_snapshot() is None
+    assert sample_jetson_host_file_gpu() is None
 
 
 def test_nvidia_host_snapshot_ignores_stale(
@@ -769,10 +795,11 @@ def test_jtop_snapshot_is_merged_with_age(tmp_path: Path, monkeypatch: pytest.Mo
     assert merged["jetson"]["gpu"] == {"percent": 88.0, "freqMhz": 918}
     assert merged["jetson"]["powerW"] == 12.5
     assert merged["jetson"]["ramText"] == "3.1G/7.4G"
-    # Node parity: promote into top-level gpu when sample_gpu is empty.
+    # Promote util into top-level gpu; keep ramText off portable vram* (#95).
     assert merged["gpu"]["percent"] == 88.0
-    assert merged["gpu"]["vramTotalGb"] == 7.4
-    assert merged["gpu"]["vramUsedGb"] == 3.1
+    assert merged["gpu"]["vramTotalGb"] is None
+    assert merged["gpu"]["vramUsedGb"] is None
+    assert merged["gpu"].get("memoryKind") == "unified"
     assert merged["gpu"]["backend"] == "tegrastats"
     assert merged["gpu"]["vendor"] == "nvidia"
 
