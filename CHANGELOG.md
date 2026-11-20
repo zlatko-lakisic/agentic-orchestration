@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-11-20
+
 ### Fixed
 
 - **Jetson Admin unified memory display (#100)** — host metrics expose display-only `gpu.unified*` from tegrastats `ramText` while keeping portable `gpu.vram*` null; Admin Host utilization / Overview fall back to those fields and label the gauge **Unified** instead of blank VRAM.
