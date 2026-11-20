@@ -21,7 +21,8 @@ export interface AdminLogEntry {
   line: string;
 }
 
-const HISTORY_MAX = 90;
+/** Rolling window for Overview sparks + Host utilization CPU/GPU charts (#101). */
+export const HISTORY_MAX = 10;
 const LOG_MAX = 200;
 const RECONNECT_MS = 2500;
 const HISTORY_UI_MIN_MS = 1000;
