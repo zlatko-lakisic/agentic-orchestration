@@ -255,9 +255,10 @@ def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
         return
     # SIGKILL is POSIX-only; Windows unit tests use SIGTERM via kill().
     sig = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
+    pid = proc.pid
     try:
-        if proc.pid and hasattr(os, "killpg"):
-            os.killpg(proc.pid, sig)
+        if pid and hasattr(os, "killpg"):
+            os.killpg(pid, sig)
         else:
             proc.kill()
     except (ProcessLookupError, PermissionError, OSError):
@@ -265,17 +266,31 @@ def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
             proc.kill()
         except (ProcessLookupError, OSError):
             pass
+    # Belt-and-suspenders: kill direct children by parent (covers broken killpg).
+    if pid and os.name == "posix":
+        try:
+            subprocess.run(
+                ["pkill", "-KILL", "-P", str(pid)],
+                check=False,
+                capture_output=True,
+                timeout=2,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        pass
+        try:
+            proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
 
 
 def cleanup_stale_tegrastats(*, verbose: bool = False) -> int:
     """
     Best-effort cleanup of leftover tegrastats processes for this user.
 
-    Returns the number of signalled PIDs (best effort; 0 when pkill unavailable).
+    Returns the number of signalled pattern matches (best effort; 0 when pkill unavailable).
     """
     if os.name != "posix":
         return 0
@@ -285,7 +300,7 @@ def cleanup_stale_tegrastats(*, verbose: bool = False) -> int:
     for pattern in patterns:
         try:
             proc = subprocess.run(
-                ["pkill", "-u", str(os.getuid()), "-f", pattern],
+                ["pkill", "-KILL", "-u", str(os.getuid()), "-f", pattern],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -316,13 +331,27 @@ def sample_once_tegrastats(timeout_sec: float = 3.0) -> dict[str, Any]:
         text=True,
         start_new_session=True,
     )
+    text = ""
     try:
         stdout, _ = proc.communicate(timeout=timeout_sec)
         text = stdout or ""
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        # Prefer any bytes already captured before the hard kill.
+        partial = exc.stdout or b""
+        if isinstance(partial, bytes):
+            text = partial.decode("utf-8", "replace")
+        else:
+            text = partial or ""
         _kill_process_group(proc)
-        stdout, _ = proc.communicate(timeout=2)
-        text = stdout or ""
+        try:
+            more, _ = proc.communicate(timeout=1)
+            if more:
+                text = (text or "") + more
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+    finally:
+        if proc.poll() is None:
+            _kill_process_group(proc)
     lines = [ln.strip() for ln in text.splitlines() if "GR3D" in ln or "RAM" in ln]
     if not lines:
         raise RuntimeError("tegrastats produced no usable output")
@@ -356,22 +385,23 @@ def _run_tegrastats_loop(out_path: Path, interval: float, once: bool) -> int:
     Sample tegrastats once per interval with a hard timeout (nvidia-writer style).
 
     Avoids a long-lived stdout pipe that can hang indefinitely while the JSON
-    timestamp freezes (#95).
+    timestamp freezes (#95). Only one tegrastats child should exist at a time.
     """
-    sample_timeout = max(2.0, float(interval) + 1.5)
+    sample_timeout = max(3.0, float(interval) + 2.0)
     failures = 0
     while True:
         try:
+            # Reap stragglers before each sample so hung children cannot stack.
+            cleanup_stale_tegrastats(verbose=False)
             write_snapshot(out_path, sample_once_tegrastats(timeout_sec=sample_timeout))
             failures = 0
         except KeyboardInterrupt:
+            cleanup_stale_tegrastats(verbose=False)
             return 0
         except Exception as exc:  # noqa: BLE001 — keep daemon alive across transient hangs
             failures += 1
             print(f"warn: tegrastats sample failed ({failures}): {exc}", file=sys.stderr)
-            if failures >= 3:
-                cleanup_stale_tegrastats(verbose=True)
-                failures = 0
+            cleanup_stale_tegrastats(verbose=failures >= 2)
             if once:
                 raise
         if once:
