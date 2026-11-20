@@ -164,7 +164,8 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
                 {{ live.gpuName() || 'No GPU metrics' }}
               </div>
               <div class="text-xs text-neutral-500">
-                VRAM {{ live.vramLabel() || '—' }}
+                {{ live.gpuMemoryKindLabel() }}
+                {{ live.vramLabel() || '—' }}
                 @if (live.metrics()?.gpu?.vramSource) {
                   · {{ live.metrics()?.gpu?.vramSource }}
                 }
@@ -180,7 +181,9 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
               </div>
             </div>
             <div>
-              <div class="text-sm font-medium text-neutral-500">VRAM</div>
+              <div class="text-sm font-medium text-neutral-500">
+                {{ live.gpuMemoryKindLabel() }}
+              </div>
               <div class="text-3xl font-semibold tabular-nums tracking-tighter">
                 {{ live.latestVram() ?? '—'
                 }}@if (live.latestVram() != null) {
@@ -348,7 +351,9 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
           />
         </div>
         <div class="min-w-40 flex-auto">
-          <div class="font-medium text-neutral-500">VRAM</div>
+          <div class="font-medium text-neutral-500">
+            {{ live.gpuMemoryKindLabel() }}
+          </div>
           <mat-progress-bar
             class="mt-1 rounded-full"
             mode="determinate"
@@ -571,6 +576,7 @@ export class HostUtilization implements OnInit, OnDestroy {
 
   readonly gpuVramSeries = computed((): ApexAxisChartSeries => {
     const hist = this.live.history();
+    const memName = this.live.gpuMemoryKindLabel();
     return [
       {
         name: 'GPU',
@@ -580,7 +586,7 @@ export class HostUtilization implements OnInit, OnDestroy {
         })),
       },
       {
-        name: 'VRAM',
+        name: memName,
         data: hist.map((h) => ({
           x: h.t,
           y: h.vram == null ? null : Math.round(h.vram),
@@ -692,6 +698,7 @@ export class HostUtilization implements OnInit, OnDestroy {
 
   readonly gpuVramYaxis = computed((): ApexYAxis[] => {
     const range = this.gpuThermalRange();
+    const memName = this.live.gpuMemoryKindLabel();
     return [
       {
         seriesName: 'GPU',
@@ -705,7 +712,7 @@ export class HostUtilization implements OnInit, OnDestroy {
         },
       },
       {
-        seriesName: 'VRAM',
+        seriesName: memName,
         show: false,
         min: 0,
         max: 100,

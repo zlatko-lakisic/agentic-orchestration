@@ -554,12 +554,20 @@ export interface HostMetrics {
     vramUsedGb?: number | null;
     vramFreeGb?: number | null;
     vramUsedPercent?: number | null;
+    /** Jetson/Apple unified memory — display only; never invent discrete vram* (#95/#100). */
+    memoryKind?: string | null;
+    unifiedUsedGb?: number | null;
+    unifiedTotalGb?: number | null;
+    unifiedUsedPercent?: number | null;
     vramSource?: string | null;
     name?: string | null;
     freqMhz?: number | null;
     tempC?: number | null;
   } | null;
-  jetson?: unknown;
+  jetson?: {
+    ramText?: string | null;
+    [k: string]: unknown;
+  } | null;
   backgroundActivity?: {
     active?: boolean;
     kind?: string | null;

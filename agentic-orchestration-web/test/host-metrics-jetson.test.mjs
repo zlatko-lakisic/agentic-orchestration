@@ -7,7 +7,16 @@ const modUrl = pathToFileURL(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "host-metrics.mjs"),
 );
 
-const { mergeJetsonIntoMetrics } = await import(modUrl);
+const { mergeJetsonIntoMetrics, parseJetsonRamText } = await import(modUrl);
+
+test("parseJetsonRamText reads tegrastats used/total GiB", () => {
+  assert.deepEqual(parseJetsonRamText("19.3/61.4GB"), {
+    usedGb: 19.3,
+    totalGb: 61.4,
+    usedPercent: 31.4,
+  });
+  assert.equal(parseJetsonRamText(""), null);
+});
 
 test("mergeJetsonIntoMetrics adds GPU and jetson scope without inventing VRAM", () => {
   const base = {
@@ -34,4 +43,8 @@ test("mergeJetsonIntoMetrics adds GPU and jetson scope without inventing VRAM", 
   assert.equal(out.gpu.vramTotalGb, null);
   assert.equal(out.gpu.vramUsedGb, null);
   assert.equal(out.gpu.memoryKind, "unified");
+  // Display-only unified fields for Admin (#100)
+  assert.equal(out.gpu.unifiedUsedGb, 12.1);
+  assert.equal(out.gpu.unifiedTotalGb, 61.4);
+  assert.equal(out.gpu.unifiedUsedPercent, 19.7);
 });
