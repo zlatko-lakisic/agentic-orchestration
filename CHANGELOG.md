@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-11-20
+
 ### Fixed
 
 - **direct_agent streamed Ollama errors (#98)** — read the HTTP body before `raise_for_status()` on streamed `/api/chat` so callers see Ollama's real status/body instead of httpx `ResponseNotRead`; classify Jetson NvMap/KV-cache load failures; retry once after a short pause (`AGENTIC_OLLAMA_LOAD_RETRY_DELAY_SEC`, default 2s) because those OOMs are often transient under unified-memory fragmentation.
