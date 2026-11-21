@@ -61,8 +61,91 @@ def _parse_multipart(body: bytes, content_type: str) -> dict[str, Any]:
         if 'filename="' in headers:
             parts["files"][name] = payload.rstrip(b"\r\n")
         else:
-            parts[name] = payload.rstrip(b"\r\n").decode("utf-8", errors="replace")
+            # Repeated form fields (e.g. timestamp_granularities[]) accumulate as a list.
+            value = payload.rstrip(b"\r\n").decode("utf-8", errors="replace")
+            if name in parts and name != "files":
+                existing = parts[name]
+                if isinstance(existing, list):
+                    existing.append(value)
+                else:
+                    parts[name] = [existing, value]
+            else:
+                parts[name] = value
     return parts
+
+
+def _form_values(parsed: dict[str, Any], *names: str) -> list[str]:
+    """Collect string values for any of the given form field names."""
+    out: list[str] = []
+    for name in names:
+        raw = parsed.get(name)
+        if raw is None:
+            continue
+        if isinstance(raw, list):
+            out.extend(str(v).strip() for v in raw if str(v).strip())
+        else:
+            text = str(raw).strip()
+            if text:
+                out.append(text)
+    return out
+
+
+def want_word_timestamps(parsed: dict[str, Any]) -> bool:
+    """True when OpenAI-style verbose_json + word granularities are requested."""
+    fmt_vals = _form_values(parsed, "response_format")
+    fmt = (fmt_vals[0] if fmt_vals else "json").strip().lower()
+    if fmt != "verbose_json":
+        return False
+    gran = [
+        g.strip().lower()
+        for g in _form_values(parsed, "timestamp_granularities", "timestamp_granularities[]")
+    ]
+    return "word" in gran
+
+
+def words_from_segments(segments: list[Any]) -> list[dict[str, Any]]:
+    """Flatten faster-whisper segment ``.words`` into OpenAI verbose_json shape."""
+    words: list[dict[str, Any]] = []
+    for segment in segments:
+        for item in getattr(segment, "words", None) or []:
+            token = str(getattr(item, "word", "") or "").strip()
+            if not token:
+                continue
+            entry: dict[str, Any] = {
+                "word": token,
+                "start": float(getattr(item, "start", 0.0) or 0.0),
+                "end": float(getattr(item, "end", 0.0) or 0.0),
+            }
+            prob = getattr(item, "probability", None)
+            if prob is not None:
+                try:
+                    entry["probability"] = float(prob)
+                except (TypeError, ValueError):
+                    pass
+            words.append(entry)
+    return words
+
+
+def build_transcription_payload(
+    *,
+    segments: list[Any],
+    info: Any,
+    word_timestamps: bool,
+) -> dict[str, Any]:
+    text = " ".join(segment.text.strip() for segment in segments).strip()
+    if not word_timestamps:
+        return {"text": text}
+    duration = getattr(info, "duration", None)
+    if duration is None and segments:
+        duration = float(getattr(segments[-1], "end", 0.0) or 0.0)
+    language = getattr(info, "language", None) or "en"
+    payload: dict[str, Any] = {
+        "text": text,
+        "language": str(language),
+        "duration": float(duration or 0.0),
+        "words": words_from_segments(segments),
+    }
+    return payload
 
 
 class SttHandler(BaseHTTPRequestHandler):
@@ -131,7 +214,9 @@ class SttHandler(BaseHTTPRequestHandler):
             self.send_error(400, "Missing file field")
             return
 
-        language = (parsed.get("language") or "en").strip() or "en"
+        lang_vals = _form_values(parsed, "language")
+        language = (lang_vals[0] if lang_vals else "en").strip() or "en"
+        word_ts = want_word_timestamps(parsed)
 
         self.load_model()
         assert self._model is not None
@@ -140,10 +225,9 @@ class SttHandler(BaseHTTPRequestHandler):
             tmp.write(file_bytes)
             tmp_path = Path(tmp.name)
 
-        text = ""
         t0 = time.time()
         try:
-            segments, info = self._model.transcribe(
+            segments_iter, info = self._model.transcribe(
                 str(tmp_path),
                 language=language,
                 task="transcribe",
@@ -152,23 +236,31 @@ class SttHandler(BaseHTTPRequestHandler):
                 best_of=self.beam_size,
                 temperature=0.0,
                 condition_on_previous_text=False,
-                without_timestamps=True,
+                without_timestamps=not word_ts,
+                word_timestamps=word_ts,
                 no_speech_threshold=0.6,
                 compression_ratio_threshold=2.4,
                 log_prob_threshold=-1.0,
             )
-            text = " ".join(segment.text.strip() for segment in segments).strip()
+            # Materialize once — faster-whisper yields a generator.
+            segments = list(segments_iter)
+            result = build_transcription_payload(
+                segments=segments,
+                info=info,
+                word_timestamps=word_ts,
+            )
             print(
                 f"[stt] bytes={len(file_bytes)} model={self.model_name} "
                 f"ms={(time.time() - t0) * 1000:.0f} "
                 f"lang={getattr(info, 'language', '?')} "
-                f"prob={getattr(info, 'language_probability', 0):.2f} text={text!r}",
+                f"prob={getattr(info, 'language_probability', 0):.2f} "
+                f"verbose={word_ts} text={result.get('text')!r}",
                 file=sys.stderr,
             )
         finally:
             tmp_path.unlink(missing_ok=True)
 
-        payload = json.dumps({"text": text}).encode("utf-8")
+        payload = json.dumps(result).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))

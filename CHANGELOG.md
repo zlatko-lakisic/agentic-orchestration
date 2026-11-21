@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **STT word timestamps (#106)** — `speech/stt_server.py` accepts OpenAI-style `response_format=verbose_json` + `timestamp_granularities=word` and returns `words` with start/end (seconds); default `{"text"}` responses unchanged.
+
 ## [2.19.0] - 2026-11-20
 
 ### Added
