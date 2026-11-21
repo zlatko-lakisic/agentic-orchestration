@@ -117,6 +117,11 @@ slice-by-slice status.
 | `AGENTIC_HOST_METRICS_PROC_ROOT` | `/proc` | Set to `/host/proc` when the node's `/proc` is mounted; also flips the reported `scope` to `host`. |
 | `AGENTIC_JETSON_JTOP_METRICS_PATH` | _(unset)_ | jtop snapshot JSON; supplies GPU / power / temperature and flips `scope` to `jetson`. |
 | `AGENTIC_DIRECT_AGENT_CONTEXT_CHARS` | `20000` | Cap on caller-supplied context in the direct-agent prompt. |
+| `AGENTIC_FILES_DIR` | `{run_store}/files` | Storage root for authenticated client uploads/downloads (`POST`/`GET`/`DELETE /api/v1/files`). Default is a `files/` folder under `AGENTIC_RUN_STORE_PATH` (or `/run/store`). |
+| `AGENTIC_FILES_MAX_BYTES` | `209715200` (200 MB) | Max upload size per file. Oversize → HTTP 413. |
+| `AGENTIC_FILES_TTL_HOURS` | `24` | Expiry for client files. Cleanup runs at engine start and hourly. |
+
+Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`, `audio/wav`, `audio/mpeg`, `video/mp4`, `application/json`. Others → HTTP 415. Files are owned by the resolved identity (`user_id`); non-owners get HTTP 404. Clients never see engine filesystem paths — only `file_id` / `download_url`.
 
 ### Ollama ownership
 

@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Client file routes (#105)** — authenticated `POST`/`GET`/`DELETE /api/v1/files` for Reach uploads and provider outputs (`orchestration.client_files`); identity-owned storage under `AGENTIC_FILES_DIR` with MIME allow-list, size/TTL limits, and hourly expiry cleanup.
+
 ## [2.18.0] - 2026-11-20
 
 ### Fixed
