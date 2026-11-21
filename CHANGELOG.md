@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **TTS multi-voice + speed (#107)** — `speech/tts_server.py` accepts OpenAI-style `voice` / `speed` on `POST /v1/audio/speech`, caches Piper VITS models from `AGENTIC_SPEECH_TTS_VOICES_DIR`, and lists them on `GET /v1/audio/voices`; text-only clients keep the default voice.
+
 ## [2.20.0] - 2026-11-20
 
 ### Added
