@@ -1,0 +1,9 @@
+id: media_render_short
+type: deterministic
+role: Vertical short renderer
+goal: Render a 1080x1920 MP4 from a timeline JSON
+backstory: ffmpeg pipeline; no language model.
+entrypoint: orchestration.media_render:render_short
+planner_exclude: true
+planner_hint: >-
+  Rendering only. Never selected by the dynamic planner. Called directly by clients with a timeline JSON.

@@ -120,6 +120,10 @@ slice-by-slice status.
 | `AGENTIC_FILES_DIR` | `{run_store}/files` | Storage root for authenticated client uploads/downloads (`POST`/`GET`/`DELETE /api/v1/files`). Default is a `files/` folder under `AGENTIC_RUN_STORE_PATH` (or `/run/store`). |
 | `AGENTIC_FILES_MAX_BYTES` | `209715200` (200 MB) | Max upload size per file. Oversize → HTTP 413. |
 | `AGENTIC_FILES_TTL_HOURS` | `24` | Expiry for client files. Cleanup runs at engine start and hourly. |
+| `AGENTIC_VIDEO_FFMPEG` | `ffmpeg` | ffmpeg binary for media understanding + `media_render_short`. |
+| `AGENTIC_MEDIA_RENDER_ENCODER` | _(auto)_ | Set `nvenc` to prefer `h264_nvenc` when listed by ffmpeg; otherwise `libx264 -preset veryfast -crf 20`. |
+| `AGENTIC_MEDIA_RENDER_TIMEOUT_S` | `600` | Wall timeout for the vertical-short ffmpeg pipeline. |
+| `AGENTIC_MEDIA_RENDER_FONT` | `DejaVu Sans Bold` | ASS caption font for `media_render_short`. |
 
 Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`, `audio/wav`, `audio/mpeg`, `video/mp4`, `application/json`. Others → HTTP 415. Files are owned by the resolved identity (`user_id`); non-owners get HTTP 404. Clients never see engine filesystem paths — only `file_id` / `download_url`.
 

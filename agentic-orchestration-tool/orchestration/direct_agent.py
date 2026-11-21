@@ -946,6 +946,7 @@ def run_direct_agent(
             text=text,
             context=str(context or ""),
             mcp_tool_results_or_handles=mcp_provider_ids,
+            user_id=user_id,
         )
 
     from orchestration.object_detection_runtime import is_object_detection_entry
