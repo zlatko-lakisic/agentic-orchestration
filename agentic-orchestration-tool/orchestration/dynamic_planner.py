@@ -652,6 +652,9 @@ def _history_for_planner_replay(
 
 
 def _resolve_social_responder_id(entries: list[dict[str, Any]]) -> str | None:
+    from orchestration.agent_providers_catalog import entries_for_planner
+
+    entries = entries_for_planner(entries)
     preferred = os.getenv("AGENTIC_SOCIAL_RESPONDER_ID", "").strip()
     ids = [str(e.get("id", "")).strip() for e in entries if str(e.get("id", "")).strip()]
     id_set = set(ids)

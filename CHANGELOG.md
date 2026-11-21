@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **media_render_short (#108)** — deterministic ffmpeg vertical-short provider (`orchestration.media_render:render_short`) with `planner_exclude`, timeline JSON validation, captions, and client-file I/O; Reach calls it via `direct_agent`.
+
 ## [2.21.0] - 2026-11-20
 
 ### Added

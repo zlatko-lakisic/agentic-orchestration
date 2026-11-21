@@ -75,22 +75,36 @@ def run_deterministic_step(
     text: str,
     context: str = "",
     mcp_tool_results_or_handles: Any = None,
+    identity: Any = None,
+    user_id: str | None = None,
 ) -> str:
     """Invoke the catalog entrypoint and return serialized output."""
     spec = entrypoint_from_entry(entry)
     fn = resolve_entrypoint(spec)
+    kwargs: dict[str, Any] = {
+        "text": str(text or ""),
+        "context": str(context or ""),
+        "mcp_tool_results_or_handles": mcp_tool_results_or_handles,
+    }
+    if identity is not None:
+        kwargs["identity"] = identity
+    if user_id is not None:
+        kwargs["user_id"] = user_id
     try:
-        result = fn(
-            text=str(text or ""),
-            context=str(context or ""),
-            mcp_tool_results_or_handles=mcp_tool_results_or_handles,
-        )
+        result = fn(**kwargs)
     except TypeError:
-        # Allow zero-arg / text-only callables used in simple fixtures.
+        # Allow callables that do not accept identity / user_id.
         try:
-            result = fn(str(text or ""))
+            result = fn(
+                text=str(text or ""),
+                context=str(context or ""),
+                mcp_tool_results_or_handles=mcp_tool_results_or_handles,
+            )
         except TypeError:
-            result = fn()
+            try:
+                result = fn(str(text or ""))
+            except TypeError:
+                result = fn()
     except Exception as exc:  # noqa: BLE001 — surface as deterministic failure
         raise DeterministicAgentError(
             f"entrypoint {spec!r} failed: {exc}"

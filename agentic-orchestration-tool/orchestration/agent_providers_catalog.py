@@ -123,8 +123,24 @@ def _format_agent_provider_entry(p: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def planner_exclude_enabled(entry: dict[str, Any] | None) -> bool:
+    """True when catalog entry sets ``planner_exclude: true`` (client-direct only)."""
+    if not isinstance(entry, dict):
+        return False
+    raw = entry.get("planner_exclude")
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def entries_for_planner(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop ``planner_exclude`` providers before dynamic planning / social pick."""
+    return [e for e in entries if not planner_exclude_enabled(e)]
+
+
 def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:
     """Build planner-facing catalog text, grouped by backend."""
+    entries = entries_for_planner(entries)
 
     def _id_key(p: dict[str, Any]) -> str:
         return str(p.get("id", "")).strip().lower()
