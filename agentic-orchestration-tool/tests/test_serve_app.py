@@ -1028,3 +1028,73 @@ def test_direct_agent_rest_forwards_mcp_provider_ids(
     ).json()
     assert body["ok"] is True
     assert captured.get("mcp_provider_ids") == ["search_brave"]
+
+
+def test_client_files_upload_download_owner_isolation(
+    kb_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files_dir = tmp_path / "client-files"
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(files_dir))
+    monkeypatch.setenv("AGENTIC_FILES_MAX_BYTES", str(1024 * 1024))
+    monkeypatch.delenv("AGENTIC_REQUIRE_IDENTITY", raising=False)
+
+    payload = b"\xff\xd8\xff" + b"hello-jpeg"
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        up = c.post(
+            "/api/v1/files",
+            headers={"x-agentic-user-name": "Alice"},
+            files={"file": ("shot.jpg", payload, "image/jpeg")},
+            data={"name": "shot.jpg"},
+        )
+        assert up.status_code == 200, up.text
+        meta = up.json()
+        assert meta["file_id"]
+        assert meta["mime_type"] == "image/jpeg"
+        assert meta["bytes"] == len(payload)
+        assert "path" not in meta
+        file_id = meta["file_id"]
+
+        dl = c.get(
+            f"/api/v1/files/{file_id}",
+            headers={"x-agentic-user-name": "Alice"},
+        )
+        assert dl.status_code == 200
+        assert dl.content == payload
+
+        other = c.get(
+            f"/api/v1/files/{file_id}",
+            headers={"x-agentic-user-name": "Bob"},
+        )
+        assert other.status_code == 404
+
+        deleted = c.delete(
+            f"/api/v1/files/{file_id}",
+            headers={"x-agentic-user-name": "Alice"},
+        )
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] is True
+        assert (
+            c.get(
+                f"/api/v1/files/{file_id}",
+                headers={"x-agentic-user-name": "Alice"},
+            ).status_code
+            == 404
+        )
+
+
+def test_client_files_rejects_bad_type(
+    kb_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "cf"))
+    monkeypatch.delenv("AGENTIC_REQUIRE_IDENTITY", raising=False)
+    with TestClient(create_app(tool_root_path=kb_root)) as c:
+        resp = c.post(
+            "/api/v1/files",
+            headers={"x-agentic-user-name": "Alice"},
+            files={"file": ("x.bin", b"abc", "application/octet-stream")},
+        )
+        assert resp.status_code == 415

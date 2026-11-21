@@ -139,6 +139,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Warm catalogs + optional Ollama keepalive; tear down AO-spawned runtimes on exit."""
+        from orchestration.client_files import (
+            start_client_files_cleanup_loop,
+            stop_client_files_cleanup_loop,
+        )
         from orchestration.dynamic_run import warm_catalogs
         from orchestration.ollama_keepalive import (
             start_ollama_keepalive_loop,
@@ -152,6 +156,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         await run_in_threadpool(
             lambda: start_ollama_keepalive_loop(log_prefix="(engine) ollama keep-alive")
         )
+        await run_in_threadpool(start_client_files_cleanup_loop)
         try:
             yield
         finally:
@@ -159,6 +164,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
             await run_in_threadpool(stop_broker)
             await run_in_threadpool(stop_ollama_keepalive_loop)
+            await run_in_threadpool(stop_client_files_cleanup_loop)
             from orchestration.ollama_serve_lifecycle import stop_all_serves
 
             await run_in_threadpool(stop_all_serves)
@@ -879,6 +885,88 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         if not removed:
             raise HTTPException(status_code=404, detail="artifact not found")
         return {"ok": True, "artifactId": artifact_id, "deleted": True}
+
+    @app.post("/api/v1/files")
+    async def api_files_upload(
+        request: Request,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        """Multipart upload: field ``file``, optional ``name``. Returns file metadata ids."""
+        from orchestration.client_files import (
+            ClientFileError,
+            ClientFileTooLarge,
+            ClientFileTypeError,
+            save_client_file,
+        )
+
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "multipart/form-data" not in content_type:
+            raise HTTPException(status_code=400, detail="multipart/form-data required")
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None:
+            raise HTTPException(status_code=400, detail="file field is required")
+        data = await upload.read()  # type: ignore[union-attr]
+        form_name = form.get("name")
+        name = str(form_name).strip() if form_name is not None else ""
+        if not name:
+            filename = getattr(upload, "filename", None)
+            name = str(filename or "").strip() or "upload"
+        mime = (
+            str(getattr(upload, "content_type", None) or "").strip()
+            or str(form.get("mime_type") or form.get("mimeType") or "").strip()
+            or "application/octet-stream"
+        )
+        try:
+            meta = await run_in_threadpool(
+                lambda: save_client_file(identity, data, name, mime)
+            )
+        except ClientFileTypeError as exc:
+            raise HTTPException(status_code=415, detail=str(exc)) from exc
+        except ClientFileTooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except ClientFileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return meta
+
+    @app.get("/api/v1/files/{file_id}")
+    async def api_files_download(
+        file_id: str,
+        identity: Identity = Depends(identity_from_request),
+    ) -> Response:
+        from fastapi.responses import FileResponse
+
+        from orchestration.client_files import (
+            ClientFileNotFound,
+            get_client_file_meta,
+        )
+
+        try:
+            meta = await run_in_threadpool(
+                lambda: get_client_file_meta(identity, file_id)
+            )
+        except ClientFileNotFound as exc:
+            raise HTTPException(status_code=404, detail="file not found") from exc
+        path = meta.pop("_path", None)
+        if not path:
+            raise HTTPException(status_code=404, detail="file not found")
+        return FileResponse(
+            path,
+            media_type=str(meta.get("mime_type") or "application/octet-stream"),
+            filename=str(meta.get("name") or "download"),
+        )
+
+    @app.delete("/api/v1/files/{file_id}")
+    async def api_files_delete(
+        file_id: str,
+        identity: Identity = Depends(identity_from_request),
+    ) -> dict[str, Any]:
+        from orchestration.client_files import delete_client_file
+
+        removed = await run_in_threadpool(lambda: delete_client_file(identity, file_id))
+        if not removed:
+            raise HTTPException(status_code=404, detail="file not found")
+        return {"ok": True, "file_id": file_id, "deleted": True}
 
     @app.post("/api/v1/mtls/enroll")
     async def api_mtls_enroll(payload: MtlsEnrollRequest) -> dict[str, Any]:
