@@ -8,6 +8,7 @@ Optional OpenAI-compatible **STT** and **TTS** processes co-located with `python
 |---------|---------|-----|
 | STT | `http://127.0.0.1:8090` | `POST /v1/audio/transcriptions` (multipart `file`) → `{"text":"..."}` |
 | TTS | `http://127.0.0.1:8091` | `POST /v1/audio/speech` JSON `{"text":"..."}` → `audio/wav` |
+| TTS voices | same | `GET /v1/audio/voices` → `{"voices":[{"id","sample_rate"}],"default"}` |
 
 Both expose `GET /health`.
 
@@ -50,8 +51,24 @@ python speech/stt_server.py --host 0.0.0.0 --port 8090 --model base --device cud
 python3 -m venv .venv-tts && source .venv-tts/bin/activate
 pip install -r speech/requirements-tts.txt
 export AGENTIC_SPEECH_TTS_MODEL_DIR=/path/to/piper-vits   # *.onnx + tokens.txt + espeak-ng-data/
+# Optional multi-voice tree (subfolder name = voice id):
+# export AGENTIC_SPEECH_TTS_VOICES_DIR=/path/to/voices
 python speech/tts_server.py --host 0.0.0.0 --port 8091
 ```
+
+### TTS voice + speed (optional)
+
+`AGENTIC_SPEECH_TTS_MODEL_DIR` remains the default voice (`id: default`). Extra Piper VITS folders under `AGENTIC_SPEECH_TTS_VOICES_DIR` are registered by folder name. Voices load on first use and stay cached.
+
+```bash
+curl -sS http://127.0.0.1:8091/v1/audio/voices
+curl -sS -X POST http://127.0.0.1:8091/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hello from Quill","voice":"en_US-lessac","speed":1.1}' \
+  --output out.wav
+```
+
+`speed` must be between `0.5` and `2.0` (default `1.0`). Unknown `voice` → HTTP 400 with the known voice ids. Clients that send only `text` keep the previous default-voice behavior.
 
 ## Engine env
 
