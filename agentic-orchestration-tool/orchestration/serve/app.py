@@ -235,6 +235,9 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             },
         }
         payload["detection"] = await run_in_threadpool(_detection_health_snapshot, root)
+        payload["videoGeneration"] = await run_in_threadpool(
+            _video_generation_health_snapshot, root
+        )
         mtls = mtls_hello_payload(root)
         if mtls is not None:
             payload["mtls"] = mtls
@@ -254,6 +257,32 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         except Exception:  # noqa: BLE001
             entries = []
         return detection_runtime_health(entries)
+
+    def _video_generation_health_snapshot(tool_root: Path) -> dict[str, Any]:
+        from orchestration.dynamic_run import catalog_paths
+        from orchestration.video_generation_runtime import (
+            is_video_generation_entry,
+            video_generation_health,
+            video_generation_runtime_health,
+        )
+
+        base = video_generation_runtime_health(tool_root)
+        try:
+            from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+
+            paths = catalog_paths(tool_root)
+            entries = load_agent_providers_catalog_merged(paths.agent_providers)
+        except Exception:  # noqa: BLE001
+            entries = []
+        providers = []
+        for entry in entries:
+            if not is_video_generation_entry(entry):
+                continue
+            providers.append(video_generation_health(entry))
+        base["providers"] = providers
+        if providers:
+            base["ok"] = any(bool(p.get("ok")) for p in providers)
+        return base
 
     def _resource_sharing_health() -> dict[str, Any]:
         from orchestration.ollama_resource_manager import resource_sharing_enabled

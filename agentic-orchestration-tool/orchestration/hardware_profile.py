@@ -291,6 +291,11 @@ def filter_catalog_by_vram(
     kept: list[dict[str, Any]] = []
     excluded: list[str] = []
     for e in entries:
+        # Remote ComfyUI VRAM is not the engine host's — never drop video_generation.
+        typ = str(e.get("type") or e.get("provider_type") or "").strip().lower()
+        if typ == "video_generation":
+            kept.append(e)
+            continue
         req = effective_min_vram_gb(e)
         pid = str(e.get("id", "")).strip()
         if req is None:

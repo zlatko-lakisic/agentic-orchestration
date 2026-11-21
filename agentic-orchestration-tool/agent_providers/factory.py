@@ -232,6 +232,23 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         model_raw = "deterministic"
     if provider_type == "object_detection" and not model_raw:
         model_raw = "object_detection"
+    if provider_type == "video_generation" and not model_raw:
+        model_raw = "video_generation"
+    # Keep video_generation fields on provider_options.
+    for vid_key in (
+        "backend",
+        "endpoint_env",
+        "token_env",
+        "workflows",
+        "bindings",
+        "defaults",
+        "limits",
+        "residency",
+        "synthetic_media",
+        "min_vram_gb",
+    ):
+        if vid_key in data and data.get(vid_key) is not None:
+            provider_options = {**provider_options, vid_key: data.get(vid_key)}
 
     config = AgentProviderConfig(
         id=provider_id,
@@ -272,6 +289,12 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         if not str(weights.get("sha256") or "").strip():
             raise ValueError(
                 f"Agent provider '{config.id}' (type object_detection) is missing 'weights.sha256'."
+            )
+    elif provider_type == "video_generation":
+        workflows = provider_options.get("workflows")
+        if not isinstance(workflows, dict) or not workflows:
+            raise ValueError(
+                f"Agent provider '{config.id}' (type video_generation) is missing 'workflows'."
             )
     elif not config.model:
         raise ValueError(f"Agent provider '{config.id}' is missing 'model'.")

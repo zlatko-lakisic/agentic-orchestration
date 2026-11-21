@@ -134,8 +134,16 @@ def planner_exclude_enabled(entry: dict[str, Any] | None) -> bool:
 
 
 def entries_for_planner(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop ``planner_exclude`` providers before dynamic planning / social pick."""
-    return [e for e in entries if not planner_exclude_enabled(e)]
+    """Drop planner-excluded / generation-only providers before dynamic planning."""
+    out: list[dict[str, Any]] = []
+    for e in entries:
+        if planner_exclude_enabled(e):
+            continue
+        typ = str(e.get("type") or "").strip().lower()
+        if typ == "video_generation":
+            continue
+        out.append(e)
+    return out
 
 
 def catalog_for_planner_prompt(entries: list[dict[str, Any]]) -> str:

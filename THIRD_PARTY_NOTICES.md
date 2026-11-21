@@ -39,9 +39,16 @@ identified from:
   - License: **MIT**
   - Source: [https://github.com/websockets/ws](https://github.com/websockets/ws)
 
+## Models / remote services
+
+- **LTX-2.3 (Lightricks)** — used by `type: video_generation` / `video_ltx23_distilled` via a remote ComfyUI host.
+  - License: **Lightricks Community License** (not Apache-2.0). Review upstream terms before redistributing weights or generated media.
+  - Source: [https://huggingface.co/Lightricks](https://huggingface.co/Lightricks)
+
 ## Compliance notes
 
 - Apache-2.0 for this repository is compatible with the direct MIT/BSD dependencies listed above.
 - Keep this `THIRD_PARTY_NOTICES.md` up to date when adding/changing dependencies.
 - If you redistribute packaged artifacts including third-party code, include required license notices for included dependencies.
+- LTX-2.3 weights/workflows remain under the Lightricks community license; AO only orchestrates remote inference.
 

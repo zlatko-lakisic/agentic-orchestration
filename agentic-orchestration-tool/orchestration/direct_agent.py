@@ -950,6 +950,29 @@ def run_direct_agent(
         )
 
     from orchestration.object_detection_runtime import is_object_detection_entry
+    from orchestration.video_generation_runtime import (
+        VideoGenerationError,
+        is_video_generation_entry,
+        run_video_generation,
+    )
+
+    if is_video_generation_entry(entry):
+        if on_progress is not None:
+            on_progress(f"video_generation:{pid}")
+        try:
+            result = run_video_generation(
+                entry,
+                text=text,
+                tool_root=root,
+                user_id=user_id,
+                on_progress=on_progress,
+                cancel_event=cancel_event,
+            )
+        except VideoGenerationError as exc:
+            raise ValueError(str(exc)) from exc
+        import json as _json
+
+        return _json.dumps(result, ensure_ascii=False, sort_keys=True)
 
     if is_object_detection_entry(entry):
         raise ValueError(

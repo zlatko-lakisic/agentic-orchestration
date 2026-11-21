@@ -1,0 +1,14 @@
+{
+  "10": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "" }
+  },
+  "11": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "" }
+  },
+  "20": {
+    "class_type": "KSampler",
+    "inputs": { "noise_seed": 0, "width": 544, "height": 960, "length": 121 }
+  }
+}

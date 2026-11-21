@@ -673,7 +673,7 @@ def _resolve_social_responder_id(entries: list[dict[str, Any]]) -> str | None:
         if not pid:
             continue
         typ = str(e.get("type", "")).strip().lower()
-        if typ and typ not in ("deterministic", "object_detection"):
+        if typ and typ not in ("deterministic", "object_detection", "video_generation"):
             return pid
     return ids[0] if ids else None
 

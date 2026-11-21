@@ -1785,7 +1785,39 @@ class WsConnection:
                     return self._execute_detection(
                         message, kind, text, tag, run_id, images, entry
                     )
+                from orchestration.video_generation_runtime import is_video_generation_entry
+
+                if entry is not None and is_video_generation_entry(entry):
+                    return self._execute_video_generation(
+                        message, kind, text, tag, run_id, entry
+                    )
             return self._execute_multimodal(message, kind, text, tag, run_id, images)
+        # Text-only video_generation (t2v) — beside detection, not inside images branch.
+        agent_provider_id = str(
+            message.get("agent_provider_id") or message.get("agentProviderId") or ""
+        ).strip()
+        selected = message.get("selectedAgentProviderIds")
+        if selected is None:
+            selected = message.get("selected_agent_provider_ids")
+        if not agent_provider_id and isinstance(selected, list) and selected:
+            agent_provider_id = str(selected[0] or "").strip()
+        if agent_provider_id and kind in ("direct_agent", "chat"):
+            from orchestration.direct_agent import load_agent_entry
+            from orchestration.dynamic_run import catalog_paths
+            from orchestration.video_generation_runtime import is_video_generation_entry
+
+            paths = catalog_paths(self.tool_root)
+            try:
+                entry = load_agent_entry(
+                    agent_provider_id=agent_provider_id,
+                    catalog_path=paths.agent_providers,
+                )
+            except (LookupError, FileNotFoundError, OSError, ValueError):
+                entry = None
+            if entry is not None and is_video_generation_entry(entry):
+                return self._execute_video_generation(
+                    message, kind, text, tag, run_id, entry
+                )
         return self._execute_text(
             message,
             kind,
@@ -1885,6 +1917,45 @@ class WsConnection:
         except Exception:  # noqa: BLE001
             pass
         return result
+
+    def _execute_video_generation(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        run_id: str,
+        entry: dict[str, Any],
+    ) -> str:
+        """ComfyUI clip generation — never advertise the GPU host URL."""
+        import json
+
+        from orchestration.structured_logging import emit_log
+        from orchestration.video_generation_runtime import (
+            VideoGenerationError,
+            run_video_generation,
+        )
+
+        del message, kind
+        agent_provider_id = str(entry.get("id") or "").strip()
+        emit_log(
+            f"engine video_generation start provider={agent_provider_id}",
+            run_id=run_id,
+            component="engine",
+            extra={"question_id": tag["question_id"]} if tag.get("question_id") else None,
+        )
+        try:
+            result = run_video_generation(
+                entry,
+                text=text,
+                tool_root=self.tool_root,
+                identity=self.identity,
+                user_id=self.identity.user_id if self.identity else None,
+                on_progress=lambda line: self._progress_to_status(line, tag),
+            )
+        except VideoGenerationError as exc:
+            raise ValueError(str(exc)) from exc
+        return json.dumps(result, ensure_ascii=False, sort_keys=True)
 
     def _execute_multimodal(
         self,

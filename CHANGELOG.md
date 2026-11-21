@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **video_generation / LTX-2.3 (#104)** — `type: video_generation` provider (`video_ltx23_distilled`) with ComfyUI runtime, planner omission, client-file I/O for start images/clips, and `/health.videoGeneration` (never exposes the GPU host URL).
+
 ## [2.22.0] - 2026-11-21
 
 ### Added
