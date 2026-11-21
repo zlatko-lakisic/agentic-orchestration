@@ -187,6 +187,35 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print(f"wrote {result_path}", file=sys.stderr)
             return 0
 
+        from orchestration.video_generation_runtime import (
+            is_video_generation_entry,
+            run_video_generation,
+        )
+
+        if is_video_generation_entry(provider_payload):
+            print("(execute-step) video_generation entrypoint", file=sys.stderr)
+            import json as _json
+
+            payload_text = (
+                task_description.replace("{{topic}}", topic) if topic else task_description
+            )
+            result = run_video_generation(
+                provider_payload,
+                text=payload_text,
+                tool_root=tool_root,
+            )
+            text = _json.dumps(result, ensure_ascii=False, sort_keys=True)
+            step_result = StepResult(
+                run_id=run_id,
+                step_id=step_id,
+                exit_code=0 if result.get("ok") else 1,
+                result_text=text,
+            )
+            if result_path is not None:
+                _write_step_result(result_path, step_result)
+                print(f"wrote {result_path}", file=sys.stderr)
+            return 0 if result.get("ok") else 1
+
         from orchestration.object_detection_runtime import (
             is_object_detection_entry,
             run_object_detection,

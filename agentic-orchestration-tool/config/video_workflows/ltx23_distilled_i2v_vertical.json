@@ -1,0 +1,15 @@
+{
+  "_comment": "Placeholder API-format graph until a real ComfyUI export lands. Tests use fixtures under tests/fixtures/video_workflows/.",
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "" }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "" }
+  },
+  "3": {
+    "class_type": "EmptyLatent",
+    "inputs": { "width": 544, "height": 960, "length": 121, "noise_seed": 0 }
+  }
+}

@@ -124,6 +124,10 @@ slice-by-slice status.
 | `AGENTIC_MEDIA_RENDER_ENCODER` | _(auto)_ | Set `nvenc` to prefer `h264_nvenc` when listed by ffmpeg; otherwise `libx264 -preset veryfast -crf 20`. |
 | `AGENTIC_MEDIA_RENDER_TIMEOUT_S` | `600` | Wall timeout for the vertical-short ffmpeg pipeline. |
 | `AGENTIC_MEDIA_RENDER_FONT` | `DejaVu Sans Bold` | ASS caption font for `media_render_short`. |
+| `AGENTIC_VIDEO_COMFYUI_URL` | _(unset)_ | Base URL of the remote ComfyUI GPU host for `type: video_generation` (never hardcode; clients never see this). |
+| `AGENTIC_VIDEO_COMFYUI_TOKEN` | _(unset)_ | Optional bearer for ComfyUI. |
+| `AGENTIC_VIDEO_OUTPUT_DIR` | `{tool}/__orchestrator_video_out__` | Staging dir for downloaded clips before `register_output_file`. |
+| `AGENTIC_VIDEO_TIMEOUT_S` | _(from catalog limits, else 1800)_ | Wall timeout for a ComfyUI job. |
 
 Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`, `audio/wav`, `audio/mpeg`, `video/mp4`, `application/json`. Others → HTTP 415. Files are owned by the resolved identity (`user_id`); non-owners get HTTP 404. Clients never see engine filesystem paths — only `file_id` / `download_url`.
 

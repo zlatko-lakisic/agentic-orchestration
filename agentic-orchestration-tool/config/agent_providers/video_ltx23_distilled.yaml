@@ -1,0 +1,37 @@
+id: video_ltx23_distilled
+type: video_generation
+role: Vertical b-roll clip generator (LTX-2.3 distilled)
+goal: Generate a short vertical clip from a text prompt, optionally from a start image
+backstory: ComfyUI workflow on a remote GPU host; not a chat model.
+backend: comfyui
+endpoint_env: AGENTIC_VIDEO_COMFYUI_URL
+token_env: AGENTIC_VIDEO_COMFYUI_TOKEN
+workflows:
+  t2v: config/video_workflows/ltx23_distilled_t2v_vertical.json
+  i2v: config/video_workflows/ltx23_distilled_i2v_vertical.json
+bindings:
+  prompt: { node: "<id>", field: "text" }
+  negative_prompt: { node: "<id>", field: "text" }
+  seed: { node: "<id>", field: "noise_seed" }
+  width: { node: "<id>", field: "width" }
+  height: { node: "<id>", field: "height" }
+  frames: { node: "<id>", field: "length" }
+  image: { node: "<id>", field: "image" }
+defaults:
+  width: 544
+  height: 960
+  fps: 24
+  frames: 121
+  keep_audio: false
+limits:
+  max_frames: 241
+  timeout_s: 1800
+residency: on_demand
+min_vram_gb: 20
+synthetic_media: true
+planner_hint: >-
+  Generation only. Never selected for chat or by the dynamic planner.
+  Called directly by clients (AO Quill) with a prompt payload.
+harness_profile: generation
+harness:
+  skip_live: true
