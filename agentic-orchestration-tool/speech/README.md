@@ -11,6 +11,31 @@ Optional OpenAI-compatible **STT** and **TTS** processes co-located with `python
 
 Both expose `GET /health`.
 
+### STT word timestamps (optional)
+
+Default requests stay OpenAI-compat `{"text":"..."}`. For caption timing (AO Quill), send OpenAI-style form fields:
+
+- `response_format=verbose_json`
+- `timestamp_granularities=word` (also accepts `timestamp_granularities[]`)
+
+Response shape:
+
+```json
+{
+  "text": "full text",
+  "language": "en",
+  "duration": 41.8,
+  "words": [{"word": "Mostar", "start": 0.42, "end": 0.91, "probability": 0.98}]
+}
+```
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8090/v1/audio/transcriptions" \
+  -F "file=@narration.wav" \
+  -F "response_format=verbose_json" \
+  -F "timestamp_granularities=word"
+```
+
 ## Bring-up (AI server)
 
 ```bash
