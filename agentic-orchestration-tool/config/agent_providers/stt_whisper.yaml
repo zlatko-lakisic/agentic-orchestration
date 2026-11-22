@@ -1,0 +1,21 @@
+id: stt_whisper
+type: stt
+role: Speech-to-text (faster-whisper)
+goal: Transcribe narration audio with optional word timestamps
+backstory: >-
+  Managed faster-whisper sidecar reached only through AO direct_agent.
+  Clients upload WAV via /api/v1/files then pass audio_file_id.
+engine: faster-whisper
+endpoint_env: AGENTIC_SPEECH_STT_URL
+token_env: AGENTIC_SPEECH_TOKEN
+transcribe_path: /v1/audio/transcriptions
+defaults:
+  response_format: verbose_json
+residency: on_demand
+min_vram_gb: 1
+planner_exclude: true
+planner_hint: >-
+  Generation only. Called via direct_agent with JSON {audio_file_id, response_format}.
+harness_profile: generation
+harness:
+  skip_live: true

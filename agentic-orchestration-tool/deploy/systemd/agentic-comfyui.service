@@ -1,0 +1,16 @@
+[Unit]
+Description=AO ComfyUI (LTX-2.3 video backend for video_generation)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ComfyUI
+Environment=PYTHONUNBUFFERED=1
+# Listen on loopback only; engine uses AGENTIC_VIDEO_COMFYUI_URL (host or host.k3s.internal).
+ExecStart=%h/ComfyUI/.venv/bin/python main.py --listen 127.0.0.1 --port 8188
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

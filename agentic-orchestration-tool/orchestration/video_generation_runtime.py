@@ -102,6 +102,25 @@ def validate_ltx_geometry(*, width: int, height: int, frames: int) -> None:
         )
 
 
+def _binding_targets(bind: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return ``(node_id, field)`` pairs from a binding (supports optional ``also``)."""
+    targets: list[tuple[str, str]] = []
+    node_id = str(bind.get("node") or "").strip()
+    field = str(bind.get("field") or "").strip()
+    if node_id and field and node_id != "<id>":
+        targets.append((node_id, field))
+    also = bind.get("also")
+    if isinstance(also, list):
+        for item in also:
+            if not isinstance(item, dict):
+                continue
+            nid = str(item.get("node") or "").strip()
+            fld = str(item.get("field") or "").strip()
+            if nid and fld and nid != "<id>":
+                targets.append((nid, fld))
+    return targets
+
+
 def apply_workflow_bindings(
     workflow: dict[str, Any],
     bindings: dict[str, Any],
@@ -109,26 +128,30 @@ def apply_workflow_bindings(
 ) -> dict[str, Any]:
     """Deep-copy workflow and set ``bindings[key] = {node, field}`` from ``values``."""
     out = copy.deepcopy(workflow)
+    # Drop non-node metadata keys ComfyUI would reject.
+    for key in list(out.keys()):
+        if key.startswith("_") or not isinstance(out.get(key), dict):
+            out.pop(key, None)
+            continue
+        if "class_type" not in out[key]:
+            out.pop(key, None)
     for key, value in values.items():
         if value is None:
             continue
         bind = bindings.get(key)
         if not isinstance(bind, dict):
             continue
-        node_id = str(bind.get("node") or "").strip()
-        field = str(bind.get("field") or "").strip()
-        if not node_id or not field or node_id == "<id>":
-            # Placeholder bindings: still record for fixtures that use real ids.
-            if node_id == "<id>":
-                continue
+        targets = _binding_targets(bind)
+        if not targets:
             continue
-        node = out.get(node_id)
-        if not isinstance(node, dict):
-            raise VideoGenerationError(f"workflow missing node {node_id!r} for {key}")
-        inputs = node.setdefault("inputs", {})
-        if not isinstance(inputs, dict):
-            raise VideoGenerationError(f"node {node_id!r} inputs must be an object")
-        inputs[field] = value
+        for node_id, field in targets:
+            node = out.get(node_id)
+            if not isinstance(node, dict):
+                raise VideoGenerationError(f"workflow missing node {node_id!r} for {key}")
+            inputs = node.setdefault("inputs", {})
+            if not isinstance(inputs, dict):
+                raise VideoGenerationError(f"node {node_id!r} inputs must be an object")
+            inputs[field] = value
     return out
 
 
@@ -267,10 +290,31 @@ def video_generation_health(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, Any]:
-    """Aggregate health for ``/health`` — never expose ComfyUI URL."""
-    del tool_root
+    """Aggregate health for ``/health`` — never expose ComfyUI URL.
+
+    ``configured`` is true when any catalog ``video_generation`` entry has its
+    own ``endpoint_env`` set (not only the default ``AGENTIC_VIDEO_COMFYUI_URL``).
+    """
+    configured = False
+    try:
+        from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+        from orchestration.dynamic_run import catalog_paths
+
+        paths = catalog_paths(tool_root)
+        entries = load_agent_providers_catalog_merged(paths.agent_providers)
+        for entry in entries:
+            if not is_video_generation_entry(entry):
+                continue
+            try:
+                _endpoint(entry)
+                configured = True
+                break
+            except VideoGenerationError:
+                continue
+    except Exception:  # noqa: BLE001
+        configured = bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip())
     return {
-        "configured": bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip()),
+        "configured": configured,
         "ok": None,
     }
 

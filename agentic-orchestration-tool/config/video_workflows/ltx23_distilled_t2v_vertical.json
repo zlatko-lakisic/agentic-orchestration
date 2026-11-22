@@ -1,11 +1,531 @@
 {
-  "_comment": "Placeholder API-format graph until a real ComfyUI export lands. Tests use fixtures under tests/fixtures/video_workflows/.",
-  "1": {
-    "class_type": "CLIPTextEncode",
-    "inputs": { "text": "" }
+  "4824": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": {
+      "av_latent": [
+        "4802",
+        0
+      ]
+    }
   },
-  "2": {
-    "class_type": "EmptyLatent",
-    "inputs": { "width": 544, "height": 960, "length": 121, "noise_seed": 0 }
+  "3059": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "length": 121,
+      "width": 544,
+      "height": 960,
+      "batch_size": 1
+    }
+  },
+  "3159": {
+    "class_type": "LTXVImgToVideoConditionOnly",
+    "inputs": {
+      "vae": [
+        "3940",
+        2
+      ],
+      "image": [
+        "3336",
+        0
+      ],
+      "latent": [
+        "3059",
+        0
+      ],
+      "bypass": [
+        "4977",
+        0
+      ],
+      "strength": 0.7
+    }
+  },
+  "3980": {
+    "class_type": "LTXVEmptyLatentAudio",
+    "inputs": {
+      "audio_vae": [
+        "4010",
+        0
+      ],
+      "frames_number": [
+        "4979",
+        0
+      ],
+      "frame_rate": [
+        "4985",
+        0
+      ]
+    }
+  },
+  "1241": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "positive": [
+        "2483",
+        0
+      ],
+      "negative": [
+        "2612",
+        0
+      ],
+      "frame_rate": [
+        "4978",
+        0
+      ]
+    }
+  },
+  "4528": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": {
+      "video_latent": [
+        "3159",
+        0
+      ],
+      "audio_latent": [
+        "3980",
+        0
+      ]
+    }
+  },
+  "4814": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 42
+    }
+  },
+  "4010": {
+    "class_type": "LTXVAudioVAELoader",
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors"
+    }
+  },
+  "3336": {
+    "class_type": "LTXVPreprocess",
+    "inputs": {
+      "image": [
+        "4981",
+        0
+      ],
+      "img_compression": 18
+    }
+  },
+  "3940": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors"
+    }
+  },
+  "4966": {
+    "class_type": "LTXVScheduler",
+    "inputs": {
+      "latent": [
+        "4528",
+        0
+      ],
+      "steps": 15,
+      "max_shift": 2.05,
+      "base_shift": 0.95,
+      "stretch": true,
+      "terminal": 0.1
+    }
+  },
+  "4971": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    }
+  },
+  "4829": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "4832",
+        0
+      ],
+      "guider": [
+        "4828",
+        0
+      ],
+      "sampler": [
+        "4831",
+        0
+      ],
+      "sigmas": [
+        "4971",
+        0
+      ],
+      "latent_image": [
+        "4528",
+        0
+      ]
+    }
+  },
+  "4845": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": {
+      "av_latent": [
+        "4829",
+        0
+      ]
+    }
+  },
+  "4973": {
+    "class_type": "PrimitiveString",
+    "inputs": {
+      "value": ""
+    },
+    "_meta": {
+      "title": "LTX API KEY"
+    }
+  },
+  "4802": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "4814",
+        0
+      ],
+      "guider": [
+        "4808",
+        0
+      ],
+      "sampler": [
+        "4967",
+        0
+      ],
+      "sigmas": [
+        "4966",
+        0
+      ],
+      "latent_image": [
+        "4528",
+        0
+      ]
+    }
+  },
+  "4923": {
+    "class_type": "GemmaAPITextEncode",
+    "inputs": {
+      "api_key": [
+        "4973",
+        0
+      ],
+      "text": ""
+    },
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma API Text Encode - POSITIVE"
+    }
+  },
+  "4831": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    }
+  },
+  "4808": {
+    "class_type": "MultimodalGuider",
+    "inputs": {
+      "model": [
+        "4968",
+        0
+      ],
+      "positive": [
+        "1241",
+        0
+      ],
+      "negative": [
+        "1241",
+        1
+      ],
+      "parameters": [
+        "4964",
+        0
+      ],
+      "skip_blocks": "28"
+    }
+  },
+  "4960": {
+    "class_type": "LTXAVTextEncoderLoader",
+    "inputs": {
+      "ckpt_name": "comfy_gemma_3_12B_it.safetensors",
+      "text_encoder": "ltx-2.3-22b-dev.safetensors",
+      "device": "default"
+    }
+  },
+  "2612": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4960",
+        0
+      ],
+      "text": "pc game, console game, video game, cartoon, childish, ugly"
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "4967": {
+    "class_type": "ClownSampler_Beta",
+    "inputs": {}
+  },
+  "4963": {
+    "class_type": "GuiderParameters",
+    "inputs": {
+      "modality": "AUDIO",
+      "cfg": 7,
+      "stg": 1,
+      "rescale": true,
+      "modality_scale": 0.7
+    }
+  },
+  "4964": {
+    "class_type": "GuiderParameters",
+    "inputs": {
+      "parameters": [
+        "4963",
+        0
+      ],
+      "modality": "VIDEO",
+      "cfg": 3,
+      "stg": 1,
+      "rescale": true,
+      "modality_scale": 0.9
+    }
+  },
+  "2483": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "4960",
+        0
+      ],
+      "text": "A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words."
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "4828": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "4922",
+        0
+      ],
+      "positive": [
+        "1241",
+        0
+      ],
+      "negative": [
+        "1241",
+        1
+      ],
+      "cfg": 1
+    }
+  },
+  "4832": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 43
+    }
+  },
+  "2004": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "4977": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "value": true
+    },
+    "_meta": {
+      "title": "bypass_i2v"
+    }
+  },
+  "4981": {
+    "class_type": "ResizeImageMaskNode",
+    "inputs": {
+      "input": [
+        "2004",
+        0
+      ],
+      "max_size": "scale longer dimension",
+      "downsample_mode": 1536,
+      "upsample_mode": "lanczos"
+    }
+  },
+  "4961": {
+    "class_type": "GemmaAPITextEncode",
+    "inputs": {
+      "api_key": [
+        "4973",
+        0
+      ],
+      "text": ""
+    },
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma API Text Encode - NEGATIVE"
+    }
+  },
+  "4922": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "3940",
+        0
+      ],
+      "lora_name": "ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+      "strength_model": 0.5
+    }
+  },
+  "4968": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "3940",
+        0
+      ],
+      "lora_name": "ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+      "strength_model": 0.2
+    }
+  },
+  "4848": {
+    "class_type": "LTXVAudioVAEDecode",
+    "inputs": {
+      "samples": [
+        "4845",
+        1
+      ],
+      "audio_vae": [
+        "4010",
+        0
+      ]
+    }
+  },
+  "4982": {
+    "class_type": "LTXVTiledVAEDecode",
+    "inputs": {
+      "vae": [
+        "3940",
+        2
+      ],
+      "latents": [
+        "4845",
+        0
+      ]
+    }
+  },
+  "4818": {
+    "class_type": "LTXVAudioVAEDecode",
+    "inputs": {
+      "samples": [
+        "4824",
+        1
+      ],
+      "audio_vae": [
+        "4010",
+        0
+      ]
+    }
+  },
+  "4983": {
+    "class_type": "LTXVTiledVAEDecode",
+    "inputs": {
+      "vae": [
+        "3940",
+        2
+      ],
+      "latents": [
+        "4824",
+        0
+      ]
+    }
+  },
+  "4819": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "4983",
+        0
+      ],
+      "audio": [
+        "4818",
+        0
+      ],
+      "fps": [
+        "4978",
+        0
+      ]
+    }
+  },
+  "4823": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "4819",
+        0
+      ],
+      "filename_prefix": "output_F",
+      "format": "auto",
+      "codec": "auto"
+    }
+  },
+  "4978": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 24
+    },
+    "_meta": {
+      "title": "fps"
+    }
+  },
+  "4979": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 121
+    },
+    "_meta": {
+      "title": "number of frames"
+    }
+  },
+  "4852": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "4849",
+        0
+      ],
+      "filename_prefix": "output_D",
+      "format": "auto",
+      "codec": "auto"
+    }
+  },
+  "4849": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "4982",
+        0
+      ],
+      "audio": [
+        "4848",
+        0
+      ],
+      "fps": [
+        "4978",
+        0
+      ]
+    }
+  },
+  "4985": {
+    "class_type": "LTXFloatToInt",
+    "inputs": {
+      "a": [
+        "4978",
+        0
+      ]
+    }
   }
 }

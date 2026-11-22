@@ -238,6 +238,9 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         payload["videoGeneration"] = await run_in_threadpool(
             _video_generation_health_snapshot, root
         )
+        payload["speechProviders"] = await run_in_threadpool(
+            _speech_providers_health_snapshot, root
+        )
         mtls = mtls_hello_payload(root)
         if mtls is not None:
             payload["mtls"] = mtls
@@ -283,6 +286,29 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         if providers:
             base["ok"] = any(bool(p.get("ok")) for p in providers)
         return base
+
+    def _speech_providers_health_snapshot(tool_root: Path) -> dict[str, Any]:
+        from orchestration.dynamic_run import catalog_paths
+        from orchestration.stt_runtime import is_stt_entry, stt_health
+        from orchestration.tts_runtime import is_tts_entry, tts_health
+
+        try:
+            from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
+
+            paths = catalog_paths(tool_root)
+            entries = load_agent_providers_catalog_merged(paths.agent_providers)
+        except Exception:  # noqa: BLE001
+            entries = []
+        providers = []
+        for entry in entries:
+            if is_tts_entry(entry):
+                providers.append({"kind": "tts", **tts_health(entry)})
+            elif is_stt_entry(entry):
+                providers.append({"kind": "stt", **stt_health(entry)})
+        return {
+            "providers": providers,
+            "ok": any(bool(p.get("ok")) for p in providers) if providers else None,
+        }
 
     def _resource_sharing_health() -> dict[str, Any]:
         from orchestration.ollama_resource_manager import resource_sharing_enabled

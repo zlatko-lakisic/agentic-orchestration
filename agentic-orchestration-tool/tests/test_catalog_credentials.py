@@ -24,6 +24,30 @@ def test_openai_entry_without_key_skipped(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.unit
+def test_video_generation_requires_endpoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENTIC_VIDEO_COMFYUI_URL", raising=False)
+    monkeypatch.delenv("CUSTOM_COMFY_URL", raising=False)
+    default_entry = {
+        "id": "video_ltx23_distilled",
+        "type": "video_generation",
+        "endpoint_env": "AGENTIC_VIDEO_COMFYUI_URL",
+    }
+    assert catalog_entry_has_api_credentials(default_entry) is False
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://127.0.0.1:8188")
+    assert catalog_entry_has_api_credentials(default_entry) is True
+
+    custom = {
+        "id": "video_custom",
+        "type": "video_generation",
+        "endpoint_env": "CUSTOM_COMFY_URL",
+    }
+    monkeypatch.delenv("CUSTOM_COMFY_URL", raising=False)
+    assert catalog_entry_has_api_credentials(custom) is False
+    monkeypatch.setenv("CUSTOM_COMFY_URL", "http://127.0.0.1:8199")
+    assert catalog_entry_has_api_credentials(custom) is True
+
+
+@pytest.mark.unit
 def test_filter_entries_summarizes_skips(monkeypatch: pytest.MonkeyPatch) -> None:
     entries = [
         {"id": "local", "type": "ollama", "model": "llama3.1"},

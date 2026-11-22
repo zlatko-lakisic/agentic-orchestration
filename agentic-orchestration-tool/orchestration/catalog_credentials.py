@@ -48,11 +48,40 @@ def _huggingface_catalog_entry_has_credentials(entry: dict[str, Any]) -> bool:
     )
 
 
+def _endpoint_env_configured(entry: dict[str, Any], *, default_env: str) -> bool:
+    """Require the per-entry ``endpoint_env`` (or ``default_env``) to be set."""
+    from orchestration.session_env import getenv
+
+    opts = entry.get("provider_options")
+    merged = dict(entry)
+    if isinstance(opts, dict):
+        merged.update(opts)
+    env_name = str(merged.get("endpoint_env") or default_env).strip()
+    if not env_name:
+        return False
+    return bool((getenv(env_name, "") or "").strip())
+
+
+def _video_generation_endpoint_configured(entry: dict[str, Any]) -> bool:
+    return _endpoint_env_configured(entry, default_env="AGENTIC_VIDEO_COMFYUI_URL")
+
+
+def _tts_endpoint_configured(entry: dict[str, Any]) -> bool:
+    return _endpoint_env_configured(entry, default_env="AGENTIC_SPEECH_TTS_URL")
+
+
+def _stt_endpoint_configured(entry: dict[str, Any]) -> bool:
+    return _endpoint_env_configured(entry, default_env="AGENTIC_SPEECH_STT_URL")
+
+
 # Extend when adding cloud providers that need an API key for catalog / workflow use.
 _CREDENTIAL_CHECKERS: dict[str, Callable[[dict[str, Any]], bool]] = {
     "openai": _openai_catalog_entry_has_credentials,
     "anthropic": _anthropic_catalog_entry_has_credentials,
     "huggingface": _huggingface_catalog_entry_has_credentials,
+    "video_generation": _video_generation_endpoint_configured,
+    "tts": _tts_endpoint_configured,
+    "stt": _stt_endpoint_configured,
 }
 
 
@@ -72,6 +101,18 @@ def credential_skip_reason(entry: dict[str, Any]) -> str:
         return "set ANTHROPIC_API_KEY"
     if typ == "huggingface":
         return "set HF_TOKEN or HUGGINGFACE_API_KEY"
+    if typ in ("video_generation", "tts", "stt"):
+        defaults = {
+            "video_generation": "AGENTIC_VIDEO_COMFYUI_URL",
+            "tts": "AGENTIC_SPEECH_TTS_URL",
+            "stt": "AGENTIC_SPEECH_STT_URL",
+        }
+        opts = entry.get("provider_options")
+        merged = dict(entry)
+        if isinstance(opts, dict):
+            merged.update(opts)
+        env_name = str(merged.get("endpoint_env") or defaults[typ]).strip()
+        return f"set {env_name or defaults[typ]}"
     return "set the provider's required API credentials"
 
 

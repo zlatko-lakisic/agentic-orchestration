@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Real LTX-2.3 distilled ComfyUI workflows (#115)** — shipped API-format graphs from Lightricks single-stage distilled export with real node bindings (no `<id>` placeholders); converter script under `scripts/convert_ltx_ui_workflow_to_api.py`.
+- **ComfyUI on GPU host docs + systemd unit (#116)** — `deploy/systemd/agentic-comfyui.service` and `scripts/ada-comfyui-setup.md` for loopback ComfyUI + `AGENTIC_VIDEO_COMFYUI_URL`.
+- **Managed TTS/STT catalog providers (#118/#119)** — `type: tts` (`tts_piper_en`, Piper-only English) and `type: stt` (`stt_whisper`) reached via `direct_agent` / WS with client `file_id` I/O; `/health.speechProviders`; Qwen3-TTS rejected for the English provider.
+
+### Fixed
+
+- **Catalog omits unconfigured video_generation (#117)** — Reach `/api/v1/catalog` and credential filter drop providers whose `endpoint_env` is unset; `/health.videoGeneration.configured` checks each provider's own env name.
+
 ## [2.23.0] - 2026-11-21
 
 ### Added

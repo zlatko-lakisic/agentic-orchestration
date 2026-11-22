@@ -9,14 +9,20 @@ token_env: AGENTIC_VIDEO_COMFYUI_TOKEN
 workflows:
   t2v: config/video_workflows/ltx23_distilled_t2v_vertical.json
   i2v: config/video_workflows/ltx23_distilled_i2v_vertical.json
+# Bindings target the distilled track (SaveVideo filename_prefix output_D) of the
+# Lightricks single-stage distilled+full graph, converted to API format.
 bindings:
-  prompt: { node: "<id>", field: "text" }
-  negative_prompt: { node: "<id>", field: "text" }
-  seed: { node: "<id>", field: "noise_seed" }
-  width: { node: "<id>", field: "width" }
-  height: { node: "<id>", field: "height" }
-  frames: { node: "<id>", field: "length" }
-  image: { node: "<id>", field: "image" }
+  prompt: { node: "2483", field: "text" }
+  negative_prompt: { node: "2612", field: "text" }
+  seed: { node: "4832", field: "noise_seed" }
+  width: { node: "3059", field: "width" }
+  height: { node: "3059", field: "height" }
+  frames:
+    node: "3059"
+    field: "length"
+    also:
+      - { node: "4979", field: "value" }
+  image: { node: "2004", field: "image" }
 defaults:
   width: 544
   height: 960
@@ -29,6 +35,15 @@ limits:
 residency: on_demand
 min_vram_gb: 20
 synthetic_media: true
+# Model files expected by the shipped Lightricks 2.3 distilled graph (ComfyUI paths):
+# - checkpoints/: ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors (or full)
+# - loras/: ltx-2.3-22b-distilled-lora-384-1.1.safetensors (strength ~0.5)
+# - text_encoders/: gemma_3_12B_it_fp4_mixed.safetensors (via LTXAVTextEncoderLoader)
+# - VAE / audio VAE as referenced by CheckpointLoaderSimple + LTXVAudioVAELoader in the graph
+# Source UI graph: ComfyUI-LTXVideo example_workflows/2.3/LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json
+models_note: >-
+  Install ComfyUI-LTXVideo custom nodes. Place distilled FP8 transformer, distilled LoRA v1.1,
+  Gemma text encoder, and LTX VAEs under the ComfyUI models tree matching the loader node names.
 planner_hint: >-
   Generation only. Never selected for chat or by the dynamic planner.
   Called directly by clients (AO Quill) with a prompt payload.
