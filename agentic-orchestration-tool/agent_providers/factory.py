@@ -234,7 +234,11 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         model_raw = "object_detection"
     if provider_type == "video_generation" and not model_raw:
         model_raw = "video_generation"
-    # Keep video_generation fields on provider_options.
+    if provider_type == "tts" and not model_raw:
+        model_raw = "tts"
+    if provider_type == "stt" and not model_raw:
+        model_raw = "stt"
+    # Keep video_generation / tts / stt fields on provider_options.
     for vid_key in (
         "backend",
         "endpoint_env",
@@ -246,6 +250,10 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "residency",
         "synthetic_media",
         "min_vram_gb",
+        "engine",
+        "allowed_engines",
+        "speech_path",
+        "transcribe_path",
     ):
         if vid_key in data and data.get(vid_key) is not None:
             provider_options = {**provider_options, vid_key: data.get(vid_key)}
@@ -295,6 +303,11 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         if not isinstance(workflows, dict) or not workflows:
             raise ValueError(
                 f"Agent provider '{config.id}' (type video_generation) is missing 'workflows'."
+            )
+    elif provider_type in ("tts", "stt"):
+        if not str(provider_options.get("endpoint_env") or "").strip():
+            raise ValueError(
+                f"Agent provider '{config.id}' (type {provider_type}) is missing 'endpoint_env'."
             )
     elif not config.model:
         raise ValueError(f"Agent provider '{config.id}' is missing 'model'.")

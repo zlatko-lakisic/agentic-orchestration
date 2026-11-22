@@ -33,8 +33,11 @@ def test_entry_required_secrets_all_and_any() -> None:
     assert all(f["anyOfGroup"] == "required_env_any:search_tavily" for f in any_only)
 
 
-def test_build_reach_catalog_includes_stock_and_secrets(tool_root: Path | None = None) -> None:
+def test_build_reach_catalog_includes_stock_and_secrets(
+    monkeypatch, tool_root: Path | None = None
+) -> None:
     root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://127.0.0.1:8188")
     cat = build_reach_catalog(root)
     assert cat["ok"] is True
     assert cat["counts"]["agents"] >= 1
@@ -46,6 +49,14 @@ def test_build_reach_catalog_includes_stock_and_secrets(tool_root: Path | None =
     assert "TAVILY_API_KEY" in secret_names
     assert tavily["enableField"] == "allowedMcpProviderIds"
     assert "TAVILY_API_KEY" in cat["sessionEnvAllowedKeys"]
+    assert any(a["id"] == "video_ltx23_distilled" for a in cat["agents"])
+
+
+def test_build_reach_catalog_omits_unconfigured_video(monkeypatch) -> None:
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.delenv("AGENTIC_VIDEO_COMFYUI_URL", raising=False)
+    cat = build_reach_catalog(root)
+    assert all(a["id"] != "video_ltx23_distilled" for a in cat["agents"])
 
 
 def test_normalize_session_env_allows_catalog_mcp_keys() -> None:

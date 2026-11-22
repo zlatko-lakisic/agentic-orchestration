@@ -216,6 +216,49 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
                 print(f"wrote {result_path}", file=sys.stderr)
             return 0 if result.get("ok") else 1
 
+        from orchestration.stt_runtime import is_stt_entry, run_stt
+        from orchestration.tts_runtime import is_tts_entry, run_tts
+
+        if is_tts_entry(provider_payload):
+            print("(execute-step) tts entrypoint", file=sys.stderr)
+            import json as _json
+
+            payload_text = (
+                task_description.replace("{{topic}}", topic) if topic else task_description
+            )
+            result = run_tts(provider_payload, text=payload_text, tool_root=tool_root)
+            text = _json.dumps(result, ensure_ascii=False, sort_keys=True)
+            step_result = StepResult(
+                run_id=run_id,
+                step_id=step_id,
+                exit_code=0 if result.get("ok") else 1,
+                result_text=text,
+            )
+            if result_path is not None:
+                _write_step_result(result_path, step_result)
+                print(f"wrote {result_path}", file=sys.stderr)
+            return 0 if result.get("ok") else 1
+
+        if is_stt_entry(provider_payload):
+            print("(execute-step) stt entrypoint", file=sys.stderr)
+            import json as _json
+
+            payload_text = (
+                task_description.replace("{{topic}}", topic) if topic else task_description
+            )
+            result = run_stt(provider_payload, text=payload_text, tool_root=tool_root)
+            text = _json.dumps(result, ensure_ascii=False, sort_keys=True)
+            step_result = StepResult(
+                run_id=run_id,
+                step_id=step_id,
+                exit_code=0 if result.get("ok") else 1,
+                result_text=text,
+            )
+            if result_path is not None:
+                _write_step_result(result_path, step_result)
+                print(f"wrote {result_path}", file=sys.stderr)
+            return 0 if result.get("ok") else 1
+
         from orchestration.object_detection_runtime import (
             is_object_detection_entry,
             run_object_detection,

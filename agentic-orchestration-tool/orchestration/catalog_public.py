@@ -152,7 +152,14 @@ def build_reach_catalog(
             agents = load_agent_providers_catalog_merged(paths.agent_providers)
         except Exception:  # noqa: BLE001
             agents = []
-        out["agents"] = [_agent_row(e) for e in agents if str(e.get("id") or "").strip()]
+        # Omit unusable providers (e.g. video_generation without endpoint_env set).
+        from orchestration.catalog_credentials import catalog_entry_has_api_credentials
+
+        out["agents"] = [
+            _agent_row(e)
+            for e in agents
+            if str(e.get("id") or "").strip() and catalog_entry_has_api_credentials(e)
+        ]
 
     if want is None or "mcps" in want:
         try:

@@ -70,6 +70,51 @@ def test_apply_bindings() -> None:
     assert out["20"]["inputs"]["length"] == 121
 
 
+def test_shipped_workflows_bindings_resolve() -> None:
+    """#115: shipped API graphs must match YAML bindings (no placeholder <id>)."""
+    import yaml
+
+    for catalog in (
+        TOOL_ROOT / "config/agent_providers/video_ltx23_distilled.yaml",
+        TOOL_ROOT / "config/agent_providers_jetson/video_ltx23_distilled.yaml",
+    ):
+        entry = yaml.safe_load(catalog.read_text(encoding="utf-8"))
+        bindings = entry.get("bindings") or {}
+        for key, bind in bindings.items():
+            assert isinstance(bind, dict), key
+            node = str(bind.get("node") or "")
+            assert node and node != "<id>", f"{catalog.name} binding {key} still placeholder"
+            also = bind.get("also") or []
+            if isinstance(also, list):
+                for item in also:
+                    assert str(item.get("node") or "") not in ("", "<id>")
+        workflows = entry.get("workflows") or {}
+        for mode, rel in workflows.items():
+            path = TOOL_ROOT / rel
+            assert path.is_file(), path
+            graph = json.loads(path.read_text(encoding="utf-8"))
+            assert not str(graph.get("_comment", "")).lower().startswith("placeholder")
+            values = {
+                "prompt": "test prompt",
+                "negative_prompt": "blurry",
+                "seed": 7,
+                "width": 544,
+                "height": 960,
+                "frames": 97,
+            }
+            if mode == "i2v":
+                values["image"] = "start.png"
+            out = apply_workflow_bindings(graph, bindings, values)
+            for key, bind in bindings.items():
+                if key == "image" and mode != "i2v":
+                    continue
+                if key not in values:
+                    continue
+                node_id = str(bind["node"])
+                field = str(bind["field"])
+                assert out[node_id]["inputs"][field] == values[key], (mode, key)
+
+
 def test_factory_loads_yaml() -> None:
     raw = (TOOL_ROOT / "config/agent_providers/video_ltx23_distilled.yaml").read_text(
         encoding="utf-8"

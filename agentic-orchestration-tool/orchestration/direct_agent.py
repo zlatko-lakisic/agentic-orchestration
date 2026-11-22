@@ -950,6 +950,8 @@ def run_direct_agent(
         )
 
     from orchestration.object_detection_runtime import is_object_detection_entry
+    from orchestration.stt_runtime import SttError, is_stt_entry, run_stt
+    from orchestration.tts_runtime import TtsError, is_tts_entry, run_tts
     from orchestration.video_generation_runtime import (
         VideoGenerationError,
         is_video_generation_entry,
@@ -969,6 +971,38 @@ def run_direct_agent(
                 cancel_event=cancel_event,
             )
         except VideoGenerationError as exc:
+            raise ValueError(str(exc)) from exc
+        import json as _json
+
+        return _json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+    if is_tts_entry(entry):
+        if on_progress is not None:
+            on_progress(f"tts:{pid}")
+        try:
+            result = run_tts(
+                entry,
+                text=text,
+                tool_root=root,
+                user_id=user_id,
+            )
+        except TtsError as exc:
+            raise ValueError(str(exc)) from exc
+        import json as _json
+
+        return _json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+    if is_stt_entry(entry):
+        if on_progress is not None:
+            on_progress(f"stt:{pid}")
+        try:
+            result = run_stt(
+                entry,
+                text=text,
+                tool_root=root,
+                user_id=user_id,
+            )
+        except SttError as exc:
             raise ValueError(str(exc)) from exc
         import json as _json
 

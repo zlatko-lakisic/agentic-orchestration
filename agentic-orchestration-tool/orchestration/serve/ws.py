@@ -1804,6 +1804,8 @@ class WsConnection:
         if agent_provider_id and kind in ("direct_agent", "chat"):
             from orchestration.direct_agent import load_agent_entry
             from orchestration.dynamic_run import catalog_paths
+            from orchestration.stt_runtime import is_stt_entry
+            from orchestration.tts_runtime import is_tts_entry
             from orchestration.video_generation_runtime import is_video_generation_entry
 
             paths = catalog_paths(self.tool_root)
@@ -1817,6 +1819,14 @@ class WsConnection:
             if entry is not None and is_video_generation_entry(entry):
                 return self._execute_video_generation(
                     message, kind, text, tag, run_id, entry
+                )
+            if entry is not None and is_tts_entry(entry):
+                return self._execute_managed_speech(
+                    message, kind, text, tag, run_id, entry, mode="tts"
+                )
+            if entry is not None and is_stt_entry(entry):
+                return self._execute_managed_speech(
+                    message, kind, text, tag, run_id, entry, mode="stt"
                 )
         return self._execute_text(
             message,
@@ -1955,6 +1965,58 @@ class WsConnection:
             )
         except VideoGenerationError as exc:
             raise ValueError(str(exc)) from exc
+        return json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+    def _execute_managed_speech(
+        self,
+        message: dict[str, Any],
+        kind: str,
+        text: str,
+        tag: dict[str, Any],
+        run_id: str,
+        entry: dict[str, Any],
+        *,
+        mode: str,
+    ) -> str:
+        """TTS/STT via managed providers — clients do not call sidecar ports."""
+        import json
+
+        from orchestration.structured_logging import emit_log
+
+        del message, kind
+        agent_provider_id = str(entry.get("id") or "").strip()
+        emit_log(
+            f"engine {mode} start provider={agent_provider_id}",
+            run_id=run_id,
+            component="engine",
+            extra={"question_id": tag["question_id"]} if tag.get("question_id") else None,
+        )
+        if mode == "tts":
+            from orchestration.tts_runtime import TtsError, run_tts
+
+            try:
+                result = run_tts(
+                    entry,
+                    text=text,
+                    tool_root=self.tool_root,
+                    identity=self.identity,
+                    user_id=self.identity.user_id if self.identity else None,
+                )
+            except TtsError as exc:
+                raise ValueError(str(exc)) from exc
+        else:
+            from orchestration.stt_runtime import SttError, run_stt
+
+            try:
+                result = run_stt(
+                    entry,
+                    text=text,
+                    tool_root=self.tool_root,
+                    identity=self.identity,
+                    user_id=self.identity.user_id if self.identity else None,
+                )
+            except SttError as exc:
+                raise ValueError(str(exc)) from exc
         return json.dumps(result, ensure_ascii=False, sort_keys=True)
 
     def _execute_multimodal(

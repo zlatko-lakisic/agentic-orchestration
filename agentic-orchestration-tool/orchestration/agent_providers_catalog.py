@@ -140,7 +140,7 @@ def entries_for_planner(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if planner_exclude_enabled(e):
             continue
         typ = str(e.get("type") or "").strip().lower()
-        if typ == "video_generation":
+        if typ in ("video_generation", "tts", "stt"):
             continue
         out.append(e)
     return out
