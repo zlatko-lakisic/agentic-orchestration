@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.24.0] - 2026-11-21
+
 ### Added
 
 - **Real LTX-2.3 distilled ComfyUI workflows (#115)** — shipped API-format graphs from Lightricks single-stage distilled export with real node bindings (no `<id>` placeholders); converter script under `scripts/convert_ltx_ui_workflow_to_api.py`.
