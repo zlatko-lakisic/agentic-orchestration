@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-11-22
+
 ### Added
 
 - **Shared GPU residency manager (#121)** — `orchestration/gpu_residency.py` admits TTS/STT/video (and coordinates with Ollama idle unload) against `min_vram_gb`, never evicts an active lease, idle-unloads backends, exposes `/api/v1/gpu-residents` + `/health.gpuResidents`, and `ao_gpu_*` Prometheus metrics.
