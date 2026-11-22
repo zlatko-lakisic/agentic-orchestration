@@ -67,7 +67,19 @@ def _video_generation_endpoint_configured(entry: dict[str, Any]) -> bool:
 
 
 def _tts_endpoint_configured(entry: dict[str, Any]) -> bool:
-    return _endpoint_env_configured(entry, default_env="AGENTIC_SPEECH_TTS_URL")
+    if _endpoint_env_configured(entry, default_env="AGENTIC_SPEECH_TTS_URL"):
+        return True
+    # Orpheus (etc.) may advertise via primary env while falling back to Piper.
+    from orchestration.session_env import getenv
+
+    opts = entry.get("provider_options")
+    merged = dict(entry)
+    if isinstance(opts, dict):
+        merged.update(opts)
+    fallback = str(merged.get("fallback_endpoint_env") or "").strip()
+    if fallback and (getenv(fallback, "") or "").strip():
+        return True
+    return False
 
 
 def _stt_endpoint_configured(entry: dict[str, Any]) -> bool:

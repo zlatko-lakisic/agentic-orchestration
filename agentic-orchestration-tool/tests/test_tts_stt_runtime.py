@@ -36,6 +36,7 @@ def test_factory_loads_tts_stt_yaml() -> None:
 
     for rel in (
         "config/agent_providers/tts_piper_en.yaml",
+        "config/agent_providers/tts_orpheus_en.yaml",
         "config/agent_providers/stt_whisper.yaml",
     ):
         data = yaml.safe_load((TOOL_ROOT / rel).read_text(encoding="utf-8"))
@@ -46,9 +47,13 @@ def test_factory_loads_tts_stt_yaml() -> None:
 def test_planner_omits_tts_stt() -> None:
     entries = load_agent_providers_catalog(TOOL_ROOT / "config/agent_providers")
     assert any(e.get("id") == "tts_piper_en" for e in entries)
+    assert any(e.get("id") == "tts_orpheus_en" for e in entries)
     assert any(e.get("id") == "stt_whisper" for e in entries)
     planned = entries_for_planner(entries)
-    assert all(e.get("id") not in ("tts_piper_en", "stt_whisper") for e in planned)
+    assert all(
+        e.get("id") not in ("tts_piper_en", "tts_orpheus_en", "stt_whisper")
+        for e in planned
+    )
 
 
 def test_answer_cache_bypass_speech() -> None:
@@ -155,3 +160,37 @@ def test_stt_requires_json() -> None:
             tool_root=TOOL_ROOT,
             identity=_ident(),
         )
+
+
+def test_orpheus_falls_back_to_piper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from orchestration.tts_runtime import split_narration_sentences
+
+    monkeypatch.delenv("AGENTIC_SPEECH_ORPHEUS_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_SPEECH_TTS_URL", "http://piper.test")
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "files"))
+    monkeypatch.setenv("AGENTIC_GPU_RESIDENCY", "0")
+
+    class _Transport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:  # noqa: ARG002
+            return httpx.Response(200, content=b"RIFF....WAVEfmt ")
+
+    entry = {
+        "id": "tts_orpheus_en",
+        "type": "tts",
+        "engine": "orpheus",
+        "allowed_engines": ["orpheus"],
+        "endpoint_env": "AGENTIC_SPEECH_ORPHEUS_URL",
+        "fallback_endpoint_env": "AGENTIC_SPEECH_TTS_URL",
+        "fallback_engine": "piper",
+    }
+    client = httpx.Client(transport=_Transport())
+    result = run_tts(
+        entry,
+        text="Hello from Orpheus fallback.",
+        tool_root=TOOL_ROOT,
+        identity=_ident(),
+        client=client,
+    )
+    assert result["ok"] is True
+    assert result["engine"] == "piper"
+    assert len(split_narration_sentences("One. Two. Three sentences here!")) >= 2

@@ -223,7 +223,20 @@ def _parse_request(text: str, entry: dict[str, Any]) -> dict[str, Any]:
     max_frames = int(limits.get("max_frames") or 241)
     if frames > max_frames:
         raise VideoGenerationError(f"frames exceeds max_frames ({max_frames})")
-    validate_ltx_geometry(width=width, height=height, frames=frames)
+    geometry = str(
+        data.get("geometry")
+        or _merged(entry).get("geometry")
+        or "ltx"
+    ).strip().lower()
+    if geometry in ("ltx", "ltx23", "ltx-2.3"):
+        validate_ltx_geometry(width=width, height=height, frames=frames)
+    elif geometry in ("wan", "wan22", "none", "any"):
+        if width < 64 or height < 64:
+            raise VideoGenerationError(f"width/height too small ({width}x{height})")
+        if frames < 1:
+            raise VideoGenerationError("frames must be >= 1")
+    else:
+        validate_ltx_geometry(width=width, height=height, frames=frames)
     seed = data.get("seed")
     if seed is None:
         seed = int(time.time()) % 2_147_483_647
@@ -278,12 +291,15 @@ def video_generation_health(entry: dict[str, Any]) -> dict[str, Any]:
             first = devices[0] if isinstance(devices[0], dict) else {}
             gpu_name = first.get("name") or first.get("gpu_name")
             vram_free = first.get("vram_free") or first.get("free")
+        merged = _merged(entry)
         return {
             "ok": True,
             "reachable": True,
             "gpuName": gpu_name,
             "vramFree": vram_free,
             "providerId": str(entry.get("id") or ""),
+            "qualityTier": merged.get("quality_tier"),
+            "speedTier": merged.get("speed_tier"),
         }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reachable": False, "error": str(exc)}
@@ -319,6 +335,24 @@ def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, 
     }
 
 
+def _comfy_free(entry: dict[str, Any], client: httpx.Client | None = None) -> None:
+    try:
+        base = _endpoint(entry)
+    except VideoGenerationError:
+        return
+    headers = {**_headers(entry), "Content-Type": "application/json"}
+    body = {"unload_models": True, "free_memory": True}
+    owns = client is None
+    http = client or httpx.Client(timeout=15.0)
+    try:
+        http.post(f"{base}/free", headers=headers, json=body)
+    except Exception:  # noqa: BLE001
+        return
+    finally:
+        if owns:
+            http.close()
+
+
 def run_video_generation(
     entry: dict[str, Any],
     *,
@@ -331,10 +365,25 @@ def run_video_generation(
     cancel_event: Any = None,
 ) -> dict[str, Any]:
     """Queue a ComfyUI workflow and return clip metadata + registered file_id."""
+    from orchestration.gpu_residency import (
+        GpuResidencyError,
+        get_gpu_residency_manager,
+        residency_lease_for_entry,
+    )
+
     t0 = time.time()
     pid = str(entry.get("id") or "video_generation")
     req = _parse_request(text, entry)
     merged = _merged(entry)
+    lease = None
+    try:
+        lease = residency_lease_for_entry(
+            entry,
+            kind="video",
+            unload=lambda: _comfy_free(entry),
+        )
+    except GpuResidencyError as exc:
+        raise VideoGenerationError(str(exc)) from exc
     workflows = merged.get("workflows") or {}
     mode = "i2v" if req["start_image_file_id"] else "t2v"
     rel = workflows.get(mode)
@@ -487,18 +536,32 @@ def run_video_generation(
             move=False,
         )
         seconds = float(req["frames"]) / float(req["fps"] or 24)
+        # Peak VRAM from ComfyUI system_stats when available (for trace + residency).
+        peak_vram_gb = None
+        try:
+            stats = client.get(f"{base}/system_stats", headers=headers)
+            if stats.status_code < 400 and stats.content:
+                sbody = stats.json()
+                devices = (sbody.get("devices") or []) if isinstance(sbody, dict) else []
+                if isinstance(devices, list) and devices and isinstance(devices[0], dict):
+                    # Comfy often reports vram_total / vram_free in bytes.
+                    total = devices[0].get("vram_total")
+                    free = devices[0].get("vram_free")
+                    if isinstance(total, (int, float)) and isinstance(free, (int, float)):
+                        used = max(0.0, float(total) - float(free))
+                        peak_vram_gb = used / float(1024**3)
+                        get_gpu_residency_manager().note_measured_vram(pid, peak_vram_gb)
+        except Exception:  # noqa: BLE001
+            pass
         residency = str(merged.get("residency") or "").strip().lower()
         if residency == "on_demand":
-            try:
-                client.post(
-                    f"{base}/free",
-                    headers={**headers, "Content-Type": "application/json"},
-                    json={"unload_models": True, "free_memory": True},
-                )
-            except Exception:  # noqa: BLE001
-                pass
+            # Drop weights now so the next admit sees free VRAM; idle report
+            # still tracks the lease until timeout / eviction.
+            _comfy_free(entry, client)
         _progress(100)
         timings["total_ms"] = int((time.time() - t0) * 1000)
+        if peak_vram_gb is not None:
+            timings["peak_vram_gb"] = round(peak_vram_gb, 3)
         return {
             "ok": True,
             "provider": pid,
@@ -506,6 +569,8 @@ def run_video_generation(
             "file_id": meta["file_id"],
             "download_url": meta.get("download_url")
             or f"/api/v1/files/{meta['file_id']}",
+            "quality": merged.get("quality_tier") or merged.get("quality"),
+            "speed": merged.get("speed_tier") or merged.get("speed"),
             "clips": [
                 {
                     "file_id": meta["file_id"],
@@ -521,5 +586,7 @@ def run_video_generation(
             "timings": timings,
         }
     finally:
+        if lease is not None:
+            get_gpu_residency_manager().release(lease)
         if owns_client:
             client.close()

@@ -1,0 +1,41 @@
+{
+  "_comment": "Placeholder Wan 2.2 I2V API graph. Replace with an exported ComfyUI API workflow and update bindings in video_wan22_i2v.yaml. Node ids match the shipped bindings (prompt=6, negative=7, seed=3, size/length=5, image=10).",
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1.0
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 544,
+      "height": 960,
+      "length": 81,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": ""
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": ""
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    }
+  }
+}

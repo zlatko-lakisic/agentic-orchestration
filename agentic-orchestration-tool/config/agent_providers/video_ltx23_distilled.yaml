@@ -32,6 +32,8 @@ defaults:
 limits:
   max_frames: 241
   timeout_s: 1800
+quality_tier: fast
+speed_tier: fast
 residency: on_demand
 min_vram_gb: 20
 synthetic_media: true

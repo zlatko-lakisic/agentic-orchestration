@@ -1,0 +1,49 @@
+id: video_wan22_i2v
+type: video_generation
+role: Vertical image-to-video (Wan 2.2)
+goal: Generate a short vertical clip with real motion from a start image + prompt
+backstory: >-
+  Wan 2.2 image-to-video (Alibaba, Apache 2.0) via ComfyUI on the GPU host.
+  Prefer TI2V-5B or A14B FP8/GGUF with offload to fit ~20 GB when nothing else
+  is resident. Higher quality / more motion than LTX distilled; slower.
+backend: comfyui
+endpoint_env: AGENTIC_VIDEO_COMFYUI_URL
+token_env: AGENTIC_VIDEO_COMFYUI_TOKEN
+geometry: wan
+quality_tier: high
+speed_tier: slow
+workflows:
+  i2v: config/video_workflows/wan22_i2v_vertical.json
+  t2v: config/video_workflows/wan22_i2v_vertical.json
+bindings:
+  prompt: { node: "6", field: "text" }
+  negative_prompt: { node: "7", field: "text" }
+  seed: { node: "3", field: "seed" }
+  width: { node: "5", field: "width" }
+  height: { node: "5", field: "height" }
+  frames: { node: "5", field: "length" }
+  image: { node: "10", field: "image" }
+defaults:
+  width: 544
+  height: 960
+  fps: 16
+  frames: 81
+  keep_audio: false
+limits:
+  max_frames: 121
+  timeout_s: 2400
+residency: on_demand
+min_vram_gb: 18
+synthetic_media: true
+models_note: >-
+  Install ComfyUI-WanVideoWrapper (or official Wan nodes). Prefer Wan 2.2
+  TI2V-5B or A14B I2V experts in FP8/GGUF with CPU/VRAM offload so peak fits
+  one 20 GB card. Export the UI graph to API JSON and replace
+  config/video_workflows/wan22_i2v_vertical.json + bindings node ids.
+  Record seconds/5s clip and peak VRAM on Ada after first smoke.
+planner_hint: >-
+  Generation only. Higher-quality image-to-video than video_ltx23_distilled
+  (use LTX when speed matters). Called by AO Quill with start_image_file_id.
+harness_profile: generation
+harness:
+  skip_live: true

@@ -131,9 +131,35 @@ def test_factory_loads_yaml() -> None:
 def test_planner_omits_video_generation() -> None:
     entries = load_agent_providers_catalog(TOOL_ROOT / "config/agent_providers")
     assert any(e.get("id") == "video_ltx23_distilled" for e in entries)
+    assert any(e.get("id") == "video_wan22_i2v" for e in entries)
     planned = entries_for_planner(entries)
-    assert all(e.get("id") != "video_ltx23_distilled" for e in planned)
+    assert all(
+        e.get("id") not in ("video_ltx23_distilled", "video_wan22_i2v") for e in planned
+    )
     assert "video_ltx23_distilled" not in catalog_for_planner_prompt(entries)
+
+
+def test_wan_and_ltx_quality_speed_tiers() -> None:
+    import yaml
+
+    ltx = yaml.safe_load(
+        (TOOL_ROOT / "config/agent_providers/video_ltx23_distilled.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    wan = yaml.safe_load(
+        (TOOL_ROOT / "config/agent_providers/video_wan22_i2v.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert ltx.get("quality_tier") == "fast"
+    assert ltx.get("speed_tier") == "fast"
+    assert wan.get("quality_tier") == "high"
+    assert wan.get("speed_tier") == "slow"
+    assert (TOOL_ROOT / wan["workflows"]["i2v"]).is_file()
+    provider = agent_provider_from_dict(wan, default_model="")
+    assert provider.config.provider_type == "video_generation"
+    assert provider.config.provider_options.get("geometry") == "wan"
 
 
 def test_answer_cache_bypass() -> None:

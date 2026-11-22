@@ -1,6 +1,13 @@
-# Ada: ComfyUI + LTX-2.3 for `video_ltx23_distilled` (#116)
+# Ada: ComfyUI + LTX-2.3 + Wan 2.2 for video providers (#116 / #123)
 
 Run ComfyUI on the **same GPU host as the engine** (Ada). The engine talks to it over loopback; do not expose `:8188` on the LAN without auth.
+
+Providers:
+
+| Provider | Role | Catalog tiers |
+|---|---|---|
+| `video_ltx23_distilled` | Fast distilled LTX | `quality_tier: fast`, `speed_tier: fast` |
+| `video_wan22_i2v` | Higher-motion Wan 2.2 I2V | `quality_tier: high`, `speed_tier: slow` |
 
 ## Install (once)
 
@@ -13,10 +20,14 @@ python3 -m venv .venv
 pip install -r requirements.txt
 cd custom_nodes
 git clone https://github.com/Lightricks/ComfyUI-LTXVideo.git
+# Wan 2.2 (#123) — pick one maintained wrapper, e.g.:
+# git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git
 # Plus Video Helper Suite if SaveVideo / CreateVideo nodes require it
 ```
 
-Place distilled weights under `ComfyUI/models/` as named in `config/agent_providers/video_ltx23_distilled.yaml` (`models_note`).
+Place distilled LTX weights under `ComfyUI/models/` as named in `config/agent_providers/video_ltx23_distilled.yaml` (`models_note`).
+
+For Wan 2.2, install TI2V-5B or A14B I2V FP8/GGUF (+ offload) so peak VRAM fits Ada (~20 GB) with nothing else resident. Export the working UI graph to API JSON, replace `config/video_workflows/wan22_i2v_vertical.json`, and update node bindings in `video_wan22_i2v.yaml`. Record **seconds per 5 s clip** and **peak VRAM** after the first Ada smoke.
 
 ## systemd user unit
 
@@ -43,6 +54,7 @@ From the engine pod, ComfyUI on the host is often `http://host.k3s.internal:8188
 
 ## GPU sharing
 
-- Provider `residency: on_demand` — runtime calls ComfyUI `/free` after each job.
-- LTX distilled needs ~20 GB VRAM (`min_vram_gb: 20`). On Ada (~20 GB), unload Ollama models and prefer stopping STT/TTS sidecars before a long clip (#118 will manage this inside AO).
-- Record wall time for 97 and 241 frames after first successful `direct_agent` smoke and note them on #116.
+- Providers use `residency: on_demand`. The shared GPU residency manager (#121) admits against `min_vram_gb`, evicts idle Ollama/TTS/STT first, never steals an active lease, and reports via `/api/v1/gpu-residents`.
+- Runtime still calls ComfyUI `/free` after each job so weights leave VRAM immediately; idle leases drop from the report after the idle timeout.
+- LTX distilled ~20 GB (`min_vram_gb: 20`); Wan ~18 GB (`min_vram_gb: 18`). On Ada, only one of LLM / speech / video should be resident at a time.
+- Record wall time for 97 and 241 LTX frames and for a 5 s Wan clip after first successful `direct_agent` smoke.

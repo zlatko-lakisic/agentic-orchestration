@@ -254,6 +254,13 @@ def agent_provider_from_dict(data: dict[str, Any], default_model: str) -> AgentP
         "allowed_engines",
         "speech_path",
         "transcribe_path",
+        "unload_path",
+        "fallback_endpoint_env",
+        "fallback_engine",
+        "geometry",
+        "quality_tier",
+        "speed_tier",
+        "models_note",
     ):
         if vid_key in data and data.get(vid_key) is not None:
             provider_options = {**provider_options, vid_key: data.get(vid_key)}
