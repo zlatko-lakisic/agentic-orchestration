@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +17,24 @@ from orchestration.user_context import Identity
 
 __all__ = [
     "TtsError",
+    "ORPHEUS_EMOTION_TAGS",
     "is_tts_entry",
     "run_tts",
     "tts_health",
+    "split_narration_sentences",
 ]
+
+# Documented Orpheus emotion / pause tags (Canopy Labs). Scripts may use sparingly.
+ORPHEUS_EMOTION_TAGS = (
+    "<laugh>",
+    "<sigh>",
+    "<chuckle>",
+    "<cough>",
+    "<sniff>",
+    "<groan>",
+    "<yawn>",
+    "<gasp>",
+)
 
 
 class TtsError(ValueError):
@@ -39,17 +56,95 @@ def _opts(entry: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
-def _endpoint(entry: dict[str, Any]) -> str:
+def _endpoint(entry: dict[str, Any], *, env_name: str | None = None) -> str:
     merged = _opts(entry)
-    env_name = str(merged.get("endpoint_env") or "AGENTIC_SPEECH_TTS_URL").strip()
-    url = (os.getenv(env_name) or "").strip().rstrip("/")
+    name = str(
+        env_name
+        or merged.get("endpoint_env")
+        or "AGENTIC_SPEECH_TTS_URL"
+    ).strip()
+    url = (os.getenv(name) or "").strip().rstrip("/")
     if not url:
-        raise TtsError(f"{env_name} is not set")
+        raise TtsError(f"{name} is not set")
     return url
 
 
 def _engine(entry: dict[str, Any]) -> str:
     return str(_opts(entry).get("engine") or "piper").strip().lower() or "piper"
+
+
+def _fallback_endpoint(entry: dict[str, Any]) -> str | None:
+    merged = _opts(entry)
+    name = str(merged.get("fallback_endpoint_env") or "").strip()
+    if not name:
+        return None
+    url = (os.getenv(name) or "").strip().rstrip("/")
+    return url or None
+
+
+def split_narration_sentences(text: str, *, max_chars: int = 280) -> list[str]:
+    """Split narration sentence-by-sentence (further split only if one is huge)."""
+    raw = re.sub(r"\s+", " ", (text or "").strip())
+    if not raw:
+        return []
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", raw) if p.strip()]
+    if not parts:
+        return [raw]
+    chunks: list[str] = []
+    for piece in parts:
+        if len(piece) <= max_chars:
+            chunks.append(piece)
+            continue
+        buf = piece
+        while len(buf) > max_chars:
+            cut = buf[:max_chars].rsplit(" ", 1)[0] or buf[:max_chars]
+            chunks.append(cut)
+            buf = buf[len(cut) :].lstrip()
+        if buf:
+            chunks.append(buf)
+    return chunks
+
+
+def _join_wavs(parts: list[bytes]) -> bytes:
+    if len(parts) == 1:
+        return parts[0]
+    frames = bytearray()
+    params: tuple[int, int, int, int, str, str] | None = None
+    for blob in parts:
+        with wave.open(io.BytesIO(blob), "rb") as w:
+            p = w.getparams()
+            if params is None:
+                params = p
+            elif (p.nchannels, p.sampwidth, p.framerate) != (
+                params.nchannels,
+                params.sampwidth,
+                params.framerate,
+            ):
+                raise TtsError("TTS chunks have mismatched WAV formats")
+            frames.extend(w.readframes(w.getnframes()))
+    if params is None:
+        raise TtsError("no WAV chunks to join")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(params.nchannels)
+        w.setsampwidth(params.sampwidth)
+        w.setframerate(params.framerate)
+        w.writeframes(bytes(frames))
+    return out.getvalue()
+
+
+def _comfy_or_speech_unload(entry: dict[str, Any]) -> None:
+    """Best-effort idle unload hook for residency (POST /v1/unload when present)."""
+    try:
+        base = _endpoint(entry)
+    except TtsError:
+        return
+    path = str(_opts(entry).get("unload_path") or "/v1/unload").strip() or "/v1/unload"
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            client.post(f"{base}{path}")
+    except Exception:  # noqa: BLE001
+        return
 
 
 def _parse_request(text: str, entry: dict[str, Any]) -> dict[str, Any]:
@@ -94,22 +189,90 @@ def run_tts(
 ) -> dict[str, Any]:
     """POST sidecar ``/v1/audio/speech`` and register WAV as a client file."""
     del tool_root
+    from orchestration.gpu_residency import (
+        GpuResidencyError,
+        get_gpu_residency_manager,
+        residency_lease_for_entry,
+    )
+
     req = _parse_request(text, entry)
-    base = _endpoint(entry)
+    engine_used = req["engine"]
+    preferred_env = str(_opts(entry).get("endpoint_env") or "AGENTIC_SPEECH_TTS_URL")
+    try:
+        base = _endpoint(entry)
+    except TtsError:
+        fallback = _fallback_endpoint(entry)
+        if not fallback:
+            raise
+        base = fallback
+        engine_used = str(_opts(entry).get("fallback_engine") or "piper")
     path = str(_opts(entry).get("speech_path") or "/v1/audio/speech")
     own = client is None
     http = client or httpx.Client(timeout=float(os.getenv("AGENTIC_SPEECH_TTS_TIMEOUT_S", "120") or 120))
+    lease = None
     try:
-        resp = http.post(
-            f"{base}{path}",
-            json={"input": req["text"], "text": req["text"], "voice": req["voice"], "speed": req["speed"]},
-            headers={"Accept": "audio/wav"},
-        )
-        if resp.status_code >= 400:
-            raise TtsError(f"TTS sidecar HTTP {resp.status_code}: {resp.text[:300]}")
-        audio = resp.content
-        if not audio:
-            raise TtsError("TTS sidecar returned empty body")
+        try:
+            lease = residency_lease_for_entry(
+                entry,
+                kind="tts",
+                unload=lambda: _comfy_or_speech_unload(entry),
+            )
+        except GpuResidencyError as exc:
+            raise TtsError(str(exc)) from exc
+
+        chunks = split_narration_sentences(req["text"])
+        wav_parts: list[bytes] = []
+        for chunk in chunks:
+            try:
+                resp = http.post(
+                    f"{base}{path}",
+                    json={
+                        "input": chunk,
+                        "text": chunk,
+                        "voice": req["voice"],
+                        "speed": req["speed"],
+                    },
+                    headers={"Accept": "audio/wav"},
+                )
+            except httpx.HTTPError as exc:
+                fallback = _fallback_endpoint(entry)
+                if fallback and base != fallback:
+                    base = fallback
+                    engine_used = str(_opts(entry).get("fallback_engine") or "piper")
+                    resp = http.post(
+                        f"{base}{path}",
+                        json={
+                            "input": chunk,
+                            "text": chunk,
+                            "voice": req["voice"],
+                            "speed": req["speed"],
+                        },
+                        headers={"Accept": "audio/wav"},
+                    )
+                else:
+                    raise TtsError(f"TTS sidecar unreachable: {exc}") from exc
+            if resp.status_code >= 400:
+                fallback = _fallback_endpoint(entry)
+                if fallback and base != fallback and resp.status_code >= 500:
+                    base = fallback
+                    engine_used = str(_opts(entry).get("fallback_engine") or "piper")
+                    resp = http.post(
+                        f"{base}{path}",
+                        json={
+                            "input": chunk,
+                            "text": chunk,
+                            "voice": req["voice"],
+                            "speed": req["speed"],
+                        },
+                        headers={"Accept": "audio/wav"},
+                    )
+                if resp.status_code >= 400:
+                    raise TtsError(f"TTS sidecar HTTP {resp.status_code}: {resp.text[:300]}")
+            if not resp.content:
+                raise TtsError("TTS sidecar returned empty body")
+            wav_parts.append(resp.content)
+
+        audio = _join_wavs(wav_parts) if len(wav_parts) > 1 else wav_parts[0]
         owner: Identity | str
         if identity is not None:
             owner = identity
@@ -123,22 +286,45 @@ def run_tts(
             "file_id": meta["file_id"],
             "download_url": meta.get("download_url"),
             "content_type": "audio/wav",
-            "engine": req["engine"],
+            "engine": engine_used,
             "voice": req["voice"],
             "speed": req["speed"],
             "bytes": len(audio),
+            "chunks": len(wav_parts),
             "provider": str(entry.get("id") or ""),
+            "preferredEnv": preferred_env,
         }
     finally:
+        if lease is not None:
+            get_gpu_residency_manager().release(lease)
         if own:
             http.close()
 
 
 def tts_health(entry: dict[str, Any]) -> dict[str, Any]:
+    pid = str(entry.get("id") or "")
     try:
         base = _endpoint(entry)
     except TtsError as exc:
-        return {"ok": False, "reachable": False, "error": str(exc), "providerId": str(entry.get("id") or "")}
+        fallback = _fallback_endpoint(entry)
+        if fallback:
+            return {
+                "ok": True,
+                "reachable": True,
+                "configured": True,
+                "engine": str(_opts(entry).get("fallback_engine") or "piper"),
+                "fallback": True,
+                "error": str(exc),
+                "providerId": pid,
+                "emotionTags": list(ORPHEUS_EMOTION_TAGS) if _engine(entry) == "orpheus" else None,
+            }
+        return {
+            "ok": False,
+            "reachable": False,
+            "configured": False,
+            "error": str(exc),
+            "providerId": pid,
+        }
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(f"{base}/health")
@@ -146,21 +332,27 @@ def tts_health(entry: dict[str, Any]) -> dict[str, Any]:
             return {
                 "ok": False,
                 "reachable": True,
+                "configured": True,
                 "error": f"HTTP {resp.status_code}",
-                "providerId": str(entry.get("id") or ""),
+                "providerId": pid,
             }
         data = resp.json() if resp.content else {}
-        return {
+        out: dict[str, Any] = {
             "ok": True,
             "reachable": True,
+            "configured": True,
             "engine": _engine(entry),
             "backend": (data.get("backend") or {}).get("name") if isinstance(data, dict) else None,
-            "providerId": str(entry.get("id") or ""),
+            "providerId": pid,
         }
+        if _engine(entry) == "orpheus":
+            out["emotionTags"] = list(ORPHEUS_EMOTION_TAGS)
+        return out
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "reachable": False,
+            "configured": True,
             "error": str(exc),
-            "providerId": str(entry.get("id") or ""),
+            "providerId": pid,
         }

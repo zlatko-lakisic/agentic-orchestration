@@ -66,6 +66,8 @@ def _agent_row(entry: dict[str, Any]) -> dict[str, Any]:
         "harnessProfile": harness,
         "generalPurpose": bool(entry.get("general_purpose")),
         "minVramGb": entry.get("min_vram_gb"),
+        "qualityTier": entry.get("quality_tier"),
+        "speedTier": entry.get("speed_tier"),
         "requiredSecrets": secrets,
         "enableField": "allowedAgentProviderIds",
     }

@@ -21,6 +21,10 @@ _EQ_WAIT_SUM = 0.0
 _EQ_WAIT_COUNT = 0
 _EQ_DEPTH: dict[str, int] = {}
 _WARM_POOL_REPLICAS = 0
+_GPU_ADMITS = 0
+_GPU_REJECTS = 0
+_GPU_EVICTIONS = 0
+_GPU_QUEUE_DEPTH = 0
 
 _PROM = None
 _prom_runs = None
@@ -30,6 +34,11 @@ _prom_ollama_evictions = None
 _prom_ollama_admits = None
 _prom_ollama_rejects = None
 _prom_ollama_queue = None
+_prom_gpu_admits = None
+_prom_gpu_rejects = None
+_prom_gpu_evictions = None
+_prom_gpu_queue = None
+_prom_gpu_vram = None
 _prom_eq_depth = None
 _prom_eq_admits = None
 _prom_eq_rejects = None
@@ -41,6 +50,7 @@ _prom_warm_pool_replicas = None
 def _init_prom() -> None:
     global _PROM, _prom_runs, _prom_duration, _prom_step_failures
     global _prom_ollama_evictions, _prom_ollama_admits, _prom_ollama_rejects, _prom_ollama_queue
+    global _prom_gpu_admits, _prom_gpu_rejects, _prom_gpu_evictions, _prom_gpu_queue, _prom_gpu_vram
     global _prom_eq_depth, _prom_eq_admits, _prom_eq_rejects, _prom_eq_preempts, _prom_eq_wait
     global _prom_warm_pool_replicas
     if _PROM is not None:
@@ -78,6 +88,27 @@ def _init_prom() -> None:
         _prom_ollama_queue = Gauge(
             "ao_ollama_queue_depth",
             "Current Ollama resource broker queue depth",
+        )
+        _prom_gpu_admits = Counter(
+            "ao_gpu_admits_total",
+            "Cross-provider GPU residency leases granted",
+        )
+        _prom_gpu_rejects = Counter(
+            "ao_gpu_rejects_total",
+            "Cross-provider GPU residency leases rejected",
+        )
+        _prom_gpu_evictions = Counter(
+            "ao_gpu_evictions_total",
+            "Cross-provider GPU residency idle/pressure unload events",
+        )
+        _prom_gpu_queue = Gauge(
+            "ao_gpu_queue_depth",
+            "Cross-provider GPU residency wait queue depth",
+        )
+        _prom_gpu_vram = Gauge(
+            "ao_gpu_provider_vram_bytes",
+            "Reported VRAM bytes per GPU resident provider",
+            ["provider_id", "kind"],
         )
         _prom_eq_depth = Gauge(
             "ao_execution_queue_depth",
@@ -187,6 +218,36 @@ def record_ollama_resource_stats(
             _prom_ollama_queue.set(_OLLAMA_QUEUE_DEPTH)
 
 
+def sync_gpu_residency_metrics() -> None:
+    """Pull latest GPU residency stats into Prometheus / fallback exporters."""
+    global _GPU_ADMITS, _GPU_REJECTS, _GPU_EVICTIONS, _GPU_QUEUE_DEPTH
+    _init_prom()
+    try:
+        from orchestration.gpu_residency import get_gpu_residency_manager
+
+        report = get_gpu_residency_manager().report()
+    except Exception:  # noqa: BLE001
+        return
+    stats = report.get("stats") if isinstance(report, dict) else None
+    if isinstance(stats, dict):
+        _GPU_ADMITS = max(_GPU_ADMITS, int(stats.get("admits") or 0))
+        _GPU_REJECTS = max(_GPU_REJECTS, int(stats.get("rejects") or 0))
+        _GPU_EVICTIONS = max(_GPU_EVICTIONS, int(stats.get("evictions") or 0))
+        _GPU_QUEUE_DEPTH = max(0, int(stats.get("queueDepth") or 0))
+        if _PROM and _prom_gpu_queue is not None:
+            _prom_gpu_queue.set(_GPU_QUEUE_DEPTH)
+    models = report.get("models") if isinstance(report, dict) else None
+    if _PROM and _prom_gpu_vram is not None and isinstance(models, list):
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("providerId") or "unknown")
+            kind = str(item.get("kind") or "other")
+            vram = item.get("vramBytes")
+            if isinstance(vram, (int, float)):
+                _prom_gpu_vram.labels(provider_id=pid, kind=kind).set(float(vram))
+
+
 def record_run_end(*, ok: bool, elapsed_ms: float | None = None) -> None:
     """Increment run counters (and duration when ``elapsed_ms`` is known)."""
     _init_prom()
@@ -219,6 +280,7 @@ def record_step_failure() -> None:
 def metrics_payload() -> tuple[bytes, str]:
     """Return ``(body, content_type)`` for ``GET /metrics``."""
     _init_prom()
+    sync_gpu_residency_metrics()
     if _PROM:
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -247,6 +309,18 @@ def metrics_payload() -> tuple[bytes, str]:
         "# HELP ao_ollama_queue_depth Current Ollama resource broker queue depth",
         "# TYPE ao_ollama_queue_depth gauge",
         f"ao_ollama_queue_depth {_OLLAMA_QUEUE_DEPTH}",
+        "# HELP ao_gpu_admits_total Cross-provider GPU residency leases granted",
+        "# TYPE ao_gpu_admits_total counter",
+        f"ao_gpu_admits_total {_GPU_ADMITS}",
+        "# HELP ao_gpu_rejects_total Cross-provider GPU residency leases rejected",
+        "# TYPE ao_gpu_rejects_total counter",
+        f"ao_gpu_rejects_total {_GPU_REJECTS}",
+        "# HELP ao_gpu_evictions_total Cross-provider GPU residency unload events",
+        "# TYPE ao_gpu_evictions_total counter",
+        f"ao_gpu_evictions_total {_GPU_EVICTIONS}",
+        "# HELP ao_gpu_queue_depth Cross-provider GPU residency wait queue depth",
+        "# TYPE ao_gpu_queue_depth gauge",
+        f"ao_gpu_queue_depth {_GPU_QUEUE_DEPTH}",
         "# HELP ao_execution_queue_admits_total Global execution queue admissions",
         "# TYPE ao_execution_queue_admits_total counter",
         f"ao_execution_queue_admits_total {_EQ_ADMITS}",

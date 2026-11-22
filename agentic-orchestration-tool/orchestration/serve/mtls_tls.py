@@ -24,6 +24,7 @@ MTLS_PUBLIC_PATHS = frozenset(
         "/metrics",
         "/api/ping",
         "/api/agentic/execution-queue/status",
+        "/api/v1/gpu-residents",
         "/api/v1/admin/reach-sessions",
         "/api/v1/admin/custom-tool-sandboxes",
         "/api/v1/admin/background-activity/cancel",

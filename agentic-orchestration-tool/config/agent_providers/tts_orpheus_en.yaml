@@ -1,0 +1,30 @@
+id: tts_orpheus_en
+type: tts
+role: Native-English TTS narrator (Orpheus 3B)
+goal: Synthesize natural English narration as WAV for AO Quill shorts
+backstory: >-
+  Managed Orpheus 3B (Canopy Labs, Apache 2.0) sidecar for English narration.
+  Emotion/pause tags (<laugh>, <sigh>, …) are allowed in the script text.
+  Never uses Qwen3-TTS. Falls back to Piper when Orpheus is unavailable.
+engine: orpheus
+allowed_engines: [orpheus]
+endpoint_env: AGENTIC_SPEECH_ORPHEUS_URL
+fallback_endpoint_env: AGENTIC_SPEECH_TTS_URL
+fallback_engine: piper
+token_env: AGENTIC_SPEECH_TOKEN
+speech_path: /v1/audio/speech
+unload_path: /v1/unload
+defaults:
+  voice: default
+  speed: 1.0
+residency: on_demand
+min_vram_gb: 6
+planner_exclude: true
+planner_hint: >-
+  Generation only. Preferred English narrator for AO Quill. Called via
+  direct_agent with text or JSON {text, voice, speed}. Emotion tags:
+  <laugh> <sigh> <chuckle> <cough> <sniff> <groan> <yawn> <gasp>.
+  Do not select for chat.
+harness_profile: generation
+harness:
+  skip_live: true

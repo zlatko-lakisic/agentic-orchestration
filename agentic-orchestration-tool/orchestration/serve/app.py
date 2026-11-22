@@ -241,6 +241,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         payload["speechProviders"] = await run_in_threadpool(
             _speech_providers_health_snapshot, root
         )
+        payload["gpuResidents"] = await run_in_threadpool(_gpu_residents_snapshot)
         mtls = mtls_hello_payload(root)
         if mtls is not None:
             payload["mtls"] = mtls
@@ -310,6 +311,14 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "ok": any(bool(p.get("ok")) for p in providers) if providers else None,
         }
 
+    def _gpu_residents_snapshot() -> dict[str, Any]:
+        from orchestration.gpu_residency import get_gpu_residency_manager
+
+        try:
+            return get_gpu_residency_manager().report()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc), "models": []}
+
     def _resource_sharing_health() -> dict[str, Any]:
         from orchestration.ollama_resource_manager import resource_sharing_enabled
 
@@ -373,6 +382,11 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         from orchestration.catalog_public import build_reach_catalog
 
         return await run_in_threadpool(build_reach_catalog, root, kinds=kinds)
+
+    @app.get("/api/v1/gpu-residents")
+    async def api_v1_gpu_residents() -> dict[str, Any]:
+        """Cross-provider GPU residency report (Ollama + TTS/STT/video), ``/api/ps``-like."""
+        return await run_in_threadpool(_gpu_residents_snapshot)
 
     @app.get("/metrics")
     async def metrics() -> Response:

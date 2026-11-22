@@ -7,6 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Shared GPU residency manager (#121)** — `orchestration/gpu_residency.py` admits TTS/STT/video (and coordinates with Ollama idle unload) against `min_vram_gb`, never evicts an active lease, idle-unloads backends, exposes `/api/v1/gpu-residents` + `/health.gpuResidents`, and `ao_gpu_*` Prometheus metrics.
+- **tts_orpheus_en (#122)** — Orpheus 3B managed English narrator with emotion tags, sentence-chunked synthesis, Piper fallback (`fallback_endpoint_env`), and `speech/orpheus_server.py` + Ada setup notes.
+- **video_wan22_i2v (#123)** — Wan 2.2 image-to-video ComfyUI provider next to LTX; catalog `quality_tier` / `speed_tier` (Wan=high/slow, LTX=fast/fast); peak VRAM in clip timings; ComfyUI setup docs updated.
+
 ## [2.24.0] - 2026-11-21
 
 ### Added

@@ -78,6 +78,19 @@ def _parse_request(text: str) -> dict[str, Any]:
     }
 
 
+def _speech_unload(entry: dict[str, Any]) -> None:
+    try:
+        base = _endpoint(entry)
+    except SttError:
+        return
+    path = str(_opts(entry).get("unload_path") or "/v1/unload").strip() or "/v1/unload"
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            client.post(f"{base}{path}")
+    except Exception:  # noqa: BLE001
+        return
+
+
 def run_stt(
     entry: dict[str, Any],
     *,
@@ -89,6 +102,12 @@ def run_stt(
 ) -> dict[str, Any]:
     """Transcribe a client audio file via the STT sidecar."""
     del tool_root
+    from orchestration.gpu_residency import (
+        GpuResidencyError,
+        get_gpu_residency_manager,
+        residency_lease_for_entry,
+    )
+
     req = _parse_request(text)
     owner: Identity | str
     if identity is not None:
@@ -108,7 +127,16 @@ def run_stt(
     path = str(_opts(entry).get("transcribe_path") or "/v1/audio/transcriptions")
     own = client is None
     http = client or httpx.Client(timeout=float(os.getenv("AGENTIC_SPEECH_STT_TIMEOUT_S", "300") or 300))
+    lease = None
     try:
+        try:
+            lease = residency_lease_for_entry(
+                entry,
+                kind="stt",
+                unload=lambda: _speech_unload(entry),
+            )
+        except GpuResidencyError as exc:
+            raise SttError(str(exc)) from exc
         files = {
             "file": (audio_path.name or "audio.wav", audio_bytes, mime)
         }
@@ -136,6 +164,8 @@ def run_stt(
             "raw": body,
         }
     finally:
+        if lease is not None:
+            get_gpu_residency_manager().release(lease)
         if own:
             http.close()
 
