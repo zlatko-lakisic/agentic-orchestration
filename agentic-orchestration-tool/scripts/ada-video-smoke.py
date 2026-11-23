@@ -10,112 +10,27 @@ Run inside the engine pod (tool hostPath mounted at /app/tool):
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import time
 from pathlib import Path
 
-# Minimal valid 1x1 JPEG
-_JPEG = bytes(
-    [
-        0xFF,
-        0xD8,
-        0xFF,
-        0xE0,
-        0x00,
-        0x10,
-        0x4A,
-        0x46,
-        0x49,
-        0x46,
-        0x00,
-        0x01,
-        0x01,
-        0x00,
-        0x00,
-        0x01,
-        0x00,
-        0x01,
-        0x00,
-        0x00,
-        0xFF,
-        0xDB,
-        0x00,
-        0x43,
-        0x00,
-        *([0x10] * 64),
-        0xFF,
-        0xC0,
-        0x00,
-        0x0B,
-        0x08,
-        0x00,
-        0x01,
-        0x00,
-        0x01,
-        0x01,
-        0x01,
-        0x11,
-        0x00,
-        0xFF,
-        0xC4,
-        0x00,
-        0x14,
-        0x00,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x08,
-        0xFF,
-        0xC4,
-        0x00,
-        0x14,
-        0x10,
-        0x01,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0xFF,
-        0xDA,
-        0x00,
-        0x08,
-        0x01,
-        0x01,
-        0x00,
-        0x00,
-        0x3F,
-        0x00,
-        0x7F,
-        0xFF,
-        0xD9,
-    ]
-)
+
+def _make_start_image(*, width: int = 544, height: int = 960) -> tuple[bytes, str, str]:
+    """Real vertical still — tiny JPEGs break ComfyUI LoadImage (fillborders)."""
+    from PIL import Image
+
+    img = Image.new("RGB", (width, height), color=(40, 90, 140))
+    for y in range(0, height, 64):
+        for x in range(0, width, 64):
+            if ((x // 64) + (y // 64)) % 2 == 0:
+                for dy in range(min(32, height - y)):
+                    for dx in range(min(32, width - x)):
+                        img.putpixel((x + dx, y + dy), (200, 160, 80))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue(), "smoke.jpg", "image/jpeg"
 
 
 def main() -> int:
@@ -149,8 +64,9 @@ def main() -> int:
         local=True,
         mtls=False,
     )
-    meta = save_client_file(ident, _JPEG, "smoke.jpg", "image/jpeg")
-    print("uploaded_file_id", meta["file_id"], flush=True)
+    img_bytes, img_name, img_mime = _make_start_image()
+    meta = save_client_file(ident, img_bytes, img_name, img_mime)
+    print("uploaded_file_id", meta["file_id"], "bytes", len(img_bytes), flush=True)
 
     paths = catalog_paths(tool)
     entries = {
