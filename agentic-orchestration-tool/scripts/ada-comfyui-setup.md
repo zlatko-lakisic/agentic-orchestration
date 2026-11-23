@@ -1,7 +1,8 @@
 # Ada: managed in-cluster ComfyUI (Ollama-style)
 
 Primary path: always-on `agentic-comfyui` Deployment (ClusterIP `:8188`), AO-owned
-image, models on hostPath. Opt-in only — never default-on.
+image (pinned ComfyUI + ComfyUI-LTXVideo + RES4LYF for `ClownSampler_Beta`), models on
+hostPath. Opt-in only — never default-on.
 
 Providers:
 

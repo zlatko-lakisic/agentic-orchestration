@@ -4,18 +4,21 @@
 #     -t ghcr.io/zlatko-lakisic/agentic-comfyui:local \
 #     agentic-orchestration-tool
 #
-# Pins: bump COMFYUI_GIT_REF / LTXVIDEO_GIT_REF together and re-smoke Wan + LTX.
-# Wan 2.2 uses ComfyUI native nodes (no WanVideoWrapper). LTX needs ComfyUI-LTXVideo.
+# Pins: bump COMFYUI / LTXVIDEO / RES4LYF commits together and re-smoke Wan + LTX.
+# Wan 2.2 uses ComfyUI native nodes (no WanVideoWrapper).
+# LTX needs ComfyUI-LTXVideo + RES4LYF (ClownSampler_Beta in shipped graphs).
 
 # Torch 2.6 rejects comfy-kitchen 0.2.x custom_op schemas (list[int]); 2.7+ works with ComfyUI v0.46.
 ARG CUDA_IMAGE=pytorch/pytorch:2.7.0-cuda12.6-cudnn9-runtime
 FROM ${CUDA_IMAGE}
 
-# Pin by commit (plan: pin ComfyUI + LTX node). Tags noted for humans.
+# Pin by commit (plan: pin ComfyUI + LTX + RES4LYF nodes). Tags noted for humans.
 # ComfyUI v0.46.2 — native Wan 2.2 nodes (Wan22ImageToVideoLatent, WanImageToVideo, …)
 ARG COMFYUI_GIT_COMMIT=10cdd12609eb17e8a90f2a2dd811b1c82f6107e7
 # ComfyUI-LTXVideo v1.1.1
 ARG LTXVIDEO_GIT_COMMIT=ced6bad92b82f90028e1e1fd5a37527302550fc5
+# RES4LYF v1.2.2 — ClownSampler_Beta required by LTX distilled API graphs
+ARG RES4LYF_GIT_COMMIT=cb2c312d979b3ab4aaca97a3b70f892f4be554f4
 ARG DEBIAN_FRONTEND=noninteractive
 
 ENV PYTHONUNBUFFERED=1 \
@@ -48,6 +51,12 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git "${COMFYUI_DIR}" \
          custom_nodes/ComfyUI-LTXVideo \
     && cd custom_nodes/ComfyUI-LTXVideo \
     && git checkout "${LTXVIDEO_GIT_COMMIT}" \
+    && if [ -f requirements.txt ]; then pip install -r requirements.txt; fi \
+    && cd "${COMFYUI_DIR}" \
+    && git clone https://github.com/ClownsharkBatwing/RES4LYF.git \
+         custom_nodes/RES4LYF \
+    && cd custom_nodes/RES4LYF \
+    && git checkout "${RES4LYF_GIT_COMMIT}" \
     && if [ -f requirements.txt ]; then pip install -r requirements.txt; fi \
     && cd "${COMFYUI_DIR}" \
     && python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
