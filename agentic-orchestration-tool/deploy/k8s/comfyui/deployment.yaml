@@ -32,6 +32,12 @@ spec:
           args:
             - |
               set -eu
+              # Triton/comfy-kitchen may compile cuda_utils at import; image should
+              # already include g++, but keep a privileged fallback for older tags.
+              if ! command -v g++ >/dev/null 2>&1; then
+                apt-get update \
+                  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++ build-essential
+              fi
               LIBDIR=/usr/lib/x86_64-linux-gnu
               mkdir -p "$LIBDIR"
               for f in /host-nvidia-libs/libcuda.so* \

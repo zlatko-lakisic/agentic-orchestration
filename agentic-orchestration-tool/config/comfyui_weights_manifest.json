@@ -24,6 +24,29 @@
         }
       ]
     },
+    "ltx23": {
+      "description": "LTX-2.3 distilled graph weights (checkpoint + LoRA + Gemma text encoder)",
+      "files": [
+        {
+          "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-dev.safetensors",
+          "dest": "checkpoints/ltx-2.3-22b-dev.safetensors",
+          "sha256": "7ab7225325bc403448ea84b6db2269811a880e5118cd2ee2b6282a93d585016f",
+          "bytes": 46149344974
+        },
+        {
+          "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+          "dest": "loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+          "sha256": "f5d4953f3386197a4b4f5abdb17616ff256171e8075c111d6e7d2dfa6e823b3a",
+          "bytes": 7605507256
+        },
+        {
+          "url": "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it.safetensors",
+          "dest": "text_encoders/comfy_gemma_3_12B_it.safetensors",
+          "sha256": "56eaa964a0d9325d2dc9ecaf7759bfaf0fac78ae36c789bed6e03e275a3729ec",
+          "bytes": 24379468890
+        }
+      ]
+    },
     "a14b": {
       "description": "Wan 2.2 I2V A14B FP8 dual-expert",
       "files": [
