@@ -37,15 +37,30 @@ speed_tier: fast
 residency: on_demand
 min_vram_gb: 20
 synthetic_media: true
+required_nodes:
+  - CheckpointLoaderSimple
+  - LTXAVTextEncoderLoader
+  - LTXVAudioVAELoader
+  - EmptyLTXVLatentVideo
+  - LTXVConditioning
+  - SaveVideo
+  - CreateVideo
+  - LoadImage
+required_weights:
+  - folder: checkpoints
+    name: ltx-2.3-22b-dev.safetensors
+  - folder: loras
+    name: ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
+  - folder: text_encoders
+    name: comfy_gemma_3_12B_it.safetensors
 # Model files expected by the shipped Lightricks 2.3 distilled graph (ComfyUI paths):
-# - checkpoints/: ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors (or full)
-# - loras/: ltx-2.3-22b-distilled-lora-384-1.1.safetensors (strength ~0.5)
-# - text_encoders/: gemma_3_12B_it_fp4_mixed.safetensors (via LTXAVTextEncoderLoader)
-# - VAE / audio VAE as referenced by CheckpointLoaderSimple + LTXVAudioVAELoader in the graph
+# - checkpoints/: ltx-2.3-22b-dev.safetensors (graph loader name)
+# - loras/: ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
+# - text_encoders/: comfy_gemma_3_12B_it.safetensors
 # Source UI graph: ComfyUI-LTXVideo example_workflows/2.3/LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json
 models_note: >-
-  Install ComfyUI-LTXVideo custom nodes. Place distilled FP8 transformer, distilled LoRA v1.1,
-  Gemma text encoder, and LTX VAEs under the ComfyUI models tree matching the loader node names.
+  ComfyUI-LTXVideo is baked into the AO agentic-comfyui image. Place distilled weights
+  under AGENTIC_COMFYUI_MODELS_HOSTPATH matching required_weights / loader node names.
 planner_hint: >-
   Generation only. Never selected for chat or by the dynamic planner.
   Called directly by clients (AO Quill) with a prompt payload.
