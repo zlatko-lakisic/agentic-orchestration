@@ -54,8 +54,9 @@ spec:
               fi
               ldconfig 2>/dev/null || true
               echo "GPU probe:"; nvidia-smi -L 2>&1 || true
-              # --lowvram: Ada has ~20GB VRAM / ~31GB RAM; BF16 LTX+Gemma OOMs without offload.
-              exec python main.py --listen 0.0.0.0 --port 8188 --disable-smart-memory --lowvram
+              # No --lowvram: keep LTX FP8 + Gemma FP4 in VRAM (device=default). Host RAM
+              # offload previously grew RSS to ~30Gi and wedged AO TLS/SSH (#130/#143).
+              exec python main.py --listen 0.0.0.0 --port 8188 --disable-smart-memory
           ports:
             - name: http
               containerPort: 8188
@@ -115,8 +116,10 @@ spec:
             requests:
               cpu: "500m"
               memory: 8Gi
-            # No memory limit: Ada host is ~32Gi; a cgroup cap below peak RSS
-            # (LTX FP8 + Gemma) triggers memcg OOM while VRAM is still fine.
+            limits:
+              # Hard cap so a runaway clip dies via memcg OOM instead of thrashing
+              # the shared Ada host (~32Gi). Leave room for engine/speech/OS (#143).
+              memory: 16Gi
       volumes:
         - name: comfyui-models
           hostPath:

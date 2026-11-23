@@ -42,7 +42,9 @@ bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile lt
 bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile a14b
 ```
 
-ComfyUI pod uses `--lowvram` so LTX can stream weights on Ada’s 20GB card.
+ComfyUI keeps FP8 LTX + Gemma FP4 on GPU (`device: default`, no `--lowvram`) and
+is hard-capped at **16Gi** RAM so a runaway clip dies via memcg OOM instead of
+wedging AO TLS/SSH on the shared host.
 
 ## Health (Quill)
 

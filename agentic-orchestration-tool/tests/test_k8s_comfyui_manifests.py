@@ -35,9 +35,17 @@ def test_comfyui_deployment_no_hostport_and_disable_smart_memory() -> None:
     ports = container.get("ports") or []
     for p in ports:
         assert "hostPort" not in p
-    args = " ".join(container.get("args") or [])
+    args = "\n".join(container.get("args") or [])
     assert "--disable-smart-memory" in args
-    assert "--lowvram" in args
+    exec_lines = [
+        ln.strip()
+        for ln in args.splitlines()
+        if ln.strip().startswith("exec python main.py")
+    ]
+    assert exec_lines, "expected ComfyUI exec line"
+    assert "--lowvram" not in exec_lines[0]
+    limits = (container.get("resources") or {}).get("limits") or {}
+    assert limits.get("memory") == "16Gi"
     vol_names = {v["name"] for v in doc["spec"]["template"]["spec"]["volumes"]}
     assert "comfyui-models" in vol_names
     assert "comfyui-output" in vol_names

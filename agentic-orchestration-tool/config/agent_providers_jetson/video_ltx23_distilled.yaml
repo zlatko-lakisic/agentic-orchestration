@@ -56,7 +56,8 @@ required_weights:
 # (pruned to output_D; ResizeImageMaskNode bypassed; LoRA dropped — baked into distilled-fp8).
 models_note: >-
   Download with download-comfyui-weights.sh --profile ltx23. ComfyUI-LTXVideo is baked
-  into the AO agentic-comfyui image; pod runs with --lowvram on Ada.
+  into the AO agentic-comfyui image. LTX text encoder uses device=default (GPU); pod
+  has a 16Gi memory limit and does not use --lowvram (no host RAM offload).
 planner_hint: >-
   Generation only. Never selected for chat or by the dynamic planner.
   Called directly by clients (AO Quill) with a prompt payload.
