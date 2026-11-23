@@ -5,7 +5,7 @@
 fastapi>=0.142,<1
 uvicorn[standard]>=0.54.0,<1
 websockets>=17.4,<18
-cryptography>=42.0.0,<47
+cryptography>=50.0.2,<51
 prometheus_client>=0.26.0,<1
 # Same aligned set as requirements.txt. The engine startup install uses this
 # file to repair a drifted API/SDK/exporter combination.
