@@ -37,6 +37,7 @@ def test_comfyui_deployment_no_hostport_and_disable_smart_memory() -> None:
         assert "hostPort" not in p
     args = " ".join(container.get("args") or [])
     assert "--disable-smart-memory" in args
+    assert "--lowvram" in args
     vol_names = {v["name"] for v in doc["spec"]["template"]["spec"]["volumes"]}
     assert "comfyui-models" in vol_names
     assert "comfyui-output" in vol_names

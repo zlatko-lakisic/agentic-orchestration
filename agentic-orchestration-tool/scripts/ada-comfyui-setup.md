@@ -36,12 +36,13 @@ The enable script:
 ```bash
 # Check NVMe free space first; verifies SHA-256 from config/comfyui_weights_manifest.json
 bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile ti2v5b
+# LTX on Ada: distilled FP8 + Gemma FP4 (BF16+full Gemma OOMs ~32GB host RAM)
+bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile ltx23
 # Optional dual-expert A14B FP8 (for Ada bench):
 bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile a14b
 ```
 
-Place LTX distilled weights under the same models hostPath (see
-`video_ltx23_distilled.yaml` `required_weights` / `models_note`).
+ComfyUI pod uses `--lowvram` so LTX can stream weights on Ada’s 20GB card.
 
 ## Health (Quill)
 

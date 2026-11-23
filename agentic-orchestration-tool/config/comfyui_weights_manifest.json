@@ -25,7 +25,24 @@
       ]
     },
     "ltx23": {
-      "description": "LTX-2.3 distilled graph weights (checkpoint + LoRA + Gemma text encoder)",
+      "description": "LTX-2.3 Ada profile: distilled FP8 checkpoint + Gemma FP4 (fits ~31GB host RAM; BF16 OOM)",
+      "files": [
+        {
+          "url": "https://huggingface.co/Lightricks/LTX-2.3-fp8/resolve/main/ltx-2.3-22b-distilled-fp8.safetensors",
+          "dest": "checkpoints/ltx-2.3-22b-distilled-fp8.safetensors",
+          "sha256": "d9646b6f2d5c42d337b23671634c43bfeece6989644f51b4a3aa088465ccd3b2",
+          "bytes": 29531884062
+        },
+        {
+          "url": "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+          "dest": "text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+          "sha256": "aaca463d11e6d8d2a4bdb0d6299214c15ef78a3f73e0ef8113d5a9d0219b3f6d",
+          "bytes": 9447702218
+        }
+      ]
+    },
+    "ltx23_bf16": {
+      "description": "LTX-2.3 BF16 + full Gemma (needs >>32GB host RAM; not for Ada)",
       "files": [
         {
           "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-22b-dev.safetensors",

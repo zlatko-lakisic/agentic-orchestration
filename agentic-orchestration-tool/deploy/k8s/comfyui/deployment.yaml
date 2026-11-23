@@ -54,7 +54,8 @@ spec:
               fi
               ldconfig 2>/dev/null || true
               echo "GPU probe:"; nvidia-smi -L 2>&1 || true
-              exec python main.py --listen 0.0.0.0 --port 8188 --disable-smart-memory
+              # --lowvram: Ada has ~20GB VRAM / ~31GB RAM; BF16 LTX+Gemma OOMs without offload.
+              exec python main.py --listen 0.0.0.0 --port 8188 --disable-smart-memory --lowvram
           ports:
             - name: http
               containerPort: 8188
@@ -98,24 +99,24 @@ spec:
             httpGet:
               path: /system_stats
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /system_stats
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 120
             periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 6
+            timeoutSeconds: 10
+            failureThreshold: 10
           resources:
             requests:
               cpu: "500m"
               memory: 4Gi
             limits:
-              memory: 32Gi
+              memory: 28Gi
       volumes:
         - name: comfyui-models
           hostPath:

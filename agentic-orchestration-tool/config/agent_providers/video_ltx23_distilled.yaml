@@ -48,19 +48,15 @@ required_nodes:
   - LoadImage
 required_weights:
   - folder: checkpoints
-    name: ltx-2.3-22b-dev.safetensors
-  - folder: loras
-    name: ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
+    name: ltx-2.3-22b-distilled-fp8.safetensors
   - folder: text_encoders
-    name: comfy_gemma_3_12B_it.safetensors
-# Model files expected by the shipped Lightricks 2.3 distilled graph (ComfyUI paths):
-# - checkpoints/: ltx-2.3-22b-dev.safetensors (graph loader name)
-# - loras/: ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors
-# - text_encoders/: comfy_gemma_3_12B_it.safetensors
+    name: gemma_3_12B_it_fp4_mixed.safetensors
+# Ada default: distilled FP8 + Gemma FP4 (profile ltx23). BF16+full Gemma OOMs ~32GB RAM.
 # Source UI graph: ComfyUI-LTXVideo example_workflows/2.3/LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json
+# (pruned to output_D; ResizeImageMaskNode bypassed; LoRA dropped — baked into distilled-fp8).
 models_note: >-
-  ComfyUI-LTXVideo is baked into the AO agentic-comfyui image. Place distilled weights
-  under AGENTIC_COMFYUI_MODELS_HOSTPATH matching required_weights / loader node names.
+  Download with download-comfyui-weights.sh --profile ltx23. ComfyUI-LTXVideo is baked
+  into the AO agentic-comfyui image; pod runs with --lowvram on Ada.
 planner_hint: >-
   Generation only. Never selected for chat or by the dynamic planner.
   Called directly by clients (AO Quill) with a prompt payload.
