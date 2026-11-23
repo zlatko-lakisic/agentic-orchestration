@@ -17,7 +17,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Node/npm for stdio MCPs (filesystem_local via npx in worker container).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm \
+    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

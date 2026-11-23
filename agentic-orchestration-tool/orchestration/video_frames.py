@@ -29,11 +29,15 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _ffmpeg_bin() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFMPEG") or "ffmpeg").strip() or "ffmpeg"
+    from orchestration.ffmpeg_bins import ffmpeg_bin
+
+    return ffmpeg_bin()
 
 
 def _ffprobe_bin() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFPROBE") or "ffprobe").strip() or "ffprobe"
+    from orchestration.ffmpeg_bins import ffprobe_bin
+
+    return ffprobe_bin()
 
 
 def probe_duration_seconds(video_path: Path, *, ffprobe_bin: str | None = None) -> float | None:
