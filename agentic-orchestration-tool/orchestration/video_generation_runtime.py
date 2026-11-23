@@ -707,9 +707,27 @@ def run_video_generation(
             if hist.status_code < 400 and hist.content:
                 hbody = hist.json()
                 item = hbody.get(prompt_id) if isinstance(hbody, dict) else None
-                if isinstance(item, dict) and item.get("outputs"):
-                    outputs = item["outputs"]
-                    break
+                if isinstance(item, dict):
+                    status = item.get("status") if isinstance(item.get("status"), dict) else {}
+                    if str(status.get("status_str") or "") == "error":
+                        msg = "ComfyUI execution error"
+                        for entry in status.get("messages") or []:
+                            if (
+                                isinstance(entry, (list, tuple))
+                                and len(entry) >= 2
+                                and entry[0] == "execution_error"
+                                and isinstance(entry[1], dict)
+                            ):
+                                detail = entry[1].get("exception_message") or entry[1].get(
+                                    "node_type"
+                                )
+                                if detail:
+                                    msg = f"ComfyUI execution error: {detail}"
+                                break
+                        raise VideoGenerationError(msg[:500])
+                    if item.get("outputs"):
+                        outputs = item["outputs"]
+                        break
             _progress(40)
             time.sleep(0.5)
         else:
