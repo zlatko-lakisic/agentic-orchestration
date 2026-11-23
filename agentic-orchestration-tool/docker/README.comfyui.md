@@ -8,7 +8,7 @@ AO-owned ComfyUI container for Ada (`AGENTIC_JETSON_ENABLE_COMFYUI=1`).
 |-----|---------|---------|
 | `COMFYUI_GIT_COMMIT` | `10cdd12…` (tag v0.46.2) | ComfyUI commit (native Wan 2.2 nodes) |
 | `LTXVIDEO_GIT_COMMIT` | `ced6bad…` (tag v1.1.1) | [ComfyUI-LTXVideo](https://github.com/Lightricks/ComfyUI-LTXVideo) commit |
-| `CUDA_IMAGE` | `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` | CUDA runtime base |
+| `CUDA_IMAGE` | `pytorch/pytorch:2.7.0-cuda12.6-cudnn9-runtime` | CUDA runtime base (2.7+ required by comfy-kitchen) |
 
 Bump pins in `Dockerfile.comfyui` and re-run Ada smoke after changing them.
 

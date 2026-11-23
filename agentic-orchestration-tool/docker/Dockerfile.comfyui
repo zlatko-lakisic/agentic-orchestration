@@ -7,7 +7,8 @@
 # Pins: bump COMFYUI_GIT_REF / LTXVIDEO_GIT_REF together and re-smoke Wan + LTX.
 # Wan 2.2 uses ComfyUI native nodes (no WanVideoWrapper). LTX needs ComfyUI-LTXVideo.
 
-ARG CUDA_IMAGE=pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+# Torch 2.6 rejects comfy-kitchen 0.2.x custom_op schemas (list[int]); 2.7+ works with ComfyUI v0.46.
+ARG CUDA_IMAGE=pytorch/pytorch:2.7.0-cuda12.6-cudnn9-runtime
 FROM ${CUDA_IMAGE}
 
 # Pin by commit (plan: pin ComfyUI + LTX node). Tags noted for humans.
