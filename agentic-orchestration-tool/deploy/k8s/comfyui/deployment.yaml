@@ -114,9 +114,9 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: 4Gi
-            limits:
-              memory: 28Gi
+              memory: 8Gi
+            # No memory limit: Ada host is ~32Gi; a cgroup cap below peak RSS
+            # (LTX FP8 + Gemma) triggers memcg OOM while VRAM is still fine.
       volumes:
         - name: comfyui-models
           hostPath:
