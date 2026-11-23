@@ -135,25 +135,29 @@ def convert_ui_to_api(ui: dict) -> dict[str, dict]:
                 inputs, wvals, ["frames_number", "frame_rate", "batch_size"]
             )
         elif ctype == "ResizeImageMaskNode" and wvals:
-            # DYNAMICCOMBO: key + nested param(s) + scale_method
-            # e.g. ["scale longer dimension", 1536, "lanczos"]
-            if len(wvals) >= 1:
-                inputs.setdefault("resize_type", wvals[0])
+            # DYNAMICCOMBO API shape: { "<option key>": { <nested params> } }
+            # e.g. widgets ["scale longer dimension", 1536, "lanczos"]
             if len(wvals) >= 2 and isinstance(wvals[0], str):
                 key = wvals[0]
+                nested: dict = {}
                 if "longer" in key:
-                    inputs.setdefault("longer_size", wvals[1])
+                    nested["longer_size"] = wvals[1]
                 elif "shorter" in key:
-                    inputs.setdefault("shorter_size", wvals[1])
+                    nested["shorter_size"] = wvals[1]
                 elif "multiplier" in key:
-                    inputs.setdefault("multiplier", wvals[1])
+                    nested["multiplier"] = wvals[1]
                 elif key == "scale width":
-                    inputs.setdefault("width", wvals[1])
+                    nested["width"] = wvals[1]
                 elif key == "scale height":
-                    inputs.setdefault("height", wvals[1])
+                    nested["height"] = wvals[1]
                 elif key == "scale dimensions" and len(wvals) >= 3:
-                    inputs.setdefault("width", wvals[1])
-                    inputs.setdefault("height", wvals[2])
+                    nested["width"] = wvals[1]
+                    nested["height"] = wvals[2]
+                    if len(wvals) >= 4 and wvals[2] != wvals[-1]:
+                        nested["crop"] = wvals[2]
+                inputs.setdefault("resize_type", {key: nested})
+            elif wvals:
+                inputs.setdefault("resize_type", wvals[0])
             if wvals:
                 inputs.setdefault("scale_method", wvals[-1])
         elif ctype == "LTXVImgToVideoConditionOnly" and wvals:

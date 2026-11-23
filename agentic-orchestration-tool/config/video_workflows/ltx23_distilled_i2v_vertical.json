@@ -363,8 +363,11 @@
         "2004",
         0
       ],
-      "resize_type": "scale longer dimension",
-      "longer_size": 1536,
+      "resize_type": {
+        "scale longer dimension": {
+          "longer_size": 1536
+        }
+      },
       "scale_method": "lanczos"
     }
   },
