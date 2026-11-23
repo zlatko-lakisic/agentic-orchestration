@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.25.1] - 2026-11-22
+
 ### Fixed
 
 - **media_render_short ffmpeg on edge (#125)** — resolve `ffmpeg`/`ffprobe` via env, PATH, and common host paths; mount host binaries into engine/warm-pool (`jetson-mount-ffmpeg.sh`); ship `ffmpeg` in coordinator/worker images; `/health.mediaRender` reports discovery.
