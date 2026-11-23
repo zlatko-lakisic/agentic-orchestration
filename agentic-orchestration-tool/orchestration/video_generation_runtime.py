@@ -168,7 +168,9 @@ def _load_workflow(tool_root: Path, rel: str) -> dict[str, Any]:
 
 
 def _ffmpeg() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFMPEG") or "ffmpeg").strip() or "ffmpeg"
+    from orchestration.ffmpeg_bins import ffmpeg_bin
+
+    return ffmpeg_bin()
 
 
 def _strip_audio(src: Path, dest: Path) -> None:

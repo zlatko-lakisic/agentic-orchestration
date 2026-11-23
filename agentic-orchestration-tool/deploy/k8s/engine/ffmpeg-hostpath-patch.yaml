@@ -1,0 +1,33 @@
+# Mount host ffmpeg/ffprobe into the engine pod (media_render_short / AO Quill).
+# Applied by jetson-mount-ffmpeg.sh during edge deploy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-engine
+  namespace: agentic-orchestration
+spec:
+  template:
+    spec:
+      containers:
+        - name: engine
+          env:
+            - name: AGENTIC_VIDEO_FFMPEG
+              value: /usr/local/bin/ffmpeg
+            - name: AGENTIC_VIDEO_FFPROBE
+              value: /usr/local/bin/ffprobe
+          volumeMounts:
+            - name: host-ffmpeg
+              mountPath: /usr/local/bin/ffmpeg
+              readOnly: true
+            - name: host-ffprobe
+              mountPath: /usr/local/bin/ffprobe
+              readOnly: true
+      volumes:
+        - name: host-ffmpeg
+          hostPath:
+            path: /usr/bin/ffmpeg
+            type: File
+        - name: host-ffprobe
+          hostPath:
+            path: /usr/bin/ffprobe
+            type: File

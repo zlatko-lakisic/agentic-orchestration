@@ -17,7 +17,7 @@ ENV PYTHONUNBUFFERED=1 \
     AGENTIC_WEB_PORT=3847
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm \
+    && apt-get install -y --no-install-recommends ca-certificates curl git nodejs npm ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY agentic-orchestration-tool/requirements.txt /app/tool/requirements.txt

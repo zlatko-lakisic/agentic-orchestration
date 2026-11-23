@@ -32,17 +32,15 @@ class MediaRenderError(ValueError):
 
 
 def _ffmpeg_bin() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFMPEG") or "ffmpeg").strip() or "ffmpeg"
+    from orchestration.ffmpeg_bins import ffmpeg_bin
+
+    return ffmpeg_bin()
 
 
 def _ffprobe_bin() -> str:
-    probe = (os.getenv("AGENTIC_VIDEO_FFPROBE") or "").strip()
-    if probe:
-        return probe
-    ff = _ffmpeg_bin()
-    if ff.endswith("ffmpeg"):
-        return ff[: -len("ffmpeg")] + "ffprobe"
-    return "ffprobe"
+    from orchestration.ffmpeg_bins import ffprobe_bin
+
+    return ffprobe_bin()
 
 
 def _timeout_s() -> float:
@@ -236,7 +234,12 @@ def _run(cmd: list[str], *, timeout: float, label: str) -> None:
             check=False,
         )
     except FileNotFoundError as exc:
-        raise MediaRenderError(f"{label}: binary not found ({cmd[0]})") from exc
+        raise MediaRenderError(
+            f"{label}: binary not found ({cmd[0]}). "
+            "Install ffmpeg in the runtime image, mount host ffmpeg via "
+            "jetson-mount-ffmpeg.sh, or set AGENTIC_VIDEO_FFMPEG / "
+            "AGENTIC_VIDEO_FFPROBE."
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise MediaRenderError(f"{label}: timed out after {timeout:.0f}s") from exc
     if proc.returncode != 0:

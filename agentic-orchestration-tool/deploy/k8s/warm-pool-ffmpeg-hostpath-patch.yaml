@@ -1,0 +1,32 @@
+# Mount host ffmpeg/ffprobe into warm-pool workers (delegated media_render).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-warm-pool
+  namespace: agentic-orchestration
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: AGENTIC_VIDEO_FFMPEG
+              value: /usr/local/bin/ffmpeg
+            - name: AGENTIC_VIDEO_FFPROBE
+              value: /usr/local/bin/ffprobe
+          volumeMounts:
+            - name: host-ffmpeg
+              mountPath: /usr/local/bin/ffmpeg
+              readOnly: true
+            - name: host-ffprobe
+              mountPath: /usr/local/bin/ffprobe
+              readOnly: true
+      volumes:
+        - name: host-ffmpeg
+          hostPath:
+            path: /usr/bin/ffmpeg
+            type: File
+        - name: host-ffprobe
+          hostPath:
+            path: /usr/bin/ffprobe
+            type: File

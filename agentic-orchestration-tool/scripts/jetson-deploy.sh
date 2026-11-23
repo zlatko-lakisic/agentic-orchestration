@@ -69,6 +69,9 @@ bash "${TOOL_ROOT}/scripts/install-host-gpu-metrics.sh" "${PROJECT_ROOT}" || tru
 bash "${TOOL_ROOT}/scripts/jetson-install-host-control.sh" "${PROJECT_ROOT}" || true
 bash "${TOOL_ROOT}/scripts/jetson-hotfix-web.sh"
 
+# Host ffmpeg/ffprobe for media_render_short (AO Quill) when image lacks binaries (#125).
+bash "${TOOL_ROOT}/scripts/jetson-mount-ffmpeg.sh" "${PROJECT_ROOT}" || true
+
 # Warm-pool workers need the fastapi bootstrap command from warm-pool.yaml (litellm MCP).
 bash "${TOOL_ROOT}/scripts/jetson-sync-warm-pool.sh" "${PROJECT_ROOT}" || true
 

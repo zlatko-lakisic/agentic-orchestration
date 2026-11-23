@@ -128,11 +128,15 @@ def pick_media_mcp_id(entries: list[dict[str, Any]], *, prefer_video: bool = Fal
 
 
 def _ffmpeg_bin() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFMPEG") or "ffmpeg").strip() or "ffmpeg"
+    from orchestration.ffmpeg_bins import ffmpeg_bin
+
+    return ffmpeg_bin()
 
 
 def _ffprobe_bin() -> str:
-    return (os.getenv("AGENTIC_VIDEO_FFPROBE") or "ffprobe").strip() or "ffprobe"
+    from orchestration.ffmpeg_bins import ffprobe_bin
+
+    return ffprobe_bin()
 
 
 def probe_video_technical_facts(path: Path) -> dict[str, Any]:

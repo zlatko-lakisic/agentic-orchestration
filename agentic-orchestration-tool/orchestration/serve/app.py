@@ -242,6 +242,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             _speech_providers_health_snapshot, root
         )
         payload["gpuResidents"] = await run_in_threadpool(_gpu_residents_snapshot)
+        payload["mediaRender"] = await run_in_threadpool(_media_render_health_snapshot)
         mtls = mtls_hello_payload(root)
         if mtls is not None:
             payload["mtls"] = mtls
@@ -318,6 +319,14 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             return get_gpu_residency_manager().report()
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc), "models": []}
+
+    def _media_render_health_snapshot() -> dict[str, Any]:
+        from orchestration.ffmpeg_bins import ffmpeg_health
+
+        try:
+            return ffmpeg_health()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
 
     def _resource_sharing_health() -> dict[str, Any]:
         from orchestration.ollama_resource_manager import resource_sharing_enabled
