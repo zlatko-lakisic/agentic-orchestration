@@ -178,6 +178,33 @@ def force_vertical(api: dict[str, dict], *, width: int, height: int, frames: int
             node["inputs"]["length"] = frames
 
 
+def prune_to_save_prefix(api: dict[str, dict], prefix: str) -> dict[str, dict]:
+    """Keep only nodes feeding SaveVideo nodes with the given filename_prefix.
+
+    The Lightricks ``*_Distilled_Full`` UI graph runs both distilled (output_D) and
+    full (output_F) tracks; Ada's 20GB card cannot load both.
+    """
+    roots = [
+        nid
+        for nid, node in api.items()
+        if node.get("class_type") == "SaveVideo"
+        and str((node.get("inputs") or {}).get("filename_prefix") or "") == prefix
+    ]
+    if not roots:
+        raise SystemExit(f"no SaveVideo with filename_prefix={prefix!r}")
+    keep: set[str] = set()
+    stack = list(roots)
+    while stack:
+        nid = stack.pop()
+        if nid in keep or nid not in api:
+            continue
+        keep.add(nid)
+        for val in (api[nid].get("inputs") or {}).values():
+            if isinstance(val, list) and len(val) >= 1 and isinstance(val[0], str):
+                stack.append(val[0])
+    return {nid: api[nid] for nid in keep}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("ui_json", type=Path)
@@ -186,10 +213,21 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=544)
     ap.add_argument("--height", type=int, default=960)
     ap.add_argument("--frames", type=int, default=121)
+    ap.add_argument(
+        "--keep-save-prefix",
+        default="output_D",
+        help="Prune to SaveVideo filename_prefix (default: distilled track)",
+    )
     args = ap.parse_args()
     ui = json.loads(args.ui_json.read_text(encoding="utf-8"))
     api = convert_ui_to_api(ui)
     force_vertical(api, width=args.width, height=args.height, frames=args.frames)
+    if args.keep_save_prefix:
+        before = len(api)
+        api = prune_to_save_prefix(api, args.keep_save_prefix)
+        print(
+            f"pruned {before} -> {len(api)} nodes (keep SaveVideo {args.keep_save_prefix})"
+        )
     t2v = copy.deepcopy(api)
     i2v = copy.deepcopy(api)
     args.t2v_out.write_text(json.dumps(t2v, indent=2) + "\n", encoding="utf-8")

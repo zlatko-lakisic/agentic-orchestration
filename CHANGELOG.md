@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ### Added
 
-- **Managed in-cluster ComfyUI (#128)** — AO-owned `Dockerfile.comfyui` (pinned ComfyUI + LTXVideo + RES4LYF commits, `--disable-smart-memory`), ClusterIP `agentic-comfyui:8188`, Ada-only opt-in `AGENTIC_JETSON_ENABLE_COMFYUI` (refuses aarch64), weight download with checksums + NVMe free-space check, native Wan 2.2 TI2V-5B API workflow, `/health.videoGeneration` `configured` vs `ready` + `missing[]`, delete Comfy output after AO stores the clip, idle ComfyUI CUDA in gpu-residents. Tag **v2.26.0** only after Ada E2E.
+- **Managed in-cluster ComfyUI (#128)** — AO-owned `Dockerfile.comfyui` (pinned ComfyUI + LTXVideo + RES4LYF commits, `--disable-smart-memory`), ClusterIP `agentic-comfyui:8188`, Ada-only opt-in `AGENTIC_JETSON_ENABLE_COMFYUI` (refuses aarch64), weight download with checksums + NVMe free-space check, native Wan 2.2 TI2V-5B API workflow, LTX distilled graphs pruned to `output_D` only (Ada 20GB), `/health.videoGeneration` `configured` vs `ready` + `missing[]`, delete Comfy output after AO stores the clip, idle ComfyUI CUDA in gpu-residents. Tag **v2.26.0** only after Ada E2E.
 
 ## [2.25.1] - 2026-11-22
 

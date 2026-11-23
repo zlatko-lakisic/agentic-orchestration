@@ -9,8 +9,8 @@ token_env: AGENTIC_VIDEO_COMFYUI_TOKEN
 workflows:
   t2v: config/video_workflows/ltx23_distilled_t2v_vertical.json
   i2v: config/video_workflows/ltx23_distilled_i2v_vertical.json
-# Bindings target the distilled track (SaveVideo filename_prefix output_D) of the
-# Lightricks single-stage distilled+full graph, converted to API format.
+# Bindings target the distilled track (SaveVideo filename_prefix output_D).
+# Converter prunes the Full UI graph to output_D only (Ada 20GB cannot run full+distilled).
 bindings:
   prompt: { node: "2483", field: "text" }
   negative_prompt: { node: "2612", field: "text" }
