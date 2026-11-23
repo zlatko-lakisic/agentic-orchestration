@@ -33,6 +33,8 @@ RUN apt-get update \
         libglib2.0-0 \
         ca-certificates \
         curl \
+        build-essential \
+        g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
