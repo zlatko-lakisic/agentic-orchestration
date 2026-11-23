@@ -25,6 +25,8 @@ from orchestration.video_generation_runtime import (
     is_video_generation_entry,
     run_video_generation,
     validate_ltx_geometry,
+    video_generation_health,
+    video_generation_runtime_health,
 )
 
 pytestmark = pytest.mark.unit
@@ -77,6 +79,8 @@ def test_shipped_workflows_bindings_resolve() -> None:
     for catalog in (
         TOOL_ROOT / "config/agent_providers/video_ltx23_distilled.yaml",
         TOOL_ROOT / "config/agent_providers_jetson/video_ltx23_distilled.yaml",
+        TOOL_ROOT / "config/agent_providers/video_wan22_i2v.yaml",
+        TOOL_ROOT / "config/agent_providers_jetson/video_wan22_i2v.yaml",
     ):
         entry = yaml.safe_load(catalog.read_text(encoding="utf-8"))
         bindings = entry.get("bindings") or {}
@@ -211,8 +215,42 @@ class _MockTransport(httpx.BaseTransport):
             return httpx.Response(200, json={})
         if path == "/system_stats":
             return httpx.Response(
-                200, json={"devices": [{"name": "MockGPU", "vram_free": 20000000000}]}
+                200,
+                json={
+                    "devices": [
+                        {
+                            "name": "MockGPU",
+                            "vram_free": 20000000000,
+                            "vram_total": 24000000000,
+                        }
+                    ]
+                },
             )
+        if path == "/object_info":
+            return httpx.Response(
+                200,
+                json={
+                    "UNETLoader": {},
+                    "CLIPLoader": {},
+                    "VAELoader": {},
+                    "CLIPTextEncode": {},
+                    "LoadImage": {},
+                    "Wan22ImageToVideoLatent": {},
+                    "ModelSamplingSD3": {},
+                    "KSampler": {},
+                    "VAEDecode": {},
+                    "CreateVideo": {},
+                    "SaveVideo": {},
+                },
+            )
+        if path.startswith("/models/") or path.startswith("/api/models/"):
+            folder = path.rsplit("/", 1)[-1]
+            names = {
+                "diffusion_models": ["wan2.2_ti2v_5B_fp16.safetensors"],
+                "text_encoders": ["umt5_xxl_fp8_e4m3fn_scaled.safetensors"],
+                "vae": ["wan2.2_vae.safetensors"],
+            }.get(folder, [])
+            return httpx.Response(200, json=names)
         return httpx.Response(404, json={"error": path})
 
 
@@ -280,6 +318,82 @@ def test_run_video_generation_mocked(
     assert result2["ok"] is True
     assert result2["clips"][0]["mode"] == "i2v"
     assert ("POST", "/upload/image") in transport.calls
+
+
+def test_video_health_configured_vs_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AGENTIC_VIDEO_COMFYUI_URL", raising=False)
+    base = video_generation_runtime_health(TOOL_ROOT)
+    assert base["configured"] is False
+    assert base["ready"] is False
+    assert base["missing"]
+
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://comfy.test")
+    import yaml
+
+    wan = yaml.safe_load(
+        (TOOL_ROOT / "config/agent_providers/video_wan22_i2v.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    transport = _MockTransport()
+    # Patch httpx.Client used inside video_generation_health
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        "orchestration.video_generation_runtime.httpx.Client",
+        lambda *a, **k: real_client(transport=transport, timeout=k.get("timeout", 5)),
+    )
+    snap = video_generation_health(wan)
+    assert snap["reachable"] is True
+    assert snap["ready"] is True
+    assert snap["missing"] == []
+    assert snap["providerId"] == "video_wan22_i2v"
+
+
+def test_deletes_comfy_output_after_register(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://comfy.test")
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "files"))
+    monkeypatch.setenv("AGENTIC_VIDEO_OUTPUT_DIR", str(tmp_path / "out"))
+    comfy_out = tmp_path / "comfy-out"
+    comfy_out.mkdir()
+    leftover = comfy_out / "clip.mp4"
+    leftover.write_bytes(b"stale")
+    monkeypatch.setenv("AGENTIC_COMFYUI_OUTPUT_HOSTPATH", str(comfy_out))
+    transport = _MockTransport()
+    entry = {
+        "id": "video_ltx23_distilled",
+        "type": "video_generation",
+        "workflows": {"t2v": str(FIXTURES / "t2v.json")},
+        "bindings": {
+            "prompt": {"node": "10", "field": "text"},
+            "seed": {"node": "20", "field": "noise_seed"},
+            "width": {"node": "20", "field": "width"},
+            "height": {"node": "20", "field": "height"},
+            "frames": {"node": "20", "field": "length"},
+        },
+        "defaults": {
+            "width": 544,
+            "height": 960,
+            "fps": 24,
+            "frames": 121,
+            "keep_audio": True,
+        },
+        "limits": {"max_frames": 241, "timeout_s": 30},
+        "residency": "on_demand",
+        "endpoint_env": "AGENTIC_VIDEO_COMFYUI_URL",
+    }
+    result = run_video_generation(
+        entry,
+        text=json.dumps({"prompt": "gentle breeze", "seed": 7}),
+        tool_root=TOOL_ROOT,
+        user_id="alice",
+        client=httpx.Client(transport=transport),
+    )
+    assert result["ok"] is True
+    assert not leftover.exists()
 
 
 def test_rejects_bad_frames_before_http(monkeypatch: pytest.MonkeyPatch) -> None:

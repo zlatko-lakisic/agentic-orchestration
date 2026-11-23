@@ -1,0 +1,159 @@
+# In-cluster ComfyUI for AGENTIC_JETSON_ENABLE_COMFYUI=1 (Ada / x86 only).
+# ClusterIP only — no hostPort, no Ingress. Models on hostPath (not in the image).
+#
+# Image: AO-owned Dockerfile.comfyui → ghcr.io/.../agentic-comfyui:vX.Y.Z
+# Override via AGENTIC_COMFYUI_IMAGE before jetson-enable-comfyui.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-comfyui
+  namespace: agentic-orchestration
+  labels:
+    app.kubernetes.io/name: agentic-comfyui
+    app.kubernetes.io/component: comfyui
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentic-comfyui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentic-comfyui
+        app.kubernetes.io/component: comfyui
+    spec:
+      containers:
+        - name: comfyui
+          image: ghcr.io/zlatko-lakisic/agentic-comfyui:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Triton/comfy-kitchen may compile cuda_utils at import; image should
+              # already include g++, but keep a privileged fallback for older tags.
+              if ! command -v g++ >/dev/null 2>&1; then
+                apt-get update \
+                  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++ build-essential
+              fi
+              LIBDIR=/usr/lib/x86_64-linux-gnu
+              mkdir -p "$LIBDIR"
+              for f in /host-nvidia-libs/libcuda.so* \
+                       /host-nvidia-libs/libnvidia-ml.so* \
+                       /host-nvidia-libs/libnvidia-ptxjitcompiler.so* \
+                       /host-nvidia-libs/libnvidia-nvvm.so* \
+                       /host-nvidia-libs/libnvidia-gpucomp.so* \
+                       /host-nvidia-libs/libnvidia-cfg.so*; do
+                [ -e "$f" ] || continue
+                ln -sfn "$f" "$LIBDIR/$(basename "$f")"
+              done
+              if [ -x /host-nvidia-bin/nvidia-smi ]; then
+                ln -sfn /host-nvidia-bin/nvidia-smi /usr/bin/nvidia-smi
+              fi
+              ldconfig 2>/dev/null || true
+              echo "GPU probe:"; nvidia-smi -L 2>&1 || true
+              # --lowvram: Ada has ~20GB VRAM / ~31GB RAM; BF16 LTX+Gemma OOMs without offload.
+              exec python main.py --listen 0.0.0.0 --port 8188 --disable-smart-memory --lowvram
+          ports:
+            - name: http
+              containerPort: 8188
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+            - name: LD_LIBRARY_PATH
+              value: /usr/lib/x86_64-linux-gnu:/host-nvidia-libs:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: comfyui-models
+              mountPath: /opt/ComfyUI/models
+            - name: comfyui-output
+              mountPath: /opt/ComfyUI/output
+            - name: comfyui-input
+              mountPath: /opt/ComfyUI/input
+            - name: nvidia0
+              mountPath: /dev/nvidia0
+            - name: nvidiactl
+              mountPath: /dev/nvidiactl
+            - name: nvidiauvm
+              mountPath: /dev/nvidia-uvm
+            - name: nvidiauvmtools
+              mountPath: /dev/nvidia-uvm-tools
+            - name: nvidiamodeset
+              mountPath: /dev/nvidia-modeset
+            - name: nvidiacaps
+              mountPath: /dev/nvidia-caps
+            - name: host-nvidia-libs
+              mountPath: /host-nvidia-libs
+              readOnly: true
+            - name: host-nvidia-bin
+              mountPath: /host-nvidia-bin
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 8Gi
+            # No memory limit: Ada host is ~32Gi; a cgroup cap below peak RSS
+            # (LTX FP8 + Gemma) triggers memcg OOM while VRAM is still fine.
+      volumes:
+        - name: comfyui-models
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/comfyui/models
+            type: DirectoryOrCreate
+        - name: comfyui-output
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/comfyui/output
+            type: DirectoryOrCreate
+        - name: comfyui-input
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/comfyui/input
+            type: DirectoryOrCreate
+        - name: nvidia0
+          hostPath:
+            path: /dev/nvidia0
+        - name: nvidiactl
+          hostPath:
+            path: /dev/nvidiactl
+        - name: nvidiauvm
+          hostPath:
+            path: /dev/nvidia-uvm
+        - name: nvidiauvmtools
+          hostPath:
+            path: /dev/nvidia-uvm-tools
+        - name: nvidiamodeset
+          hostPath:
+            path: /dev/nvidia-modeset
+        - name: nvidiacaps
+          hostPath:
+            path: /dev/nvidia-caps
+            type: DirectoryOrCreate
+        - name: host-nvidia-libs
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+            type: Directory
+        - name: host-nvidia-bin
+          hostPath:
+            path: /usr/bin
+            type: Directory

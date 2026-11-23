@@ -280,13 +280,36 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         except Exception:  # noqa: BLE001
             entries = []
         providers = []
+        missing: list[str] = list(base.get("missing") or [])
         for entry in entries:
             if not is_video_generation_entry(entry):
                 continue
-            providers.append(video_generation_health(entry))
+            # Skip expensive probes when URL is not configured.
+            if not base.get("configured"):
+                providers.append(
+                    {
+                        "ok": False,
+                        "ready": False,
+                        "reachable": False,
+                        "providerId": str(entry.get("id") or ""),
+                        "missing": ["AGENTIC_VIDEO_COMFYUI_URL unset"],
+                    }
+                )
+                continue
+            snap = video_generation_health(entry)
+            providers.append(snap)
+            for item in snap.get("missing") or []:
+                label = f"{snap.get('providerId') or entry.get('id')}:{item}"
+                if label not in missing:
+                    missing.append(label)
         base["providers"] = providers
-        if providers:
-            base["ok"] = any(bool(p.get("ok")) for p in providers)
+        base["missing"] = missing
+        if providers and base.get("configured"):
+            base["ready"] = all(bool(p.get("ready")) for p in providers)
+            base["ok"] = base["ready"]
+        elif not base.get("configured"):
+            base["ready"] = False
+            base["ok"] = False
         return base
 
     def _speech_providers_health_snapshot(tool_root: Path) -> dict[str, Any]:

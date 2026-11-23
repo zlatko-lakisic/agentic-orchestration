@@ -31,6 +31,7 @@ __all__ = [
     "run_video_generation",
     "video_generation_health",
     "video_generation_runtime_health",
+    "probe_comfyui_idle_cuda",
 ]
 
 
@@ -268,52 +269,195 @@ def _parse_request(text: str, entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _required_nodes(entry: dict[str, Any]) -> list[str]:
+    merged = _merged(entry)
+    raw = merged.get("required_nodes")
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    # Fall back: unique class_type from workflow files when listed.
+    return []
+
+
+def _required_weights(entry: dict[str, Any]) -> list[dict[str, str]]:
+    merged = _merged(entry)
+    raw = merged.get("required_weights")
+    out: list[dict[str, str]] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            folder = str(item.get("folder") or "").strip()
+            name = str(item.get("name") or "").strip()
+            if folder and name:
+                out.append({"folder": folder, "name": name})
+    return out
+
+
+def _comfy_model_names(
+    client: httpx.Client,
+    base: str,
+    headers: dict[str, str],
+    folder: str,
+) -> set[str]:
+    """List filenames ComfyUI sees under ``models/<folder>``."""
+    names: set[str] = set()
+    for path in (f"{base}/models/{folder}", f"{base}/api/models/{folder}"):
+        try:
+            resp = client.get(path, headers=headers)
+        except Exception:  # noqa: BLE001
+            continue
+        if resp.status_code >= 400 or not resp.content:
+            continue
+        try:
+            data = resp.json()
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, str):
+                    names.add(item)
+                elif isinstance(item, dict):
+                    n = item.get("name") or item.get("filename")
+                    if n:
+                        names.add(str(n))
+        elif isinstance(data, dict):
+            for key in ("files", "models", folder):
+                arr = data.get(key)
+                if isinstance(arr, list):
+                    for item in arr:
+                        if isinstance(item, str):
+                            names.add(item)
+        if names:
+            break
+    return names
+
+
+def _weight_on_disk(folder: str, name: str) -> bool:
+    """Optional hostPath check (engine mount / shared Ada path)."""
+    root = (
+        os.getenv("AGENTIC_COMFYUI_MODELS_HOSTPATH")
+        or os.getenv("AGENTIC_COMFYUI_MODELS_DIR")
+        or ""
+    ).strip()
+    if not root:
+        return False
+    path = Path(root) / folder / name
+    if path.is_file():
+        return True
+    # Some loaders use nested names like loras/ltxv/...
+    alt = Path(root) / name
+    return alt.is_file()
+
+
 def video_generation_health(entry: dict[str, Any]) -> dict[str, Any]:
-    """Probe ComfyUI ``GET /system_stats`` (never include the URL in the payload)."""
+    """Probe ComfyUI readiness (never include the URL in the payload).
+
+    ``ready`` requires reachable ComfyUI, every ``required_nodes`` class in
+    ``/object_info``, and every ``required_weights`` file visible via
+    ``/models/<folder>`` or on the models hostPath.
+    """
+    pid = str(entry.get("id") or "")
+    merged = _merged(entry)
     try:
         base = _endpoint(entry)
     except VideoGenerationError as exc:
-        return {"ok": False, "reachable": False, "error": str(exc)}
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.get(f"{base}/system_stats", headers=_headers(entry))
-        if resp.status_code >= 400:
-            return {
-                "ok": False,
-                "reachable": True,
-                "error": f"HTTP {resp.status_code}",
-            }
-        data = resp.json() if resp.content else {}
-        devices = []
-        if isinstance(data, dict):
-            devices = data.get("devices") or data.get("gpus") or []
-        gpu_name = None
-        vram_free = None
-        if isinstance(devices, list) and devices:
-            first = devices[0] if isinstance(devices[0], dict) else {}
-            gpu_name = first.get("name") or first.get("gpu_name")
-            vram_free = first.get("vram_free") or first.get("free")
-        merged = _merged(entry)
         return {
-            "ok": True,
+            "ok": False,
+            "ready": False,
+            "reachable": False,
+            "providerId": pid,
+            "missing": [str(exc)],
+            "error": str(exc),
+            "qualityTier": merged.get("quality_tier"),
+            "speedTier": merged.get("speed_tier"),
+        }
+    missing: list[str] = []
+    try:
+        with httpx.Client(timeout=12.0) as client:
+            headers = _headers(entry)
+            resp = client.get(f"{base}/system_stats", headers=headers)
+            if resp.status_code >= 400:
+                return {
+                    "ok": False,
+                    "ready": False,
+                    "reachable": True,
+                    "providerId": pid,
+                    "missing": [f"system_stats HTTP {resp.status_code}"],
+                    "error": f"HTTP {resp.status_code}",
+                    "qualityTier": merged.get("quality_tier"),
+                    "speedTier": merged.get("speed_tier"),
+                }
+            data = resp.json() if resp.content else {}
+            devices = []
+            if isinstance(data, dict):
+                devices = data.get("devices") or data.get("gpus") or []
+            gpu_name = None
+            vram_free = None
+            vram_total = None
+            if isinstance(devices, list) and devices:
+                first = devices[0] if isinstance(devices[0], dict) else {}
+                gpu_name = first.get("name") or first.get("gpu_name")
+                vram_free = first.get("vram_free") or first.get("free")
+                vram_total = first.get("vram_total") or first.get("total")
+
+            obj = client.get(f"{base}/object_info", headers=headers)
+            object_info: dict[str, Any] = {}
+            if obj.status_code < 400 and obj.content:
+                body = obj.json()
+                if isinstance(body, dict):
+                    object_info = body
+            for node_cls in _required_nodes(entry):
+                if node_cls not in object_info:
+                    missing.append(f"node:{node_cls}")
+
+            for weight in _required_weights(entry):
+                folder = weight["folder"]
+                name = weight["name"]
+                remote = _comfy_model_names(client, base, headers, folder)
+                # Match basename or full relative path ComfyUI returns.
+                basenames = {Path(n).name for n in remote} | set(remote)
+                ok = name in basenames or Path(name).name in basenames
+                if not ok:
+                    ok = _weight_on_disk(folder, name)
+                if not ok:
+                    missing.append(f"weight:{folder}/{name}")
+
+        ready = not missing
+        return {
+            "ok": ready,
+            "ready": ready,
             "reachable": True,
             "gpuName": gpu_name,
             "vramFree": vram_free,
-            "providerId": str(entry.get("id") or ""),
+            "vramTotal": vram_total,
+            "providerId": pid,
+            "missing": missing,
             "qualityTier": merged.get("quality_tier"),
             "speedTier": merged.get("speed_tier"),
         }
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "reachable": False, "error": str(exc)}
+        return {
+            "ok": False,
+            "ready": False,
+            "reachable": False,
+            "providerId": pid,
+            "missing": [str(exc)],
+            "error": str(exc),
+            "qualityTier": merged.get("quality_tier"),
+            "speedTier": merged.get("speed_tier"),
+        }
 
 
 def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, Any]:
     """Aggregate health for ``/health`` — never expose ComfyUI URL.
 
-    ``configured`` is true when any catalog ``video_generation`` entry has its
-    own ``endpoint_env`` set (not only the default ``AGENTIC_VIDEO_COMFYUI_URL``).
+    ``configured`` — endpoint env set for at least one video provider.
+    ``ready`` — Quill gate: configured and every video provider reports ``ready``
+    (reachable + required nodes + required weights). ``missing`` lists gaps.
     """
-    configured = False
+    missing: list[str] = []
+    providers: list[dict[str, Any]] = []
+    configured = bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip())
     try:
         from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
         from orchestration.dynamic_run import catalog_paths
@@ -326,15 +470,81 @@ def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, 
             try:
                 _endpoint(entry)
                 configured = True
-                break
-            except VideoGenerationError:
+            except VideoGenerationError as exc:
+                missing.append(f"{entry.get('id')}:{exc}")
                 continue
-    except Exception:  # noqa: BLE001
-        configured = bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip())
+            h = video_generation_health(entry)
+            providers.append(
+                {
+                    "id": entry.get("id"),
+                    "ready": bool(h.get("ready")),
+                    "missing": list(h.get("missing") or []),
+                }
+            )
+            if not h.get("ready"):
+                pid = str(entry.get("id") or "?")
+                gaps = h.get("missing") or ["not ready"]
+                missing.extend(f"{pid}:{g}" for g in gaps)
+    except Exception as exc:  # noqa: BLE001
+        if not configured:
+            missing = ["AGENTIC_VIDEO_COMFYUI_URL unset"]
+        else:
+            missing.append(f"catalog:{exc}")
+    ready = bool(configured and providers and all(p.get("ready") for p in providers))
     return {
         "configured": configured,
-        "ok": None,
+        "ready": ready,
+        "missing": missing,
+        "providers": providers,
+        "ok": ready if configured else None,
     }
+
+
+def probe_comfyui_idle_cuda() -> dict[str, Any] | None:
+    """Sample idle ComfyUI CUDA memory from ``/system_stats`` when URL is set."""
+    base = (os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip().rstrip("/")
+    if not base:
+        return None
+    token = (os.getenv("AGENTIC_VIDEO_COMFYUI_TOKEN") or "").strip()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(f"{base}/system_stats", headers=headers)
+        if resp.status_code >= 400 or not resp.content:
+            return {
+                "providerId": "comfyui",
+                "kind": "video",
+                "state": "unreachable",
+                "vramBytes": None,
+                "error": f"HTTP {resp.status_code}",
+            }
+        data = resp.json() if resp.content else {}
+        devices = (data.get("devices") or data.get("gpus") or []) if isinstance(data, dict) else []
+        used = None
+        if isinstance(devices, list) and devices and isinstance(devices[0], dict):
+            total = devices[0].get("vram_total")
+            free = devices[0].get("vram_free")
+            if isinstance(total, (int, float)) and isinstance(free, (int, float)):
+                used = int(max(0.0, float(total) - float(free)))
+        return {
+            "providerId": "comfyui",
+            "model": "comfyui-idle",
+            "kind": "video",
+            "state": "idle",
+            "vramBytes": used,
+            "ramBytes": None,
+            "loadedAt": None,
+            "lastUsedAt": None,
+            "expiresAt": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "providerId": "comfyui",
+            "kind": "video",
+            "state": "unreachable",
+            "vramBytes": None,
+            "error": str(exc),
+        }
 
 
 def _comfy_free(entry: dict[str, Any], client: httpx.Client | None = None) -> None:
@@ -353,6 +563,39 @@ def _comfy_free(entry: dict[str, Any], client: httpx.Client | None = None) -> No
     finally:
         if owns:
             http.close()
+
+
+def _delete_comfy_output(
+    *,
+    filename: str,
+    subfolder: str = "",
+    ftype: str = "output",
+) -> None:
+    """Delete ComfyUI output after AO has stored the clip (shared hostPath)."""
+    if ftype and ftype not in ("output", "temp"):
+        return
+    root = (
+        os.getenv("AGENTIC_COMFYUI_OUTPUT_HOSTPATH")
+        or os.getenv("AGENTIC_COMFYUI_OUTPUT_DIR")
+        or ""
+    ).strip()
+    if not root or not filename:
+        return
+    # Reject path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return
+    if ".." in subfolder or subfolder.startswith(("/", "\\")):
+        return
+    base = Path(root)
+    path = base / subfolder / filename if subfolder else base / filename
+    try:
+        resolved = path.resolve()
+        if not str(resolved).startswith(str(base.resolve())):
+            return
+        if resolved.is_file():
+            resolved.unlink()
+    except OSError:
+        return
 
 
 def run_video_generation(
@@ -483,9 +726,27 @@ def run_video_generation(
             if hist.status_code < 400 and hist.content:
                 hbody = hist.json()
                 item = hbody.get(prompt_id) if isinstance(hbody, dict) else None
-                if isinstance(item, dict) and item.get("outputs"):
-                    outputs = item["outputs"]
-                    break
+                if isinstance(item, dict):
+                    status = item.get("status") if isinstance(item.get("status"), dict) else {}
+                    if str(status.get("status_str") or "") == "error":
+                        msg = "ComfyUI execution error"
+                        for entry in status.get("messages") or []:
+                            if (
+                                isinstance(entry, (list, tuple))
+                                and len(entry) >= 2
+                                and entry[0] == "execution_error"
+                                and isinstance(entry[1], dict)
+                            ):
+                                detail = entry[1].get("exception_message") or entry[1].get(
+                                    "node_type"
+                                )
+                                if detail:
+                                    msg = f"ComfyUI execution error: {detail}"
+                                break
+                        raise VideoGenerationError(msg[:500])
+                    if item.get("outputs"):
+                        outputs = item["outputs"]
+                        break
             _progress(40)
             time.sleep(0.5)
         else:
@@ -537,6 +798,8 @@ def run_video_generation(
             name=final_path.name,
             move=False,
         )
+        # Drop ComfyUI's copy once AO has the clip in client storage.
+        _delete_comfy_output(filename=filename, subfolder=subfolder, ftype=ftype)
         seconds = float(req["frames"]) / float(req["fps"] or 24)
         # Peak VRAM from ComfyUI system_stats when available (for trace + residency).
         peak_vram_gb = None
@@ -555,11 +818,6 @@ def run_video_generation(
                         get_gpu_residency_manager().note_measured_vram(pid, peak_vram_gb)
         except Exception:  # noqa: BLE001
             pass
-        residency = str(merged.get("residency") or "").strip().lower()
-        if residency == "on_demand":
-            # Drop weights now so the next admit sees free VRAM; idle report
-            # still tracks the lease until timeout / eviction.
-            _comfy_free(entry, client)
         _progress(100)
         timings["total_ms"] = int((time.time() - t0) * 1000)
         if peak_vram_gb is not None:
@@ -588,6 +846,11 @@ def run_video_generation(
             "timings": timings,
         }
     finally:
+        # Always /free after success or failure so weights leave VRAM.
+        try:
+            _comfy_free(entry, client)
+        except Exception:  # noqa: BLE001
+            pass
         if lease is not None:
             get_gpu_residency_manager().release(lease)
         if owns_client:

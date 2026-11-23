@@ -1,0 +1,20 @@
+# Mount ComfyUI output hostPath into the engine so AO can delete clips after
+# register_output_file (shared single-node Ada path).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-engine
+  namespace: agentic-orchestration
+spec:
+  template:
+    spec:
+      containers:
+        - name: engine
+          volumeMounts:
+            - name: comfyui-output
+              mountPath: /host/comfyui-output
+      volumes:
+        - name: comfyui-output
+          hostPath:
+            path: /var/projects/agentic-orchestration/var/comfyui/output
+            type: DirectoryOrCreate

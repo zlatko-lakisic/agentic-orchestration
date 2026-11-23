@@ -3,9 +3,9 @@ type: video_generation
 role: Vertical image-to-video (Wan 2.2)
 goal: Generate a short vertical clip with real motion from a start image + prompt
 backstory: >-
-  Wan 2.2 image-to-video (Alibaba, Apache 2.0) via ComfyUI on the GPU host.
-  Prefer TI2V-5B or A14B FP8/GGUF with offload to fit ~20 GB when nothing else
-  is resident. Higher quality / more motion than LTX distilled; slower.
+  Wan 2.2 image-to-video (Alibaba, Apache 2.0) via ComfyUI native nodes on Ada.
+  Default graph is TI2V-5B; switch workflows.i2v to wan22_i2v_a14b_fp8.json after
+  Ada bench if A14B FP8 wins on time/VRAM.
 backend: comfyui
 endpoint_env: AGENTIC_VIDEO_COMFYUI_URL
 token_env: AGENTIC_VIDEO_COMFYUI_TOKEN
@@ -33,14 +33,33 @@ limits:
   max_frames: 121
   timeout_s: 2400
 residency: on_demand
-min_vram_gb: 18
+min_vram_gb: 12
 synthetic_media: true
+required_nodes:
+  - UNETLoader
+  - CLIPLoader
+  - VAELoader
+  - CLIPTextEncode
+  - LoadImage
+  - Wan22ImageToVideoLatent
+  - ModelSamplingSD3
+  - KSampler
+  - VAEDecode
+  - CreateVideo
+  - SaveVideo
+required_weights:
+  - folder: diffusion_models
+    name: wan2.2_ti2v_5B_fp16.safetensors
+  - folder: text_encoders
+    name: umt5_xxl_fp8_e4m3fn_scaled.safetensors
+  - folder: vae
+    name: wan2.2_vae.safetensors
 models_note: >-
-  Install ComfyUI-WanVideoWrapper (or official Wan nodes). Prefer Wan 2.2
-  TI2V-5B or A14B I2V experts in FP8/GGUF with CPU/VRAM offload so peak fits
-  one 20 GB card. Export the UI graph to API JSON and replace
-  config/video_workflows/wan22_i2v_vertical.json + bindings node ids.
-  Record seconds/5s clip and peak VRAM on Ada after first smoke.
+  Native ComfyUI Wan 2.2 nodes (no WanVideoWrapper). Default TI2V-5B weights via
+  scripts/download-comfyui-weights.sh --profile ti2v5b. A14B FP8: --profile a14b
+  and point workflows at wan22_i2v_a14b_fp8.json (update bindings seed→noise_seed
+  on node 20). Ada bench records seconds/5s clip, peak VRAM, peak RAM; Quill
+  per-clip timeout is 30 minutes.
 planner_hint: >-
   Generation only. Higher-quality image-to-video than video_ltx23_distilled
   (use LTX when speed matters). Called by AO Quill with start_image_file_id.

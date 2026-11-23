@@ -8,6 +8,18 @@ import json
 from pathlib import Path
 
 
+def _set_widgets(inputs: dict, wvals: list, keys: list[str]) -> None:
+    """Map widgets_values onto API input keys (skips seed-mode control strings)."""
+    wi = 0
+    for key in keys:
+        while wi < len(wvals) and wvals[wi] in ("fixed", "increment", "decrement", "randomize"):
+            wi += 1
+        if wi >= len(wvals):
+            break
+        inputs.setdefault(key, wvals[wi])
+        wi += 1
+
+
 def convert_ui_to_api(ui: dict) -> dict[str, dict]:
     nodes = {n["id"]: n for n in ui.get("nodes") or []}
     out: dict[str, dict] = {}
@@ -23,7 +35,7 @@ def convert_ui_to_api(ui: dict) -> dict[str, dict]:
                 if link_row[0] == link:
                     inputs[name] = [str(link_row[1]), link_row[2]]
                     break
-        wvals = n.get("widgets_values") or []
+        wvals = list(n.get("widgets_values") or [])
         if ctype == "RandomNoise" and wvals:
             inputs["noise_seed"] = wvals[0]
         elif ctype == "CLIPTextEncode" and wvals:
@@ -61,21 +73,31 @@ def convert_ui_to_api(ui: dict) -> dict[str, dict]:
         elif ctype == "CreateVideo" and wvals and isinstance(wvals[0], (int, float)):
             inputs.setdefault("fps", wvals[0])
         elif ctype == "LTXVScheduler" and wvals:
-            for i, key in enumerate(
-                ["steps", "max_shift", "base_shift", "stretch", "terminal"]
-            ):
-                if i < len(wvals):
-                    inputs.setdefault(key, wvals[i])
+            _set_widgets(
+                inputs,
+                wvals,
+                ["steps", "max_shift", "base_shift", "stretch", "terminal"],
+            )
         elif ctype == "ManualSigmas" and wvals:
             inputs.setdefault("sigmas", wvals[0] if len(wvals) == 1 else wvals)
         elif ctype == "CFGGuider" and wvals:
             inputs.setdefault("cfg", wvals[0])
         elif ctype == "GuiderParameters" and wvals:
-            for i, key in enumerate(
-                ["modality", "cfg", "stg", "rescale", "modality_scale"]
-            ):
-                if i < len(wvals):
-                    inputs.setdefault(key, wvals[i])
+            # modality, cfg, stg, perturb_attn, rescale, modality_scale, skip_step, cross_attn
+            _set_widgets(
+                inputs,
+                wvals,
+                [
+                    "modality",
+                    "cfg",
+                    "stg",
+                    "perturb_attn",
+                    "rescale",
+                    "modality_scale",
+                    "skip_step",
+                    "cross_attn",
+                ],
+            )
         elif ctype == "MultimodalGuider" and wvals:
             inputs.setdefault("skip_blocks", wvals[0])
         elif ctype == "LTXVConditioning" and wvals:
@@ -85,22 +107,59 @@ def convert_ui_to_api(ui: dict) -> dict[str, dict]:
         elif ctype == "LTXVPreprocess" and wvals:
             inputs.setdefault("img_compression", wvals[0])
         elif ctype == "LTXAVTextEncoderLoader" and wvals:
-            if len(wvals) >= 1:
-                inputs.setdefault("ckpt_name", wvals[0])
-            if len(wvals) >= 2:
-                inputs.setdefault("text_encoder", wvals[1])
-            if len(wvals) >= 3:
-                inputs.setdefault("device", wvals[2])
+            # UI widgets follow object_info required order: text_encoder, ckpt_name, device
+            _set_widgets(inputs, wvals, ["text_encoder", "ckpt_name", "device"])
         elif ctype == "GemmaAPITextEncode" and wvals:
             inputs.setdefault(
                 "text", wvals[0] if isinstance(wvals[0], str) else ""
             )
+        elif ctype == "ClownSampler_Beta" and wvals:
+            # eta, sampler_name, seed, [control], bongmath
+            _set_widgets(inputs, wvals, ["eta", "sampler_name", "seed", "bongmath"])
+        elif ctype == "LTXVTiledVAEDecode" and wvals:
+            _set_widgets(
+                inputs,
+                wvals,
+                [
+                    "horizontal_tiles",
+                    "vertical_tiles",
+                    "overlap",
+                    "last_frame_fix",
+                    "working_device",
+                    "working_dtype",
+                ],
+            )
+        elif ctype == "LTXVEmptyLatentAudio" and wvals:
+            # widgets still listed even when frames_number/frame_rate are linked
+            _set_widgets(
+                inputs, wvals, ["frames_number", "frame_rate", "batch_size"]
+            )
         elif ctype == "ResizeImageMaskNode" and wvals:
-            for i, key in enumerate(
-                ["max_size", "downsample_mode", "upsample_mode", "crop"]
-            ):
-                if i < len(wvals):
-                    inputs.setdefault(key, wvals[i])
+            # DYNAMICCOMBO API shape: { "<option key>": { <nested params> } }
+            # e.g. widgets ["scale longer dimension", 1536, "lanczos"]
+            if len(wvals) >= 2 and isinstance(wvals[0], str):
+                key = wvals[0]
+                nested: dict = {}
+                if "longer" in key:
+                    nested["longer_size"] = wvals[1]
+                elif "shorter" in key:
+                    nested["shorter_size"] = wvals[1]
+                elif "multiplier" in key:
+                    nested["multiplier"] = wvals[1]
+                elif key == "scale width":
+                    nested["width"] = wvals[1]
+                elif key == "scale height":
+                    nested["height"] = wvals[1]
+                elif key == "scale dimensions" and len(wvals) >= 3:
+                    nested["width"] = wvals[1]
+                    nested["height"] = wvals[2]
+                    if len(wvals) >= 4 and wvals[2] != wvals[-1]:
+                        nested["crop"] = wvals[2]
+                inputs.setdefault("resize_type", {key: nested})
+            elif wvals:
+                inputs.setdefault("resize_type", wvals[0])
+            if wvals:
+                inputs.setdefault("scale_method", wvals[-1])
         elif ctype == "LTXVImgToVideoConditionOnly" and wvals:
             inputs.setdefault("strength", wvals[0])
         node_out: dict = {"class_type": ctype, "inputs": inputs}
@@ -119,6 +178,52 @@ def force_vertical(api: dict[str, dict], *, width: int, height: int, frames: int
             node["inputs"]["length"] = frames
 
 
+def prune_to_save_prefix(api: dict[str, dict], prefix: str) -> dict[str, dict]:
+    """Keep only nodes feeding SaveVideo nodes with the given filename_prefix.
+
+    The Lightricks ``*_Distilled_Full`` UI graph runs both distilled (output_D) and
+    full (output_F) tracks; Ada's 20GB card cannot load both.
+    """
+    roots = [
+        nid
+        for nid, node in api.items()
+        if node.get("class_type") == "SaveVideo"
+        and str((node.get("inputs") or {}).get("filename_prefix") or "") == prefix
+    ]
+    if not roots:
+        raise SystemExit(f"no SaveVideo with filename_prefix={prefix!r}")
+    keep: set[str] = set()
+    stack = list(roots)
+    while stack:
+        nid = stack.pop()
+        if nid in keep or nid not in api:
+            continue
+        keep.add(nid)
+        for val in (api[nid].get("inputs") or {}).values():
+            if isinstance(val, list) and len(val) >= 1 and isinstance(val[0], str):
+                stack.append(val[0])
+    return {nid: api[nid] for nid in keep}
+
+
+def bypass_resize_image_mask_nodes(api: dict[str, dict]) -> None:
+    """Drop ResizeImageMaskNode — DynamicCombo API prompts omit ``resize_type`` at execute.
+
+    Rewire consumers to the node's image/mask input link (LoadImage for LTX graphs).
+    """
+    for nid, node in list(api.items()):
+        if node.get("class_type") != "ResizeImageMaskNode":
+            continue
+        src = (node.get("inputs") or {}).get("input")
+        if not (isinstance(src, list) and src and isinstance(src[0], str)):
+            continue
+        for other in api.values():
+            inputs = other.get("inputs") or {}
+            for key, val in list(inputs.items()):
+                if isinstance(val, list) and len(val) >= 1 and val[0] == nid:
+                    inputs[key] = [src[0], *val[1:]]
+        del api[nid]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("ui_json", type=Path)
@@ -127,10 +232,22 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=544)
     ap.add_argument("--height", type=int, default=960)
     ap.add_argument("--frames", type=int, default=121)
+    ap.add_argument(
+        "--keep-save-prefix",
+        default="output_D",
+        help="Prune to SaveVideo filename_prefix (default: distilled track)",
+    )
     args = ap.parse_args()
     ui = json.loads(args.ui_json.read_text(encoding="utf-8"))
     api = convert_ui_to_api(ui)
     force_vertical(api, width=args.width, height=args.height, frames=args.frames)
+    if args.keep_save_prefix:
+        before = len(api)
+        api = prune_to_save_prefix(api, args.keep_save_prefix)
+        print(
+            f"pruned {before} -> {len(api)} nodes (keep SaveVideo {args.keep_save_prefix})"
+        )
+    bypass_resize_image_mask_nodes(api)
     t2v = copy.deepcopy(api)
     i2v = copy.deepcopy(api)
     args.t2v_out.write_text(json.dumps(t2v, indent=2) + "\n", encoding="utf-8")
@@ -147,6 +264,12 @@ def main() -> None:
                 "LoadImage",
                 "SaveVideo",
                 "PrimitiveInt",
+                "ClownSampler_Beta",
+                "GuiderParameters",
+                "LTXAVTextEncoderLoader",
+                "ResizeImageMaskNode",
+                "LTXVTiledVAEDecode",
+                "LTXVEmptyLatentAudio",
             ):
                 print(label, nid, ct, node.get("inputs"))
 

@@ -4,6 +4,7 @@ name: Publish container images
 # Images:
 #   ghcr.io/<owner>/agentic-orchestrator-coordinator:vX.Y.Z
 #   ghcr.io/<owner>/agentic-orchestrator-worker:vX.Y.Z
+#   ghcr.io/<owner>/agentic-comfyui:vX.Y.Z  (linux/amd64 only — Ada)
 
 on:
   push:
@@ -36,8 +37,10 @@ jobs:
           OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           COORD="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-coordinator"
           WORK="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-worker"
+          COMFY="${{ env.REGISTRY }}/${OWNER_LC}/agentic-comfyui"
           echo "coordinator=$COORD" >> "$GITHUB_OUTPUT"
           echo "worker=$WORK" >> "$GITHUB_OUTPUT"
+          echo "comfyui=$COMFY" >> "$GITHUB_OUTPUT"
 
           if [[ -n "${{ inputs.tag }}" ]]; then
             TAG="${{ inputs.tag }}"
@@ -61,6 +64,13 @@ jobs:
             echo "${WORK}:latest"
             if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
               echo "${WORK}:${TAG#v}"
+            fi
+            echo "EOF"
+            echo "comfyui_tags<<EOF"
+            echo "${COMFY}:${TAG}"
+            echo "${COMFY}:latest"
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "${COMFY}:${TAG#v}"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -108,6 +118,21 @@ jobs:
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
 
+      - name: Build and push comfyui (amd64 only)
+        uses: docker/build-push-action@v6
+        with:
+          context: agentic-orchestration-tool
+          file: agentic-orchestration-tool/docker/Dockerfile.comfyui
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.comfyui_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=agentic-comfyui
+          cache-from: type=gha,scope=comfyui
+          cache-to: type=gha,mode=max,scope=comfyui
+
       - name: Summary
         run: |
           {
@@ -115,6 +140,7 @@ jobs:
             echo ""
             echo "- \`${{ steps.meta.outputs.coordinator }}:${{ steps.meta.outputs.tag }}\`"
             echo "- \`${{ steps.meta.outputs.worker }}:${{ steps.meta.outputs.tag }}\`"
+            echo "- \`${{ steps.meta.outputs.comfyui }}:${{ steps.meta.outputs.tag }}\` (amd64 / Ada)"
             echo ""
             echo "Jetson pull example:"
             echo "\`\`\`bash"
