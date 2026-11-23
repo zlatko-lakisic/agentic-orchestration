@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Mount host ffmpeg/ffprobe into engine + warm-pool for media_render_short (#125).
-# Safe no-op when binaries are missing on the host or kubectl is unavailable.
+# Optionally mount host ffmpeg/ffprobe into engine + warm-pool (#125).
+#
+# Default: skip. Coordinator/worker images since v2.25.1 ship apt ``ffmpeg``.
+# Host binary mounts alone break (missing shared libs). Opt in only when needed:
+#   AGENTIC_MOUNT_HOST_FFMPEG=1 bash scripts/jetson-mount-ffmpeg.sh
 set -eu
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
@@ -9,6 +12,11 @@ export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
 ENGINE_PATCH="${TOOL_ROOT}/deploy/k8s/engine/ffmpeg-hostpath-patch.yaml"
 WARM_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-ffmpeg-hostpath-patch.yaml"
+
+if [[ "${AGENTIC_MOUNT_HOST_FFMPEG:-0}" != "1" ]]; then
+  echo "jetson-mount-ffmpeg: skip (image ships ffmpeg; set AGENTIC_MOUNT_HOST_FFMPEG=1 to force)"
+  exit 0
+fi
 
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "jetson-mount-ffmpeg: kubectl missing; skip"
