@@ -452,10 +452,12 @@ def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, 
     """Aggregate health for ``/health`` — never expose ComfyUI URL.
 
     ``configured`` — endpoint env set for at least one video provider.
-    ``ready`` — Quill gate: configured and every provider reports ``ready``
+    ``ready`` — Quill gate: configured and every video provider reports ``ready``
     (reachable + required nodes + required weights). ``missing`` lists gaps.
     """
-    configured = False
+    missing: list[str] = []
+    providers: list[dict[str, Any]] = []
+    configured = bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip())
     try:
         from orchestration.agent_providers_catalog import load_agent_providers_catalog_merged
         from orchestration.dynamic_run import catalog_paths
@@ -468,16 +470,33 @@ def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, 
             try:
                 _endpoint(entry)
                 configured = True
-                break
-            except VideoGenerationError:
+            except VideoGenerationError as exc:
+                missing.append(f"{entry.get('id')}:{exc}")
                 continue
-    except Exception:  # noqa: BLE001
-        configured = bool((os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip())
+            h = video_generation_health(entry)
+            providers.append(
+                {
+                    "id": entry.get("id"),
+                    "ready": bool(h.get("ready")),
+                    "missing": list(h.get("missing") or []),
+                }
+            )
+            if not h.get("ready"):
+                pid = str(entry.get("id") or "?")
+                gaps = h.get("missing") or ["not ready"]
+                missing.extend(f"{pid}:{g}" for g in gaps)
+    except Exception as exc:  # noqa: BLE001
+        if not configured:
+            missing = ["AGENTIC_VIDEO_COMFYUI_URL unset"]
+        else:
+            missing.append(f"catalog:{exc}")
+    ready = bool(configured and providers and all(p.get("ready") for p in providers))
     return {
         "configured": configured,
-        "ready": False,
-        "missing": [] if configured else ["AGENTIC_VIDEO_COMFYUI_URL unset"],
-        "ok": None,
+        "ready": ready,
+        "missing": missing,
+        "providers": providers,
+        "ok": ready if configured else None,
     }
 
 
