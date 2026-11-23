@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **ComfyUI cancel + host RAM safety (#130/#143/#144)** — Reach WS `video_generation` now forwards `cancel_event` so disconnect/`cancel` POSTs `/interrupt` and clears the ComfyUI queue entry; LTX text encoder stays on GPU (`device: default`); drop `--lowvram`; hard-cap the ComfyUI pod at **16Gi** so memcg OOM fails the clip instead of thrashing AO TLS/SSH.
+
 ## [2.26.0] - 2026-11-22
 
 ### Added

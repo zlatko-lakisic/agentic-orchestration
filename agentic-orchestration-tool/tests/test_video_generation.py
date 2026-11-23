@@ -173,10 +173,12 @@ def test_answer_cache_bypass() -> None:
 
 
 class _MockTransport(httpx.BaseTransport):
-    def __init__(self) -> None:
+    def __init__(self, *, pending_history: bool = False) -> None:
         self.calls: list[tuple[str, str]] = []
         self.interrupted = False
         self.freed = False
+        self.queue_deletes: list[Any] = []
+        self._pending_history = pending_history
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -187,6 +189,8 @@ class _MockTransport(httpx.BaseTransport):
         if path == "/prompt" and method == "POST":
             return httpx.Response(200, json={"prompt_id": "p1"})
         if path == "/history/p1":
+            if self._pending_history:
+                return httpx.Response(200, json={"p1": {"status": {"status_str": "running"}}})
             return httpx.Response(
                 200,
                 json={
@@ -209,6 +213,12 @@ class _MockTransport(httpx.BaseTransport):
             return httpx.Response(200, content=b"ftypfakevideobytes")
         if path == "/interrupt":
             self.interrupted = True
+            return httpx.Response(200, json={})
+        if path == "/queue" and method == "POST":
+            try:
+                self.queue_deletes.append(json.loads(request.content.decode("utf-8")))
+            except Exception:  # noqa: BLE001
+                self.queue_deletes.append({})
             return httpx.Response(200, json={})
         if path == "/free":
             self.freed = True
@@ -252,6 +262,69 @@ class _MockTransport(httpx.BaseTransport):
             }.get(folder, [])
             return httpx.Response(200, json=names)
         return httpx.Response(404, json={"error": path})
+
+
+def test_ltx_workflows_keep_text_encoder_on_gpu() -> None:
+    for name in (
+        "ltx23_distilled_i2v_vertical.json",
+        "ltx23_distilled_t2v_vertical.json",
+    ):
+        graph = json.loads(
+            (TOOL_ROOT / "config/video_workflows" / name).read_text(encoding="utf-8")
+        )
+        te = graph["4960"]["inputs"]
+        assert te["device"] == "default", name
+
+
+def test_run_video_generation_cancel_interrupts_and_clears_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import time
+
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://comfy.test")
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "files"))
+    monkeypatch.setenv("AGENTIC_VIDEO_OUTPUT_DIR", str(tmp_path / "out"))
+    transport = _MockTransport(pending_history=True)
+    client = httpx.Client(transport=transport)
+    entry = {
+        "id": "video_ltx23_distilled",
+        "type": "video_generation",
+        "workflows": {
+            "t2v": str(FIXTURES / "t2v.json"),
+            "i2v": str(FIXTURES / "i2v.json"),
+        },
+        "bindings": {
+            "prompt": {"node": "10", "field": "text"},
+            "seed": {"node": "20", "field": "noise_seed"},
+            "width": {"node": "20", "field": "width"},
+            "height": {"node": "20", "field": "height"},
+            "frames": {"node": "20", "field": "length"},
+        },
+        "defaults": {"width": 544, "height": 960, "fps": 24, "frames": 9, "keep_audio": True},
+        "limits": {"max_frames": 241, "timeout_s": 30},
+        "residency": "on_demand",
+        "endpoint_env": "AGENTIC_VIDEO_COMFYUI_URL",
+    }
+    cancel_event = threading.Event()
+
+    def _arm() -> None:
+        time.sleep(0.2)
+        cancel_event.set()
+
+    threading.Thread(target=_arm, daemon=True).start()
+    with pytest.raises(VideoGenerationError, match="cancelled"):
+        run_video_generation(
+            entry,
+            text=json.dumps({"prompt": "cancel me", "seed": 1, "frames": 9}),
+            tool_root=TOOL_ROOT,
+            user_id="alice",
+            client=client,
+            cancel_event=cancel_event,
+        )
+    assert transport.interrupted is True
+    assert any("p1" in (body.get("delete") or []) for body in transport.queue_deletes)
+    assert transport.freed is True
 
 
 def test_run_video_generation_mocked(

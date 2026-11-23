@@ -526,13 +526,20 @@ def probe_comfyui_idle_cuda() -> dict[str, Any] | None:
             free = devices[0].get("vram_free")
             if isinstance(total, (int, float)) and isinstance(free, (int, float)):
                 used = int(max(0.0, float(total) - float(free)))
+        ram_used = None
+        system = data.get("system") if isinstance(data, dict) else None
+        if isinstance(system, dict):
+            ram_total = system.get("ram_total")
+            ram_free = system.get("ram_free")
+            if isinstance(ram_total, (int, float)) and isinstance(ram_free, (int, float)):
+                ram_used = int(max(0.0, float(ram_total) - float(ram_free)))
         return {
             "providerId": "comfyui",
             "model": "comfyui-idle",
             "kind": "video",
             "state": "idle",
             "vramBytes": used,
-            "ramBytes": None,
+            "ramBytes": ram_used,
             "loadedAt": None,
             "lastUsedAt": None,
             "expiresAt": None,
@@ -563,6 +570,40 @@ def _comfy_free(entry: dict[str, Any], client: httpx.Client | None = None) -> No
     finally:
         if owns:
             http.close()
+
+
+def _comfy_interrupt_and_clear(
+    *,
+    base: str,
+    headers: dict[str, str],
+    client: httpx.Client,
+    prompt_id: str | None = None,
+) -> None:
+    """Stop the running graph and drop its queue entry (#144)."""
+    try:
+        client.post(f"{base}/interrupt", headers=headers)
+    except Exception:  # noqa: BLE001
+        pass
+    if not prompt_id:
+        return
+    try:
+        client.post(
+            f"{base}/queue",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"delete": [prompt_id]},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _raise_comfy_transport(exc: BaseException) -> None:
+    """Map memcg/pod death during a clip to a clear clip failure (#143)."""
+    msg = str(exc).lower()
+    if isinstance(exc, (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError)):
+        raise VideoGenerationError("out of memory") from exc
+    if any(tok in msg for tok in ("connection reset", "connection refused", "eof", "broken pipe")):
+        raise VideoGenerationError("out of memory") from exc
+    raise VideoGenerationError(f"ComfyUI unreachable: {exc}") from exc
 
 
 def _delete_comfy_output(
@@ -676,15 +717,21 @@ def run_video_generation(
         if on_progress is not None:
             on_progress(f"video_generation:{pid}:{pct}")
 
+    prompt_id: str | None = None
     try:
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            raise VideoGenerationError("cancelled")
         if img_path is not None:
             _progress(5)
-            with img_path.open("rb") as fh:
-                up = client.post(
-                    f"{base}/upload/image",
-                    headers=headers,
-                    files={"image": (img_path.name, fh, "application/octet-stream")},
-                )
+            try:
+                with img_path.open("rb") as fh:
+                    up = client.post(
+                        f"{base}/upload/image",
+                        headers=headers,
+                        files={"image": (img_path.name, fh, "application/octet-stream")},
+                    )
+            except (httpx.HTTPError, OSError) as exc:
+                _raise_comfy_transport(exc)
             if up.status_code >= 400:
                 raise VideoGenerationError(f"image upload failed: HTTP {up.status_code}")
             up_body = up.json() if up.content else {}
@@ -697,12 +744,17 @@ def run_video_generation(
                 graph, bindings, {"image": uploaded_name}
             )
 
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            raise VideoGenerationError("cancelled")
         _progress(10)
-        queued = client.post(
-            f"{base}/prompt",
-            headers={**headers, "Content-Type": "application/json"},
-            json={"prompt": graph, "client_id": uuid.uuid4().hex},
-        )
+        try:
+            queued = client.post(
+                f"{base}/prompt",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"prompt": graph, "client_id": uuid.uuid4().hex},
+            )
+        except (httpx.HTTPError, OSError) as exc:
+            _raise_comfy_transport(exc)
         if queued.status_code >= 400:
             raise VideoGenerationError(f"queue failed: HTTP {queued.status_code} {queued.text[:200]}")
         qbody = queued.json() if queued.content else {}
@@ -720,9 +772,14 @@ def run_video_generation(
         outputs: dict[str, Any] | None = None
         while time.time() < deadline:
             if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
-                client.post(f"{base}/interrupt", headers=headers)
+                _comfy_interrupt_and_clear(
+                    base=base, headers=headers, client=client, prompt_id=prompt_id
+                )
                 raise VideoGenerationError("cancelled")
-            hist = client.get(f"{base}/history/{prompt_id}", headers=headers)
+            try:
+                hist = client.get(f"{base}/history/{prompt_id}", headers=headers)
+            except (httpx.HTTPError, OSError) as exc:
+                _raise_comfy_transport(exc)
             if hist.status_code < 400 and hist.content:
                 hbody = hist.json()
                 item = hbody.get(prompt_id) if isinstance(hbody, dict) else None
@@ -750,7 +807,9 @@ def run_video_generation(
             _progress(40)
             time.sleep(0.5)
         else:
-            client.post(f"{base}/interrupt", headers=headers)
+            _comfy_interrupt_and_clear(
+                base=base, headers=headers, client=client, prompt_id=prompt_id
+            )
             raise VideoGenerationError(f"timed out after {timeout_s:.0f}s")
 
         _progress(80)

@@ -157,6 +157,41 @@ async def test_heartbeat_disabled_returns_immediately(
     assert not [f for f in ws.sent if f.get("heartbeat")]
 
 
+def test_execute_video_generation_forwards_cancel_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from orchestration.serve.ws import WsConnection
+
+    ws = _FakeWs()
+    conn = WsConnection(ws, tool_root=os.getcwd())  # type: ignore[arg-type]
+    captured: dict[str, Any] = {}
+
+    def fake_run_video_generation(entry, **kwargs):  # noqa: ANN001
+        captured["cancel_event"] = kwargs.get("cancel_event")
+        return {"ok": True, "clips": []}
+
+    monkeypatch.setattr(
+        "orchestration.video_generation_runtime.run_video_generation",
+        fake_run_video_generation,
+    )
+    import json
+
+    cancel_event = threading.Event()
+    out = conn._execute_video_generation(
+        {},
+        "direct_agent",
+        '{"prompt":"x","frames":9}',
+        {"question_id": "q-v"},
+        "run-1",
+        {"id": "video_ltx23_distilled", "type": "video_generation"},
+        cancel_event=cancel_event,
+    )
+    assert captured["cancel_event"] is cancel_event
+    assert json.loads(out)["ok"] is True
+
+
 def test_heartbeat_seconds_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestration.serve.ws import HEARTBEAT_SECONDS_DEFAULT, heartbeat_seconds
 

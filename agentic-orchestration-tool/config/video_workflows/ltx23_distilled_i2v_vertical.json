@@ -143,7 +143,7 @@
     "inputs": {
       "text_encoder": "gemma_3_12B_it_fp4_mixed.safetensors",
       "ckpt_name": "ltx-2.3-22b-distilled-fp8.safetensors",
-      "device": "cpu"
+      "device": "default"
     }
   },
   "4971": {

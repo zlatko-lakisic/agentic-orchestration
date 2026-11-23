@@ -1789,7 +1789,13 @@ class WsConnection:
 
                 if entry is not None and is_video_generation_entry(entry):
                     return self._execute_video_generation(
-                        message, kind, text, tag, run_id, entry
+                        message,
+                        kind,
+                        text,
+                        tag,
+                        run_id,
+                        entry,
+                        cancel_event=cancel_event,
                     )
             return self._execute_multimodal(message, kind, text, tag, run_id, images)
         # Text-only video_generation (t2v) — beside detection, not inside images branch.
@@ -1818,7 +1824,13 @@ class WsConnection:
                 entry = None
             if entry is not None and is_video_generation_entry(entry):
                 return self._execute_video_generation(
-                    message, kind, text, tag, run_id, entry
+                    message,
+                    kind,
+                    text,
+                    tag,
+                    run_id,
+                    entry,
+                    cancel_event=cancel_event,
                 )
             if entry is not None and is_tts_entry(entry):
                 return self._execute_managed_speech(
@@ -1936,6 +1948,7 @@ class WsConnection:
         tag: dict[str, Any],
         run_id: str,
         entry: dict[str, Any],
+        cancel_event: threading.Event | None = None,
     ) -> str:
         """ComfyUI clip generation — never advertise the GPU host URL."""
         import json
@@ -1962,6 +1975,7 @@ class WsConnection:
                 identity=self.identity,
                 user_id=self.identity.user_id if self.identity else None,
                 on_progress=lambda line: self._progress_to_status(line, tag),
+                cancel_event=cancel_event,
             )
         except VideoGenerationError as exc:
             raise ValueError(str(exc)) from exc
