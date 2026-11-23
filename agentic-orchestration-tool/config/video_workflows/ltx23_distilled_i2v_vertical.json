@@ -11,7 +11,7 @@
   "3059": {
     "class_type": "EmptyLTXVLatentVideo",
     "inputs": {
-      "length": 121,
+      "length": 17,
       "width": 544,
       "height": 960,
       "batch_size": 1
@@ -53,7 +53,8 @@
       "frame_rate": [
         "4985",
         0
-      ]
+      ],
+      "batch_size": 1
     }
   },
   "1241": {
@@ -246,8 +247,8 @@
   "4960": {
     "class_type": "LTXAVTextEncoderLoader",
     "inputs": {
-      "ckpt_name": "comfy_gemma_3_12B_it.safetensors",
-      "text_encoder": "ltx-2.3-22b-dev.safetensors",
+      "text_encoder": "comfy_gemma_3_12B_it.safetensors",
+      "ckpt_name": "ltx-2.3-22b-dev.safetensors",
       "device": "default"
     }
   },
@@ -266,7 +267,12 @@
   },
   "4967": {
     "class_type": "ClownSampler_Beta",
-    "inputs": {}
+    "inputs": {
+      "eta": 0.25,
+      "sampler_name": "exponential/res_2s",
+      "seed": 94,
+      "bongmath": true
+    }
   },
   "4963": {
     "class_type": "GuiderParameters",
@@ -274,8 +280,11 @@
       "modality": "AUDIO",
       "cfg": 7,
       "stg": 1,
-      "rescale": true,
-      "modality_scale": 0.7
+      "perturb_attn": true,
+      "rescale": 0.7,
+      "modality_scale": 3,
+      "skip_step": 0,
+      "cross_attn": true
     }
   },
   "4964": {
@@ -288,8 +297,11 @@
       "modality": "VIDEO",
       "cfg": 3,
       "stg": 1,
-      "rescale": true,
-      "modality_scale": 0.9
+      "perturb_attn": true,
+      "rescale": 0.9,
+      "modality_scale": 3,
+      "skip_step": 0,
+      "cross_attn": true
     }
   },
   "2483": {
@@ -351,9 +363,9 @@
         "2004",
         0
       ],
-      "max_size": "scale longer dimension",
-      "downsample_mode": 1536,
-      "upsample_mode": "lanczos"
+      "resize_type": "scale longer dimension",
+      "longer_size": 1536,
+      "scale_method": "lanczos"
     }
   },
   "4961": {
@@ -414,7 +426,13 @@
       "latents": [
         "4845",
         0
-      ]
+      ],
+      "horizontal_tiles": 2,
+      "vertical_tiles": 2,
+      "overlap": 6,
+      "last_frame_fix": false,
+      "working_device": "auto",
+      "working_dtype": "auto"
     }
   },
   "4818": {
@@ -440,7 +458,13 @@
       "latents": [
         "4824",
         0
-      ]
+      ],
+      "horizontal_tiles": 2,
+      "vertical_tiles": 2,
+      "overlap": 6,
+      "last_frame_fix": false,
+      "working_device": "auto",
+      "working_dtype": "auto"
     }
   },
   "4819": {
