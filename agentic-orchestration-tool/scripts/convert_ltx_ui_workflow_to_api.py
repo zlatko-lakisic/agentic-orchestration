@@ -205,6 +205,25 @@ def prune_to_save_prefix(api: dict[str, dict], prefix: str) -> dict[str, dict]:
     return {nid: api[nid] for nid in keep}
 
 
+def bypass_resize_image_mask_nodes(api: dict[str, dict]) -> None:
+    """Drop ResizeImageMaskNode — DynamicCombo API prompts omit ``resize_type`` at execute.
+
+    Rewire consumers to the node's image/mask input link (LoadImage for LTX graphs).
+    """
+    for nid, node in list(api.items()):
+        if node.get("class_type") != "ResizeImageMaskNode":
+            continue
+        src = (node.get("inputs") or {}).get("input")
+        if not (isinstance(src, list) and src and isinstance(src[0], str)):
+            continue
+        for other in api.values():
+            inputs = other.get("inputs") or {}
+            for key, val in list(inputs.items()):
+                if isinstance(val, list) and len(val) >= 1 and val[0] == nid:
+                    inputs[key] = [src[0], *val[1:]]
+        del api[nid]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("ui_json", type=Path)
@@ -228,6 +247,7 @@ def main() -> None:
         print(
             f"pruned {before} -> {len(api)} nodes (keep SaveVideo {args.keep_save_prefix})"
         )
+    bypass_resize_image_mask_nodes(api)
     t2v = copy.deepcopy(api)
     i2v = copy.deepcopy(api)
     args.t2v_out.write_text(json.dumps(t2v, indent=2) + "\n", encoding="utf-8")

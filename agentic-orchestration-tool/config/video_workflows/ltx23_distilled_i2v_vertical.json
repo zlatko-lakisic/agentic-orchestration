@@ -254,21 +254,6 @@
       ]
     }
   },
-  "4981": {
-    "class_type": "ResizeImageMaskNode",
-    "inputs": {
-      "input": [
-        "2004",
-        0
-      ],
-      "resize_type": {
-        "scale longer dimension": {
-          "longer_size": 1536
-        }
-      },
-      "scale_method": "lanczos"
-    }
-  },
   "3159": {
     "class_type": "LTXVImgToVideoConditionOnly",
     "inputs": {
@@ -295,7 +280,7 @@
     "class_type": "LTXVPreprocess",
     "inputs": {
       "image": [
-        "4981",
+        "2004",
         0
       ],
       "img_compression": 18
