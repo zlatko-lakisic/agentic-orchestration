@@ -1,0 +1,19 @@
+{
+  "operator": false,
+  "target": {
+    "path": "deployment/agentic-engine",
+    "namespace": "agentic-orchestration"
+  },
+  "agent": {
+    "privileged": true,
+    "namespace": "agentic-orchestration"
+  },
+  "feature": {
+    "env": true,
+    "fs": "read",
+    "network": {
+      "incoming": "mirror",
+      "outgoing": true
+    }
+  }
+}
