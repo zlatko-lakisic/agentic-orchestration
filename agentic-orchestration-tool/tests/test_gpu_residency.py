@@ -30,6 +30,60 @@ def test_report_shape_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     assert set(report["stats"]) >= {"admits", "rejects", "evictions", "queueDepth"}
 
 
+def test_report_appends_idle_comfy_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_OLLAMA_RESOURCE_SHARING", "0")
+    monkeypatch.setenv("AGENTIC_VIDEO_COMFYUI_URL", "http://comfy.test")
+    monkeypatch.setattr(
+        "orchestration.video_generation_runtime.probe_comfyui_idle_cuda",
+        lambda: {
+            "providerId": "comfyui",
+            "model": "comfyui-idle",
+            "kind": "video",
+            "state": "idle",
+            "vramBytes": 700_000_000,
+            "ramBytes": 1_000_000_000,
+        },
+    )
+    mgr = gr.get_gpu_residency_manager()
+    report = mgr.report()
+    entry = next(m for m in report["models"] if m["providerId"] == "comfyui")
+    assert entry["kind"] == "video"
+    assert entry["vramBytes"] == 700_000_000
+    assert entry["ramBytes"] == 1_000_000_000
+
+
+def test_report_refreshes_active_video_from_comfy_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTIC_OLLAMA_RESOURCE_SHARING", "0")
+    monkeypatch.setattr(
+        "orchestration.video_generation_runtime.probe_comfyui_idle_cuda",
+        lambda: {
+            "providerId": "comfyui",
+            "kind": "video",
+            "state": "idle",
+            "vramBytes": 9_000_000_000,
+            "ramBytes": 3_000_000_000,
+        },
+    )
+    mgr = gr.GpuResidencyManager(clock=lambda: 1.0)
+    monkeypatch.setattr(mgr, "_vram_budget_gb", lambda: 20.0)
+    lease = mgr.acquire(
+        provider_id="video_ltx23_distilled",
+        kind="video",
+        min_vram_gb=8.0,
+        model="ltx",
+    )
+    report = mgr.report()
+    entry = next(m for m in report["models"] if m["providerId"] == "video_ltx23_distilled")
+    assert entry["state"] == "active"
+    assert entry["vramBytes"] == 9_000_000_000
+    assert entry["ramBytes"] == 3_000_000_000
+    assert all(m["providerId"] != "comfyui" for m in report["models"])
+    mgr.release(lease)
+    mgr.close()
+
+
 def test_admit_and_release_appear_in_report(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTIC_OLLAMA_RESOURCE_SHARING", "0")
     clock = {"t": 1000.0}

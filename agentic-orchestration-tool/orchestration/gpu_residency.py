@@ -502,19 +502,32 @@ class GpuResidencyManager:
             queue_depth = len(self._queue)
             last_error = self._last_error
 
-        # Idle ComfyUI pod CUDA sample (even when no video lease is active).
-        has_comfy_resident = any(
-            str(e.get("kind") or "") == "video" for e in entries
-        )
-        if not has_comfy_resident:
-            try:
-                from orchestration.video_generation_runtime import probe_comfyui_idle_cuda
+        # ComfyUI CUDA/RAM sample: refresh active video rows mid-run, else append idle.
+        try:
+            from orchestration.video_generation_runtime import probe_comfyui_idle_cuda
 
-                idle = probe_comfyui_idle_cuda()
-                if idle is not None:
-                    entries.append(idle)
-            except Exception as exc:  # noqa: BLE001
-                last_error = f"comfyui idle: {exc}"
+            probe = probe_comfyui_idle_cuda()
+        except Exception as exc:  # noqa: BLE001
+            probe = None
+            last_error = f"comfyui idle: {exc}"
+        if probe is not None:
+            video_idxs = [
+                i
+                for i, e in enumerate(entries)
+                if str(e.get("kind") or "") == "video"
+            ]
+            if video_idxs:
+                for i in video_idxs:
+                    if probe.get("vramBytes") is not None:
+                        entries[i]["vramBytes"] = probe["vramBytes"]
+                    if probe.get("ramBytes") is not None:
+                        entries[i]["ramBytes"] = probe["ramBytes"]
+                    if probe.get("state") == "unreachable":
+                        entries[i]["state"] = "unreachable"
+                        if probe.get("error"):
+                            entries[i]["error"] = probe["error"]
+            else:
+                entries.append(probe)
 
         return {
             "ok": True,

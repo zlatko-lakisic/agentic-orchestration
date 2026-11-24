@@ -584,16 +584,20 @@ export interface HostMetrics {
 export interface AoResourceRow {
   id: string;
   label: string;
-  kind: 'application' | 'model';
+  kind: 'application' | 'model' | 'video' | 'tts' | 'stt';
   ramBytes: number;
   vramBytes: number;
   processes?: number;
   agents?: string[];
   active?: boolean;
+  state?: string | null;
+  error?: string | null;
+  ready?: boolean | null;
+  missing?: string[];
   expiresAt?: string | null;
 }
 
-/** AO's own RAM/VRAM footprint, split by application and resident Ollama model. */
+/** AO's own RAM/VRAM footprint, split by application and resident providers. */
 export interface AoResources {
   ts?: string;
   scope?: string;
@@ -620,6 +624,12 @@ export interface AoResources {
   };
   applications?: AoResourceRow[];
   models?: AoResourceRow[];
+  videoGeneration?: {
+    configured?: boolean;
+    ready?: boolean | null;
+    missing?: string[];
+    providers?: Array<{ id?: string; ready?: boolean; missing?: string[] }>;
+  };
 }
 
 export interface AgentProvider {

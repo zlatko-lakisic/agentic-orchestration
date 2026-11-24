@@ -395,15 +395,13 @@ export class HostUtilization implements OnInit, OnDestroy {
     this.live.feedData<AoResources>('ao_resources')
   );
 
-  /** Applications first (RAM heavy), then resident models (VRAM heavy). */
+  /** Applications first (RAM heavy), then residents (Ollama + Comfy/TTS/STT). */
   readonly aoBreakdown = computed((): AoResourceRow[] => {
     const data = this.aoResources();
     const apps = (data?.applications || []).filter(
       (r) => r.ramBytes > 0 || r.vramBytes > 0
     );
-    const models = (data?.models || []).filter(
-      (r) => r.ramBytes > 0 || r.vramBytes > 0
-    );
+    const models = (data?.models || []).filter((r) => this.includeResidentRow(r));
     return [...apps, ...models];
   });
 
@@ -522,10 +520,16 @@ export class HostUtilization implements OnInit, OnDestroy {
     const ao = data.ao;
     const parts = [
       `${ao?.processes ?? 0} processes`,
-      `${ao?.models ?? 0} resident models`,
+      `${ao?.models ?? 0} residents`,
     ];
     const total = this.aoResources()?.host?.ramTotalBytes;
     if (total) parts.push(`host RAM ${toGib(total).toFixed(1)} GiB`);
+    const vg = data.videoGeneration;
+    if (vg?.configured) {
+      parts.push(
+        vg.ready ? 'video ready' : `video not ready${vg.missing?.length ? ` (${vg.missing.length})` : ''}`
+      );
+    }
     return parts.join(' · ');
   });
 
@@ -534,17 +538,33 @@ export class HostUtilization implements OnInit, OnDestroy {
     if (!data) return 'Waiting for the first sample…';
     return (
       data.sources?.reason ||
-      'No AO processes or resident models visible from this process'
+      'No AO processes or residents visible from this process'
     );
   });
 
+  /** Keep unreachable Comfy/video rows even when both byte fields are 0. */
+  private includeResidentRow(row: AoResourceRow): boolean {
+    if (row.ramBytes > 0 || row.vramBytes > 0) return true;
+    if (row.kind === 'application' || row.kind === 'model') return false;
+    const state = String(row.state || '').toLowerCase();
+    return state === 'unreachable' || state === 'active' || state === 'idle' || row.ready === false;
+  }
+
   private rowLabel(row: AoResourceRow): string {
-    if (row.kind !== 'model') return row.label;
-    const agents = row.agents || [];
-    if (!agents.length) return row.label;
-    /** Only the first agent fits on an axis; the rest become a count. */
-    const extra = agents.length > 1 ? ` +${agents.length - 1}` : '';
-    return `${row.label} (${agents[0]}${extra})`;
+    if (row.kind === 'model') {
+      const agents = row.agents || [];
+      if (!agents.length) return row.label;
+      /** Only the first agent fits on an axis; the rest become a count. */
+      const extra = agents.length > 1 ? ` +${agents.length - 1}` : '';
+      return `${row.label} (${agents[0]}${extra})`;
+    }
+    if (row.kind === 'application') return row.label;
+    const bits: string[] = [row.kind];
+    if (row.state) bits.push(row.state);
+    else if (row.active) bits.push('active');
+    if (row.ready === false) bits.push('not ready');
+    if (row.error) bits.push('error');
+    return `${row.label} (${bits.join(' · ')})`;
   }
 
   readonly cpuMemSeries = computed((): ApexAxisChartSeries => {
