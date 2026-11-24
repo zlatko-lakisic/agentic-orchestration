@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.28.0] - 2026-11-23
+
 ### Added
 
 - **Engine shallow `/ready` (#148)** — kube readiness/liveness probe HTTPS `/ready` (no Comfy/hardware work); full `/health` remains for Admin/Quill. Documents hybrid 6119 Ada ops (temp TCP probes reverted).
