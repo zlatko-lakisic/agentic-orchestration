@@ -135,23 +135,25 @@ spec:
               readOnly: true
           readinessProbe:
             httpGet:
-              path: /health
+              # Shallow /ready (#148) — full /health probes Comfy under GPU load and
+              # timed out kubelet (hybrid 6119). Do not use tcpSocket in production.
+              path: /ready
               port: engine
               # Engine often serves TLS (mTLS / Reach). Kubelet skips cert verify for HTTPS probes.
               scheme: HTTPS
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 18
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
           livenessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: engine
               scheme: HTTPS
             initialDelaySeconds: 45
-            periodSeconds: 30
+            periodSeconds: 20
             timeoutSeconds: 5
-            failureThreshold: 6
+            failureThreshold: 12
       volumes:
         - name: run-store
           persistentVolumeClaim:

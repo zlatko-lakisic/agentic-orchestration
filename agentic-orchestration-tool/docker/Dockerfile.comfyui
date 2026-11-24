@@ -9,7 +9,8 @@
 # LTX needs ComfyUI-LTXVideo + RES4LYF (ClownSampler_Beta in shipped graphs).
 
 # Torch 2.6 rejects comfy-kitchen 0.2.x custom_op schemas (list[int]); 2.7+ works with ComfyUI v0.46.
-ARG CUDA_IMAGE=pytorch/pytorch:2.7.0-cuda12.6-cudnn9-runtime
+# Ada sm_89 warns "performance terrible" on CUDA < 13.0 — use cu130 (#149).
+ARG CUDA_IMAGE=pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime
 FROM ${CUDA_IMAGE}
 
 # Pin by commit (plan: pin ComfyUI + LTX + RES4LYF nodes). Tags noted for humans.

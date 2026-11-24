@@ -64,3 +64,26 @@ def test_engine_startup_realigns_drifted_opentelemetry() -> None:
     assert "requirements-serve.txt" in script
     assert '"opentelemetry-api": "1.45.2"' in script
     assert "OTLPSpanExporter" in script
+
+
+@pytest.mark.unit
+def test_engine_probes_use_shallow_ready_not_tcp() -> None:
+    """#148: HTTPS /ready for kube probes — never tcpSocket; deep checks stay on /health."""
+    doc = _load_yaml("deployment.yaml")
+    container = doc["spec"]["template"]["spec"]["containers"][0]
+    for key in ("readinessProbe", "livenessProbe"):
+        probe = container[key]
+        assert "tcpSocket" not in probe
+        http = probe["httpGet"]
+        assert http["path"] == "/ready"
+        assert http["scheme"] == "HTTPS"
+        assert http["port"] == "engine"
+
+
+@pytest.mark.unit
+def test_dockerfile_comfyui_defaults_to_cuda13() -> None:
+    """#149: Ada sm_89 needs PyTorch cu130+."""
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "docker" / "Dockerfile.comfyui").read_text(encoding="utf-8")
+    assert "cuda13.0" in text or "cuda13." in text
+    assert "cuda12.6" not in text.split("ARG CUDA_IMAGE=")[1].splitlines()[0]

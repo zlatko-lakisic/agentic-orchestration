@@ -45,7 +45,7 @@ def test_comfyui_deployment_no_hostport_and_disable_smart_memory() -> None:
     assert exec_lines, "expected ComfyUI exec line"
     assert "--lowvram" not in exec_lines[0]
     limits = (container.get("resources") or {}).get("limits") or {}
-    assert limits.get("memory") == "16Gi"
+    assert limits.get("memory") == "24Gi"
     vol_names = {v["name"] for v in doc["spec"]["template"]["spec"]["volumes"]}
     assert "comfyui-models" in vol_names
     assert "comfyui-output" in vol_names

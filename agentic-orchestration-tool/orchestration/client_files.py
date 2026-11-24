@@ -36,12 +36,17 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
 
 DEFAULT_MAX_BYTES = 200 * 1024 * 1024  # 200 MB
 DEFAULT_TTL_HOURS = 24
+# Provider outputs (video/render) need TTL >> clip+download wall clock (#150).
+DEFAULT_OUTPUT_TTL_HOURS = 48
+DEFAULT_CLEANUP_MIN_AGE_HOURS = 2.0
 _META_NAME = "meta.json"
 _BLOB_NAME = "blob"
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 _cleanup_timer: threading.Timer | None = None
 _cleanup_lock = threading.Lock()
+_download_pins: dict[str, int] = {}
+_download_pins_lock = threading.Lock()
 
 
 class ClientFileError(Exception):
@@ -84,6 +89,67 @@ def files_ttl_hours() -> float:
     if value <= 0:
         raise ClientFileError("AGENTIC_FILES_TTL_HOURS must be > 0")
     return value
+
+
+def files_output_ttl_hours() -> float:
+    """TTL for provider-registered outputs (video/render MP4s)."""
+    raw = os.getenv("AGENTIC_FILES_OUTPUT_TTL_HOURS", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ClientFileError(
+                f"invalid AGENTIC_FILES_OUTPUT_TTL_HOURS={raw!r}"
+            ) from exc
+        if value <= 0:
+            raise ClientFileError("AGENTIC_FILES_OUTPUT_TTL_HOURS must be > 0")
+        return value
+    # At least default upload TTL and the long-output floor.
+    return max(float(DEFAULT_OUTPUT_TTL_HOURS), files_ttl_hours())
+
+
+def files_cleanup_min_age_hours() -> float:
+    raw = os.getenv("AGENTIC_FILES_CLEANUP_MIN_AGE_HOURS", "").strip()
+    if not raw:
+        return float(DEFAULT_CLEANUP_MIN_AGE_HOURS)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ClientFileError(
+            f"invalid AGENTIC_FILES_CLEANUP_MIN_AGE_HOURS={raw!r}"
+        ) from exc
+    if value < 0:
+        raise ClientFileError("AGENTIC_FILES_CLEANUP_MIN_AGE_HOURS must be >= 0")
+    return value
+
+
+def pin_client_file(file_id: str) -> None:
+    """Hold a download pin so cleanup cannot delete mid-GET (#150)."""
+    fid = str(file_id or "").strip()
+    if not fid:
+        return
+    with _download_pins_lock:
+        _download_pins[fid] = int(_download_pins.get(fid) or 0) + 1
+
+
+def unpin_client_file(file_id: str) -> None:
+    fid = str(file_id or "").strip()
+    if not fid:
+        return
+    with _download_pins_lock:
+        n = int(_download_pins.get(fid) or 0) - 1
+        if n <= 0:
+            _download_pins.pop(fid, None)
+        else:
+            _download_pins[fid] = n
+
+
+def client_file_is_pinned(file_id: str) -> bool:
+    fid = str(file_id or "").strip()
+    if not fid:
+        return False
+    with _download_pins_lock:
+        return int(_download_pins.get(fid) or 0) > 0
 
 
 def files_dir() -> Path:
@@ -210,18 +276,46 @@ def _remove_file_dir(file_id: str) -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def _created_at(meta: dict[str, Any]) -> datetime | None:
+    raw = meta.get("created_at")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def cleanup_expired_files(*, now: datetime | None = None) -> int:
-    """Delete expired file directories. Returns the number removed."""
+    """Delete expired file directories. Returns the number removed.
+
+    Skips download-pinned ids and files younger than
+    ``AGENTIC_FILES_CLEANUP_MIN_AGE_HOURS`` so render handoff cannot race (#150).
+    """
     root = files_dir()
     if not root.is_dir():
         return 0
     stamp = now or _utc_now()
+    min_age = timedelta(hours=files_cleanup_min_age_hours())
     removed = 0
     for child in root.iterdir():
         if not child.is_dir():
             continue
+        file_id = child.name
+        if client_file_is_pinned(file_id):
+            continue
         meta_path = child / _META_NAME
         if not meta_path.is_file():
+            # Orphans without meta: only remove if directory is old enough.
+            try:
+                mtime = datetime.fromtimestamp(child.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+            if stamp - mtime < min_age:
+                continue
             shutil.rmtree(child, ignore_errors=True)
             removed += 1
             continue
@@ -231,7 +325,14 @@ def cleanup_expired_files(*, now: datetime | None = None) -> int:
             shutil.rmtree(child, ignore_errors=True)
             removed += 1
             continue
-        if not isinstance(meta, dict) or _is_expired(meta, now=stamp):
+        if not isinstance(meta, dict):
+            shutil.rmtree(child, ignore_errors=True)
+            removed += 1
+            continue
+        created = _created_at(meta)
+        if created is not None and stamp - created < min_age:
+            continue
+        if _is_expired(meta, now=stamp):
             shutil.rmtree(child, ignore_errors=True)
             removed += 1
     return removed
@@ -286,6 +387,8 @@ def save_client_file(
     data: bytes,
     name: str | None,
     mime_type: str,
+    *,
+    ttl_hours: float | None = None,
 ) -> dict[str, Any]:
     """Store ``data`` for ``identity`` and return the public metadata dict."""
     if not isinstance(data, (bytes, bytearray)):
@@ -295,7 +398,10 @@ def save_client_file(
     _assert_size(len(payload))
     owner = _owner_key(identity)
     file_id = uuid.uuid4().hex
-    expires = _utc_now() + timedelta(hours=files_ttl_hours())
+    ttl = float(ttl_hours) if ttl_hours is not None else files_ttl_hours()
+    if ttl <= 0:
+        raise ClientFileError("ttl_hours must be > 0")
+    expires = _utc_now() + timedelta(hours=ttl)
     digest = hashlib.sha256(payload).hexdigest()
     display_name = _safe_name(name)
 
@@ -360,6 +466,39 @@ def delete_client_file(identity: Identity | str, file_id: str) -> bool:
     return True
 
 
+def extend_client_file_ttl(
+    file_id: str,
+    *,
+    hours: float | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Push ``expires_at`` forward (download / handoff). Returns public meta or None."""
+    fid = str(file_id or "").strip()
+    if not fid:
+        return None
+    try:
+        meta = _read_meta(fid)
+    except ClientFileNotFound:
+        return None
+    stamp = now or _utc_now()
+    ttl_h = float(hours) if hours is not None else files_output_ttl_hours()
+    new_exp = stamp + timedelta(hours=ttl_h)
+    cur = None
+    raw_exp = meta.get("expires_at")
+    if raw_exp:
+        try:
+            cur = datetime.fromisoformat(str(raw_exp).replace("Z", "+00:00"))
+            if cur.tzinfo is None:
+                cur = cur.replace(tzinfo=timezone.utc)
+        except ValueError:
+            cur = None
+    if cur is not None and cur > new_exp:
+        return _public_meta(meta, include_download_url=True)
+    meta["expires_at"] = _iso(new_exp)
+    _write_meta(fid, meta)
+    return _public_meta(meta, include_download_url=True)
+
+
 def register_output_file(
     identity: Identity | str,
     path: str | Path,
@@ -370,14 +509,22 @@ def register_output_file(
 ) -> dict[str, Any]:
     """Copy or move a provider-produced file into client storage.
 
-    Returns the same public shape as :func:`save_client_file`, plus ``download_url``.
+    Uses the longer output TTL so Quill can finish ``ao.download`` after long
+    Wan/render walls (#150). Returns the same public shape as
+    :func:`save_client_file`, plus ``download_url``.
     """
     src = Path(path)
     if not src.is_file():
         raise ClientFileError(f"output file not found: {src}")
     data = src.read_bytes()
     display = name or src.name
-    meta = save_client_file(identity, data, display, mime_type)
+    meta = save_client_file(
+        identity,
+        data,
+        display,
+        mime_type,
+        ttl_hours=files_output_ttl_hours(),
+    )
     if move:
         try:
             src.unlink()

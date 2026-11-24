@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Added
+
+- **Engine shallow `/ready` (#148)** — kube readiness/liveness probe HTTPS `/ready` (no Comfy/hardware work); full `/health` remains for Admin/Quill. Documents hybrid 6119 Ada ops (temp TCP probes reverted).
+- **ComfyUI CUDA 13 base (#149)** — `Dockerfile.comfyui` default `pytorch/pytorch:2.9.1-cuda13.0-cudnn9-runtime` (cu130) for Ada sm_89.
+
+### Fixed
+
+- **Client-file download race (#150)** — provider outputs use a longer TTL (48h default); cleanup skips download-pinned and young files; `GET /api/v1/files/{id}` pins + extends TTL for the stream.
+- **ComfyUI memory headroom (#148)** — raise pod memory limit **16Gi → 24Gi** so Wan/LTX no longer memcg-OOM while VRAM is free.
+
 ## [2.27.0] - 2026-11-23
 
 ### Added

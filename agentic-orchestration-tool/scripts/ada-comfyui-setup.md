@@ -17,7 +17,7 @@ Providers:
 # In agentic-orchestration-tool/.env (then deploy):
 AGENTIC_JETSON_ENABLE_COMFYUI=1
 # Optional overrides:
-# AGENTIC_COMFYUI_IMAGE=ghcr.io/zlatko-lakisic/agentic-comfyui:v2.26.0
+# AGENTIC_COMFYUI_IMAGE=ghcr.io/zlatko-lakisic/agentic-comfyui:v2.28.0
 # AGENTIC_COMFYUI_MODELS_HOSTPATH=/var/projects/agentic-orchestration/var/comfyui/models
 
 bash agentic-orchestration-tool/scripts/jetson-deploy.sh
@@ -43,8 +43,19 @@ bash agentic-orchestration-tool/scripts/download-comfyui-weights.sh --profile a1
 ```
 
 ComfyUI keeps FP8 LTX + Gemma FP4 on GPU (`device: default`, no `--lowvram`) and
-is hard-capped at **16Gi** RAM so a runaway clip dies via memcg OOM instead of
-wedging AO TLS/SSH on the shared host.
+is hard-capped at **24Gi** RAM (16Gi was too tight for Wan/LTX memcg — hybrid 6119).
+Image base is **PyTorch 2.9.1 + CUDA 13.0** (`cu130`) so Ada sm_89 does not hit the
+“performance terrible below 13.0” warning.
+
+## Engine readiness under GPU load (#148)
+
+Kube readiness/liveness use shallow `GET /ready` (HTTPS). Full `GET /health` still
+probes Comfy/Ollama/hardware for Admin/Quill — do **not** leave temporary TCP
+`:8765` probes in production YAML (that was only an Ada ops gate during hybrid 6119).
+
+Hybrid 6119 ops notes (reverted on the host): temp TCP probes, temp Comfy 24Gi (now
+permanent in deploy YAML), Comfy `/free` before retries, temp Quill
+`AOQ_SHORTS_VIDEO_MAX_FRAMES` — see GitHub #148 machine changelog.
 
 ## Health (Quill)
 
