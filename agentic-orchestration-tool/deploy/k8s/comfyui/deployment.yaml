@@ -117,9 +117,9 @@ spec:
               cpu: "500m"
               memory: 8Gi
             limits:
-              # Hard cap so a runaway clip dies via memcg OOM instead of thrashing
-              # the shared Ada host (~32Gi). Leave room for engine/speech/OS (#143).
-              memory: 16Gi
+              # Cap below host (~32Gi) so AO survives (#143). 16Gi memcg caused false
+              # "out of memory" during Wan/LTX hybrid 6119; 24Gi left headroom (#148).
+              memory: 24Gi
       volumes:
         - name: comfyui-models
           hostPath:

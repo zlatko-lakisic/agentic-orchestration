@@ -20,6 +20,7 @@ _PEER_CERTS: dict[tuple[str, int], dict[str, Any] | None] = {}
 # Paths that stay reachable with server TLS only (no client cert).
 MTLS_PUBLIC_PATHS = frozenset(
     {
+        "/ready",
         "/health",
         "/metrics",
         "/api/ping",

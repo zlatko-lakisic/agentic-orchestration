@@ -200,6 +200,23 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 )
         return await call_next(request)
 
+    @app.get("/ready")
+    async def ready() -> dict[str, Any]:
+        """Shallow kube readiness (#148) — no Comfy/Ollama/hardware probes.
+
+        Under Wan/LTX load, full ``/health`` can exceed kubelet ``timeoutSeconds``
+        and flap NotReady even though TCP :8765 still answers. Keep deep checks
+        on ``/health`` for Admin/Quill; point readiness/liveness at ``/ready``.
+        """
+        return {
+            "ok": True,
+            "ready": True,
+            "version": engine_version(),
+            "service": "agentic-orchestration-engine",
+            "instance": INSTANCE_ID,
+            "bind": f"{serve_host()}:{serve_port()}",
+        }
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         from orchestration.hardware_profile import hardware_snapshot
@@ -1036,10 +1053,14 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         identity: Identity = Depends(identity_from_request),
     ) -> Response:
         from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
 
         from orchestration.client_files import (
             ClientFileNotFound,
+            extend_client_file_ttl,
             get_client_file_meta,
+            pin_client_file,
+            unpin_client_file,
         )
 
         try:
@@ -1051,10 +1072,14 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         path = meta.pop("_path", None)
         if not path:
             raise HTTPException(status_code=404, detail="file not found")
+        # Pin + extend TTL while the client streams the MP4 (#150).
+        pin_client_file(file_id)
+        await run_in_threadpool(lambda: extend_client_file_ttl(file_id))
         return FileResponse(
             path,
             media_type=str(meta.get("mime_type") or "application/octet-stream"),
             filename=str(meta.get("name") or "download"),
+            background=BackgroundTask(unpin_client_file, file_id),
         )
 
     @app.delete("/api/v1/files/{file_id}")
