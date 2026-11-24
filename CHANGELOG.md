@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-11-23
+
 ### Added
 
 - **Admin per-provider VRAM/RAM (#146)** — Host utilization merges engine `/api/v1/gpu-residents` (ComfyUI/video, TTS, STT) into `ao_resources` alongside Ollama `/api/ps`; unreachable video rows stay visible with `videoGeneration.ready` / `missing[]`; active video leases refresh VRAM/RAM from Comfy `/system_stats`.
