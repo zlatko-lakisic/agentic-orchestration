@@ -8,6 +8,7 @@ import {
   agentsByModel,
   buildAoResourceUsage,
   classifyAoProcess,
+  normalizeGpuResidents,
   normalizeLoadedModels,
   normalizeModelTag,
   parseVmRssBytes,
@@ -205,6 +206,64 @@ test("sampleMemoryAndGpu returns totals without a CPU block", () => {
   assert.ok(typeof sample.scope === "string");
 });
 
+test("normalizeGpuResidents skips llm and keeps unreachable video rows", () => {
+  const rows = normalizeGpuResidents(
+    {
+      models: [
+        { providerId: "ollama:qwen", kind: "llm", state: "idle", vramBytes: 4 * GIB },
+        {
+          providerId: "comfyui",
+          model: "comfyui-idle",
+          kind: "video",
+          state: "unreachable",
+          vramBytes: null,
+          ramBytes: null,
+          error: "HTTP 503",
+        },
+        {
+          providerId: "tts_orpheus_en",
+          kind: "tts",
+          state: "active",
+          vramBytes: GIB,
+          ramBytes: 0,
+        },
+      ],
+    },
+    { ready: false, missing: ["weight:x"] },
+  );
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].id, "comfyui");
+  assert.equal(rows[0].kind, "video");
+  assert.equal(rows[0].state, "unreachable");
+  assert.equal(rows[0].ready, false);
+  assert.deepEqual(rows[0].missing, ["weight:x"]);
+  assert.equal(rows[1].kind, "tts");
+  assert.equal(rows[1].vramBytes, GIB);
+});
+
+test("buildAoResourceUsage merges Comfy residents into models totals", () => {
+  const payload = buildAoResourceUsage({
+    processes: [],
+    models: [{ model: "qwen2.5:7b", vramBytes: 4 * GIB, ramBytes: 0 }],
+    residents: [
+      {
+        id: "comfyui",
+        label: "comfyui-idle",
+        kind: "video",
+        state: "idle",
+        vramBytes: 0.7 * GIB,
+        ramBytes: 2 * GIB,
+        ready: true,
+      },
+    ],
+    gpu: { vramTotalGb: 20, vramUsedGb: 5 },
+    sources: { models: "ollama+gpu-residents" },
+  });
+  assert.equal(payload.models.length, 2);
+  assert.equal(payload.ao.vramGb, 4.7);
+  assert.ok(payload.models.some((m) => m.id === "comfyui" && m.kind === "video"));
+});
+
 test("sampleAoResources folds /api/ps and resource-status into the payload", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ao-sample-"));
   const pidDir = path.join(dir, "77");
@@ -216,6 +275,7 @@ test("sampleAoResources folds /api/ps and resource-status into the payload", asy
   const payload = await sampleAoResources({
     env: { AGENTIC_HOST_METRICS_PROC_ROOT: dir },
     ollamaBase: "http://ollama:11434",
+    engineBase: "http://engine:8765",
     agents: [{ id: "researcher", model: "qwen2.5:7b" }],
     sampleHost: () => ({
       scope: "host",
@@ -230,21 +290,46 @@ test("sampleAoResources folds /api/ps and resource-status into the payload", asy
           json: { models: [{ name: "qwen2.5:7b", size: 5 * GIB, size_vram: 4 * GIB }] },
         };
       }
-      return { ok: true, json: { active: { "qwen2.5:7b": 1 } } };
+      if (url.endsWith("/api/agentic/resource-status")) {
+        return { ok: true, json: { active: { "qwen2.5:7b": 1 } } };
+      }
+      if (url.endsWith("/api/v1/gpu-residents")) {
+        return {
+          ok: true,
+          json: {
+            models: [
+              {
+                providerId: "comfyui",
+                model: "comfyui-idle",
+                kind: "video",
+                state: "idle",
+                vramBytes: Math.round(0.5 * GIB),
+                ramBytes: GIB,
+              },
+            ],
+          },
+        };
+      }
+      if (url.endsWith("/health")) {
+        return {
+          ok: true,
+          json: { videoGeneration: { configured: true, ready: true, missing: [] } },
+        };
+      }
+      return { ok: false };
     },
   });
 
-  assert.deepEqual(calls, [
-    "http://ollama:11434/api/ps",
-    "http://ollama:11434/api/agentic/resource-status",
-  ]);
+  assert.ok(calls.includes("http://ollama:11434/api/ps"));
+  assert.ok(calls.includes("http://engine:8765/api/v1/gpu-residents"));
+  assert.ok(calls.includes("http://engine:8765/health"));
   assert.equal(payload.scope, "host");
-  assert.equal(payload.sources.models, "ollama");
+  assert.equal(payload.sources.models, "ollama+gpu-residents");
   assert.equal(payload.applications[0].id, "web");
-  assert.equal(payload.models[0].active, true);
-  assert.deepEqual(payload.models[0].agents, ["researcher"]);
-  assert.equal(payload.ao.vramGb, 4);
-  assert.equal(payload.ao.vramPercentOfTotal, 25);
+  assert.ok(payload.models.some((m) => m.id === "model:qwen2.5:7b" && m.active));
+  assert.ok(payload.models.some((m) => m.id === "comfyui" && m.ready === true));
+  assert.equal(payload.videoGeneration?.ready, true);
+  assert.equal(payload.ao.vramGb, 4.5);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

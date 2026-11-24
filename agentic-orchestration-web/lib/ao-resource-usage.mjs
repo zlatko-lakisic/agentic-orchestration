@@ -1,13 +1,14 @@
 /**
  * AO memory footprint — how much of the host RAM / GPU VRAM this deployment owns,
- * split by application (process group) and by resident Ollama model.
+ * split by application (process group) and by resident provider (Ollama + managed GPU).
  *
  * RAM comes from `/proc/<pid>/status` VmRSS for processes whose cmdline matches an AO
  * component. Set AGENTIC_HOST_METRICS_PROC_ROOT=/host/proc (same knob host-metrics.mjs
  * uses) so a containerized web process sees the whole node instead of just itself.
  *
- * VRAM comes from Ollama `/api/ps` (`size_vram`); the CPU-resident remainder of a
- * partially offloaded model (`size - size_vram`) is reported as that model's RAM, so
+ * VRAM comes from Ollama `/api/ps` (`size_vram`) plus engine `/api/v1/gpu-residents`
+ * for ComfyUI/video, TTS, and STT (#146). The CPU-resident remainder of a partially
+ * offloaded Ollama model (`size - size_vram`) is reported as that model's RAM, so
  * runner processes are never counted twice.
  */
 import fs from "node:fs";
@@ -186,6 +187,51 @@ export function normalizeLoadedModels(raw) {
   return out;
 }
 
+const RESIDENT_KINDS = new Set(["video", "tts", "stt"]);
+
+/**
+ * Normalize engine `/api/v1/gpu-residents` into Admin rows.
+ * Skips `kind: llm` — Ollama VRAM/RAM already come from `/api/ps` (better RAM split).
+ *
+ * @param {unknown} raw parsed gpu-residents body
+ * @param {{ ready?: boolean|null, missing?: string[] }|null} [videoGeneration]
+ */
+export function normalizeGpuResidents(raw, videoGeneration = null) {
+  const models =
+    raw && typeof raw === "object" && Array.isArray(/** @type {any} */ (raw).models)
+      ? /** @type {any} */ (raw).models
+      : [];
+  const vg =
+    videoGeneration && typeof videoGeneration === "object" ? videoGeneration : null;
+  const out = [];
+  for (const item of models) {
+    if (!item || typeof item !== "object") continue;
+    const kind = String(item.kind || "").trim().toLowerCase();
+    if (!kind || kind === "llm") continue;
+    const providerId = String(item.providerId || item.provider_id || "").trim();
+    if (!providerId) continue;
+    const label = String(item.model || providerId).trim() || providerId;
+    const state = String(item.state || "").trim().toLowerCase() || null;
+    const rowKind = RESIDENT_KINDS.has(kind) ? kind : "video";
+    const isVideo = rowKind === "video";
+    out.push({
+      id: providerId,
+      label,
+      kind: rowKind,
+      ramBytes: bytesFrom(item.ramBytes ?? item.ram_bytes),
+      vramBytes: bytesFrom(item.vramBytes ?? item.vram_bytes),
+      state: state || undefined,
+      error: item.error != null ? String(item.error) : null,
+      expiresAt: item.expiresAt || item.expires_at || null,
+      active: state === "active",
+      ready: isVideo && vg ? (vg.ready == null ? null : Boolean(vg.ready)) : undefined,
+      missing:
+        isVideo && vg && Array.isArray(vg.missing) ? vg.missing.map(String) : undefined,
+    });
+  }
+  return out;
+}
+
 /**
  * Map model tag → agent provider ids that declare it.
  * @param {Array<{id?: string, model?: string|null}>} agents catalog entries
@@ -221,12 +267,14 @@ const GIB = 1024 ** 3;
 export function buildAoResourceUsage({
   processes = [],
   models = [],
+  residents = [],
   agents = [],
   memory = null,
   gpu = null,
   scope = "runtime",
   sources = {},
   activeModels = [],
+  videoGeneration = null,
   ts = new Date().toISOString(),
 } = {}) {
   const haveModels = models.length > 0 || sources.models === "ollama";
@@ -266,7 +314,7 @@ export function buildAoResourceUsage({
   const active = new Set(
     (activeModels || []).map((m) => normalizeModelTag(m).toLowerCase()),
   );
-  const modelRows = models
+  const ollamaRows = models
     .map((m) => ({
       id: `model:${m.model}`,
       label: m.model,
@@ -276,8 +324,25 @@ export function buildAoResourceUsage({
       agents: agentMap.get(m.model.toLowerCase()) || [],
       active: active.has(m.model.toLowerCase()),
       expiresAt: m.expiresAt || null,
-    }))
-    .sort((a, b) => b.vramBytes + b.ramBytes - (a.vramBytes + a.ramBytes));
+    }));
+
+  const residentRows = (residents || []).map((r) => ({
+    id: String(r.id || "").trim(),
+    label: String(r.label || r.id || "").trim(),
+    kind: String(r.kind || "video"),
+    ramBytes: bytesFrom(r.ramBytes),
+    vramBytes: bytesFrom(r.vramBytes),
+    state: r.state || undefined,
+    error: r.error != null ? String(r.error) : null,
+    expiresAt: r.expiresAt || null,
+    active: Boolean(r.active ?? r.state === "active"),
+    ready: r.ready,
+    missing: Array.isArray(r.missing) ? r.missing : undefined,
+  })).filter((r) => r.id);
+
+  const modelRows = [...ollamaRows, ...residentRows].sort(
+    (a, b) => b.vramBytes + b.ramBytes - (a.vramBytes + a.ramBytes),
+  );
 
   const applications = [...byApp.values()].sort((a, b) => b.ramBytes - a.ramBytes);
 
@@ -295,12 +360,14 @@ export function buildAoResourceUsage({
     ? Number(gpu.vramUsedGb)
     : null;
 
+  const modelsSource = sources.models || "none";
+
   return {
     ts,
     scope,
     sources: {
       ram: sources.ram || RSS_SOURCE,
-      models: sources.models || "none",
+      models: modelsSource,
       ...(sources.reason ? { reason: sources.reason } : {}),
     },
     host: {
@@ -322,6 +389,9 @@ export function buildAoResourceUsage({
     },
     applications,
     models: modelRows,
+    ...(videoGeneration && typeof videoGeneration === "object"
+      ? { videoGeneration }
+      : {}),
   };
 }
 
@@ -336,6 +406,7 @@ export function buildAoResourceUsage({
  */
 export async function sampleAoResources({
   ollamaBase = null,
+  engineBase = null,
   fetchJson = null,
   sampleHost = null,
   agents = [],
@@ -345,12 +416,14 @@ export async function sampleAoResources({
   const { processes, ok } = readAoProcesses({ env });
   let models = [];
   let activeModels = [];
-  let modelSource = "none";
+  let residents = [];
+  let videoGeneration = null;
+  const sources = [];
   if (ollamaBase && fetchJson) {
     const ps = await fetchJson(`${ollamaBase}/api/ps`, 2500);
     if (ps?.ok && ps.json) {
       models = normalizeLoadedModels(ps.json);
-      modelSource = "ollama";
+      sources.push("ollama");
     }
     const status = await fetchJson(
       `${ollamaBase}/api/agentic/resource-status`,
@@ -361,11 +434,36 @@ export async function sampleAoResources({
       activeModels = Object.keys(activeMap);
     }
   }
+  if (engineBase && fetchJson) {
+    const base = String(engineBase).replace(/\/$/, "");
+    const [residentsResp, healthResp] = await Promise.all([
+      fetchJson(`${base}/api/v1/gpu-residents`, 2500),
+      fetchJson(`${base}/health`, 2500),
+    ]);
+    if (healthResp?.ok && healthResp.json && typeof healthResp.json === "object") {
+      const vg = /** @type {any} */ (healthResp.json).videoGeneration;
+      if (vg && typeof vg === "object") {
+        videoGeneration = {
+          configured: Boolean(vg.configured),
+          ready: vg.ready == null ? null : Boolean(vg.ready),
+          missing: Array.isArray(vg.missing) ? vg.missing.map(String) : [],
+          providers: Array.isArray(vg.providers) ? vg.providers : [],
+        };
+      }
+    }
+    if (residentsResp?.ok && residentsResp.json) {
+      residents = normalizeGpuResidents(residentsResp.json, videoGeneration);
+      sources.push("gpu-residents");
+    }
+  }
+  const modelSource = sources.length ? sources.join("+") : "none";
   return buildAoResourceUsage({
     processes,
     models,
+    residents,
     activeModels,
     agents,
+    videoGeneration,
     memory: host?.memory || null,
     gpu: host?.gpu || null,
     scope: String(host?.scope || "runtime"),

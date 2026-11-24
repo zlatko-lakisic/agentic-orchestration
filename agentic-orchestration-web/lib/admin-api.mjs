@@ -3676,11 +3676,29 @@ function agentModelEntries(toolRoot) {
   return agents;
 }
 
-/** AO RAM/VRAM footprint split by application and resident Ollama model. */
+/** AO RAM/VRAM footprint: apps + Ollama + engine gpu-residents (Comfy/TTS/STT). */
 async function buildAoResources(ctx) {
+  let engineBase = null;
+  let engineTlsInsecure = false;
+  try {
+    const resolved = await resolveEngineBase();
+    if (resolved?.ok && resolved.base) {
+      engineBase = resolved.base;
+      engineTlsInsecure = Boolean(resolved.tlsInsecure);
+    }
+  } catch {
+    engineBase = null;
+  }
+  const fetchForResources = (url, timeoutMs = 2000) => {
+    const u = String(url || "");
+    const useTlsInsecure =
+      engineBase && engineTlsInsecure && u.startsWith(engineBase);
+    return fetchJson(u, timeoutMs, useTlsInsecure);
+  };
   return sampleAoResources({
     ollamaBase: ollamaBaseUrl(),
-    fetchJson,
+    engineBase,
+    fetchJson: fetchForResources,
     sampleHost: sampleMemoryAndGpu,
     agents: agentModelEntries(ctx?.toolRoot || ""),
   });
