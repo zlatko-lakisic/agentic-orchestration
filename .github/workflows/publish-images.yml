@@ -33,17 +33,24 @@ jobs:
 
       - name: Resolve image names and tags
         id: meta
+        env:
+          OWNER: ${{ github.repository_owner }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          COORD="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-coordinator"
-          WORK="${{ env.REGISTRY }}/${OWNER_LC}/agentic-orchestrator-worker"
-          COMFY="${{ env.REGISTRY }}/${OWNER_LC}/agentic-comfyui"
+          OWNER_LC="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          COORD="${REGISTRY}/${OWNER_LC}/agentic-orchestrator-coordinator"
+          WORK="${REGISTRY}/${OWNER_LC}/agentic-orchestrator-worker"
+          COMFY="${REGISTRY}/${OWNER_LC}/agentic-comfyui"
           echo "coordinator=$COORD" >> "$GITHUB_OUTPUT"
           echo "worker=$WORK" >> "$GITHUB_OUTPUT"
           echo "comfyui=$COMFY" >> "$GITHUB_OUTPUT"
 
-          if [[ -n "${{ inputs.tag }}" ]]; then
-            TAG="${{ inputs.tag }}"
+          if [[ -n "${INPUT_TAG}" ]]; then
+            if [[ ! "${INPUT_TAG}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+              echo "::error::Invalid image tag: must match [A-Za-z0-9_][A-Za-z0-9_.-]{0,127}"
+              exit 1
+            fi
+            TAG="${INPUT_TAG}"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
           else
@@ -51,24 +58,31 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+          # Move :latest only for a pushed release tag, never for a manual
+          # re-publish of an older tag or a branch build.
+          LATEST=0
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            LATEST=1
+          fi
+
           {
             echo "coordinator_tags<<EOF"
             echo "${COORD}:${TAG}"
-            echo "${COORD}:latest"
+            if [[ "$LATEST" == "1" ]]; then echo "${COORD}:latest"; fi
             if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
               echo "${COORD}:${TAG#v}"
             fi
             echo "EOF"
             echo "worker_tags<<EOF"
             echo "${WORK}:${TAG}"
-            echo "${WORK}:latest"
+            if [[ "$LATEST" == "1" ]]; then echo "${WORK}:latest"; fi
             if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
               echo "${WORK}:${TAG#v}"
             fi
             echo "EOF"
             echo "comfyui_tags<<EOF"
             echo "${COMFY}:${TAG}"
-            echo "${COMFY}:latest"
+            if [[ "$LATEST" == "1" ]]; then echo "${COMFY}:latest"; fi
             if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
               echo "${COMFY}:${TAG#v}"
             fi

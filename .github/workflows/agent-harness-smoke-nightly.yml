@@ -1,4 +1,4 @@
-name: Agent harness smoke (nightly)
+name: Agent harness smoke (weekly)
 
 on:
   schedule:
@@ -11,7 +11,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   harness-smoke:
@@ -36,7 +35,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Check credentials
+        id: creds
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::OPENAI_API_KEY is not configured; skipping L2 smoke"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: L2 smoke (cloud reference agents)
+        if: steps.creds.outputs.run == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -45,8 +57,11 @@ jobs:
           python main.py --harness-batch --harness-tier smoke \
             --harness-filter "gpt_*" \
             --harness-max-agents 3 \
-            --harness-json || true
-          python scripts/harness-report.py --json || true
+            --harness-json
+
+      - name: Harness report
+        if: always() && steps.creds.outputs.run == 'true'
+        run: python scripts/harness-report.py --json
 
       - name: Upload harness report
         if: always()
