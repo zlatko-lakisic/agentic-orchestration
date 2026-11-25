@@ -328,10 +328,11 @@ def test_kubernetes_hf_recovery_retries_failed_step(
         lambda: FakeJobRunner(),
     )
 
-    result = execute_workflow_config_resolved(
-        cfg,
-        options=RunOptions(quiet=True, mcp_catalog_path=tool_root / "config" / "agent_providers"),
-    )
+    # The HF fallback resolves the fallback id in the *agent providers* catalog.
+    # This test used to pass the agent-providers directory as ``mcp_catalog_path``
+    # because the runner handed the MCP catalog to step recovery; it no longer does.
+    monkeypatch.chdir(tool_root)
+    result = execute_workflow_config_resolved(cfg, options=RunOptions(quiet=True))
 
     assert result.exit_code == 0
     assert result.result_text == "recovered output"

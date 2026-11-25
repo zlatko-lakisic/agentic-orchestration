@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import threading
 import time
@@ -11,7 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from orchestration.backends.kubernetes_types import K8sJobRecord, K8sJobWaitResult
+from orchestration.backends.kubernetes_types import (
+    K8sJobRecord,
+    K8sJobWaitResult,
+    write_json_atomic,
+)
 from orchestration.structured_logging import emit_log
 
 
@@ -34,8 +39,31 @@ def warm_pool_result_path(*, run_store_mount: str, run_id: str, step_id: str) ->
     return Path(run_store_mount.rstrip("/")) / run_id / step_id / "result.json"
 
 
-# Clock slack when comparing result mtime against enqueue time (shared node clock).
-_RESULT_MTIME_SLACK_SECONDS = 1.0
+# A claim's mtime is refreshed this often while its step runs.
+CLAIM_HEARTBEAT_SECONDS = 10.0
+# Claims older than this are taken back when a worker starts (dead-pod recovery).
+CLAIM_RECLAIM_STARTUP_SECONDS = 30.0
+# Claims older than this are taken back by the periodic sweep.
+CLAIM_RECLAIM_PERIODIC_SECONDS = 120.0
+# The heartbeat must beat the shortest reclaim threshold comfortably, otherwise a
+# freshly started pod can take a live claim and run the step a second time.
+assert CLAIM_HEARTBEAT_SECONDS * 3 <= min(
+    CLAIM_RECLAIM_STARTUP_SECONDS, CLAIM_RECLAIM_PERIODIC_SECONDS
+)
+
+# How long an unparseable result.json is treated as "still being written".
+_INVALID_RESULT_GRACE_SECONDS = 5.0
+
+_TIMEOUT_MESSAGE_PREFIX = "warm pool timed out"
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON via temp file + rename so readers never see a partial file."""
+    write_json_atomic(path, payload)
+
+
+class WarmPoolWorkerTerminated(SystemExit):
+    """Raised in the worker's main thread when the pod receives SIGTERM."""
 
 
 def invalidate_warm_pool_result(*, run_store_mount: str, run_id: str, step_id: str) -> bool:
@@ -114,7 +142,7 @@ def enqueue_warm_pool_request(
         agent_provider_id=agent_provider_id,
         enqueued_at=time.time(),
     )
-    path.write_text(json.dumps(req.to_dict(), indent=2), encoding="utf-8")
+    _atomic_write_json(path, req.to_dict())
     emit_log(
         f"warm pool enqueued {path.name}",
         run_id=run_id,
@@ -136,44 +164,36 @@ def wait_for_warm_pool_result(
 ) -> K8sJobWaitResult:
     """Poll ``{run_store}/{run_id}/{step_id}/result.json`` until present or timeout.
 
-    When ``not_before`` is set (enqueue time), ignore results whose mtime is older
-    than that timestamp (minus a small clock slack). This prevents provider-recovery
-    retries from instantly returning the previous attempt's failure file.
+    ``not_before`` is accepted for backward compatibility and ignored. It used to
+    reject results whose mtime was older than the enqueue time, which turned a
+    finished step into a timeout whenever the worker's (or NFS server's) clock
+    lagged the coordinator's. Stale results are prevented where they arise:
+    :func:`dispatch_step_via_warm_pool` deletes any prior result before enqueueing.
     """
+    del not_before
     result_path = warm_pool_result_path(
         run_store_mount=run_store_mount,
         run_id=run_id,
         step_id=step_id,
     )
     deadline = time.time() + timeout_seconds
-    min_mtime = (not_before - _RESULT_MTIME_SLACK_SECONDS) if not_before > 0 else 0.0
+    invalid_since: float | None = None
     while time.time() < deadline:
         if result_path.is_file():
             try:
-                mtime = result_path.stat().st_mtime
-            except OSError:
-                time.sleep(poll_interval)
-                continue
-            if min_mtime > 0 and mtime < min_mtime:
-                emit_log(
-                    "warm pool ignoring stale result",
-                    level="debug",
-                    run_id=run_id,
-                    step_id=step_id,
-                    component="coordinator",
-                    extra={
-                        "result_path": str(result_path),
-                        "mtime": mtime,
-                        "not_before": not_before,
-                    },
-                )
-                time.sleep(poll_interval)
-                continue
-            try:
                 data = json.loads(result_path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("result is not a JSON object")
                 exit_code = int(data.get("exit_code", 1))
                 err = data.get("error")
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                # Possibly a writer mid-write: give it a moment before calling it broken.
+                now = time.time()
+                if invalid_since is None:
+                    invalid_since = now
+                if now - invalid_since < _INVALID_RESULT_GRACE_SECONDS:
+                    time.sleep(poll_interval)
+                    continue
                 exit_code = 1
                 err = f"invalid result at {result_path}"
             if exit_code != 0:
@@ -203,13 +223,41 @@ def wait_for_warm_pool_result(
                 pod_name=None,
                 message=None,
             )
+        invalid_since = None
         time.sleep(poll_interval)
     return K8sJobWaitResult(
         succeeded=False,
         failed=True,
         pod_name=None,
-        message=f"warm pool timed out after {timeout_seconds}s waiting for {result_path}",
+        message=f"{_TIMEOUT_MESSAGE_PREFIX} after {timeout_seconds}s waiting for {result_path}",
     )
+
+
+def _wait_timed_out(wait: K8sJobWaitResult) -> bool:
+    return bool(wait.failed and (wait.message or "").startswith(_TIMEOUT_MESSAGE_PREFIX))
+
+
+def _withdraw_unclaimed_request(path: Path | None, *, run_id: str, step_id: str) -> bool:
+    """Remove a still-pending queue file after the coordinator gave up on it.
+
+    Without this the request stays queued and a worker runs it later, after the
+    run has already failed (wasted LLM/GPU time, late side effects). A request a
+    worker already claimed has been renamed, so it is left alone.
+    """
+    if path is None:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    emit_log(
+        f"warm pool withdrew unclaimed request {path.name} after timeout",
+        level="warning",
+        run_id=run_id,
+        step_id=step_id,
+        component="coordinator",
+    )
+    return True
 
 
 def dispatch_step_via_warm_pool(
@@ -235,8 +283,9 @@ def dispatch_step_via_warm_pool(
         step_id=step_id,
     )
     started = time.time()
+    queued_path: Path | None
     if execution_queue_enabled() and unify_warm_pool_enabled():
-        _enqueue_global_step(
+        queued_path = _enqueue_global_step(
             run_store_mount=run_store_mount,
             run_id=run_id,
             step_id=step_id,
@@ -246,7 +295,7 @@ def dispatch_step_via_warm_pool(
             enqueued_at=started,
         )
     else:
-        enqueue_warm_pool_request(
+        queued_path = enqueue_warm_pool_request(
             run_store_mount=run_store_mount,
             run_id=run_id,
             step_id=step_id,
@@ -258,8 +307,9 @@ def dispatch_step_via_warm_pool(
         run_id=run_id,
         step_id=step_id,
         timeout_seconds=timeout_seconds,
-        not_before=started,
     )
+    if _wait_timed_out(wait):
+        _withdraw_unclaimed_request(queued_path, run_id=run_id, step_id=step_id)
     record = K8sJobRecord(
         job_name="warm-pool",
         namespace=namespace,
@@ -277,7 +327,7 @@ def _enqueue_global_step(
     agent_provider_id: str,
     priority: int,
     enqueued_at: float,
-) -> None:
+) -> Path:
     from orchestration.execution_queue_store import ExecutionQueueStore, StoredTicket, new_ticket_id
 
     store = ExecutionQueueStore(Path(run_store_mount.rstrip("/")) / "execution-queue")
@@ -308,6 +358,7 @@ def _enqueue_global_step(
         component="coordinator",
         extra={"spec_path": spec_container_path},
     )
+    return path
 
 
 def claim_next_global_step(run_store_mount: str) -> tuple[Path, StoredTicket] | None:
@@ -396,7 +447,7 @@ def unlink_step_ticket_siblings(claimed_path: Path) -> None:
 
 def _heartbeat_claim_path(path: Path, stop: threading.Event) -> None:
     """Touch claim mtime until ``stop`` is set so reclaim does not steal live work."""
-    while not stop.wait(30.0):
+    while not stop.wait(CLAIM_HEARTBEAT_SECONDS):
         try:
             os.utime(path, None)
         except OSError:
@@ -429,7 +480,7 @@ def _write_warm_pool_failure_result(
         ).to_dict()
         # Parent wait_for_warm_pool_result reads exit_code / error keys.
         payload["exit_code"] = exit_code
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        _atomic_write_json(path, payload)
     except OSError:
         pass
 
@@ -442,25 +493,195 @@ def claim_next_warm_pool_request(run_store_mount: str) -> tuple[Path, WarmPoolRe
     queue = warm_pool_queue_dir(run_store_mount)
     if not queue.is_dir():
         return None
-    worker = _worker_identity()
+    worker = _worker_identity().replace("/", "_").replace("\\", "_")
     for path in sorted(queue.glob("*.json")):
         claimed = path.with_suffix(path.suffix + f".claimed-{worker}")
         try:
             path.rename(claimed)
         except OSError:
             continue
-        data = json.loads(claimed.read_text(encoding="utf-8"))
-        return claimed, WarmPoolRequest.from_dict(data)
+        # Rename keeps the enqueue mtime; age the claim from now for reclaim.
+        try:
+            os.utime(claimed, None)
+        except OSError:
+            pass
+        try:
+            data = json.loads(claimed.read_text(encoding="utf-8"))
+            return claimed, WarmPoolRequest.from_dict(data)
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            # A broken request must not kill the worker loop (it is PID 1) or be
+            # re-claimed forever: set it aside and keep going.
+            emit_log(
+                f"setting aside unreadable warm pool request {path.name}: {exc}",
+                level="error",
+                component="warm-pool-worker",
+            )
+            try:
+                claimed.rename(path.with_suffix(path.suffix + ".invalid"))
+            except OSError:
+                try:
+                    claimed.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            continue
     return None
+
+
+def reclaim_stale_warm_pool_claims(run_store_mount: str, *, max_age_seconds: float) -> int:
+    """Return ``*.json.claimed-<worker>`` files of dead workers to the legacy queue.
+
+    The legacy (non-unified) queue had no reclaim at all: a worker killed mid-step
+    left its claim behind and the coordinator waited out the full timeout.
+    Live claims are protected by the heartbeat (see ``CLAIM_HEARTBEAT_SECONDS``).
+    """
+    queue = warm_pool_queue_dir(run_store_mount)
+    if not queue.is_dir():
+        return 0
+    now = time.time()
+    reclaimed = 0
+    try:
+        candidates = list(queue.iterdir())
+    except OSError:
+        return 0
+    for path in candidates:
+        name = path.name
+        if ".json.claimed-" not in name:
+            continue
+        try:
+            if now - path.stat().st_mtime < max_age_seconds:
+                continue
+        except OSError:
+            continue
+        dest = queue / name.split(".claimed-", 1)[0]
+        try:
+            if dest.exists():
+                path.unlink(missing_ok=True)
+            else:
+                path.rename(dest)
+                reclaimed += 1
+        except OSError:
+            continue
+    return reclaimed
+
+
+def _install_sigterm_handler() -> bool:
+    """Turn SIGTERM into :class:`WarmPoolWorkerTerminated` (main thread only).
+
+    The worker is PID 1 in its container: with no handler SIGTERM is ignored, the
+    pod is SIGKILLed after the grace period, and the coordinator learns nothing.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return False
+
+    def _on_sigterm(_signum: int, _frame: Any) -> None:
+        raise WarmPoolWorkerTerminated(143)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _run_claimed_step(
+    *,
+    mount: str,
+    claim_path: Path,
+    run_id: str,
+    step_id: str,
+    spec_path: Path,
+    release_claim: Any,
+) -> None:
+    """Execute one claimed step; always leave a result and release the claim.
+
+    The claim's mtime is refreshed while the step runs so reclaim sweeps (this
+    pod's or another's) never take back live work. On SIGTERM a failure result
+    is written first, so the coordinator fails the step now instead of waiting
+    out its timeout, and the claim is released so the step is not re-run later.
+    """
+    from orchestration.execute_step import execute_step_from_spec_file
+
+    stop_hb = threading.Event()
+    hb = threading.Thread(
+        target=_heartbeat_claim_path,
+        args=(claim_path, stop_hb),
+        name="claim-heartbeat",
+        daemon=True,
+    )
+    hb.start()
+    try:
+        exit_code = execute_step_from_spec_file(spec_path)
+        if exit_code != 0:
+            emit_log(
+                f"step exited {exit_code}",
+                level="error",
+                run_id=run_id,
+                step_id=step_id,
+                component="warm-pool-worker",
+            )
+            # Parent waits on result.json — ensure a failure marker exists.
+            result = warm_pool_result_path(
+                run_store_mount=mount,
+                run_id=run_id,
+                step_id=step_id,
+            )
+            if not result.is_file():
+                _write_warm_pool_failure_result(
+                    run_store_mount=mount,
+                    run_id=run_id,
+                    step_id=step_id,
+                    error=f"step exited {exit_code}",
+                    exit_code=exit_code,
+                )
+    except WarmPoolWorkerTerminated:
+        emit_log(
+            "worker terminated (SIGTERM) while running step",
+            level="error",
+            run_id=run_id,
+            step_id=step_id,
+            component="warm-pool-worker",
+        )
+        _write_warm_pool_failure_result(
+            run_store_mount=mount,
+            run_id=run_id,
+            step_id=step_id,
+            error="warm-pool worker terminated (SIGTERM) while running this step",
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001
+        emit_log(
+            f"step crashed: {exc}",
+            level="error",
+            run_id=run_id,
+            step_id=step_id,
+            component="warm-pool-worker",
+        )
+        _write_warm_pool_failure_result(
+            run_store_mount=mount,
+            run_id=run_id,
+            step_id=step_id,
+            error=str(exc),
+        )
+    finally:
+        stop_hb.set()
+        hb.join(timeout=2.0)
+        release_claim(claim_path)
+
+
+def _unlink_claim(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.5) -> None:
     """Long-running loop: claim queue requests and execute step specs."""
-    from orchestration.execute_step import execute_step_from_spec_file
     from orchestration.execution_queue_store import reclaim_stale_claims
     from orchestration.ollama_keepalive import start_ollama_keepalive_loop
 
     mount = str(run_store_mount).rstrip("/") or "/run/store"
+    _install_sigterm_handler()
     if os.getenv("AGENTIC_WARM_POOL_OLLAMA_PREWARM", "1").strip().lower() not in (
         "0",
         "false",
@@ -468,9 +689,14 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
         "off",
     ):
         start_ollama_keepalive_loop(log_prefix="(warm-pool) ollama keep-alive")
-    # Recover tickets left as ``.claimed`` by previous worker pods before we poll.
+    # Recover work left claimed by previous worker pods before we poll.
     try:
-        n = reclaim_stale_claims("step", max_age_seconds=30.0, run_store_mount=mount)
+        n = reclaim_stale_claims(
+            "step",
+            max_age_seconds=CLAIM_RECLAIM_STARTUP_SECONDS,
+            run_store_mount=mount,
+        )
+        n += reclaim_stale_warm_pool_claims(mount, max_age_seconds=CLAIM_RECLAIM_STARTUP_SECONDS)
         if n:
             emit_log(
                 f"reclaimed {n} stale step claim(s) on warm-pool start",
@@ -498,126 +724,66 @@ def run_warm_pool_worker_loop(*, run_store_mount: str, poll_interval: float = 0.
     use_global_queue = queue_enabled and unify_global
     last_reclaim = 0.0
 
-    while True:
-        now = time.time()
-        if use_global_queue and now - last_reclaim >= 30.0:
-            last_reclaim = now
-            try:
-                reclaim_stale_claims("step", max_age_seconds=120.0, run_store_mount=mount)
-            except Exception:  # noqa: BLE001
-                pass
-        if use_global_queue:
-            claimed = claim_next_global_step(mount)
-            if claimed is None:
-                time.sleep(poll_interval)
-                continue
-            path, ticket = claimed
-            spec_raw = ticket.requirements.get("spec_container_path")
-            emit_log(
-                f"claimed global step {path.name}",
-                run_id=ticket.run_id,
-                step_id=ticket.step_id or "",
-                component="warm-pool-worker",
-            )
-            stop_hb = threading.Event()
-            hb = threading.Thread(
-                target=_heartbeat_claim_path,
-                args=(path, stop_hb),
-                name="claim-heartbeat",
-                daemon=True,
-            )
-            hb.start()
-            try:
-                exit_code = execute_step_from_spec_file(Path(str(spec_raw)))
-                if exit_code != 0:
-                    emit_log(
-                        f"step exited {exit_code}",
-                        level="error",
-                        run_id=ticket.run_id,
-                        step_id=ticket.step_id or "",
-                        component="warm-pool-worker",
-                    )
-                    # Parent waits on result.json — ensure a failure marker exists.
-                    result = warm_pool_result_path(
-                        run_store_mount=mount,
-                        run_id=ticket.run_id,
-                        step_id=str(ticket.step_id or "step"),
-                    )
-                    if not result.is_file():
-                        _write_warm_pool_failure_result(
+    try:
+        while True:
+            now = time.time()
+            if now - last_reclaim >= 30.0:
+                last_reclaim = now
+                try:
+                    if use_global_queue:
+                        reclaim_stale_claims(
+                            "step",
+                            max_age_seconds=CLAIM_RECLAIM_PERIODIC_SECONDS,
                             run_store_mount=mount,
-                            run_id=ticket.run_id,
-                            step_id=str(ticket.step_id or "step"),
-                            error=f"step exited {exit_code}",
-                            exit_code=exit_code,
                         )
-            except Exception as exc:  # noqa: BLE001
+                    else:
+                        reclaim_stale_warm_pool_claims(
+                            mount,
+                            max_age_seconds=CLAIM_RECLAIM_PERIODIC_SECONDS,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            if use_global_queue:
+                claimed = claim_next_global_step(mount)
+                if claimed is None:
+                    time.sleep(poll_interval)
+                    continue
+                path, ticket = claimed
                 emit_log(
-                    f"step crashed: {exc}",
-                    level="error",
+                    f"claimed global step {path.name}",
                     run_id=ticket.run_id,
                     step_id=ticket.step_id or "",
                     component="warm-pool-worker",
                 )
-                _write_warm_pool_failure_result(
-                    run_store_mount=mount,
+                _run_claimed_step(
+                    mount=mount,
+                    claim_path=path,
                     run_id=ticket.run_id,
                     step_id=str(ticket.step_id or "step"),
-                    error=str(exc),
+                    spec_path=Path(str(ticket.requirements.get("spec_container_path"))),
+                    release_claim=unlink_step_ticket_siblings,
                 )
-            finally:
-                stop_hb.set()
-                hb.join(timeout=2.0)
-                unlink_step_ticket_siblings(path)
-            continue
+                continue
 
-        claimed = claim_next_warm_pool_request(mount)
-        if claimed is None:
-            time.sleep(poll_interval)
-            continue
-        path, req = claimed
-        emit_log(
-            f"claimed {path.name}",
-            run_id=req.run_id,
-            step_id=req.step_id,
-            component="warm-pool-worker",
-        )
-        try:
-            exit_code = execute_step_from_spec_file(Path(req.spec_container_path))
-            if exit_code != 0:
-                emit_log(
-                    f"step exited {exit_code}",
-                    level="error",
-                    run_id=req.run_id,
-                    step_id=req.step_id,
-                    component="warm-pool-worker",
-                )
-                result = warm_pool_result_path(
-                    run_store_mount=mount,
-                    run_id=req.run_id,
-                    step_id=req.step_id,
-                )
-                if not result.is_file():
-                    _write_warm_pool_failure_result(
-                        run_store_mount=mount,
-                        run_id=req.run_id,
-                        step_id=req.step_id,
-                        error=f"step exited {exit_code}",
-                        exit_code=exit_code,
-                    )
-        except Exception as exc:  # noqa: BLE001
+            claimed_req = claim_next_warm_pool_request(mount)
+            if claimed_req is None:
+                time.sleep(poll_interval)
+                continue
+            req_path, req = claimed_req
             emit_log(
-                f"step crashed: {exc}",
-                level="error",
+                f"claimed {req_path.name}",
                 run_id=req.run_id,
                 step_id=req.step_id,
                 component="warm-pool-worker",
             )
-            _write_warm_pool_failure_result(
-                run_store_mount=mount,
+            _run_claimed_step(
+                mount=mount,
+                claim_path=req_path,
                 run_id=req.run_id,
                 step_id=req.step_id,
-                error=str(exc),
+                spec_path=Path(req.spec_container_path),
+                release_claim=_unlink_claim,
             )
-        finally:
-            path.unlink(missing_ok=True)
+    except WarmPoolWorkerTerminated:
+        emit_log("warm pool worker stopping (SIGTERM)", component="warm-pool-worker")
+        raise

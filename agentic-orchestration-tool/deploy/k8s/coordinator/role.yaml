@@ -21,3 +21,8 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "patch"]
+  # Warm-pool autoscale (orchestration/execution_queue_broker.py) scales through the
+  # scale subresource; "deployments: patch" alone does not grant it.
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
