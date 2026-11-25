@@ -13,9 +13,13 @@ Material lives under ``<tool_root>/__orchestrator_mtls__/``:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import secrets
+import sys
+import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +38,47 @@ DEFAULT_CA_DAYS = 3650
 
 class MtlsCaError(RuntimeError):
     """CA / enrollment failure."""
+
+
+class MtlsStoreCorrupt(MtlsCaError):
+    """A registry file exists but cannot be parsed."""
+
+
+#: Serializes every read-modify-write of the JSON registries in this process.
+_STORE_LOCK = threading.RLock()
+
+
+def _atomic_write_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
+    """Write ``data`` to ``path`` via a same-directory temp file and ``os.replace``.
+
+    The temp file is created with ``mode`` from the start, so private material is never
+    readable through a default-umask window, and readers never see a half-written file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        try:
+            os.fchmod(fd, mode)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
 
 
 def mtls_root(tool_root: Path) -> Path:
@@ -82,22 +127,29 @@ def normalize_serial(raw: Any) -> str | None:
 
 
 def _load_json_list(path: Path) -> list[dict[str, Any]]:
+    """Lenient read for display-only callers: a missing or unreadable file is empty."""
+    try:
+        return _load_json_list_strict(path)
+    except MtlsStoreCorrupt:
+        return []
+
+
+def _load_json_list_strict(path: Path) -> list[dict[str, Any]]:
+    """Read a registry; a file that exists but cannot be parsed raises instead of
+    silently reading as empty (an empty deny-list would admit revoked clients)."""
     if not path.is_file():
         return []
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return raw if isinstance(raw, list) else []
+    except (OSError, ValueError) as exc:
+        raise MtlsStoreCorrupt(f"{path.name} is unreadable: {exc}") from exc
+    if not isinstance(raw, list):
+        raise MtlsStoreCorrupt(f"{path.name} must contain a JSON list")
+    return raw
 
 
 def _save_json_list(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    _atomic_write_bytes(path, (json.dumps(rows, indent=2) + "\n").encode("utf-8"))
 
 
 def record_issued_client(
@@ -123,9 +175,14 @@ def record_issued_client(
             else None
         ),
     }
-    clients = [c for c in _load_json_list(clients_path(tool_root)) if str(c.get("serial")) != serial]
-    clients.append(entry)
-    _save_json_list(clients_path(tool_root), clients)
+    with _STORE_LOCK:
+        clients = [
+            c
+            for c in _load_json_list(clients_path(tool_root))
+            if str(c.get("serial")) != serial
+        ]
+        clients.append(entry)
+        _save_json_list(clients_path(tool_root), clients)
     return entry
 
 
@@ -227,21 +284,23 @@ def revoke_mtls_client(
         "revokedAt": datetime.now(timezone.utc).isoformat(),
         "reason": (reason or "").strip() or None,
     }
-    rows = _load_json_list(revoked_path(tool_root))
-    # Replace matching prior entry.
-    kept: list[dict[str, Any]] = []
-    for r in rows:
-        same_serial = serial_n and normalize_serial(r.get("serial")) == serial_n
-        same_cn_ban = (
-            not serial_n
-            and not r.get("serial")
-            and str(r.get("subject") or "").strip().lower() == subject_n.lower()
-        )
-        if same_serial or same_cn_ban:
-            continue
-        kept.append(r)
-    kept.append(entry)
-    _save_json_list(revoked_path(tool_root), kept)
+    with _STORE_LOCK:
+        # Strict read: rewriting from a corrupt file would silently drop earlier bans.
+        rows = _load_json_list_strict(revoked_path(tool_root))
+        # Replace matching prior entry.
+        kept: list[dict[str, Any]] = []
+        for r in rows:
+            same_serial = serial_n and normalize_serial(r.get("serial")) == serial_n
+            same_cn_ban = (
+                not serial_n
+                and not r.get("serial")
+                and str(r.get("subject") or "").strip().lower() == subject_n.lower()
+            )
+            if same_serial or same_cn_ban:
+                continue
+            kept.append(r)
+        kept.append(entry)
+        _save_json_list(revoked_path(tool_root), kept)
     return entry
 
 
@@ -256,23 +315,24 @@ def unrevoke_mtls_client(
     subject_n = (subject or "").strip().lower()
     if not serial_n and not subject_n:
         raise MtlsCaError("serial or subject is required to unrevoke")
-    rows = _load_json_list(revoked_path(tool_root))
-    kept: list[dict[str, Any]] = []
-    removed = False
-    for r in rows:
-        if serial_n and normalize_serial(r.get("serial")) == serial_n:
-            removed = True
-            continue
-        if (
-            not serial_n
-            and not r.get("serial")
-            and str(r.get("subject") or "").strip().lower() == subject_n
-        ):
-            removed = True
-            continue
-        kept.append(r)
-    if removed:
-        _save_json_list(revoked_path(tool_root), kept)
+    with _STORE_LOCK:
+        rows = _load_json_list_strict(revoked_path(tool_root))
+        kept: list[dict[str, Any]] = []
+        removed = False
+        for r in rows:
+            if serial_n and normalize_serial(r.get("serial")) == serial_n:
+                removed = True
+                continue
+            if (
+                not serial_n
+                and not r.get("serial")
+                and str(r.get("subject") or "").strip().lower() == subject_n
+            ):
+                removed = True
+                continue
+            kept.append(r)
+        if removed:
+            _save_json_list(revoked_path(tool_root), kept)
     return removed
 
 
@@ -313,7 +373,13 @@ def is_peercert_revoked(tool_root: Path, peercert: dict[str, Any] | None) -> boo
         return False
     serial = peercert_serial(peercert)
     subject = (peercert_subject_cn(peercert) or "").strip().lower()
-    for r in _load_json_list(revoked_path(tool_root)):
+    try:
+        revoked = _load_json_list_strict(revoked_path(tool_root))
+    except MtlsStoreCorrupt as exc:
+        # Fail closed: an unreadable deny-list must not admit a revoked client.
+        print(f"(mtls) deny-list unreadable, refusing client certificates: {exc}", file=sys.stderr)
+        return True
+    for r in revoked:
         r_serial = normalize_serial(r.get("serial"))
         if serial and r_serial and r_serial == serial:
             return True
@@ -343,25 +409,14 @@ def _hash_token(token: str) -> str:
 
 
 def _load_tokens(tool_root: Path) -> list[dict[str, Any]]:
-    path = tokens_path(tool_root)
-    if not path.is_file():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return raw if isinstance(raw, list) else []
+    # Unreadable token store → no valid tokens (enrollment fails closed).
+    return _load_json_list(tokens_path(tool_root))
 
 
 def _save_tokens(tool_root: Path, tokens: list[dict[str, Any]]) -> None:
-    root = mtls_root(tool_root)
-    root.mkdir(parents=True, exist_ok=True)
-    path = tokens_path(tool_root)
-    path.write_text(json.dumps(tokens, indent=2) + "\n", encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    _atomic_write_bytes(
+        tokens_path(tool_root), (json.dumps(tokens, indent=2) + "\n").encode("utf-8")
+    )
 
 
 def ca_exists(tool_root: Path) -> bool:
@@ -431,13 +486,8 @@ def init_ca(
         .sign(key, hashes.SHA256())
     )
 
-    ca_key_path(tool_root).write_bytes(_pem_key(key))
-    ca_cert_path(tool_root).write_bytes(_pem_cert(cert))
-    try:
-        os.chmod(ca_key_path(tool_root), 0o600)
-        os.chmod(ca_cert_path(tool_root), 0o644)
-    except OSError:
-        pass
+    _atomic_write_bytes(ca_key_path(tool_root), _pem_key(key), mode=0o600)
+    _atomic_write_bytes(ca_cert_path(tool_root), _pem_cert(cert), mode=0o644)
     return {
         "caCert": str(ca_cert_path(tool_root)),
         "caKey": str(ca_key_path(tool_root)),
@@ -524,14 +574,11 @@ def issue_server_cert(
         )
     )
     cert = builder.sign(ca_key, hashes.SHA256())
-    server_key_path(tool_root).write_bytes(_pem_key(key))
+    _atomic_write_bytes(server_key_path(tool_root), _pem_key(key), mode=0o600)
     # Serve leaf + CA so clients that only get the leaf can still chain if needed.
-    server_cert_path(tool_root).write_bytes(_pem_cert(cert) + _pem_cert(ca_cert))
-    try:
-        os.chmod(server_key_path(tool_root), 0o600)
-        os.chmod(server_cert_path(tool_root), 0o644)
-    except OSError:
-        pass
+    _atomic_write_bytes(
+        server_cert_path(tool_root), _pem_cert(cert) + _pem_cert(ca_cert), mode=0o644
+    )
     return {
         "serverCert": str(server_cert_path(tool_root)),
         "serverKey": str(server_key_path(tool_root)),
@@ -574,9 +621,10 @@ def mint_enroll_token(
         "uses": 0,
         "clientName": (client_name or "").strip() or None,
     }
-    tokens = [t for t in _load_tokens(tool_root) if float(t.get("expiresAt", 0)) > now]
-    tokens.append(entry)
-    _save_tokens(tool_root, tokens)
+    with _STORE_LOCK:
+        tokens = [t for t in _load_tokens(tool_root) if float(t.get("expiresAt", 0)) > now]
+        tokens.append(entry)
+        _save_tokens(tool_root, tokens)
     return {
         "token": token,
         "expiresAt": entry["expiresAt"],
@@ -585,30 +633,82 @@ def mint_enroll_token(
     }
 
 
-def consume_enroll_token(tool_root: Path, token: str) -> dict[str, Any]:
-    """Validate and consume one use of an enrollment token. Raises on failure."""
+def _find_usable_token(tokens: list[dict[str, Any]], token: str) -> dict[str, Any]:
     text = (token or "").strip()
     if not text:
         raise MtlsCaError("enrollment token is required")
     digest = _hash_token(text)
-    now = time.time()
-    tokens = _load_tokens(tool_root)
     matched: dict[str, Any] | None = None
     for entry in tokens:
-        if entry.get("hash") == digest:
+        if hmac.compare_digest(str(entry.get("hash") or ""), digest):
             matched = entry
             break
     if matched is None:
         raise MtlsCaError("invalid enrollment token")
-    if float(matched.get("expiresAt", 0)) < now:
+    if float(matched.get("expiresAt", 0)) < time.time():
         raise MtlsCaError("enrollment token expired")
-    uses = int(matched.get("uses", 0))
-    max_uses = int(matched.get("maxUses", 1))
-    if uses >= max_uses:
+    if int(matched.get("uses", 0)) >= int(matched.get("maxUses", 1)):
         raise MtlsCaError("enrollment token already used")
-    matched["uses"] = uses + 1
-    _save_tokens(tool_root, tokens)
     return matched
+
+
+def peek_enroll_token(tool_root: Path, token: str) -> dict[str, Any]:
+    """Validate an enrollment token without consuming a use. Raises on failure."""
+    with _STORE_LOCK:
+        return dict(_find_usable_token(_load_tokens(tool_root), token))
+
+
+def consume_enroll_token(tool_root: Path, token: str) -> dict[str, Any]:
+    """Validate and consume one use of an enrollment token. Raises on failure.
+
+    The check and the increment happen under one lock, so two concurrent
+    enrollments cannot both spend a single-use token.
+    """
+    with _STORE_LOCK:
+        tokens = _load_tokens(tool_root)
+        matched = _find_usable_token(tokens, token)
+        matched["uses"] = int(matched.get("uses", 0)) + 1
+        _save_tokens(tool_root, tokens)
+        return dict(matched)
+
+
+def enroll_client(
+    tool_root: Path,
+    *,
+    token: str,
+    csr_pem: str,
+    client_name: str | None = None,
+) -> dict[str, Any]:
+    """
+    Exchange an enrollment token + CSR for a client certificate.
+
+    * A name bound to the token is authoritative: the request may omit ``client_name``
+      or repeat it, but cannot enroll under a different identity.
+    * The CSR is validated and signed *before* the token is consumed, so a malformed
+      request does not burn a single-use token.
+    """
+    with _STORE_LOCK:
+        token_meta = peek_enroll_token(tool_root, token)
+        bound = str(token_meta.get("clientName") or "").strip()
+        requested = (client_name or "").strip()
+        if bound and requested and requested != bound:
+            raise MtlsCaError(
+                "clientName does not match the name this enrollment token was issued for"
+            )
+        result = sign_client_csr(
+            tool_root,
+            csr_pem,
+            common_name_override=bound or requested or None,
+            record=False,
+        )
+        consume_enroll_token(tool_root, token)
+        record_issued_client(
+            tool_root,
+            serial_hex=str(result["serial"]),
+            subject=str(result["subject"]),
+            expires_at=float(result["expiresAt"]),
+        )
+        return result
 
 
 def sign_client_csr(
@@ -617,8 +717,13 @@ def sign_client_csr(
     *,
     common_name_override: str | None = None,
     days: int = DEFAULT_CLIENT_CERT_DAYS,
+    record: bool = True,
 ) -> dict[str, Any]:
-    """Sign a PEM CSR and return leaf + CA PEMs."""
+    """Sign a PEM CSR and return leaf + CA PEMs.
+
+    ``record=False`` skips the ``clients.json`` write so the caller can register the
+    leaf only after its own bookkeeping (token consumption) has succeeded.
+    """
     ca_cert, ca_key = load_ca(tool_root)
     try:
         csr = x509.load_pem_x509_csr(csr_pem.encode("utf-8"))
@@ -639,7 +744,17 @@ def sign_client_csr(
 
     now = datetime.now(timezone.utc)
     expires = now + timedelta(days=days)
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    try:
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+        san = x509.SubjectAlternativeName(
+            [
+                x509.DNSName(cn),
+                x509.UniformResourceIdentifier(f"agentic://user/{cn}"),
+            ]
+        )
+    except (ValueError, TypeError) as exc:
+        # e.g. a non-ASCII Common Name: not encodable as a DNS / URI SAN.
+        raise MtlsCaError(f"client name {cn!r} is not a valid certificate name: {exc}") from exc
     builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -667,24 +782,20 @@ def sign_client_csr(
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),
             critical=False,
         )
-        .add_extension(
-            x509.SubjectAlternativeName(
-                [
-                    x509.DNSName(cn),
-                    x509.UniformResourceIdentifier(f"agentic://user/{cn}"),
-                ]
-            ),
-            critical=False,
-        )
+        .add_extension(san, critical=False)
     )
-    cert = builder.sign(ca_key, hashes.SHA256())
+    try:
+        cert = builder.sign(ca_key, hashes.SHA256())
+    except (ValueError, TypeError) as exc:
+        raise MtlsCaError(f"could not sign client certificate: {exc}") from exc
     serial_hex = format(cert.serial_number, "X")
-    record_issued_client(
-        tool_root,
-        serial_hex=serial_hex,
-        subject=cn,
-        expires_at=expires.timestamp(),
-    )
+    if record:
+        record_issued_client(
+            tool_root,
+            serial_hex=serial_hex,
+            subject=cn,
+            expires_at=expires.timestamp(),
+        )
     return {
         "certificatePem": _pem_cert(cert).decode("utf-8"),
         "caPem": _pem_cert(ca_cert).decode("utf-8"),

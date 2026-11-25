@@ -39,6 +39,66 @@ _STATIC_ALLOWED_ENV_KEYS = frozenset(
 
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
+#: Sent in place of a real credential when a session points a provider at its own base
+#: URL without supplying a key. It keeps the engine's process-level key from ever being
+#: sent to a client-chosen endpoint.
+SESSION_KEY_PLACEHOLDER = "session-key-not-provided"
+
+#: provider → (agent-entry base-URL field, session env base-URL names, credential names).
+_PROVIDER_ENDPOINT_GROUPS: dict[str, tuple[str | None, tuple[str, ...], tuple[str, ...]]] = {
+    "openai": ("openai_base_url", ("OPENAI_BASE_URL", "OPENAI_API_BASE"), ("OPENAI_API_KEY",)),
+    "anthropic": (
+        "anthropic_base_url",
+        ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_URL"),
+        ("ANTHROPIC_API_KEY",),
+    ),
+    "huggingface": (
+        "huggingface_base_url",
+        ("HUGGINGFACE_API_BASE",),
+        ("HF_TOKEN", "HUGGINGFACE_API_KEY"),
+    ),
+    "vllm": (None, ("VLLM_BASE_URL",), ("VLLM_API_KEY",)),
+    "jetstream": (None, ("JETSTREAM_BASE_URL",), ("JETSTREAM_API_KEY",)),
+}
+
+
+def session_endpoint_overrides(
+    env: dict[str, str] | None,
+    agents: list[dict[str, Any]] | None = None,
+) -> set[str]:
+    """Providers whose base URL this session supplies (via env or a client agent entry)."""
+    session = env or {}
+    out: set[str] = set()
+    for provider, (field_name, base_names, _keys) in _PROVIDER_ENDPOINT_GROUPS.items():
+        if any(str(session.get(name) or "").strip() for name in base_names):
+            out.add(provider)
+            continue
+        if field_name and any(
+            isinstance(entry, dict) and str(entry.get(field_name) or "").strip()
+            for entry in (agents or [])
+        ):
+            out.add(provider)
+    return out
+
+
+def guard_session_env(
+    env: dict[str, str] | None,
+    agents: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    """
+    Session env with the credential pinned for every provider the session re-points.
+
+    When a session chooses a provider's base URL, the matching credential must come
+    from the session too. If it did not, a placeholder is bound so lookups through
+    :func:`getenv` never fall back to the engine's own key for that endpoint.
+    """
+    out = dict(env or {})
+    for provider in session_endpoint_overrides(out, agents):
+        key_names = _PROVIDER_ENDPOINT_GROUPS[provider][2]
+        if not any(str(out.get(name) or "").strip() for name in key_names):
+            out[key_names[0]] = SESSION_KEY_PLACEHOLDER
+    return out
+
 _MAX_ENV_KEYS = 64
 _MAX_ENV_VALUE_CHARS = 8192
 

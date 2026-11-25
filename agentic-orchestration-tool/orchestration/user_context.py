@@ -15,6 +15,7 @@ server deployment fails loudly instead of silently merging users.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
@@ -286,14 +287,22 @@ def require_identity_enabled() -> bool:
 
 
 def user_id_from_display_name(user_name: Any) -> str:
-    """Stable filesystem-safe key derived from a display name."""
+    """Stable filesystem-safe key derived from a display name.
+
+    A name with no ASCII letters or digits (``"Иван Петров"``, ``"李雷"``) has nothing
+    left after stripping; it gets a hash-derived id of its own rather than collapsing
+    onto the shared local user.
+    """
     name = sanitize_user_display_name(user_name)
     if not name:
         return LOCAL_USER_ID
     key = _USER_ID_STRIP.sub("-", name.lower()).strip("-._")
     if len(key) > 64:
         key = key[:64].rstrip("-._")
-    return key or LOCAL_USER_ID
+    if key:
+        return key
+    digest = hashlib.sha256(name.casefold().encode("utf-8")).hexdigest()[:16]
+    return f"u-{digest}"
 
 
 @dataclass(frozen=True)
@@ -314,6 +323,8 @@ class Identity:
     logout_method: str | None = None
     logout_redirect: str | None = None
     avatar_url: str | None = None
+    #: True when the session id was injected by the identity proxy (authoritative).
+    session_from_header: bool = False
 
     def to_json_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -399,13 +410,16 @@ def resolve_identity(
     """
     cert_name = user_name_from_peercert(peercert)
     if cert_name:
-        session_id = session_id_from_request_headers(headers) or generate_web_session_id()
+        header_session = session_id_from_request_headers(headers)
         return Identity(
             user_name=cert_name,
-            session_id=session_id,
+            session_id=header_session or generate_web_session_id(),
             user_id=user_id_from_display_name(cert_name),
             local=False,
             mtls=True,
+            # With mTLS the client itself is the peer: a session header here is the
+            # client's own choice, not a proxy assertion.
+            session_from_header=False,
         )
 
     user_name = user_name_from_request_headers(headers)
@@ -436,4 +450,53 @@ def resolve_identity(
         logout_method=profile["logout_method"],
         logout_redirect=profile["logout_redirect"],
         avatar_url=profile["avatar_url"],
+        session_from_header=bool(session_id),
     )
+
+
+def trust_client_session_id() -> bool:
+    """``AGENTIC_SERVE_TRUST_CLIENT_SESSION_ID=1`` restores the legacy behaviour where a
+    session id in the request body is used verbatim for identified callers."""
+    return os.getenv("AGENTIC_SERVE_TRUST_CLIENT_SESSION_ID", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def normalize_requested_session_id(raw: Any) -> str | None:
+    """A session id named in a request body, or ``None`` when unusable.
+
+    More lenient than :func:`sanitize_session_id` (spaces and other characters are later
+    slugified by the session store) but never a path fragment or control characters.
+    """
+    text = str(raw if raw is not None else "").strip()
+    if not text or len(text) > 128:
+        return None
+    if _CONTROL_CHARS.search(text) or "/" in text or "\\" in text or ".." in text:
+        return None
+    return text
+
+
+def resolve_request_session_id(identity: Identity | None, requested: Any) -> str:
+    """
+    Session slug to use for stored state when a request body names a ``sessionId``.
+
+    * Local single-user mode: the requested id is honoured (nothing to protect).
+    * Identified caller whose session id was injected by the proxy: the proxy value
+      wins and the body value is ignored.
+    * Identified caller without a proxy session (e.g. an mTLS client): the requested
+      id is honoured but bound to the caller, so naming another user's session id
+      never reaches that user's stored history.
+    """
+    fallback = identity.session_id if identity is not None else ""
+    wanted = normalize_requested_session_id(requested)
+    if not wanted:
+        return fallback
+    if identity is None or identity.local or trust_client_session_id():
+        return wanted
+    if identity.session_from_header:
+        return fallback
+    owner = hashlib.sha256(str(identity.user_id or "").encode("utf-8")).hexdigest()[:12]
+    return f"u-{owner}-{wanted}"

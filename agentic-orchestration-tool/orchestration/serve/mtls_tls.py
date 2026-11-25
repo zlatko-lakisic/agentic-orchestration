@@ -18,6 +18,9 @@ from typing import Any
 _PEER_CERTS: dict[tuple[str, int], dict[str, Any] | None] = {}
 
 # Paths that stay reachable with server TLS only (no client cert).
+# ``/api/v1/admin/*`` is deliberately absent: those routes need the operator
+# credential (see ``orchestration.serve.access``), which also stands in for a
+# client certificate so the Node coordinator can call them.
 MTLS_PUBLIC_PATHS = frozenset(
     {
         "/ready",
@@ -26,10 +29,6 @@ MTLS_PUBLIC_PATHS = frozenset(
         "/api/ping",
         "/api/agentic/execution-queue/status",
         "/api/v1/gpu-residents",
-        "/api/v1/admin/reach-sessions",
-        "/api/v1/admin/custom-tool-sandboxes",
-        "/api/v1/admin/background-activity/cancel",
-        "/api/v1/admin/mtls/clients",
         "/api/v1/mtls/ca",
         "/api/v1/mtls/enroll",
     }
@@ -201,14 +200,4 @@ def peercert_from_scope(scope: dict[str, Any]) -> dict[str, Any] | None:
 
 def is_public_mtls_path(path: str) -> bool:
     cleaned = (path or "").split("?", 1)[0].rstrip("/") or "/"
-    if cleaned in MTLS_PUBLIC_PATHS:
-        return True
-    # Admin mTLS client registry + enroll-token mint — coordinator proxy, no client cert.
-    if cleaned == "/api/v1/admin/mtls/clients" or cleaned.startswith(
-        "/api/v1/admin/mtls/clients/"
-    ):
-        return True
-    if cleaned == "/api/v1/admin/mtls/enroll-tokens":
-        return True
-    # Allow trailing-slash variants already normalized above.
-    return cleaned in {p.rstrip("/") for p in MTLS_PUBLIC_PATHS}
+    return cleaned in MTLS_PUBLIC_PATHS

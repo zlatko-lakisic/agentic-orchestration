@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Iterator
+from urllib.parse import urlsplit
 
 CLIENT_ID_RE = re.compile(r"^client\.[a-z0-9][a-z0-9_.]*$")
 #: Stable product identity required on every Reach ``session_overlay_register``.
@@ -55,8 +56,45 @@ def custom_tool_sandbox_enabled() -> bool:
     return _truthy("AGENTIC_CUSTOM_TOOL_SANDBOX")
 
 
+_SANDBOX_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+
+
+def _parse_sandbox_loopback_url(url: str) -> tuple[str, int] | None:
+    """``(host, port)`` when ``url`` is ``http://127.0.0.1|localhost:<port>/…``, else None.
+
+    The URL is parsed rather than prefix-matched: ``http://localhost.evil.example/`` and
+    ``http://127.0.0.1@evil.example/`` both *start with* a loopback prefix but dial
+    somewhere else entirely.
+    """
+    try:
+        parts = urlsplit(str(url or "").strip())
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "http" or parts.username or parts.password:
+        return None
+    host = (parts.hostname or "").lower()
+    if host not in _SANDBOX_LOOPBACK_HOSTS or port is None:
+        return None
+    return host, int(port)
+
+
 def _is_sandbox_loopback_url(url: str) -> bool:
-    return any(url.startswith(prefix) for prefix in SANDBOX_LOOPBACK_PREFIXES)
+    return _parse_sandbox_loopback_url(url) is not None
+
+
+def _owned_sandbox_ports(*, user_id: str, app_id: str) -> set[int]:
+    """Loopback ports of running custom-tool sandboxes owned by this user + app."""
+    try:
+        from orchestration.tool_sandbox_runtime import list_runtimes
+    except ImportError:
+        return set()
+    ports: set[int] = set()
+    for runtime in list_runtimes(user_id=user_id, app_id=app_id):
+        proc = runtime.process
+        if runtime.port and proc is not None and proc.poll() is None:
+            ports.add(int(runtime.port))
+    return ports
 
 
 def overlay_ttl_default_s() -> int:
@@ -164,13 +202,14 @@ def overlay_run_context(
     connection_id: str | None = None,
 ) -> Iterator[None]:
     """Bind identity (+ optional owning WS) for catalog merge / tunnel rewrite / session env."""
-    from orchestration.session_env import reset_session_env, set_session_env
+    from orchestration.session_env import guard_session_env, reset_session_env, set_session_env
 
     key = overlay_key(user_id, session_id)
     token_key = _OVERLAY_KEY.set(key if key[0] and key[1] else None)
-    token_conn = _CONNECTION_ID.set(str(connection_id).strip() or None)
+    token_conn = _CONNECTION_ID.set(str(connection_id or "").strip() or None)
     overlay = get_overlay(key[0], key[1]) if key[0] and key[1] else None
-    token_env = set_session_env(overlay.env if overlay and overlay.env else None)
+    session_env = guard_session_env(overlay.env, overlay.agents) if overlay else {}
+    token_env = set_session_env(session_env or None)
     try:
         yield
     finally:
@@ -250,7 +289,13 @@ def _require_client_id(entry_id: str, *, kind: str, index: int) -> str:
     return pid
 
 
-def _validate_mcp_entry(entry: dict[str, Any], *, index: int) -> dict[str, Any]:
+def _validate_mcp_entry(
+    entry: dict[str, Any],
+    *,
+    index: int,
+    user_id: str = "",
+    app_id: str = "",
+) -> dict[str, Any]:
     pid = _require_client_id(str(entry.get("id", "")), kind="mcps", index=index)
     if entry.get("stdio") is not None:
         raise SessionOverlayError(
@@ -270,10 +315,18 @@ def _validate_mcp_entry(entry: dict[str, Any], *, index: int) -> dict[str, Any]:
                 f"mcps[{index}] ({pid}): invalid tunnel alias in url {url!r}"
             )
     elif custom_tool_sandbox_enabled() and _is_sandbox_loopback_url(url):
-        if not url.rstrip("/").endswith("/mcp"):
+        if not urlsplit(url).path.rstrip("/").endswith("/mcp"):
             raise SessionOverlayError(
                 f"mcps[{index}] ({pid}): sandbox streamable_http.url must end with /mcp "
                 f"(got {url!r})"
+            )
+        _host, port = _parse_sandbox_loopback_url(url) or ("", 0)
+        # Any loopback port would let a client reach other local services (another
+        # user's sandbox, the MCP tunnel listener, Ollama, the daemon itself).
+        if port not in _owned_sandbox_ports(user_id=user_id, app_id=app_id):
+            raise SessionOverlayError(
+                f"mcps[{index}] ({pid}): {url!r} is not a running custom-tool sandbox "
+                "owned by this user and appId (activate the tool first)"
             )
     else:
         raise SessionOverlayError(
@@ -293,6 +346,37 @@ def _validate_agent_entry(entry: dict[str, Any], *, index: int) -> dict[str, Any
     out = copy.deepcopy(entry)
     out["id"] = pid
     return out
+
+
+def _reject_unguardable_endpoints(agents: list[dict[str, Any]]) -> None:
+    """
+    Refuse client agent entries that would send an engine credential to a client URL.
+
+    The Hugging Face provider reads its token from the process environment only, so a
+    client-supplied ``huggingface_base_url`` cannot be paired with a session credential.
+    While the engine holds an HF token such an entry would leak it; reject it.
+    """
+    if not (os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACE_API_KEY", "").strip()):
+        return
+    for index, entry in enumerate(agents):
+        if str(entry.get("huggingface_base_url") or "").strip():
+            raise SessionOverlayError(
+                f"agents[{index}] ({entry.get('id')}): huggingface_base_url is not allowed in "
+                "session overlays while the engine has a Hugging Face token configured"
+            )
+
+
+def _clamp_default_priority(raw: Any, cap: int | None) -> int | str | None:
+    """Clamp a client-declared default priority (number or label) to ``cap``."""
+    if raw is None or cap is None:
+        return raw
+    try:
+        from orchestration.execution_queue import normalize_priority
+
+        numeric, _label = normalize_priority(raw, app_max=cap)
+        return numeric
+    except Exception:  # noqa: BLE001 — never let an odd value widen the cap
+        return None
 
 
 def _validate_skill_entry(entry: dict[str, Any], *, index: int) -> dict[str, Any]:
@@ -427,6 +511,7 @@ def register_overlay(
     from orchestration.session_overlay_runtime import rewrite_overlay_ollama_hosts
 
     validated_agents = rewrite_overlay_ollama_hosts(validated_agents)
+    _reject_unguardable_endpoints(validated_agents)
 
     validated_mcps: list[dict[str, Any]] = []
     for i, m in enumerate(raw_mcps):
@@ -449,7 +534,7 @@ def register_overlay(
             raise SessionOverlayError(
                 "AO sandbox MCP URLs require AGENTIC_CUSTOM_TOOL_SANDBOX=1"
             )
-        validated_mcps.append(_validate_mcp_entry(m, index=i))
+        validated_mcps.append(_validate_mcp_entry(m, index=i, user_id=uid, app_id=aid))
 
     validated_skills: list[dict[str, Any]] = []
     for i, s in enumerate(raw_skills):
@@ -487,6 +572,18 @@ def register_overlay(
             parsed_max_priority = None
     parsed_default_priority: int | str | None = default_priority
     parsed_queue_quota = queue_quota if isinstance(queue_quota, dict) else None
+    # What the client sent is a request. The ceiling comes from operator config, so a
+    # client cannot grant itself realtime priority or an unlimited quota.
+    from orchestration.app_prefs import clamp_queue_quota, operator_queue_policy
+
+    policy = operator_queue_policy(catalog_root, aid, user_id=uid)
+    operator_cap = policy.get("maxQueuePriority")
+    if operator_cap is not None:
+        parsed_max_priority = (
+            operator_cap if parsed_max_priority is None else min(parsed_max_priority, operator_cap)
+        )
+    parsed_default_priority = _clamp_default_priority(parsed_default_priority, parsed_max_priority)
+    parsed_queue_quota = clamp_queue_quota(parsed_queue_quota, policy.get("queueQuota"))
     overlay = SessionOverlay(
         user_id=uid,
         session_id=sid,

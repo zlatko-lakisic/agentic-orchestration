@@ -25,9 +25,12 @@ This is **not** a HIPAA/contractual guarantee — heuristic only. Pair with
 from __future__ import annotations
 
 import copy
+import json
 import os
 import re
+import secrets
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -47,6 +50,7 @@ from orchestration.cloud_anonymize_tier3 import (
     get_token_map,
     ner_entities,
     presidio_available,
+    reset_token_map,
     restore_tokens,
     reversible_sub,
     set_token_map_session,
@@ -65,6 +69,7 @@ __all__ = [
     "get_token_map",
     "ner_entities",
     "presidio_available",
+    "reset_token_map",
     "restore_tokens",
     "reversible_sub",
     "set_token_map_session",
@@ -182,12 +187,42 @@ def litellm_model_provider_prefix(model: str) -> str:
     return m.split("/", 1)[0].strip().lower()
 
 
+#: LiteLLM prefixes that mean "self-hosted / on-box" by default.
+_DEFAULT_LOCAL_LITELLM_PREFIXES = frozenset(
+    {
+        "ollama",
+        "ollama_chat",
+        "vllm",
+        "hosted_vllm",
+        "jetstream",
+        "lm_studio",
+        "llamacpp",
+        "local",
+    }
+)
+
+
+def local_litellm_prefixes() -> frozenset[str]:
+    """Built-in local prefixes plus ``AGENTIC_LOCAL_PROVIDER_TYPES`` (comma list)."""
+    raw = os.getenv("AGENTIC_LOCAL_PROVIDER_TYPES", "").strip()
+    extra = {p.strip().lower() for p in raw.split(",") if p.strip()}
+    return frozenset(_DEFAULT_LOCAL_LITELLM_PREFIXES | extra)
+
+
 def is_cloud_litellm_model(model: str) -> bool:
+    """
+    True when a LiteLLM model string routes to a hosted provider.
+
+    Fails closed: a prefix this module does not know (``gemini``, ``bedrock``,
+    ``mistral``, ``openrouter``, …) is treated as cloud, so text is redacted rather
+    than sent in clear. Declare a self-hosted prefix in ``AGENTIC_LOCAL_PROVIDER_TYPES``
+    to opt it out.
+    """
     prefix = litellm_model_provider_prefix(model)
     if not prefix:
         return False
     # Map common LiteLLM prefixes onto catalog provider types.
-    mapped = {
+    known = {
         "openai": "openai",
         "anthropic": "anthropic",
         "huggingface": "huggingface",
@@ -198,8 +233,13 @@ def is_cloud_litellm_model(model: str) -> bool:
         "azure_ai": "openai",
         "ollama": "ollama",
         "vllm": "vllm",
-    }.get(prefix, prefix)
-    return is_cloud_provider_type(mapped)
+    }
+    mapped = known.get(prefix)
+    if mapped is not None:
+        return is_cloud_provider_type(mapped)
+    if prefix in cloud_provider_types():
+        return True
+    return prefix not in local_litellm_prefixes()
 
 
 def user_wants_local_only(text: str) -> bool:
@@ -406,7 +446,7 @@ def load_custom_anonymize_patterns(*, force_reload: bool = False) -> list[Custom
     return list(compiled)
 
 
-def redact_for_cloud(text: str, *, force: bool = False) -> str:
+def redact_for_cloud(text: str, *, force: bool = False, reversible: bool | None = None) -> str:
     """Replace common PII / secret patterns with placeholders.
 
     When ``force`` is False (default), returns ``text`` unchanged if anonymization
@@ -414,13 +454,15 @@ def redact_for_cloud(text: str, *, force: bool = False) -> str:
     optional Presidio NER pass last. When Tier 3 reversible mode is on (default),
     placeholders are unique per value (``[EMAIL:1]``) and recoverable via
     ``restore_tokens()``; otherwise falls back to the static ``[EMAIL]`` style.
+    ``reversible=False`` forces the static style regardless of the env toggle.
     """
     if not force and not anonymize_cloud_enabled():
         return text if isinstance(text, str) else str(text or "")
     s = text if isinstance(text, str) else str(text or "")
     if not s:
         return s
-    if anonymize_reversible_enabled():
+    use_reversible = anonymize_reversible_enabled() if reversible is None else bool(reversible)
+    if use_reversible:
         s = reversible_sub(_API_KEY_RE, "API_KEY", s)
         s = reversible_sub(_EMAIL_RE, "EMAIL", s)
         s = reversible_sub(_SSN_RE, "SSN", s)
@@ -435,8 +477,84 @@ def redact_for_cloud(text: str, *, force: bool = False) -> str:
     for pat in load_custom_anonymize_patterns():
         s = pat.regex.sub(pat.replacement, s)
     if anonymize_ner_enabled():
-        s = apply_ner_redaction(s)
+        s = apply_ner_redaction(s, reversible=use_reversible)
     return s
+
+
+_BUILTIN_TOKEN_KINDS = ("API_KEY", "EMAIL", "SSN", "PHONE", "CARD")
+
+
+def _numbered_token_re() -> re.Pattern[str]:
+    kinds = sorted({*_BUILTIN_TOKEN_KINDS, *ner_entities()}, key=len, reverse=True)
+    alternation = "|".join(re.escape(k) for k in kinds)
+    return re.compile(rf"\[({alternation}):(?:[a-z0-9]+-)?\d+\]")
+
+
+def redact_for_storage(text: str) -> str:
+    """
+    Scrub text that is about to be persisted (knowledge base rows).
+
+    Stored text always uses static placeholders (``[EMAIL]``): numbered tokens restart
+    per request, so ``[EMAIL:1]`` in two stored documents would name two different
+    people and be conflated when both are retrieved. Numbered tokens of the kinds this
+    module mints that are already present (minted earlier in the run) are flattened
+    the same way.
+    """
+    s = text if isinstance(text, str) else str(text or "")
+    if not s or not anonymize_cloud_enabled():
+        return s
+    s = redact_for_cloud(s, force=True, reversible=False)
+    return _numbered_token_re().sub(lambda m: f"[{m.group(1)}]", s)
+
+
+def _restore_in_json(value: Any, token_map: TokenMap) -> Any:
+    if isinstance(value, str):
+        return token_map.restore(value)
+    if isinstance(value, list):
+        return [_restore_in_json(v, token_map) for v in value]
+    if isinstance(value, dict):
+        return {k: _restore_in_json(v, token_map) for k, v in value.items()}
+    return value
+
+
+@contextmanager
+def run_token_map():
+    """
+    Bind a fresh reversible token map for one run and yield a ``restore(text)`` callable.
+
+    Tokens minted while the context is active carry a per-run tag (``[EMAIL:r3fa9-1]``),
+    so restoring the final answer can never substitute a value for a look-alike
+    ``[EMAIL:1]`` minted by an unrelated context. The map lives in memory only and is
+    dropped when the run ends.
+    """
+    if not (anonymize_cloud_enabled() and anonymize_reversible_enabled()):
+        yield lambda text: text
+        return
+    token_map = TokenMap(namespace=f"r{secrets.token_hex(2)}")
+    token = bind_token_map(token_map)
+
+    def _restore(text: Any) -> Any:
+        if not isinstance(text, str) or token_map.is_empty():
+            return text
+        restored = token_map.restore(text)
+        if restored == text:
+            return text
+        # A structured (JSON) answer must stay parseable: a restored value containing
+        # a quote or backslash would break it, so restore inside the decoded strings.
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            return restored
+        try:
+            json.loads(restored)
+            return restored
+        except ValueError:
+            return json.dumps(_restore_in_json(parsed, token_map), ensure_ascii=False)
+
+    try:
+        yield _restore
+    finally:
+        reset_token_map(token)
 
 
 def redact_tool_result_for_cloud(text: str) -> str:

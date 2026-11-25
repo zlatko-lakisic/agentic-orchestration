@@ -8,6 +8,7 @@ new product surfaces live under ``/api/v1/``.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from contextlib import asynccontextmanager
@@ -20,13 +21,26 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from orchestration.serve import engine_version, serve_host, serve_port, tool_root
+from orchestration.serve import bound_host, engine_version, serve_host, serve_port, tool_root
+from orchestration.serve.access import (
+    host_allowed,
+    is_admin_path,
+    is_state_changing,
+    operator_authorized,
+    origin_allowed,
+)
 from orchestration.serve.mtls_tls import (
     is_public_mtls_path,
     mtls_required,
     peercert_from_scope,
 )
-from orchestration.user_context import Identity, IdentityRequiredError, resolve_identity
+from orchestration.user_context import (
+    Identity,
+    IdentityRequiredError,
+    normalize_requested_session_id,
+    resolve_identity,
+    resolve_request_session_id,
+)
 
 #: Identifies this process in ``/api/ping`` (proves a client hit this daemon).
 INSTANCE_ID = f"{os.getpid()}-{int(time.time() * 1000):x}"
@@ -115,13 +129,94 @@ class CustomToolDeactivateRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def _check_deal_access(*, root: Path, identity: Identity, deal_id: str | None) -> None:
-    from orchestration.deal_auth import DealAccessDenied, check_deal_access
+#: Upper bound for the small JSON bodies the admin routes accept.
+ADMIN_JSON_BODY_MAX_BYTES = 64 * 1024
+
+#: Multipart framing (boundaries, part headers, small text fields) on top of the file.
+_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+
+
+def _check_deal_access(
+    *,
+    root: Path,
+    identity: Identity,
+    deal_id: str | None,
+    role: str | None = None,
+) -> str | None:
+    """
+    Authorize ``deal_id`` for the caller and return the id the KB should use.
+
+    In server mode the membership file is keyed by the normalized id, so the same
+    normalized id is handed to the knowledge base — otherwise ``"ACME 2026"`` would be
+    authorized as ``acme-2026`` but stored under a different key.
+    """
+    from orchestration.deal_auth import DealAccessDenied, check_deal_access, local_mode, safe_id
 
     try:
-        check_deal_access(tool_root=root, user_id=identity.user_id, deal_id=deal_id)
+        check_deal_access(
+            tool_root=root,
+            user_id=identity.user_id,
+            deal_id=deal_id,
+            role=role,
+        )
     except DealAccessDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    raw = str(deal_id or "").strip()
+    if not raw:
+        return None
+    return raw if local_mode() else safe_id(raw)
+
+
+def _visible_deal_ids(*, root: Path, identity: Identity) -> list[str] | None:
+    """Deals the caller may read without naming one; ``None`` means unrestricted (local mode)."""
+    from orchestration.deal_auth import list_deals_for_user, local_mode
+
+    if local_mode():
+        return None
+    return [m.deal_id for m in list_deals_for_user(tool_root=root, user_id=identity.user_id)]
+
+
+def _limit_request_body(request: Request, limit: int) -> None:
+    """
+    Refuse a body larger than ``limit`` bytes before it is buffered.
+
+    ``Content-Length`` is checked up front; chunked bodies are counted as they arrive so
+    form parsing / ``request.body()`` stops at the limit instead of filling memory.
+    """
+    declared = (request.headers.get("content-length") or "").strip()
+    if declared.isdigit() and int(declared) > limit:
+        raise HTTPException(status_code=413, detail=f"request body exceeds {limit} bytes")
+    received = 0
+    original_receive = request._receive  # noqa: SLF001 — Starlette has no public hook
+
+    async def _counting_receive() -> Any:
+        nonlocal received
+        message = await original_receive()
+        if message.get("type") == "http.request":
+            received += len(message.get("body") or b"")
+            if received > limit:
+                raise HTTPException(
+                    status_code=413, detail=f"request body exceeds {limit} bytes"
+                )
+        return message
+
+    request._receive = _counting_receive  # noqa: SLF001
+
+
+async def _admin_json_body(request: Request) -> dict[str, Any]:
+    """Parse an admin POST body: empty → ``{}``; anything else must be ``application/json``."""
+    _limit_request_body(request, ADMIN_JSON_BODY_MAX_BYTES)
+    raw = await request.body()
+    if not raw.strip():
+        return {}
+    content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON body") from exc
+    return body if isinstance(body, dict) else {}
 
 
 def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
@@ -168,6 +263,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             from orchestration.ollama_serve_lifecycle import stop_all_serves
 
             await run_in_threadpool(stop_all_serves)
+            # Custom-tool servers are children of this process; do not leave them running.
+            from orchestration.tool_sandbox_runtime import stop_all_runtimes
+
+            await run_in_threadpool(stop_all_runtimes)
 
     app = FastAPI(
         title="agentic-orchestration engine daemon",
@@ -182,9 +281,26 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     app.state.warm = {}
 
     @app.middleware("http")
-    async def require_client_cert_when_mtls(request: Request, call_next):
-        """Enforce verified client cert on protected routes when mTLS is required."""
-        if mtls_required() and not is_public_mtls_path(request.url.path):
+    async def access_guard(request: Request, call_next):
+        """Host / Origin checks, operator credential on admin routes, client cert under mTLS."""
+        headers = request.headers
+        if not host_allowed(headers, bound_host()):
+            return JSONResponse({"ok": False, "error": "host not allowed"}, status_code=403)
+        if is_state_changing(request.method) and not origin_allowed(headers):
+            return JSONResponse({"ok": False, "error": "origin not allowed"}, status_code=403)
+        path = request.url.path
+        if is_admin_path(path):
+            client_host = request.client.host if request.client else None
+            if not operator_authorized(headers, client_host):
+                return JSONResponse(
+                    {"ok": False, "error": "operator credential required"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            # The operator credential stands in for a client certificate: the Node
+            # coordinator calls these routes without one.
+            return await call_next(request)
+        if mtls_required() and not is_public_mtls_path(path):
             peercert = peercert_from_scope(request.scope)
             if not peercert:
                 return JSONResponse(
@@ -201,24 +317,26 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         return await call_next(request)
 
     @app.get("/ready")
-    async def ready() -> dict[str, Any]:
+    async def ready(request: Request) -> dict[str, Any]:
         """Shallow kube readiness (#148) — no Comfy/Ollama/hardware probes.
 
         Under Wan/LTX load, full ``/health`` can exceed kubelet ``timeoutSeconds``
         and flap NotReady even though TCP :8765 still answers. Keep deep checks
         on ``/health`` for Admin/Quill; point readiness/liveness at ``/ready``.
         """
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "ready": True,
             "version": engine_version(),
             "service": "agentic-orchestration-engine",
             "instance": INSTANCE_ID,
-            "bind": f"{serve_host()}:{serve_port()}",
         }
+        if operator_authorized(request.headers, request.client.host if request.client else None):
+            payload["bind"] = f"{serve_host()}:{serve_port()}"
+        return payload
 
     @app.get("/health")
-    async def health() -> dict[str, Any]:
+    async def health(request: Request) -> dict[str, Any]:
         from orchestration.hardware_profile import hardware_snapshot
         from orchestration.ollama_keepalive import keepalive_status, resolve_keepalive_model_tags
         from orchestration.serve.mtls_ca import ca_exists, mtls_hello_payload
@@ -233,8 +351,6 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             "version": engine_version(),
             "service": "agentic-orchestration-engine",
             "instance": INSTANCE_ID,
-            "toolRoot": str(root),
-            "bind": f"{serve_host()}:{serve_port()}",
             "catalogs": warm,
             "hardware": hw,
             "customToolSandbox": custom_tool_sandbox_enabled(),
@@ -251,6 +367,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 "resourceSharing": sharing,
             },
         }
+        # Filesystem layout and bind address are operator detail, not for anonymous peers.
+        if operator_authorized(request.headers, request.client.host if request.client else None):
+            payload["toolRoot"] = str(root)
+            payload["bind"] = f"{serve_host()}:{serve_port()}"
         payload["detection"] = await run_in_threadpool(_detection_health_snapshot, root)
         payload["videoGeneration"] = await run_in_threadpool(
             _video_generation_health_snapshot, root
@@ -469,13 +589,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     @app.post("/api/v1/admin/detection/ensure-ready")
     async def api_detection_ensure_ready(request: Request) -> dict[str, Any]:
         """Download detection weights + warm ORT sessions (Admin ensure-ready)."""
-        body: dict[str, Any] = {}
-        try:
-            raw = await request.json()
-            if isinstance(raw, dict):
-                body = raw
-        except Exception:  # noqa: BLE001
-            body = {}
+        body = await _admin_json_body(request)
         provider_id = str(body.get("providerId") or body.get("provider_id") or "").strip() or None
 
         def _run() -> dict[str, Any]:
@@ -562,12 +676,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         """Mint a one-time Reach enrollment token (plaintext returned once)."""
         from orchestration.serve.mtls_ca import MtlsCaError, mint_enroll_token
 
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001
-            body = {}
-        if not isinstance(body, dict):
-            body = {}
+        body = await _admin_json_body(request)
 
         def _mint() -> dict[str, Any]:
             ttl = body.get("ttlSeconds", body.get("ttl", 86400))
@@ -598,12 +707,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         """Deny one client cert (serial and/or subject CN) without rotating the CA."""
         from orchestration.serve.mtls_ca import MtlsCaError, revoke_mtls_client
 
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001
-            body = {}
-        if not isinstance(body, dict):
-            body = {}
+        body = await _admin_json_body(request)
 
         def _revoke() -> dict[str, Any]:
             return revoke_mtls_client(
@@ -617,19 +721,18 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             entry = await run_in_threadpool(_revoke)
         except MtlsCaError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"ok": True, "revoked": entry}
+        # A revoked client must not keep working over a socket it already opened.
+        from orchestration.serve.ws import close_revoked_connections
+
+        closed = await close_revoked_connections(root)
+        return {"ok": True, "revoked": entry, "closedConnections": closed}
 
     @app.post("/api/v1/admin/mtls/clients/unrevoke")
     async def api_mtls_clients_unrevoke(request: Request) -> dict[str, Any]:
         """Remove a deny-list entry so the client can reconnect with the same cert."""
         from orchestration.serve.mtls_ca import MtlsCaError, unrevoke_mtls_client
 
-        try:
-            body = await request.json()
-        except Exception:  # noqa: BLE001
-            body = {}
-        if not isinstance(body, dict):
-            body = {}
+        body = await _admin_json_body(request)
 
         def _unrevoke() -> bool:
             return unrevoke_mtls_client(
@@ -684,29 +787,40 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         if response_format is not None:
             base["responseFormat"] = response_format
         try:
+            from orchestration.cloud_anonymize import run_token_map
             from orchestration.session_overlay import overlay_run_context
+
+            # Overlay lookup stays keyed by (user, session) - already user-scoped. The
+            # session *file* slug is bound to the caller so one user cannot continue
+            # another user's stored session by naming its id.
+            overlay_session = (
+                normalize_requested_session_id(payload.session_id) or identity.session_id
+            )
+            storage_slug = resolve_request_session_id(identity, payload.session_id)
 
             def _run() -> str:
                 with overlay_run_context(
                     user_id=identity.user_id,
-                    session_id=payload.session_id or identity.session_id,
-                ):
+                    session_id=overlay_session,
+                ), run_token_map() as restore:
                     parsed_images = None
                     if payload.images:
                         from orchestration.reach_multimodal import parse_reach_images
 
                         parsed_images = parse_reach_images(payload.images)
-                    return run_direct_agent(
-                        tool_root=root,
-                        agent_provider_id=payload.agent_provider_id,
-                        goal=text,
-                        context=payload.context or "",
-                        session_slug=payload.session_id or identity.session_id,
-                        user_id=identity.user_id,
-                        mcp_provider_ids=payload.mcp_provider_ids,
-                        response_format=response_format,
-                        json_schema=payload.json_schema,
-                        images=parsed_images,
+                    return restore(
+                        run_direct_agent(
+                            tool_root=root,
+                            agent_provider_id=payload.agent_provider_id,
+                            goal=text,
+                            context=payload.context or "",
+                            session_slug=storage_slug,
+                            user_id=identity.user_id,
+                            mcp_provider_ids=payload.mcp_provider_ids,
+                            response_format=response_format,
+                            json_schema=payload.json_schema,
+                            images=parsed_images,
+                        )
                     )
 
             answer = await run_in_threadpool(_run)
@@ -738,8 +852,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
         if not (payload.content or "").strip():
             raise HTTPException(status_code=400, detail="content is required")
-        _check_deal_access(root=root, identity=identity, deal_id=payload.deal_id)
-        session_slug = payload.session_id or identity.session_id
+        deal_id = _check_deal_access(
+            root=root, identity=identity, deal_id=payload.deal_id, role="editor"
+        )
+        session_slug = resolve_request_session_id(identity, payload.session_id)
         if payload.fast:
             result = await run_in_threadpool(
                 lambda: fast_ingest(
@@ -748,7 +864,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     user_goal=payload.user_goal,
                     session_slug=session_slug,
                     user_id=identity.user_id,
-                    deal_id=payload.deal_id,
+                    deal_id=deal_id,
                     scope=payload.scope,
                     source_id=payload.source_id,
                     vintage=payload.vintage,
@@ -762,7 +878,7 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 user_goal=payload.user_goal or "(ingest)",
                 content=payload.content,
                 user_id=identity.user_id,
-                deal_id=payload.deal_id,
+                deal_id=deal_id,
                 scope=payload.scope,
                 source_id=payload.source_id,
                 vintage=payload.vintage,
@@ -777,7 +893,9 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         from orchestration.knowledge_base import upsert_by_source
 
-        _check_deal_access(root=root, identity=identity, deal_id=payload.deal_id)
+        deal_id = _check_deal_access(
+            root=root, identity=identity, deal_id=payload.deal_id, role="editor"
+        )
         try:
             result = await run_in_threadpool(
                 lambda: upsert_by_source(
@@ -785,9 +903,9 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                     source_id=payload.source_id,
                     content=payload.content,
                     user_goal=payload.user_goal,
-                    session_slug=payload.session_id or identity.session_id,
+                    session_slug=resolve_request_session_id(identity, payload.session_id),
                     user_id=identity.user_id,
-                    deal_id=payload.deal_id,
+                    deal_id=deal_id,
                     scope=payload.scope,
                     vintage=payload.vintage,
                 )
@@ -803,10 +921,14 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         from orchestration.knowledge_base import delete_by_scope
 
-        _check_deal_access(root=root, identity=identity, deal_id=deal_id)
+        kb_deal_id = _check_deal_access(
+            root=root, identity=identity, deal_id=deal_id, role="owner"
+        )
+        if not kb_deal_id:
+            raise HTTPException(status_code=400, detail="deal id is required")
         try:
             removed = await run_in_threadpool(
-                lambda: delete_by_scope(tool_root=root, deal_id=deal_id)
+                lambda: delete_by_scope(tool_root=root, deal_id=kb_deal_id)
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -822,14 +944,18 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         from orchestration.knowledge_base import search
 
-        _check_deal_access(root=root, identity=identity, deal_id=deal_id)
+        kb_deal_id = _check_deal_access(root=root, identity=identity, deal_id=deal_id)
+        # Without a deal id, server mode only searches the global tier plus the
+        # caller's own deals - never every deal in the store.
+        visible = None if kb_deal_id else _visible_deal_ids(root=root, identity=identity)
         hits = await run_in_threadpool(
             lambda: search(
                 tool_root=root,
                 query=q,
                 limit=limit,
                 scope=scope,
-                deal_id=deal_id,
+                deal_id=kb_deal_id,
+                allowed_deal_ids=visible,
             )
         )
         return {"ok": True, "query": q, "hits": [h.to_json_dict() for h in hits]}
@@ -863,9 +989,16 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 detail="custom tool sandbox is disabled (AGENTIC_CUSTOM_TOOL_SANDBOX=0)",
             )
 
+        from orchestration.tool_artifacts import max_upload_bytes
+
         content_type = (request.headers.get("content-type") or "").lower()
         app_id = (request.query_params.get("appId") or request.query_params.get("app_id") or "").strip()
-        if "multipart/form-data" in content_type:
+        is_multipart = "multipart/form-data" in content_type
+        _limit_request_body(
+            request,
+            max_upload_bytes() + (_MULTIPART_OVERHEAD_BYTES if is_multipart else 0),
+        )
+        if is_multipart:
             form = await request.form()
             upload = form.get("file") or form.get("package")
             if upload is None:
@@ -924,6 +1057,10 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 status_code=400,
                 detail="artifactId or toolId+toolVersion are required",
             )
+        from orchestration.custom_tool_contract import SEMVER_PATTERN, TOOL_ID_PATTERN
+
+        if not TOOL_ID_PATTERN.match(str(tool_id)) or not SEMVER_PATTERN.match(str(tool_version)):
+            raise HTTPException(status_code=400, detail="invalid toolId or toolVersion")
 
         try:
             result = await run_in_threadpool(
@@ -1017,9 +1154,16 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
             save_client_file,
         )
 
+        from orchestration.client_files import files_max_bytes
+
         content_type = (request.headers.get("content-type") or "").lower()
         if "multipart/form-data" not in content_type:
             raise HTTPException(status_code=400, detail="multipart/form-data required")
+        try:
+            upload_limit = files_max_bytes()
+        except ClientFileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _limit_request_body(request, upload_limit + _MULTIPART_OVERHEAD_BYTES)
         form = await request.form()
         upload = form.get("file")
         if upload is None:
@@ -1096,20 +1240,19 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
 
     @app.post("/api/v1/mtls/enroll")
     async def api_mtls_enroll(payload: MtlsEnrollRequest) -> dict[str, Any]:
-        from orchestration.serve.mtls_ca import (
-            MtlsCaError,
-            consume_enroll_token,
-            sign_client_csr,
-        )
+        from orchestration.serve.mtls_ca import MtlsCaError, enroll_client
 
         csr = (payload.csr_pem or "").strip()
         if not csr:
             raise HTTPException(status_code=400, detail="csrPem is required")
 
         def _enroll() -> dict[str, Any]:
-            token_meta = consume_enroll_token(root, payload.token)
-            override = (payload.client_name or "").strip() or token_meta.get("clientName")
-            return sign_client_csr(root, csr, common_name_override=override)
+            return enroll_client(
+                root,
+                token=payload.token,
+                csr_pem=csr,
+                client_name=payload.client_name,
+            )
 
         try:
             result = await run_in_threadpool(_enroll)
@@ -1121,6 +1264,13 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
     async def websocket_endpoint(websocket: WebSocket) -> None:
         from orchestration.serve.ws import WsConnection
 
+        # Browsers do not apply the same-origin policy to WebSockets, so a page on any
+        # site could otherwise open this socket and drive runs.
+        if not host_allowed(websocket.headers, bound_host()) or not origin_allowed(
+            websocket.headers
+        ):
+            await websocket.close(code=1008, reason="origin not allowed")
+            return
         if mtls_required():
             peercert = peercert_from_scope(websocket.scope)
             if not peercert:
