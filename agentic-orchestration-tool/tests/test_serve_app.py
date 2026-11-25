@@ -1099,6 +1099,6 @@ def test_client_files_rejects_bad_type(
         resp = c.post(
             "/api/v1/files",
             headers={"x-agentic-user-name": "Alice"},
-            files={"file": ("x.bin", b"abc", "application/octet-stream")},
+            files={"file": ("x.exe", b"abc", "application/x-msdownload")},
         )
         assert resp.status_code == 415

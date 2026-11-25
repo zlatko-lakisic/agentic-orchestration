@@ -13,6 +13,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 - **Kokoro TTS wiring (#180/#184)** — ship `tts_kokoro_en` (endpoint `AGENTIC_SPEECH_KOKORO_URL`, Piper fallback); document durable secret sync so engine restarts do not drop the URL.
 - **Engine memory floor (#182)** — `agentic-engine` requests/limits (`2Gi`/`8Gi`) so the pod is Burstable, not BestEffort, beside ComfyUI's 24Gi memcg.
 - **Orpheus unset URL (#185)** — preferred TTS endpoints fail closed when their env is unset (no silent Piper); Piper fallback remains when the preferred URL is set but the sidecar returns 5xx.
+- **Client-file upload probes (#188)** — allow `text/plain` and `application/octet-stream` so trivial health/smoke uploads are not rejected with 415.
 
 Whole-repo review and fix pass. **Read "Upgrade notes" before deploying**: several defaults are now closed that used to be open.
 

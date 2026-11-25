@@ -31,6 +31,9 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
         "audio/mpeg",
         "video/mp4",
         "application/json",
+        # Ops / worker smoke probes (#188)
+        "text/plain",
+        "application/octet-stream",
     }
 )
 
