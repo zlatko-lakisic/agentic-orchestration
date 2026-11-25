@@ -31,6 +31,15 @@
 # jobs create/get/list/watch/delete + pods/log). Leaving the default SA causes
 # `403 Forbidden` on `jobs.batch` create.
 #
+# ## Resources (#182)
+#
+# The engine Deployment sets Burstable requests/limits (`2Gi` / `8Gi` memory by
+# default). Empty resources made the pod BestEffort and Ada Quill video load
+# produced exit 137 OOMs with no memcg bound. Leave headroom for in-cluster
+# ComfyUI (`24Gi` limit — see `deploy/k8s/comfyui/` and #148). Kube probes use
+# shallow HTTPS `/ready` (not TCP, not full `/health`) so LTX load does not trip
+# liveness (#148/#181/#187).
+#
 # ## Apply (edge)
 #
 # ```bash

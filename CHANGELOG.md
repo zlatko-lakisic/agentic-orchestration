@@ -11,6 +11,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 - **Shorts mux end-hold (#179/#183)** — `media_render_short` no longer uses ffmpeg `-shortest`; narration is `apad`'d to the silent video length, and `_apply_duration_rules` keeps a planned `narration + end_hold_s` (default 3s) instead of trimming to `narr+0.5`.
 - **Kokoro TTS wiring (#180/#184)** — ship `tts_kokoro_en` (endpoint `AGENTIC_SPEECH_KOKORO_URL`, Piper fallback); document durable secret sync so engine restarts do not drop the URL.
+- **Engine memory floor (#182)** — `agentic-engine` requests/limits (`2Gi`/`8Gi`) so the pod is Burstable, not BestEffort, beside ComfyUI's 24Gi memcg.
 
 Whole-repo review and fix pass. **Read "Upgrade notes" before deploying**: several defaults are now closed that used to be open.
 

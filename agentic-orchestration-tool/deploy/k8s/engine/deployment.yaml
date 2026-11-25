@@ -45,9 +45,14 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
           resources:
+            # Burstable (not BestEffort): Ada Quill t2v7 saw exit 137 with empty
+            # requests/limits (#182). Leave headroom for ComfyUI's 24Gi memcg (#148).
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
           workingDir: /app/tool
           command: ["/bin/bash", "-c"]
           args:
