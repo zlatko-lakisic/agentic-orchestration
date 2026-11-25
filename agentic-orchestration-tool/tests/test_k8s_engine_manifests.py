@@ -81,6 +81,25 @@ def test_engine_probes_use_shallow_ready_not_tcp() -> None:
 
 
 @pytest.mark.unit
+def test_engine_has_memory_requests_and_limits() -> None:
+    """#182: stop BestEffort QoS so OOM 137 is bounded and visible."""
+    doc = _load_yaml("deployment.yaml")
+    resources = doc["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert resources["requests"]["memory"]
+    assert resources["limits"]["memory"]
+    # Limits must be strictly above requests (Burstable).
+    def _to_mi(raw: str) -> int:
+        s = str(raw).strip().lower()
+        if s.endswith("gi"):
+            return int(float(s[:-2]) * 1024)
+        if s.endswith("mi"):
+            return int(float(s[:-2]))
+        raise AssertionError(f"unexpected memory unit: {raw!r}")
+
+    assert _to_mi(resources["limits"]["memory"]) > _to_mi(resources["requests"]["memory"])
+
+
+@pytest.mark.unit
 def test_dockerfile_comfyui_defaults_to_cuda13() -> None:
     """#149: Ada sm_89 needs PyTorch cu130+."""
     root = Path(__file__).resolve().parents[1]
