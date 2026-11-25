@@ -212,13 +212,18 @@ def load_agent_entry(
     )
 
 
+def _context_chars_cap() -> int:
+    from orchestration.env_values import env_int
+
+    return env_int("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", 20000, lo=500, hi=200000)
+
+
 def build_direct_task_description(*, goal: str, context: str = "") -> str:
     """Prompt for a single-shot answer: caller context first, then the question."""
     parts: list[str] = []
     ctx = str(context or "").strip()
     if ctx:
-        cap = int(os.getenv("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", "20000"))
-        cap = max(500, min(200000, cap))
+        cap = _context_chars_cap()
         parts.append("## Provided context\n" + ctx[:cap])
     parts.append("## Question\n" + str(goal or "").strip())
     parts.append(
@@ -234,8 +239,7 @@ def build_raw_user_prompt(*, goal: str, context: str = "") -> str:
     parts: list[str] = []
     ctx = str(context or "").strip()
     if ctx:
-        cap = int(os.getenv("AGENTIC_DIRECT_AGENT_CONTEXT_CHARS", "20000"))
-        cap = max(500, min(200000, cap))
+        cap = _context_chars_cap()
         parts.append(ctx[:cap])
     parts.append(str(goal or "").strip())
     return "\n\n".join(parts)
@@ -917,12 +921,13 @@ def run_direct_agent(
                 on_progress(f"object_detection:{pid}")
             answer = run_object_detection(entry, images=images, on_progress=on_progress)
             try:
-                import os
-
                 from orchestration.detection_preview import persist_detection_run_artifacts
+                from orchestration.llm_usage import current_run_id
                 from orchestration.run_store import new_run_id
 
-                rid = str(os.environ.get("AGENTIC_RUN_ID") or "").strip() or new_run_id()
+                # ContextVar first: ``AGENTIC_RUN_ID`` in the shared process env
+                # may belong to another concurrent run.
+                rid = current_run_id() or new_run_id()
                 persist_detection_run_artifacts(
                     root, rid, answer=answer, images=images
                 )

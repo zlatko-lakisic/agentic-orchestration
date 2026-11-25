@@ -41,12 +41,13 @@ from orchestration.provider_goal_match import (
     user_prompt_for_goal_matching,
 )
 from orchestration.hardware_profile import filter_catalog_by_hardware
+from orchestration.env_values import env_int
 from orchestration.orchestrator_session import (
     OrchestratorSessionFile,
     load_session,
-    save_session,
     stable_instance_key_for_session,
     trim_planner_history,
+    update_session,
 )
 from orchestration.agent_providers_catalog import (
     catalog_for_planner_prompt,
@@ -157,11 +158,68 @@ def _normalize_openai_api_base() -> str:
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
-    t = text.strip()
+    """Parse the JSON *object* in an LLM reply.
+
+    Accepts bare JSON, a fenced block, or an object embedded in prose
+    ("Here is the plan: {...}") — common once ``response_format`` has been
+    dropped for local models. Always returns a ``dict``; anything else raises
+    ``ValueError`` so callers can route it through their repair path.
+    """
+    t = str(text or "").strip()
+    candidates: list[str] = []
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", t)
     if fence:
-        t = fence.group(1).strip()
-    return json.loads(t)
+        candidates.append(fence.group(1).strip())
+    candidates.append(t)
+
+    first_error: Exception | None = None
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except ValueError as exc:
+            first_error = first_error or exc
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+        first_error = first_error or ValueError(
+            f"expected a JSON object, got {type(parsed).__name__}"
+        )
+
+    # First balanced object embedded in surrounding prose.
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        start = candidate.find("{")
+        while start != -1:
+            try:
+                parsed, _end = decoder.raw_decode(candidate, start)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, dict):
+                return parsed
+            start = candidate.find("{", start + 1)
+
+    if isinstance(first_error, json.JSONDecodeError):
+        # Keep the precise decode error (a ``ValueError`` subclass) for callers.
+        raise first_error
+    detail = f": {first_error}" if first_error is not None else ""
+    raise ValueError(f"LLM reply did not contain a JSON object{detail}")
+
+
+def llm_bool(value: Any) -> bool:
+    """Strict truthiness for a boolean field in LLM JSON.
+
+    ``bool("false")`` is ``True``; models do emit quoted booleans. Only real
+    ``true`` / non-zero numbers / affirmative strings count as true.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in ("true", "yes", "y", "1", "done")
 
 
 def _planner_debug_enabled() -> bool:
@@ -194,6 +252,27 @@ def _planner_debug_dump(
         except Exception:  # noqa: BLE001
             pj = repr(plan)
         print(f"{phase} planner parsed JSON (trunc {lim} chars):\n{pj[:lim]}", file=sys.stderr)
+
+
+_PLANNER_LITELLM_DEFAULT_TIMEOUT_S = 600.0
+
+
+def _planner_litellm_timeout_seconds() -> float | None:
+    """``AGENTIC_PLANNER_TIMEOUT_SEC`` for the LiteLLM planner call.
+
+    Unset / malformed → 600s; ``0`` or negative → no timeout (previous
+    behaviour); otherwise at least 5s.
+    """
+    raw = os.getenv("AGENTIC_PLANNER_TIMEOUT_SEC", "").strip()
+    if not raw:
+        return _PLANNER_LITELLM_DEFAULT_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return _PLANNER_LITELLM_DEFAULT_TIMEOUT_S
+    if value <= 0:
+        return None
+    return max(5.0, value)
 
 
 def _planner_chat_completion(
@@ -271,12 +350,11 @@ def _planner_chat_completion(
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        _timeout_raw = os.getenv("AGENTIC_PLANNER_TIMEOUT_SEC", "").strip()
-        if _timeout_raw:
-            try:
-                kwargs["timeout"] = max(5.0, float(_timeout_raw))
-            except ValueError:
-                pass
+        # Always bound the planner call (it holds a planning lease while it
+        # waits). Default is generous for cold local models; ``0`` disables.
+        _timeout_s = _planner_litellm_timeout_seconds()
+        if _timeout_s is not None:
+            kwargs["timeout"] = _timeout_s
 
         max_retries = 0
         try:
@@ -359,8 +437,8 @@ def _planner_chat_completion(
                     kwargs.pop("response_format", None)
                     json_mode = False
                     continue
-                # Retry on rate-limit-ish errors.
-                if attempt <= max_retries + 1 and ("429" in detail or "rate limit" in detail.lower()):
+                # Retry on rate-limit-ish errors (``max_retries`` retries, so 0 = none).
+                if attempt <= max_retries and ("429" in detail or "rate limit" in detail.lower()):
                     time.sleep(min(30.0, 2.0 * (2 ** (attempt - 1))))
                     continue
                 raise RuntimeError(f"Planner LLM request failed: {detail}") from exc
@@ -443,8 +521,10 @@ def _planner_chat_completion(
                             per_msg = int(os.getenv("AGENTIC_PLANNER_MESSAGE_CHARS", "8000"))
                         except ValueError:
                             per_msg = 8000
+                        # Shrink the *redacted* egress messages: rebuilding from
+                        # the originals would send un-anonymised text on retry.
                         shrunk = _shrink_messages_for_tpm_limit(
-                            messages, keep_last=keep_last, per_message_chars=per_msg
+                            egress_messages, keep_last=keep_last, per_message_chars=per_msg
                         )
                         # Only retry if we actually reduced something.
                         if shrunk != body.get("messages") and attempt <= max_retries + 1:
@@ -454,8 +534,8 @@ def _planner_chat_completion(
                             body.setdefault("max_tokens", 1200)
                             continue
 
-                    # Normal retry-able 429: backoff and retry.
-                    if status == 429 and attempt <= max_retries + 1:
+                    # Normal retry-able 429: backoff and retry (0 = no retries).
+                    if status == 429 and attempt <= max_retries:
                         sleep_s = min(30.0, 2.0 * (2 ** (attempt - 1)))
                         time.sleep(sleep_s)
                         continue
@@ -582,11 +662,9 @@ def _is_voice_client(
     client_app_id: str | None,
     session_path: Path | None,
 ) -> bool:
-    cid = (
-        (client_app_id or "").strip()
-        or os.getenv("AGENTIC_APP_ID", "").strip()
-        or os.getenv("AGENTIC_USER_ID", "").strip()
-    ).lower()
+    from orchestration.llm_usage import current_app_id, current_user_id
+
+    cid = ((client_app_id or "").strip() or current_app_id() or current_user_id()).lower()
     if any(token in cid for token in ("comstar", "reach", "hallway")):
         return True
     if session_path is not None and "comstar" in session_path.stem.lower():
@@ -728,9 +806,12 @@ def _emit_planner_trace(
     detail: dict[str, Any] | None = None,
 ) -> None:
     try:
+        from orchestration.llm_usage import current_run_id
         from orchestration.run_trace import append_run_event
 
-        rid = os.getenv("AGENTIC_RUN_ID", "").strip()
+        # ContextVar first: the env var is process-global and belongs to
+        # whichever concurrent run wrote it last.
+        rid = current_run_id()
         if not rid or tool_root is None:
             return
         append_run_event(
@@ -864,7 +945,7 @@ If no agent skill is relevant, set `"skill_ids": []` and omit per-step `skill_id
 If no RAG source is relevant, set `"rag_ids": []` and omit per-step `rag_ids`.
 """
     if last_crew_excerpt and str(last_crew_excerpt).strip():
-        cap = int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
+        cap = env_int("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", 15000, lo=200, hi=2_000_000)
         excerpt = str(last_crew_excerpt).strip()[:cap]
         system += (
             f"\n\n## Previous crew output (same session; excerpt)\n{excerpt}\n"
@@ -952,8 +1033,8 @@ def _missing_steps_hint(plan: Any) -> str:
 
 def _workflow_snapshot_for_planner_history(cfg: WorkflowConfig) -> str:
     """Rich context appended to the planner assistant turn: agent providers and tasks."""
-    cap_desc = max(80, min(4000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_DESC_CHARS", "500"))))
-    cap_exp = max(60, min(2000, int(os.getenv("AGENTIC_ORCHESTRATOR_TASK_OUTPUT_CHARS", "320"))))
+    cap_desc = env_int("AGENTIC_ORCHESTRATOR_TASK_DESC_CHARS", 500, lo=80, hi=4000)
+    cap_exp = env_int("AGENTIC_ORCHESTRATOR_TASK_OUTPUT_CHARS", 320, lo=60, hi=2000)
 
     def clip(text: str, n: int) -> str:
         s = text.strip().replace("\n", " ")
@@ -1362,7 +1443,7 @@ def workflow_config_from_plan(
             return kept, dropped
 
         mcp_plan_ids, dropped_default = _filter_known(mcp_plan_ids)
-        if dropped_default and not quiet:
+        if dropped_default and (strict or not quiet):
             msg = (
                 f"(dynamic) warning: dropping unknown mcp_provider_id(s) from plan default: "
                 f"{dropped_default!r}. Known: {', '.join(sorted(known_mcp))}"
@@ -1377,7 +1458,7 @@ def workflow_config_from_plan(
                 new_task_defs.append(t)
                 continue
             kept, dropped = _filter_known(list(t.mcp_providers))
-            if dropped and not quiet:
+            if dropped and (strict or not quiet):
                 msg = (
                     f"(dynamic) warning: dropping unknown mcp_provider_id(s) from {t.id}: "
                     f"{dropped!r}. Known: {', '.join(sorted(known_mcp))}"
@@ -1412,7 +1493,7 @@ def workflow_config_from_plan(
             return kept, dropped
 
         skill_plan_ids, dropped_skill_default = _filter_known_skills(skill_plan_ids)
-        if dropped_skill_default and not quiet:
+        if dropped_skill_default and (strict_skill or not quiet):
             msg = (
                 f"(dynamic) warning: dropping unknown skill_id(s) from plan default: "
                 f"{dropped_skill_default!r}. Known: {', '.join(sorted(known_skill))}"
@@ -1427,7 +1508,7 @@ def workflow_config_from_plan(
                 new_task_defs_skill.append(t)
                 continue
             kept, dropped = _filter_known_skills(list(t.skills))
-            if dropped and not quiet:
+            if dropped and (strict_skill or not quiet):
                 msg = (
                     f"(dynamic) warning: dropping unknown skill_id(s) from {t.id}: "
                     f"{dropped!r}. Known: {', '.join(sorted(known_skill))}"
@@ -1787,6 +1868,51 @@ def _maybe_augment_skills_from_user_goal(
     return replace(cfg, skills=merged)
 
 
+def _resolve_kb_user_id(explicit: str | None) -> str | None:
+    """Caller identity for KB scoping: explicit, else the bound usage context / env."""
+    text = str(explicit or "").strip()
+    if text:
+        return text
+    try:
+        from orchestration.llm_usage import current_user_id
+
+        return current_user_id() or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _planner_kb_context_scoped(
+    kb_context_fn: Any,
+    *,
+    tool_root: Path,
+    user_prompt: str,
+    user_id: str | None,
+    deal_id: str | None,
+) -> str:
+    """Call ``planner_kb_context`` with user/deal scope when it accepts them.
+
+    Older signatures take only ``tool_root`` / ``user_prompt``; in that case an
+    identified caller gets **no** KB context rather than unscoped results.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(kb_context_fn).parameters
+    except (TypeError, ValueError):
+        params = {}
+    accepts_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    kwargs: dict[str, Any] = {"tool_root": tool_root, "user_prompt": user_prompt}
+    scoped = False
+    if "user_id" in params or accepts_var_kw:
+        kwargs["user_id"] = user_id
+        scoped = True
+    if deal_id and ("deal_id" in params or accepts_var_kw):
+        kwargs["deal_id"] = deal_id
+    if user_id and not scoped:
+        return ""
+    return str(kb_context_fn(**kwargs) or "")
+
+
 def build_dynamic_workflow_config(
     *,
     user_prompt: str,
@@ -1804,6 +1930,8 @@ def build_dynamic_workflow_config(
     tool_root: Path | None = None,
     quiet: bool = False,
     client_app_id: str | None = None,
+    user_id: str | None = None,
+    deal_id: str | None = None,
 ) -> tuple[WorkflowConfig, dict[str, Any]]:
     entries = load_agent_providers_catalog_merged(catalog_path)
     entries, _skipped_cred = filter_entries_by_api_credentials(
@@ -1930,7 +2058,7 @@ def build_dynamic_workflow_config(
 
     limit = max_steps
     if limit is None:
-        limit = int(os.getenv("AGENTIC_PLANNER_MAX_STEPS", "8"))
+        limit = env_int("AGENTIC_PLANNER_MAX_STEPS", 8)
     limit = max(1, min(32, limit))
 
     model = (planner_model or "").strip() or os.getenv(
@@ -2149,13 +2277,17 @@ def build_dynamic_workflow_config(
             load_stats,
             planner_performance_summary,
             save_stats,
+            stats_lock,
             user_harness_performance_summary,
         )
 
         if tool_root is not None and learning_enabled():
-            st = load_stats(tool_root)
-            st = consume_pending_ratings(tool_root, st)
-            save_stats(tool_root, st)
+            # Locked read-modify-write: concurrent turns (daemon threads or
+            # per-turn CLI processes) must not overwrite each other's stats.
+            with stats_lock(tool_root):
+                st = load_stats(tool_root)
+                st = consume_pending_ratings(tool_root, st)
+                save_stats(tool_root, st)
             # Learning is provider stats only — always safe; match on current turn.
             learning_summary = planner_performance_summary(
                 stats=st, user_prompt=current_turn or user_prompt
@@ -2170,8 +2302,14 @@ def build_dynamic_workflow_config(
         # Fix C: KB only on follow-up (or always/never per mode). Match on current turn
         # so the COMSTAR guard suffix cannot dominate lexical similarity.
         if tool_root is not None and kb_enabled() and attach_ctx:
-            kb_context = planner_kb_context(
-                tool_root=tool_root, user_prompt=current_turn or user_prompt
+            # Scope retrieval to the caller: stored answers carry a user id and
+            # must not leak into another user's planner prompt.
+            kb_context = _planner_kb_context_scoped(
+                planner_kb_context,
+                tool_root=tool_root,
+                user_prompt=current_turn or user_prompt,
+                user_id=_resolve_kb_user_id(user_id),
+                deal_id=(str(deal_id).strip() or None) if deal_id else None,
             )
             if kb_context.strip():
                 kb_hits = kb_context.count("\n- ") or (1 if kb_context.strip() else 0)
@@ -2227,8 +2365,9 @@ def build_dynamic_workflow_config(
             }
         )
         raw2 = _planner_chat_completion(messages=repair_msgs, model=model)
-        plan2 = _extract_json_object(raw2)
+        plan2: dict[str, Any] | None = None
         try:
+            plan2 = _extract_json_object(raw2)
             cfg2 = workflow_config_from_plan(
                 user_prompt=user_prompt,
                 plan=plan2,
@@ -2321,9 +2460,11 @@ def build_dynamic_workflow_config(
 
     if not used_trivial_plan:
         raw_content = _planner_chat_completion(messages=messages, model=model)
-        plan = _extract_json_object(raw_content)
-
+        plan = None
         try:
+            # Extraction is inside the try: prose-wrapped or truncated JSON goes
+            # through the debug dump and the repair retry like any invalid plan.
+            plan = _extract_json_object(raw_content)
             cfg = workflow_config_from_plan(
                 user_prompt=user_prompt,
                 plan=plan,
@@ -2473,19 +2614,28 @@ def build_dynamic_workflow_config(
                 (current_turn or user_prompt).strip()
             )
             stored_assistant = maybe_redact_for_cloud_provider(assistant_content)
-            merged = trim_planner_history(
-                history_raw
-                + [
-                    {"role": "user", "content": stored_user},
-                    {"role": "assistant", "content": stored_assistant},
-                ],
-                max_turn_pairs=max_pairs if voice_client else None,
-            )
-            sess.planner_history = merged
-            save_session(session_path, sess)
+            new_pair = [
+                {"role": "user", "content": stored_user},
+                {"role": "assistant", "content": stored_assistant},
+            ]
+
+            def _persist_turn(fresh: OrchestratorSessionFile) -> None:
+                # ``sess`` was loaded before the planner LLM call. Re-read under
+                # the lock and append to whatever is on disk *now* so a turn or
+                # run outcome saved in the meantime is not overwritten.
+                fresh.instance_key = key
+                fresh.planner_history = trim_planner_history(
+                    list(fresh.planner_history or []) + new_pair,
+                    max_turn_pairs=max_pairs if voice_client else None,
+                )
+
+            sess = update_session(session_path, _persist_turn)
         else:
             # Still refresh instance_key / updated_at without growing history.
-            save_session(session_path, sess)
+            def _touch(fresh: OrchestratorSessionFile) -> None:
+                fresh.instance_key = key
+
+            sess = update_session(session_path, _touch)
 
     return cfg, plan
 
@@ -2513,7 +2663,7 @@ def iterative_controller_decision(
         os.getenv("AGENTIC_PLANNER_MODEL", "gpt-4o-mini").strip(),
     ).strip()
 
-    cap = int(os.getenv("AGENTIC_ITERATIVE_CONTROLLER_EXCERPT_CHARS", "12000"))
+    cap = env_int("AGENTIC_ITERATIVE_CONTROLLER_EXCERPT_CHARS", 12000, lo=200, hi=2_000_000)
     excerpt = (latest_excerpt or "").strip()[:cap]
 
     system = f"""You are an iterative orchestration controller.
@@ -2551,9 +2701,21 @@ Respond with a single JSON object only:
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         model=m,
     )
-    data = _extract_json_object(raw)
+    try:
+        data = _extract_json_object(raw)
+    except ValueError as exc:
+        # A malformed controller reply must not abort a run that already has
+        # completed rounds: keep going (the round cap still applies).
+        return {
+            "done": False,
+            "reason": f"controller returned unparseable output: {exc}",
+            "next_goal": "",
+            "estimated_rounds_remaining": max(0, int(max_rounds) - int(round_index)),
+            "estimate_confidence": "low",
+        }
     if not isinstance(data, dict):
         return {"done": False, "reason": "controller returned non-object", "next_goal": ""}
+    data["done"] = llm_bool(data.get("done"))
     # Clamp estimate if present; always provide a usable fallback estimate.
     remaining_max = max(0, int(max_rounds) - int(round_index))
     est_raw = data.get("estimated_rounds_remaining", None)
@@ -2597,8 +2759,8 @@ def evaluate_run_quality(
         os.getenv("AGENTIC_ITERATIVE_CONTROLLER_MODEL", os.getenv("AGENTIC_PLANNER_MODEL", "gpt-4o-mini")),
     ).strip()
 
-    cap_goal = int(os.getenv("AGENTIC_EVAL_GOAL_CHARS", "2000"))
-    cap_out = int(os.getenv("AGENTIC_EVAL_OUTPUT_CHARS", "12000"))
+    cap_goal = env_int("AGENTIC_EVAL_GOAL_CHARS", 2000)
+    cap_out = env_int("AGENTIC_EVAL_OUTPUT_CHARS", 12000)
     goal = (user_goal or "").strip()[: max(200, cap_goal)]
     out = (output_text or "").strip()[: max(500, cap_out)]
 
@@ -2653,8 +2815,8 @@ def faithfulness_qa_review(
         ),
     ).strip()
 
-    cap_goal = int(os.getenv("AGENTIC_QA_GOAL_CHARS", "2000"))
-    cap_out = int(os.getenv("AGENTIC_QA_OUTPUT_CHARS", "16000"))
+    cap_goal = env_int("AGENTIC_QA_GOAL_CHARS", 2000)
+    cap_out = env_int("AGENTIC_QA_OUTPUT_CHARS", 16000)
     goal = (user_goal or "").strip()[: max(200, cap_goal)]
     out = (output_text or "").strip()[: max(500, cap_out)]
 

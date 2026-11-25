@@ -8,6 +8,8 @@ from orchestration.catalog_credentials import filter_entries_by_api_credentials
 from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
 from orchestration.config_loader import WorkflowConfig, raw_mcp_spec_for_task, raw_skill_spec_for_task, raw_rag_spec_for_task
 from orchestration.mcp_providers_catalog import (
+    defer_process_env_substitution,
+    step_spec_resolves_env_on_coordinator,
     filter_mcp_entries_by_api_credentials,
     load_mcp_providers_catalog_merged,
     resolve_workflow_mcp_refs,
@@ -32,6 +34,7 @@ def resolve_task_mcp_maps(
     *,
     mcp_catalog_path: Path | None,
     quiet: bool,
+    defer_process_env: bool = False,
 ) -> dict[str, list[Any]]:
     mcp_catalog_entries: list[dict[str, Any]] = (
         load_mcp_providers_catalog_merged(mcp_catalog_path)
@@ -51,11 +54,15 @@ def resolve_task_mcp_maps(
         )
 
     task_mcps_resolved: dict[str, list[Any]] = {}
-    for tdef in config.tasks:
-        raw = raw_mcp_spec_for_task(tdef, config)
-        task_mcps_resolved[tdef.id] = (
-            resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []
-        )
+    # Step specs are written to the (shared) run store: keep process-env
+    # ``${VAR}`` placeholders unresolved so secrets never land on disk. The
+    # worker resolves them from its own environment at execution time.
+    with defer_process_env_substitution(defer_process_env):
+        for tdef in config.tasks:
+            raw = raw_mcp_spec_for_task(tdef, config)
+            task_mcps_resolved[tdef.id] = (
+                resolve_workflow_mcp_refs(raw, mcp_catalog_entries) if raw else []
+            )
     return task_mcps_resolved
 
 
@@ -85,6 +92,7 @@ def build_step_specs(
         config,
         mcp_catalog_path=mcp_catalog_path,
         quiet=quiet,
+        defer_process_env=not step_spec_resolves_env_on_coordinator(),
     )
     task_skills = resolve_task_skill_maps(
         config,

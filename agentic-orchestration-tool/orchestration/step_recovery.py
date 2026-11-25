@@ -20,6 +20,11 @@ RECOVERY_HF_LITELLM = "hf_litellm_fallback"
 RECOVERY_PROVIDER = "provider_recovery"
 
 
+def default_agent_providers_catalog_path() -> Path:
+    """``<tool root>/config/agent_providers`` (independent of the process cwd)."""
+    return Path(__file__).resolve().parents[1] / "config" / "agent_providers"
+
+
 def recovery_hint_for_exception(
     exc: BaseException,
     agent_provider: dict,
@@ -76,7 +81,9 @@ def attempt_step_recovery(
 
     hint = (result.recovery_hint or "").strip()
     if hint == RECOVERY_HF_LITELLM:
-        catalog = catalog_path or Path("config/agent_providers")
+        # ``catalog_path`` is the *agent-providers* catalog. Default against the
+        # tool root, not the process cwd.
+        catalog = catalog_path or default_agent_providers_catalog_path()
         fb = workflow_config_after_hf_litellm_fallback(
             config,
             result.error or "",

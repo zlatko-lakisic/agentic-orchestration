@@ -11,9 +11,24 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+
+class RunCancelled(Exception):
+    """Raised by :func:`run_dynamic_goal` when its ``cancel_event`` is set.
+
+    Checked before planning, between planning and execution, and (on
+    distributed backends) between steps, so a cancelled run stops spending
+    model/tool time instead of running to completion in its worker thread.
+    """
+
+
+def _raise_if_cancelled(cancel_event: "threading.Event | None") -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise RunCancelled("run cancelled")
 
 DEFAULT_AGENT_PROVIDERS_CATALOG_REL = "config/agent_providers"
 DEFAULT_MCP_PROVIDERS_CATALOG_REL = "config/mcp_providers"
@@ -169,13 +184,18 @@ def _record_dynamic_run_state(
         "k8s_jobs": k8s_jobs,
         "execution_backend": execution_backend,
     }
-    update_session_after_crew(session_path, result_text, **outcome)
-    update_session_after_final(
-        session_path,
-        user_goal=goal,
-        result_text=result_text,
-        **outcome,
-    )
+    try:
+        update_session_after_crew(session_path, result_text, **outcome)
+        update_session_after_final(
+            session_path,
+            user_goal=goal,
+            result_text=result_text,
+            **outcome,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Best-effort bookkeeping: a session write problem must not turn a
+        # completed run into an error for the caller.
+        print(f"warning: could not update session {session_path.name}: {exc}", file=sys.stderr)
     try:
         from orchestration.knowledge_base import add_document
 
@@ -206,12 +226,14 @@ def run_dynamic_goal(
     priority_label: str | None = None,
     on_queue_wait: Callable[[Any], None] | None = None,
     app_id: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> str:
     """
     Plan and execute one dynamic goal in this process; return the final text.
 
     Raises ``RuntimeError`` when planning or execution fails so the caller can turn it
-    into a protocol-level error frame.
+    into a protocol-level error frame, and :class:`RunCancelled` when
+    ``cancel_event`` is set at a checkpoint.
     """
     from orchestration.backends.crewai import run_options_from_legacy
     from orchestration.backends.factory import execution_backend_name_from_env
@@ -227,6 +249,7 @@ def run_dynamic_goal(
     text = str(goal or "").strip()
     if not text:
         raise RuntimeError("Empty goal")
+    _raise_if_cancelled(cancel_event)
 
     root = tool_root or tool_root_default()
     paths = catalog_paths(root)
@@ -287,6 +310,8 @@ def run_dynamic_goal(
     plan_holder: dict[str, Any] = {}
 
     def _plan() -> Any:
+        # May have waited in the queue for a planning slot.
+        _raise_if_cancelled(cancel_event)
         config, plan = build_dynamic_workflow_config(
             user_prompt=plan_text,
             catalog_path=paths.agent_providers,
@@ -301,11 +326,14 @@ def run_dynamic_goal(
             max_steps=max_steps,
             quiet=quiet,
             client_app_id=app_id,
+            user_id=user_id,
         )
         plan_holder["plan"] = plan
         return config
 
     def _execute(config: Any) -> str:
+        # Cancelled while planning or while waiting for an execution slot.
+        _raise_if_cancelled(cancel_event)
         plan = plan_holder.get("plan") or {}
         return _execute_planned_dynamic(
             config=config,
@@ -321,6 +349,7 @@ def run_dynamic_goal(
             quiet=quiet,
             on_progress=on_progress,
             progress=progress,
+            cancel_event=cancel_event,
         )
 
     try:
@@ -382,6 +411,7 @@ def _execute_dynamic_with_hf_fallback(
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
         run_id=run_id,
+        agent_providers_catalog_path=agent_providers_catalog_path,
     )
     result = execute_workflow_config_resolved(executed, options=options)
     if result.exit_code == 0:
@@ -541,6 +571,7 @@ def _execute_planned_dynamic(
     quiet: bool,
     on_progress: Callable[[str], None] | None,
     progress: Callable[[str], None],
+    cancel_event: threading.Event | None = None,
 ) -> str:
     from orchestration.backends.crewai import run_options_from_legacy
     from orchestration.execution_dispatch import execute_workflow_config_resolved
@@ -609,11 +640,17 @@ def _execute_planned_dynamic(
         rag_sources_catalog_path=paths.rag_sources,
         emit_progress_lines=bool(on_progress),
         run_id=rid,
+        agent_providers_catalog_path=paths.agent_providers,
+        cancel_event=cancel_event,
     )
     from orchestration.progress_sink import progress_callback
 
+    _raise_if_cancelled(cancel_event)
     with progress_callback(on_progress):
         result = execute_workflow_config_resolved(config, options=options)
+    # Stopped at a between-steps checkpoint (distributed backends) or finished
+    # after the caller gave up: either way do not persist it as an answer.
+    _raise_if_cancelled(cancel_event)
     last_task = config.tasks[-1] if config.tasks else None
     provider_id = last_task.agent_provider_id if last_task else "unknown"
     err_text = str(result.error) if result.error else None

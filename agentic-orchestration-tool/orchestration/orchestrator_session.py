@@ -5,9 +5,12 @@ import os
 import re
 import hashlib
 from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from orchestration.atomic_io import atomic_write_text, file_lock, quarantine_corrupt_file
 
 
 SESSION_DIR_NAME = "__orchestrator_sessions__"
@@ -193,19 +196,47 @@ def load_session(path: Path) -> OrchestratorSessionFile:
         if legacy is None or not legacy.exists():
             return OrchestratorSessionFile()
         path = legacy
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # A torn/garbled file must not fail every later turn of this session:
+        # keep it for inspection and start from an empty session.
+        quarantine_corrupt_file(path, reason=type(exc).__name__)
+        return OrchestratorSessionFile()
     if not isinstance(raw, dict):
         return OrchestratorSessionFile()
-    return OrchestratorSessionFile.from_json_dict(raw)
+    try:
+        return OrchestratorSessionFile.from_json_dict(raw)
+    except (TypeError, ValueError) as exc:
+        quarantine_corrupt_file(path, reason=type(exc).__name__)
+        return OrchestratorSessionFile()
 
 
 def save_session(path: Path, data: OrchestratorSessionFile) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Atomically replace the session file (temp file + ``os.replace``)."""
     data.updated_at = datetime.now(timezone.utc).isoformat()
-    path.write_text(
-        json.dumps(data.to_json_dict(), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    with file_lock(path):
+        atomic_write_text(
+            path,
+            json.dumps(data.to_json_dict(), indent=2, ensure_ascii=False),
+        )
+
+
+def update_session(
+    path: Path,
+    mutate: Callable[[OrchestratorSessionFile], None],
+) -> OrchestratorSessionFile:
+    """Locked read-modify-write: reload the current file, apply ``mutate``, save.
+
+    Use this instead of saving a copy that was loaded earlier (e.g. before a
+    planner LLM call): a stale copy would overwrite whatever another turn on
+    the same session persisted in between.
+    """
+    with file_lock(path):
+        data = load_session(path)
+        mutate(data)
+        save_session(path, data)
+        return data
 
 
 def trim_planner_history(
@@ -216,7 +247,9 @@ def trim_planner_history(
     """Keep the last N complete user+assistant pairs (2*N messages)."""
     limit = max_turn_pairs
     if limit is None:
-        limit = int(os.getenv("AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS", "12"))
+        from orchestration.env_values import env_int
+
+        limit = env_int("AGENTIC_ORCHESTRATOR_MAX_PLANNER_TURNS", 12)
     limit = max(1, min(64, limit))
     cap = limit * 2
     if len(history) <= cap:
@@ -228,7 +261,9 @@ def trim_planner_history(
 
 
 def excerpt_max_chars() -> int:
-    return int(os.getenv("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", "15000"))
+    from orchestration.env_values import env_int
+
+    return env_int("AGENTIC_ORCHESTRATOR_EXCERPT_CHARS", 15000, lo=200, hi=2_000_000)
 
 
 def clip_user_prompt_for_edge(text: str, *, max_chars: int | None = None) -> str:
@@ -291,19 +326,21 @@ def update_session_after_crew(
     )
     if not text and not has_outcome:
         return
-    data = load_session(path)
-    if text:
-        scrubbed = maybe_redact_for_cloud_provider(text)
-        data.last_crew_output_excerpt = scrubbed[: excerpt_max_chars()]
-    _apply_run_outcome(
-        data,
-        run_id=run_id,
-        exit_code=exit_code,
-        error=error,
-        k8s_jobs=k8s_jobs,
-        execution_backend=execution_backend,
-    )
-    save_session(path, data)
+
+    def _mutate(data: OrchestratorSessionFile) -> None:
+        if text:
+            scrubbed = maybe_redact_for_cloud_provider(text)
+            data.last_crew_output_excerpt = scrubbed[: excerpt_max_chars()]
+        _apply_run_outcome(
+            data,
+            run_id=run_id,
+            exit_code=exit_code,
+            error=error,
+            k8s_jobs=k8s_jobs,
+            execution_backend=execution_backend,
+        )
+
+    update_session(path, _mutate)
 
 
 def update_session_after_final(
@@ -326,19 +363,21 @@ def update_session_after_final(
     )
     if not text and not has_outcome:
         return
-    data = load_session(path)
-    if text:
-        data.last_user_goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
-        scrubbed = maybe_redact_for_cloud_provider(text)
-        data.last_final_answer_excerpt = scrubbed[: excerpt_max_chars()]
-        # Clear any pending "reprocess" marker once we have a new finalized answer.
-        data.pending_reprocess_goal = None
-    _apply_run_outcome(
-        data,
-        run_id=run_id,
-        exit_code=exit_code,
-        error=error,
-        k8s_jobs=k8s_jobs,
-        execution_backend=execution_backend,
-    )
-    save_session(path, data)
+
+    def _mutate(data: OrchestratorSessionFile) -> None:
+        if text:
+            data.last_user_goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
+            scrubbed = maybe_redact_for_cloud_provider(text)
+            data.last_final_answer_excerpt = scrubbed[: excerpt_max_chars()]
+            # Clear any pending "reprocess" marker once we have a new finalized answer.
+            data.pending_reprocess_goal = None
+        _apply_run_outcome(
+            data,
+            run_id=run_id,
+            exit_code=exit_code,
+            error=error,
+            k8s_jobs=k8s_jobs,
+            execution_backend=execution_backend,
+        )
+
+    update_session(path, _mutate)

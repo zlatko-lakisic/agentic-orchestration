@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Sequence
 
 from crewai import Agent
@@ -49,7 +48,8 @@ class AnthropicProvider(AgentProvider):
             )
         if raw:
             normalized = _normalize_anthropic_base(raw)
-            os.environ["ANTHROPIC_API_URL"] = normalized
+            # Passed explicitly as ``base_url`` in ``build_agent``; never exported
+            # to the (process-global) environment.
             self._base_url = normalized
         else:
             self._base_url = None

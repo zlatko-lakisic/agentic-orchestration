@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from orchestration.config_loader import TaskDefinition, WorkflowConfig
+from orchestration.dynamic_planner import llm_bool
 from orchestration.delegate_task_tool import attach_delegate_task_tool
 from orchestration.society_charter import (
     SocietyCharter,
@@ -550,13 +551,13 @@ def run_society(
                     {
                         "kind": "controller",
                         "turn": turn_index,
-                        "done": bool(decision.get("done")),
+                        "done": llm_bool(decision.get("done")),
                         "reason": str(decision.get("reason", "")),
                         "budget_remaining": decision.get("budget_remaining"),
                         "next_goal": str(decision.get("next_goal", "")),
                     }
                 )
-                if bool(decision.get("done")):
+                if llm_bool(decision.get("done")):
                     stop_reason = f"controller:{decision.get('reason', 'converged')}"
                     if not quiet:
                         print(

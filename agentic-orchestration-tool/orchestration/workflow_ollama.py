@@ -24,8 +24,10 @@ def resolve_workflow_ollama_host(instance_key: str) -> str:
             raw = f"http://{raw}"
         return raw.rstrip("/")
 
-    base = int(os.getenv("AGENTIC_WORKFLOW_OLLAMA_PORT_BASE", "21434"))
-    span = int(os.getenv("AGENTIC_WORKFLOW_OLLAMA_PORT_SPAN", "6000"))
+    from orchestration.env_values import env_int
+
+    base = env_int("AGENTIC_WORKFLOW_OLLAMA_PORT_BASE", 21434, lo=1024, hi=65000)
+    span = env_int("AGENTIC_WORKFLOW_OLLAMA_PORT_SPAN", 6000)
     if span < 1:
         span = 6000
     digest = hashlib.sha256(instance_key.encode("utf-8")).hexdigest()
