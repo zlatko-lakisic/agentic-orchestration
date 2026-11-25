@@ -47,7 +47,9 @@ test("eventsToMermaid puts token helps on model_call arrows and restores ok retu
       },
     },
   ]);
-  assert.match(mermaid, /->>model_\w+: qwen2\.5:14b-instruct/);
+  // Label text is sanitised for Mermaid: ":" (the actor/message separator) becomes "/".
+  assert.match(mermaid, /->>model_\w+: qwen2\.5\/14b-instruct/);
+  assert.doesNotMatch(mermaid, /qwen2\.5:14b-instruct/);
   assert.match(mermaid, /-->>\w+: ok/);
   assert.doesNotMatch(mermaid, /2050↑140↓=2190/);
   assert.doesNotMatch(mermaid, /2190 tok/);
@@ -150,6 +152,31 @@ test("isSecretKey detects credentials", () => {
   assert.equal(isSecretKey("OPENAI_API_KEY"), true);
   assert.equal(isSecretKey("HOME_ASSISTANT_TOKEN"), true);
   assert.equal(isSecretKey("AGENTIC_PLANNER_MODEL"), false);
+  // Secret-bearing keys the old suffix-only pattern returned in clear.
+  for (const key of [
+    "AGENTIC_RUN_STORE_S3_SECRET_ACCESS_KEY",
+    "AGENTIC_RUN_STORE_S3_ACCESS_KEY_ID",
+    "AGENTIC_SENTRY_DSN",
+    "AGENTIC_WEB_SENTRY_DSN",
+    "AGENTIC_SERVE_ADMIN_TOKEN",
+    "AGENTIC_ORCHESTRATE_API_KEY",
+    "SOME_PRIVATE_KEY_PATH",
+    "DB_PASSWORD_FILE",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+  ]) {
+    assert.equal(isSecretKey(key), true, key);
+  }
+  // Ordinary settings must stay readable in the Admin UI.
+  for (const key of [
+    "AGENTIC_PLANNER_MAX_TOKENS",
+    "AGENTIC_CREDENTIAL_SKIP_VERBOSE",
+    "AGENTIC_SERVE_TLS_KEYFILE",
+    "AGENTIC_WEB_HOST",
+    "AGENTIC_RUN_STORE_REDIS_URL",
+    "AGENTIC_WEB_TRUSTED_PROXIES",
+  ]) {
+    assert.equal(isSecretKey(key), false, key);
+  }
 });
 
 test("matchAdminRoute recognizes phase-0 paths", () => {
@@ -170,6 +197,47 @@ test("matchAdminRoute recognizes phase-0 paths", () => {
     "background_activity_cancel",
   );
   assert.equal(matchAdminRoute("/api/ping"), null);
+});
+
+test("matchAdminRoute never throws on malformed percent-encoding", () => {
+  // `GET /api/v1/admin/runs/%zz` used to throw URIError before the auth gate and kill the server.
+  for (const p of [
+    "/api/v1/admin/runs/%zz",
+    "/api/v1/admin/runs/%zz/trace",
+    "/api/v1/admin/traces/%E0%A4%A",
+    "/api/v1/admin/tokens/%",
+    "/api/v1/admin/tokens/%zz/usage",
+    "/api/v1/admin/app-prefs/%c3",
+    "/api/v1/admin/catalogs/agents/%zz",
+    "/api/v1/admin/topology/node/%zz",
+    "/api/v1/admin/topology/edge/%zz/metrics",
+  ]) {
+    let route;
+    assert.doesNotThrow(() => {
+      route = matchAdminRoute(p);
+    }, p);
+    assert.equal(route?.name, "invalid_path", p);
+  }
+  assert.equal(matchAdminRoute(undefined), null);
+  assert.equal(matchAdminRoute("/api/v1/admin/runs/abc%20def")?.id, "abc def");
+});
+
+test("matchAdminRoute rejects path-like run and trace ids", () => {
+  // Run ids name files and directories under the run store / trace dir.
+  for (const p of [
+    "/api/v1/admin/traces/..%2F..%2F..%2Ftmp%2Fx",
+    "/api/v1/admin/runs/..%2Fsecrets",
+    "/api/v1/admin/runs/a%5Cb/trace",
+    "/api/v1/admin/runs/..",
+    "/api/v1/admin/traces/%00",
+  ]) {
+    assert.equal(matchAdminRoute(p)?.name, "invalid_path", p);
+  }
+  assert.deepEqual(matchAdminRoute("/api/v1/admin/traces/0f3a9c"), { name: "runs_trace", id: "0f3a9c" });
+  assert.deepEqual(matchAdminRoute("/api/v1/admin/runs/web-12ab/trace"), {
+    name: "runs_trace",
+    id: "web-12ab",
+  });
 });
 
 test("buildEffectiveConfig never returns secret values", () => {
@@ -623,4 +691,42 @@ test("parseEnvExampleHelp extracts comments before KEY=", () => {
   const help = parseEnvExampleHelp(toolRoot);
   assert.ok(help.OLLAMA_HOST);
   assert.match(help.OLLAMA_HOST, /Ollama/i);
+});
+
+test("buildEffectiveConfig redacts secret keys and credentials embedded in URLs", () => {
+  const toolRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ao-admin-redact-tool-"));
+  const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ao-admin-redact-web-"));
+  const s3Secret = "s3-secret-value-do-not-leak";
+  const redisPassword = "redis-pass-do-not-leak";
+  const tavilyKey = "tvly-do-not-leak";
+  fs.writeFileSync(
+    path.join(toolRoot, ".env"),
+    [
+      `AGENTIC_RUN_STORE_S3_SECRET_ACCESS_KEY=${s3Secret}`,
+      "AGENTIC_RUN_STORE_S3_ACCESS_KEY_ID=AKIDEXAMPLEDONOTLEAK",
+      `AGENTIC_RUN_STORE_REDIS_URL=redis://default:${redisPassword}@redis.internal:6379/0`,
+      `TAVILY_MCP_URL=https://mcp.tavily.com/mcp/?tavilyApiKey=${tavilyKey}&region=us`,
+      "AGENTIC_SENTRY_DSN=https://publickeydonotleak@o1.ingest.sentry.io/42",
+      "AGENTIC_PLANNER_MODEL=openai/gpt-4o-mini",
+      "",
+    ].join("\n"),
+  );
+  const cfg = buildEffectiveConfig({ toolRoot, webRoot });
+  const json = JSON.stringify(cfg);
+  for (const leak of [s3Secret, "AKIDEXAMPLEDONOTLEAK", redisPassword, tavilyKey, "publickeydonotleak"]) {
+    assert.ok(!json.includes(leak), `leaked ${leak}`);
+  }
+  const s3 = cfg.entries.AGENTIC_RUN_STORE_S3_SECRET_ACCESS_KEY;
+  assert.equal(s3.secret, true);
+  assert.equal(s3.set, true);
+  assert.equal(s3.effective, undefined);
+  const redis = cfg.entries.AGENTIC_RUN_STORE_REDIS_URL;
+  assert.equal(redis.secret, false);
+  assert.equal(redis.effective, "redis://***@redis.internal:6379/0");
+  // Non-secret parts of a URL stay visible; only the credential is masked.
+  assert.equal(
+    cfg.entries.TAVILY_MCP_URL.effective,
+    "https://mcp.tavily.com/mcp/?tavilyApiKey=***&region=us",
+  );
+  assert.equal(cfg.entries.AGENTIC_PLANNER_MODEL.effective, "openai/gpt-4o-mini");
 });

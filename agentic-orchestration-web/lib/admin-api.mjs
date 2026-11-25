@@ -35,9 +35,12 @@ import { sampleAoResources } from "./ao-resource-usage.mjs";
 import { loadDeployRevision } from "./deploy-revision.mjs";
 import { sampleMemoryAndGpu } from "../host-metrics.mjs";
 
-// Path-like TLS keys are not secrets — operators need to see the path + existence.
+// Secret-bearing env keys. Matching is deliberately broad (anywhere in the name for the
+// unambiguous words, suffix for the short ones) — showing "set" instead of a value for an
+// extra key is harmless, leaking AGENTIC_RUN_STORE_S3_SECRET_ACCESS_KEY is not.
 const SECRET_KEY_RE =
-  /(API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|_PEM)$/i;
+  /(SECRET|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|API_KEY|AUTH_KEY|SIGNING_KEY|ENCRYPTION_KEY)|(TOKEN|CREDENTIALS?|_KEY|_KEY_ID|_DSN|_PEM)$/i;
+// Path-like TLS keys are not secrets — operators need to see the path + existence.
 const PATH_NOT_SECRET = new Set([
   "AGENTIC_SERVE_TLS_CERTFILE",
   "AGENTIC_SERVE_TLS_KEYFILE",
@@ -648,6 +651,25 @@ function isSecretKey(key) {
   return SECRET_KEY_RE.test(key) || Boolean(KEY_META[key]?.secret);
 }
 
+const SECRET_QUERY_PARAM_RE = /(key|token|secret|passw|signature|sig|auth|credential)/i;
+
+/**
+ * Mask credentials embedded in a non-secret value: URL userinfo
+ * (`redis://:pass@host` → `redis://***@host`) and secret-looking query parameters
+ * (`?tavilyApiKey=…` → `?tavilyApiKey=***`).
+ * @param {unknown} value
+ */
+function redactEmbeddedCredentials(value) {
+  if (value == null) return value;
+  let text = String(value);
+  if (!text.includes("://")) return text;
+  text = text.replace(/([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]*)@/gi, "$1***@");
+  text = text.replace(/([?&])([^=&#\s]+)=([^&#\s]*)/g, (m, sep, name, val) =>
+    val && SECRET_QUERY_PARAM_RE.test(name) ? `${sep}${name}=***` : m,
+  );
+  return text;
+}
+
 function parseEnvFile(filePath) {
   const out = {};
   if (!fs.existsSync(filePath)) return out;
@@ -1093,7 +1115,7 @@ function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
     }
 
     for (const o of overrides) {
-      o.value = secret ? undefined : o._raw != null ? String(o._raw) : null;
+      o.value = secret ? undefined : o._raw != null ? redactEmbeddedCredentials(o._raw) : null;
       delete o._raw;
     }
 
@@ -1136,10 +1158,10 @@ function buildEffectiveConfig({ toolRoot, webRoot, includeInjected = false }) {
       overrides,
       secret,
       set: configuredSet,
-      default: secret ? undefined : defaultValue,
-      effective: secret ? undefined : effective,
+      default: secret ? undefined : redactEmbeddedCredentials(defaultValue),
+      effective: secret ? undefined : redactEmbeddedCredentials(effective),
       // Back-compat alias
-      value: secret ? undefined : effective,
+      value: secret ? undefined : redactEmbeddedCredentials(effective),
       pathExists,
       secretState: secret ? { set: configuredSet, usedBy: meta.usedBy || [] } : undefined,
       injected: isInjectedK8sEnvKey(key),
@@ -1430,6 +1452,20 @@ function applyEngineHttpsTrust(opts, trustPrivateEngine) {
   opts.checkServerIdentity = () => undefined;
 }
 
+/**
+ * Operator credential for the engine daemon's `/api/v1/admin/*` routes. The daemon requires
+ * `Authorization: Bearer <AGENTIC_SERVE_ADMIN_TOKEN>` there when that env is set (loopback
+ * peers are allowed when it is unset). Server-to-engine only — never forwarded to a browser.
+ * @param {URL} u
+ * @returns {Record<string, string>}
+ */
+function engineAdminAuthHeaders(u) {
+  const token = String(process.env.AGENTIC_SERVE_ADMIN_TOKEN || "").trim();
+  if (!token) return {};
+  if (!u || !String(u.pathname || "").startsWith("/api/v1/admin/")) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 function fetchJson(url, timeoutMs = 2000, tlsInsecure = false) {
   return fetchJsonRequest(url, { timeoutMs, tlsInsecure });
 }
@@ -1447,6 +1483,7 @@ function fetchJsonRequest(url, { method = "GET", body = null, timeoutMs = 2000, 
           ? { "Content-Type": "application/json", "Content-Length": String(payload.length) }
           : {},
       };
+      Object.assign(opts.headers, engineAdminAuthHeaders(u));
       if (u.protocol === "https:") {
         applyEngineHttpsTrust(opts, Boolean(tlsInsecure));
       }
@@ -2336,7 +2373,9 @@ function hydrateTraceExchange(toolRoot, runId, exchange) {
   }
   if (!finalResponse) {
     const runStore = String(process.env.AGENTIC_RUN_STORE_PATH || "/run/store").trim();
-    const runDir = path.join(runStore, String(runId || "").trim());
+    const runIdText = String(runId || "").trim();
+    // Run ids are opaque slugs; anything path-like must not reach the filesystem.
+    const runDir = /^[A-Za-z0-9_-]{1,128}$/.test(runIdText) ? path.join(runStore, runIdText) : "";
     if (runDir && fs.existsSync(runDir)) {
       try {
         const parts = [];
@@ -3704,16 +3743,52 @@ async function buildAoResources(ctx) {
   });
 }
 
+/** Marker for a syntactically broken path segment (e.g. `%zz`); the caller answers 400. */
+const INVALID_ADMIN_PATH = Object.freeze({ name: "invalid_path" });
+
+class AdminPathError extends Error {}
+
+/** decodeURIComponent that reports failure instead of throwing a URIError at the router. */
+function decodePathSegment(raw) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    throw new AdminPathError("malformed path segment");
+  }
+}
+
+/** Run / trace ids name files and directories — never accept path separators or `..`. */
+function decodeRunIdSegment(raw) {
+  const id = decodePathSegment(raw);
+  if (!id || id.includes("/") || id.includes("\\") || id.includes("..") || /[\x00-\x1f]/.test(id)) {
+    throw new AdminPathError("invalid run id");
+  }
+  return id;
+}
+
+/**
+ * @param {string} pathname
+ * @returns {Record<string, string>|null} route, `{ name: "invalid_path" }` for a malformed
+ *   path under a known route, or null when the path is not an Admin API route. Never throws.
+ */
 function matchAdminRoute(pathname) {
+  try {
+    return matchAdminRouteUnsafe(String(pathname || ""));
+  } catch {
+    return INVALID_ADMIN_PATH;
+  }
+}
+
+function matchAdminRouteUnsafe(pathname) {
   const p = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
   if (p === "/api/v1/admin/config/effective") return { name: "config_effective" };
   if (p === "/api/v1/admin/config/fingerprint") return { name: "config_fingerprint" };
   if (p === "/api/v1/admin/health/topology") return { name: "topology" };
   if (p === "/api/v1/admin/topology/graph") return { name: "topology_graph" };
   let m = p.match(/^\/api\/v1\/admin\/topology\/node\/(.+)$/);
-  if (m) return { name: "topology_node", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "topology_node", id: decodePathSegment(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/topology\/edge\/([^/]+)\/metrics$/);
-  if (m) return { name: "topology_edge_metrics", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "topology_edge_metrics", id: decodePathSegment(m[1]) };
   if (p === "/api/v1/admin/storage") return { name: "storage" };
   if (p === "/api/v1/admin/meta") return { name: "meta" };
   if (p === "/api/v1/admin/revision") return { name: "revision" };
@@ -3726,23 +3801,23 @@ function matchAdminRoute(pathname) {
   if (p === "/api/v1/admin/llm-usage") return { name: "llm_usage" };
   if (p === "/api/v1/admin/ao-resources") return { name: "ao_resources" };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)\/trace$/);
-  if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "runs_trace", id: decodeRunIdSegment(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/traces\/([^/]+)$/);
-  if (m) return { name: "runs_trace", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "runs_trace", id: decodeRunIdSegment(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/runs\/([^/]+)$/);
-  if (m) return { name: "runs_detail", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "runs_detail", id: decodeRunIdSegment(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)\/([^/]+)$/);
-  if (m) return { name: "catalog_detail", kind: m[1], id: decodeURIComponent(m[2]) };
+  if (m) return { name: "catalog_detail", kind: m[1], id: decodePathSegment(m[2]) };
   m = p.match(/^\/api\/v1\/admin\/catalogs\/([a-z]+)$/);
   if (m) return { name: "catalog_list", kind: m[1] };
   if (p === "/api/v1/admin/tokens") return { name: "tokens" };
   m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)\/usage$/);
-  if (m) return { name: "token_usage", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "token_usage", id: decodePathSegment(m[1]) };
   m = p.match(/^\/api\/v1\/admin\/tokens\/([^/]+)$/);
-  if (m) return { name: "token_item", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "token_item", id: decodePathSegment(m[1]) };
   if (p === "/api/v1/admin/app-prefs") return { name: "app_prefs" };
   m = p.match(/^\/api\/v1\/admin\/app-prefs\/([^/]+)$/);
-  if (m) return { name: "app_prefs_item", id: decodeURIComponent(m[1]) };
+  if (m) return { name: "app_prefs_item", id: decodePathSegment(m[1]) };
   if (p === "/api/v1/admin/mtls/clients") return { name: "mtls_clients" };
   if (p === "/api/v1/admin/mtls/clients/revoke") return { name: "mtls_clients_revoke" };
   if (p === "/api/v1/admin/mtls/clients/unrevoke") return { name: "mtls_clients_unrevoke" };
@@ -3804,6 +3879,11 @@ async function handleAdminApi(req, res, ctx) {
   const pathname = ctx.pathname;
   const route = matchAdminRoute(pathname);
   if (!route) return false;
+  if (route.name === "invalid_path") {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "Malformed request path", code: "invalid_path" }));
+    return true;
+  }
 
   const method = String(req.method || "GET").toUpperCase();
   const writeOk = isTokenWriteRoute(route, method);

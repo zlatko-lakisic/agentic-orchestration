@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   WEB_UI_APP_ID,
   CHAT_UI_APP_ID,
+  authenticateApiBearer,
   authenticateBearer,
   authenticateChatUiBearer,
   authenticateWebUiBearer,
@@ -245,4 +246,59 @@ test("summarizeWebApiApps groups tokens by appId and aggregates client IPs", () 
     ips.map((c) => c.ip).sort(),
     ["10.0.10.50", "10.0.10.51"],
   );
+});
+
+test("authenticateApiBearer refuses first-party UI tokens on the API routes", () => {
+  const toolRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ao-api-tokens-ui-"));
+  const web = mintToken(toolRoot, { appId: WEB_UI_APP_ID });
+  const chat = mintToken(toolRoot, { appId: CHAT_UI_APP_ID });
+  const api = mintToken(toolRoot, { appId: "home-assistant" });
+  // The UI tokens are still valid for their own surfaces…
+  assert.equal(authenticateWebUiBearer(toolRoot, `Bearer ${web.token}`).ok, true);
+  assert.equal(authenticateChatUiBearer(toolRoot, `Bearer ${chat.token}`).ok, true);
+  // …but are not API keys for /v1/chat/completions, /v1/responses or /api/v1/orchestrate.
+  for (const ui of [web, chat]) {
+    const r = authenticateApiBearer(toolRoot, `Bearer ${ui.token}`, ["env-secret"]);
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, "ui_token_not_allowed");
+  }
+  const ok = authenticateApiBearer(toolRoot, `Bearer ${api.token}`, []);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.appId, "home-assistant");
+  assert.equal(authenticateApiBearer(toolRoot, "Bearer env-secret", ["env-secret"]).ok, true);
+  assert.equal(authenticateApiBearer(toolRoot, "", ["env-secret"]).ok, false);
+  assert.equal(authenticateApiBearer(toolRoot, "Bearer nope", ["env-secret"]).ok, false);
+});
+
+test("recordUsage samples first-party UI polling and keeps tokens.json intact", () => {
+  const toolRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ao-api-tokens-usage-"));
+  const web = mintToken(toolRoot, { appId: WEB_UI_APP_ID });
+  const api = mintToken(toolRoot, { appId: "home-assistant" });
+  for (let i = 0; i < 25; i += 1) {
+    recordUsage(toolRoot, { tokenId: web.id, appId: WEB_UI_APP_ID, ip: "10.0.0.5", path: "/api/v1/admin/meta", status: 200 });
+  }
+  for (let i = 0; i < 5; i += 1) {
+    recordUsage(toolRoot, { tokenId: api.id, appId: "home-assistant", ip: "10.0.0.9", path: "/v1/chat/completions", status: 200 });
+  }
+  // Admin polling is sampled (one row per token + IP per window); real API calls are all kept.
+  assert.equal(listUsage(toolRoot, web.id, 100).length, 1);
+  assert.equal(listUsage(toolRoot, api.id, 100).length, 5);
+  // A different client IP for the UI token is still recorded.
+  recordUsage(toolRoot, { tokenId: web.id, appId: WEB_UI_APP_ID, ip: "10.0.0.6", path: "/api/v1/admin/meta", status: 200 });
+  assert.equal(listUsage(toolRoot, web.id, 100).length, 2);
+  // tokens.json is written atomically: valid JSON, no temp files left behind, still authenticates.
+  const dir = path.join(toolRoot, "__orchestrator_api_tokens__");
+  assert.deepEqual(
+    fs.readdirSync(dir).filter((n) => n.endsWith(".tmp")),
+    [],
+  );
+  assert.ok(Array.isArray(JSON.parse(fs.readFileSync(path.join(dir, "tokens.json"), "utf8"))));
+  assert.equal(authenticateBearer(toolRoot, `Bearer ${api.token}`, []).ok, true);
+  assert.equal(listTokens(toolRoot).find((t) => t.id === api.id)?.lastUsedIp, "10.0.0.9");
+});
+
+test("clientIp ignores X-Forwarded-For from a peer flagged as untrusted", () => {
+  const base = { headers: { "x-forwarded-for": "198.51.100.1" }, socket: { remoteAddress: "::ffff:203.0.113.9" } };
+  assert.equal(clientIp(base), "198.51.100.1");
+  assert.equal(clientIp({ ...base, agenticUntrustedPeer: true }), "203.0.113.9");
 });
