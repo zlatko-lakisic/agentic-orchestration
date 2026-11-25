@@ -1,7 +1,14 @@
 import "./ws-singleton.js";
 import { closeActiveWebSocket, getActiveWebSocket, isActiveWebSocket } from "./ws-singleton.js";
 import { initHostMetricsUi, handleHostMetricsMessage, subscribeHostMetrics, unsubscribeHostMetrics } from "./host-metrics-ui.js";
-import { chatWebSocketUrl, withChatAuth, ensureChatAccessToken } from "./chat-auth.js";
+import {
+  chatWebSocketProtocols,
+  chatWebSocketUrl,
+  getChatAuthProblem,
+  invalidateChatAccessToken,
+  withChatAuth,
+  ensureChatAccessToken,
+} from "./chat-auth.js";
 
 import { initPwaInstall } from "./install-prompt.js";
 import {
@@ -980,7 +987,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
       setConnStatus("reconnecting", hadConnectedOnce ? "Reconnecting…" : "Connecting…");
 
       const url = await chatWebSocketUrl(`${proto()}//${window.location.host}`);
-      const socket = new WebSocket(url);
+      // Token goes in the subprotocol list (never in the URL, which proxies log).
+      const protocols = await chatWebSocketProtocols();
+      const socket = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
       ws = socket;
 
       socket.onopen = () => {
@@ -998,7 +1007,9 @@ if (globalThis.__agenticOrchestratorUiInit) {
         }, 8000);
       };
 
-      socket.onclose = () => {
+      socket.onclose = (ev) => {
+        // 4401 = token rejected (rotated / revoked): fetch a fresh one before reconnecting.
+        if (ev?.code === 4401) invalidateChatAccessToken();
         if (gen !== wsGeneration) return;
         ws = null;
         stopHeartbeat();
@@ -1066,9 +1077,11 @@ if (globalThis.__agenticOrchestratorUiInit) {
           const edgeMeta = er
             ? `Edge ${er.platform}${er.ollamaRuntime ? ` · Ollama ${er.ollamaRuntime}` : ""}`
             : "";
-          appendMeta(
-            [`Tool: ${data.toolRoot} · ${data.python}`, edgeMeta].filter(Boolean).join(" · "),
-          );
+          // Server paths are only sent to authenticated / trusted connections.
+          const toolMeta =
+            data.toolRoot && data.python ? `Tool: ${data.toolRoot} · ${data.python}` : "";
+          const helloMeta = [toolMeta, edgeMeta].filter(Boolean).join(" · ");
+          if (helloMeta) appendMeta(helloMeta);
         }
         return;
       }
@@ -1920,6 +1933,13 @@ if (globalThis.__agenticOrchestratorUiInit) {
 
   async function bootApp() {
     await ensureChatAccessToken();
+    const authProblem = getChatAuthProblem();
+    if (authProblem) {
+      // The server would not hand the chat token to this network path (untrusted proxy).
+      appendBubble("error", `Chat sign-in is blocked by the server: ${authProblem.hint}`, {
+        persist: false,
+      });
+    }
     await loadSessionContext();
     chatTranscript = loadChatTranscript(browserSessionId);
     if (transcriptHasConversation(chatTranscript)) {
