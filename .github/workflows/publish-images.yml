@@ -103,7 +103,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push coordinator (amd64 + arm64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: agentic-orchestration-tool/docker/Dockerfile.coordinator
@@ -118,7 +118,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=coordinator
 
       - name: Build and push worker (amd64 + arm64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: agentic-orchestration-tool
           file: agentic-orchestration-tool/docker/Dockerfile.worker
@@ -133,7 +133,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=worker
 
       - name: Build and push comfyui (amd64 only)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: agentic-orchestration-tool
           file: agentic-orchestration-tool/docker/Dockerfile.comfyui
