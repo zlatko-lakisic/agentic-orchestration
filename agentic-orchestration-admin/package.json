@@ -2,7 +2,7 @@
   "name": "agentic-orchestration-admin",
   "version": "0.1.0",
   "private": true,
-  "description": "AO Admin — read-only Control Plane console (Fuse Angular 22)",
+  "description": "AO Admin — Control Plane console: read-only config, operator actions for restart, tokens and mTLS (Fuse Angular 22)",
   "scripts": {
     "build": "ng build",
     "lint": "ng lint",
