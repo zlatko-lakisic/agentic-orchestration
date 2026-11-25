@@ -141,7 +141,17 @@ def test_register_output_uses_longer_ttl(
 
 def test_bad_mime_type_rejected(files_root: Path) -> None:
     with pytest.raises(ClientFileTypeError):
-        save_client_file(_identity("alice"), b"x", "x.exe", "application/octet-stream")
+        save_client_file(_identity("alice"), b"x", "x.exe", "application/x-msdownload")
+
+
+def test_text_plain_and_octet_stream_allowed_for_probes(files_root: Path) -> None:
+    """#188: trivial ops probes must not 415 on text/plain."""
+    plain = save_client_file(_identity("alice"), b"ping", "probe.txt", "text/plain")
+    assert plain["file_id"]
+    blob = save_client_file(
+        _identity("alice"), b"\x00\x01", "probe.bin", "application/octet-stream"
+    )
+    assert blob["file_id"]
 
 
 def test_size_limit_rejected(files_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
