@@ -11,15 +11,17 @@ opentelemetry-proto==1.45.2
 opentelemetry-semantic-conventions==0.66b2
 # Intel macOS (x86_64): lancedb>=0.29 has no wheels — install with:
 #   pip install -r requirements.txt || pip install --no-deps 'crewai==1.15.41' && pip install 'mcp~=1.30.0'
-litellm
+# Pinned exactly: litellm ships frequently and sits on the credential path for
+# every provider call. Dependabot proposes bumps; CI decides.
+litellm==1.111.0
 # litellm's MCP handler imports litellm.proxy.litellm_pre_call_utils, which
 # requires fastapi (crew kickoff with MCP providers fails without it).
 fastapi>=0.142,<1
-python-dotenv
-pyyaml
-httpx
-kubernetes>=29.0
-mcp-server-fetch
-mcp>=1.30.0
+python-dotenv>=1.2.4,<2
+pyyaml>=6.0.4,<7
+httpx>=0.28.1,<1
+kubernetes>=29.0,<37
+mcp-server-fetch>=2026.10.10
+mcp>=1.30.0,<2
 # Optional audio transcription for media_understand MCP:
 # faster-whisper

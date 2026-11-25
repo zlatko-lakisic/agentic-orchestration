@@ -1,6 +1,8 @@
 import {
+  AfterViewInit,
   Component,
   ElementRef,
+  OnDestroy,
   ViewChild,
   effect,
   input,
@@ -9,7 +11,8 @@ import {
 import {
   DetectionAnswer,
   DetectionPreview,
-  scaleBoxXyxy,
+  OverlayBox,
+  overlayBoxes,
 } from '@/app/domains/admin/shared/detection/detection-answer';
 
 @Component({
@@ -42,16 +45,15 @@ import {
     </div>
   `,
 })
-export class DetectionOverlay {
+export class DetectionOverlay implements AfterViewInit, OnDestroy {
   readonly answer = input<DetectionAnswer | null>(null);
   readonly preview = input<DetectionPreview | null>(null);
 
   @ViewChild('imgEl') imgEl?: ElementRef<HTMLImageElement>;
 
   readonly imgSrc = signal('');
-  readonly scaledBoxes = signal<
-    Array<{ left: number; top: number; width: number; height: number; label: string; conf: string }>
-  >([]);
+  readonly scaledBoxes = signal<OverlayBox[]>([]);
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor() {
     effect(() => {
@@ -59,38 +61,50 @@ export class DetectionOverlay {
       const b64 = p?.dataBase64;
       const mime = p?.mimeType || 'image/jpeg';
       this.imgSrc.set(b64 ? `data:${mime};base64,${b64}` : '');
-      // Recompute after src change once image loads.
-      this.scaledBoxes.set([]);
+    });
+    effect(() => {
+      // Recompute whenever the inputs change. A new object carrying the same
+      // image does not fire the <img> load event again, so relying on (load)
+      // alone left the frame without boxes.
+      this.answer();
+      this.preview();
+      this.imgSrc();
+      queueMicrotask(() => this.recompute());
     });
   }
 
-  onImageLoad() {
+  ngAfterViewInit() {
     const el = this.imgEl?.nativeElement;
-    const ans = this.answer();
-    const p = this.preview();
-    if (!el || !ans) {
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    // Boxes are in displayed pixels: follow the image when the layout resizes.
+    this.resizeObserver = new ResizeObserver(() => this.recompute());
+    this.resizeObserver.observe(el);
+  }
+
+  ngOnDestroy() {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+  }
+
+  onImageLoad() {
+    this.recompute();
+  }
+
+  private recompute() {
+    const el = this.imgEl?.nativeElement;
+    // Until the current src has decoded there is nothing to measure; the
+    // (load) handler recomputes once it has.
+    if (!el || !el.complete || !el.naturalWidth) {
       this.scaledBoxes.set([]);
       return;
     }
-    const srcW = Number(ans.image?.width || p?.width || el.naturalWidth || 1);
-    const srcH = Number(ans.image?.height || p?.height || el.naturalHeight || 1);
-    const destW = el.clientWidth || el.naturalWidth || 1;
-    const destH = el.clientHeight || el.naturalHeight || 1;
-    const boxes = (ans.detections || [])
-      .map((d) => {
-        const scaled = scaleBoxXyxy(d.box_xyxy, srcW, srcH, destW, destH);
-        if (!scaled) return null;
-        const conf =
-          d.confidence != null && Number.isFinite(Number(d.confidence))
-            ? ` ${(Number(d.confidence) * 100).toFixed(0)}%`
-            : '';
-        return {
-          ...scaled,
-          label: String(d.label || 'obj'),
-          conf,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null);
-    this.scaledBoxes.set(boxes);
+    this.scaledBoxes.set(
+      overlayBoxes(
+        this.answer(),
+        this.preview(),
+        { width: el.naturalWidth, height: el.naturalHeight },
+        { width: el.clientWidth, height: el.clientHeight }
+      )
+    );
   }
 }

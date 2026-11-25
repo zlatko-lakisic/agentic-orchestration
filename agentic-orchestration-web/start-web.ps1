@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 function Ensure-NpmInstall {
   if (-not (Test-Path -Path "node_modules")) {
-    Write-Host "[web] node_modules missing -> npm install"
-    npm install
+    Write-Host "[web] node_modules missing -> npm ci"
+    npm ci --omit=dev --no-audit --no-fund
   }
 }
 

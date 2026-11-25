@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { layoutTopology, pathClosure } from './topology.layout';
 import { visibleNodeStatus } from './topology.status';
 import {
@@ -20,6 +20,10 @@ export class TopologyStore {
   private readonly api = inject(AoApi);
   private readonly live = inject(AoLiveWs);
   private liveSub: Subscription | null = null;
+  private httpSub: Subscription | null = null;
+  /** True once a WebSocket snapshot/delta has been applied (HTTP is then only a fallback). */
+  private liveApplied = false;
+  private liveHandle: LiveHandle | null = null;
 
   readonly seq = signal(0);
   readonly generatedAt = signal<string | null>(null);
@@ -50,17 +54,18 @@ export class TopologyStore {
   readonly lastError = signal<string | null>(null);
   readonly loading = signal(true);
 
-  private grace = new Map<string, { node: TopologyNode; removeAt: number }>();
-  private _layoutRuns = 0;
-
-  layoutRunCount() {
-    return this._layoutRuns;
-  }
+  /**
+   * Removed nodes linger (drawn offline) for GRACE_MS. A signal, so the layout
+   * recomputes when an entry is added and again when its timer expires.
+   */
+  private readonly grace = signal<
+    ReadonlyMap<string, { node: TopologyNode; removeAt: number }>
+  >(new Map());
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Geometry only — depends on structure + filters, not healthById. */
   readonly layout = computed<LayoutResult>(() => {
-    this._layoutRuns += 1;
-    let nodes = this.mergeGrace(this.structureNodes());
+    let nodes = this.mergeGrace(this.structureNodes(), this.grace());
     let edges = this.structureEdges();
     if (this.bandFilter() !== 'all') {
       const band = this.bandFilter();
@@ -130,10 +135,15 @@ export class TopologyStore {
 
   start() {
     this.loading.set(true);
-    this.api.topologyGraph().subscribe((r) => {
+    this.liveApplied = false;
+    this.httpSub?.unsubscribe();
+    this.httpSub = this.api.topologyGraph().subscribe((r) => {
       if (r.ok) {
-        this.applySnapshot(r.data);
-        this.snapshotOnly.set(true);
+        // The HTTP snapshot only seeds the view until the socket delivers.
+        // Landing after a WS snapshot it must not roll `seq` back or flag
+        // the page as "not live".
+        if (this.acceptHttpSnapshot(r.data)) this.applySnapshot(r.data);
+        if (!this.liveApplied) this.snapshotOnly.set(true);
         this.lastError.set(null);
       } else {
         this.lastError.set(r.message);
@@ -141,7 +151,8 @@ export class TopologyStore {
       this.loading.set(false);
     });
 
-    this.live.acquire({ topology: true });
+    this.liveHandle?.release();
+    this.liveHandle = this.live.acquire({ topology: true });
     this.liveSub?.unsubscribe();
     this.liveSub = this.live.topologyEvents.subscribe((ev) => {
       if (this.paused()) return;
@@ -152,18 +163,33 @@ export class TopologyStore {
   stop() {
     this.liveSub?.unsubscribe();
     this.liveSub = null;
-    this.live.release();
+    this.httpSub?.unsubscribe();
+    this.httpSub = null;
+    this.clearGraceTimer();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   togglePause() {
-    this.paused.update((p) => !p);
+    const resuming = this.paused();
+    this.paused.set(!resuming);
+    // Events were dropped while paused: fetch a fresh snapshot, otherwise a
+    // quiet topology stays stale until the next structural delta.
+    if (resuming) this.resync();
   }
 
   resync() {
     this.live.resyncTopology();
-    this.api.topologyGraph().subscribe((r) => {
-      if (r.ok) this.applySnapshot(r.data);
+    this.httpSub?.unsubscribe();
+    this.httpSub = this.api.topologyGraph().subscribe((r) => {
+      if (r.ok && this.acceptHttpSnapshot(r.data)) this.applySnapshot(r.data);
     });
+  }
+
+  /** An HTTP snapshot older than what the socket already applied is stale. */
+  private acceptHttpSnapshot(graph: TopologyGraph): boolean {
+    if (!this.liveApplied) return true;
+    return Number(graph.seq || 0) > this.seq();
   }
 
   setHover(id: string | null) {
@@ -182,7 +208,7 @@ export class TopologyStore {
   }
 
   /** Expand Kubernetes platform node to reveal in-cluster workloads. */
-  toggleK8sExpanded(nodeId: string = 'platform/k3s') {
+  toggleK8sExpanded(nodeId = 'platform/k3s') {
     const id = String(nodeId || '').trim() || 'platform/k3s';
     this.expandedK8sId.update((cur) => (cur === id ? null : id));
   }
@@ -195,22 +221,10 @@ export class TopologyStore {
     return this.api.topologyNode(id);
   }
 
-  /** Test helper: health patch must not increment layout runs. */
-  applyHealthForTest(
-    patches: Array<{ id: string; status: string; statusReason?: string }>
-  ) {
-    // Touch layout once so _layoutRuns is stable
-    void this.layout();
-    const before = this._layoutRuns;
-    this.patchHealth(patches);
-    void this.displayNodes();
-    const after = this._layoutRuns;
-    return { layoutRunsBefore: before, layoutRunsAfter: after };
-  }
-
   private onLiveEvent(ev: { type: string; [k: string]: unknown }) {
     if (ev.type === 'topology_snapshot') {
       this.applySnapshot(ev as unknown as TopologyGraph);
+      this.liveApplied = true;
       this.snapshotOnly.set(false);
       return;
     }
@@ -221,12 +235,13 @@ export class TopologyStore {
         return;
       }
       this.applyDelta(ev);
+      this.liveApplied = true;
       this.snapshotOnly.set(false);
       return;
     }
     if (ev.type === 'topology_health') {
       const health = ev['health'] as
-        | Array<{ id: string; status: string; statusReason?: string }>
+        | { id: string; status: string; statusReason?: string }[]
         | undefined;
       if (Array.isArray(health)) this.patchHealth(health);
       if (ev['seq'] != null) this.seq.set(Number(ev['seq']));
@@ -248,7 +263,8 @@ export class TopologyStore {
       health[n.id] = { status: String(n.status), statusReason: n.statusReason };
     }
     this.healthById.set(health);
-    this.grace.clear();
+    this.grace.set(new Map());
+    this.clearGraceTimer();
   }
 
   private applyDelta(ev: Record<string, unknown>) {
@@ -259,16 +275,17 @@ export class TopologyStore {
 
     const map = new Map(this.structureNodes().map((n) => [n.id, n]));
     const health = { ...this.healthById() };
+    const grace = new Map(this.grace());
     for (const n of upserted) {
       map.set(n.id, n);
       health[n.id] = { status: String(n.status), statusReason: n.statusReason };
-      this.grace.delete(n.id);
+      grace.delete(n.id);
     }
     const now = Date.now();
     for (const id of removed) {
       const prev = map.get(id);
       if (prev) {
-        this.grace.set(id, {
+        grace.set(id, {
           node: { ...prev, status: 'offline' },
           removeAt: now + GRACE_MS,
         });
@@ -279,6 +296,8 @@ export class TopologyStore {
     const nextNodes = [...map.values()];
     this.structureNodes.set(nextNodes);
     this.healthById.set(health);
+    this.grace.set(grace);
+    this.scheduleGraceExpiry();
     this.pruneExpandedApp(nextNodes);
     this.pruneExpandedK8s(nextNodes);
 
@@ -314,7 +333,7 @@ export class TopologyStore {
   }
 
   private patchHealth(
-    patches: Array<{ id: string; status: string; statusReason?: string }>
+    patches: { id: string; status: string; statusReason?: string }[]
   ) {
     this.healthById.update((prev) => {
       const next = { ...prev };
@@ -325,17 +344,43 @@ export class TopologyStore {
     });
   }
 
-  private mergeGrace(nodes: TopologyNode[]): TopologyNode[] {
-    const now = Date.now();
+  /** Pure: structure nodes plus removed nodes still inside their grace window. */
+  private mergeGrace(
+    nodes: TopologyNode[],
+    grace: ReadonlyMap<string, { node: TopologyNode; removeAt: number }>
+  ): TopologyNode[] {
+    if (!grace.size) return nodes;
+    const present = new Set(nodes.map((n) => n.id));
     const out = [...nodes];
-    for (const [id, g] of [...this.grace.entries()]) {
-      if (now >= g.removeAt) {
-        this.grace.delete(id);
-        continue;
-      }
-      if (!out.some((n) => n.id === id)) out.push(g.node);
+    for (const [id, g] of grace) {
+      if (!present.has(id)) out.push(g.node);
     }
     return out;
+  }
+
+  /** Drop expired grace entries when the earliest one is due. */
+  private scheduleGraceExpiry() {
+    this.clearGraceTimer();
+    const grace = this.grace();
+    if (!grace.size) return;
+    let earliest = Infinity;
+    for (const g of grace.values()) earliest = Math.min(earliest, g.removeAt);
+    const delay = Math.max(0, earliest - Date.now());
+    this.graceTimer = setTimeout(() => {
+      this.graceTimer = null;
+      const now = Date.now();
+      const next = new Map(
+        [...this.grace()].filter(([, g]) => g.removeAt > now)
+      );
+      this.grace.set(next);
+      this.scheduleGraceExpiry();
+    }, delay);
+  }
+
+  private clearGraceTimer() {
+    if (!this.graceTimer) return;
+    clearTimeout(this.graceTimer);
+    this.graceTimer = null;
   }
 }
 

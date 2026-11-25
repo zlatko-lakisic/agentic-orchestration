@@ -1,3 +1,4 @@
+import { NgClass, NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   ElementRef,
@@ -11,19 +12,17 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { NgClass, NgTemplateOutlet } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatIconModule, MatIconRegistry } from '@angular/material/icon';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { FormsModule } from '@angular/forms';
-import { firstValueFrom } from 'rxjs';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule, MatIconRegistry } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription, firstValueFrom } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import {
   RunTraceEvent,
   RunTraceResponse,
@@ -31,12 +30,9 @@ import {
   TraceListItem,
   TracesListResponse,
 } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { AoClock } from '@/app/core/ao-time/ao-time';
 import { AoAbsoluteTimePipe, AoTimeAgoPipe } from '@/app/core/ao-time/ao-time-ago.pipe';
-import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
-import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
-import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
-import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 import {
   applyMermaidTextTooltips,
   applyMermaidTokenHelpIcons,
@@ -53,14 +49,15 @@ import {
   TokenHelpDialog,
   type TokenHelpDialogData,
 } from '@/app/domains/admin/modules/traces/ui/token-help-dialog';
+import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
+import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
+import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
-declare global {
-  interface Window {
-    mermaid?: {
-      initialize: (cfg: Record<string, unknown>) => void;
-      run: (opts: { nodes: HTMLElement[] }) => Promise<void>;
-    };
-  }
+/** The slice of the Mermaid API this page uses (bundled, lazy-loaded). */
+type MermaidApi = {
+  initialize: (cfg: Record<string, unknown>) => void;
+  run: (opts?: { nodes?: ArrayLike<HTMLElement> }) => Promise<void>;
 }
 
 @Component({
@@ -180,7 +177,13 @@ declare global {
             (keydown.enter)="openId(lookupId())"
             placeholder="paste run_id"
           />
-          <button matIconButton matSuffix type="button" (click)="openId(lookupId())">
+          <button
+            matIconButton
+            matSuffix
+            type="button"
+            aria-label="Open trace by run id"
+            (click)="openId(lookupId())"
+          >
             <mat-icon svgIcon="search" />
           </button>
         </mat-form-field>
@@ -341,11 +344,16 @@ declare global {
               mat-row
               *matRowDef="let row; columns: columns; trackBy: trackByRunId"
               class="cursor-pointer hover:bg-neutral-50 dark:hover:bg-white/5"
+              tabindex="0"
               [attr.id]="'trace-row-' + row.runId"
+              [attr.aria-label]="'Open trace ' + row.runId"
+              [attr.aria-expanded]="detail()?.runId === row.runId"
               [ngClass]="
                 detail()?.runId === row.runId ? 'bg-neutral-50 dark:bg-white/5' : ''
               "
               (click)="toggleRow(row)"
+              (keydown.enter)="toggleRow(row)"
+              (keydown.space)="$event.preventDefault(); toggleRow(row)"
             ></tr>
           </table>
         </section>
@@ -526,6 +534,7 @@ declare global {
           <div class="text-xs font-semibold tracking-wide text-neutral-500 uppercase">
             Sequence
           </div>
+          <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events, @angular-eslint/template/interactive-supports-focus -- propagation guard, not a control -->
           <div class="flex flex-wrap items-center gap-2" (click)="$event.stopPropagation()">
             <mat-button-toggle-group
               [value]="depthMode()"
@@ -679,6 +688,7 @@ declare global {
 export class TracesPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private injector = inject(Injector);
@@ -694,6 +704,11 @@ export class TracesPage implements OnInit, OnDestroy {
   /** Serialize Mermaid runs — overlapping run()+replaceChildren causes getBBox failures. */
   private mermaidRenderChain: Promise<void> = Promise.resolve();
   private mermaidInitialized = false;
+  private mermaidLib: MermaidApi | null = null;
+  private mermaidLoad: Promise<MermaidApi | null> | null = null;
+  private mermaidLoadError = '';
+  /** In-flight trace detail request; superseded requests are cancelled. */
+  private detailSub: Subscription | null = null;
   private scrollBoundHost: HTMLElement | null = null;
   private readonly onMermaidScroll = () => {
     const host = this.mermaidHost()?.nativeElement;
@@ -809,17 +824,21 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.ensureMermaid();
-    this.live.acquire({
+    // Warm the lazy Mermaid chunk so the first diagram opens without a wait.
+    void this.loadMermaid();
+    this.liveHandle = this.live.acquire({
       feeds: ['traces'],
       feedIntervalMs: 4000,
-      feedParams: this.listParams(),
+      feedParams: { traces: this.listParams() },
     });
   }
 
   ngOnDestroy() {
+    this.detailSub?.unsubscribe();
+    this.detailSub = null;
     this.unbindMermaidScroll();
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   private listParams() {
@@ -828,7 +847,7 @@ export class TracesPage implements OnInit, OnDestroy {
   }
 
   reloadList() {
-    this.live.setFeedParams(this.listParams());
+    this.liveHandle?.setFeedParams('traces', this.listParams());
   }
 
   private bindMermaidScroll(host: HTMLElement) {
@@ -891,10 +910,22 @@ export class TracesPage implements OnInit, OnDestroy {
     const host = this.mermaidHost()?.nativeElement;
     const d = this.detail();
     if (!host || !d?.mermaid) return;
-    if (!window.mermaid) {
-      this.ensureMermaid();
+    const mermaid = await this.loadMermaid();
+    if (!mermaid) {
+      // The renderer chunk failed to load (offline, stale deploy): say so
+      // instead of leaving an empty panel.
+      host.replaceChildren();
+      const fail = document.createElement('div');
+      fail.className = 'p-4 text-sm text-red-400 whitespace-pre-wrap';
+      fail.setAttribute('role', 'alert');
+      fail.textContent = `Diagram renderer failed to load: ${this.mermaidLoadError || 'unknown error'}. Reload the page, or use the Table view.`;
+      host.appendChild(fail);
+      this.lastMermaidSource = '';
       return;
     }
+    // Detail or view may have changed while the chunk was loading.
+    if (this.viewMode() !== 'diagram' || this.detail() !== d) return;
+    if (this.mermaidHost()?.nativeElement !== host) return;
     const source = String(d.mermaid || '').trim();
     this.bindMermaidScroll(host);
     // Same diagram already painted — keep scroll, skip expensive Mermaid rebuild.
@@ -905,7 +936,7 @@ export class TracesPage implements OnInit, OnDestroy {
     this.mermaidScrollLeft = host.scrollLeft || this.mermaidScrollLeft;
     this.mermaidScrollTop = host.scrollTop || this.mermaidScrollTop;
     const gen = ++this.mermaidGen;
-    this.initMermaid();
+    this.initMermaid(mermaid);
     // Always rebuild from source — Mermaid mutates the node and won't re-run stale DOM.
     host.replaceChildren();
     const next = document.createElement('pre');
@@ -913,7 +944,7 @@ export class TracesPage implements OnInit, OnDestroy {
     next.textContent = source;
     host.appendChild(next);
     try {
-      await window.mermaid.run({ nodes: [next] });
+      await mermaid.run({ nodes: [next] });
       if (gen !== this.mermaidGen) return;
       const svg = host.querySelector('svg');
       if (svg instanceof SVGSVGElement) {
@@ -1030,7 +1061,10 @@ export class TracesPage implements OnInit, OnDestroy {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-    this.api.runTrace(rid, this.depthMode()).subscribe((r) => {
+    // A newer open (another row, another depth mode) supersedes this one:
+    // cancel it so a slow stale response cannot overwrite the fresh detail.
+    this.detailSub?.unsubscribe();
+    this.detailSub = this.api.runTrace(rid, this.depthMode()).subscribe((r) => {
       if (!r.ok) {
         this.error.set(r.message);
         return;
@@ -1054,6 +1088,8 @@ export class TracesPage implements OnInit, OnDestroy {
     this.mermaidScrollTop = 0;
     this.lastMermaidSource = '';
     this.unbindMermaidScroll();
+    this.detailSub?.unsubscribe();
+    this.detailSub = null;
     this.detail.set(null);
     this.eventRows.data = [];
     void this.router.navigate([], {
@@ -1257,7 +1293,9 @@ export class TracesPage implements OnInit, OnDestroy {
     return {
       startOnLoad: false,
       theme: dark ? 'dark' : 'base',
-      securityLevel: 'loose',
+      // Labels are plain text and interactions are attached to the rendered
+      // SVG below, so Mermaid's own click/HTML features are never needed.
+      securityLevel: 'strict',
       themeVariables: {
         darkMode: dark,
         background: panel,
@@ -1307,30 +1345,34 @@ export class TracesPage implements OnInit, OnDestroy {
     };
   }
 
-  private ensureMermaid() {
-    if (typeof document === 'undefined') return;
-    if (window.mermaid) {
-      this.initMermaid();
-      return;
+  /**
+   * Load the bundled Mermaid renderer on demand (its own lazy chunk; no
+   * third-party origin involved). Resolves null when the chunk cannot load.
+   */
+  private loadMermaid(): Promise<MermaidApi | null> {
+    if (this.mermaidLib) return Promise.resolve(this.mermaidLib);
+    if (!this.mermaidLoad) {
+      this.mermaidLoad = import('mermaid')
+        .then((mod) => {
+          this.mermaidLib = mod.default as unknown as MermaidApi;
+          this.mermaidLoadError = '';
+          return this.mermaidLib;
+        })
+        .catch((err: unknown) => {
+          this.mermaidLoadError =
+            err instanceof Error && err.message ? err.message : 'load failed';
+          // Allow a retry on the next render attempt.
+          this.mermaidLoad = null;
+          return null;
+        });
     }
-    const existing = document.querySelector('script[data-ao-mermaid]');
-    if (existing) return;
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
-    s.async = true;
-    s.dataset['aoMermaid'] = '1';
-    s.onload = () => {
-      this.initMermaid();
-      this.scheduleMermaidRender();
-    };
-    document.head.appendChild(s);
+    return this.mermaidLoad;
   }
 
-  private initMermaid() {
-    if (!window.mermaid) return;
+  private initMermaid(mermaid: MermaidApi) {
     // Re-init only once — re-initialize during an in-flight run() races getBBox.
     if (this.mermaidInitialized) return;
-    window.mermaid.initialize(this.fuseMermaidTheme());
+    mermaid.initialize(this.fuseMermaidTheme());
     this.mermaidInitialized = true;
   }
 

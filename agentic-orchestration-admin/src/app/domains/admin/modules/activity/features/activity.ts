@@ -4,9 +4,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterLink } from '@angular/router';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { TopologyResponse } from '@/app/core/ao-api/types';
 import { ChangeSetStore } from '@/app/core/ao-changeset/changeset.store';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
@@ -113,6 +113,7 @@ type TimelineItem = {
 })
 export class ActivityPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   protected changeset = inject(ChangeSetStore);
   private clipboard = inject(Clipboard);
 
@@ -173,14 +174,15 @@ export class ActivityPage implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.live.acquire({
+    this.liveHandle = this.live.acquire({
       feeds: ['topology', 'fingerprint'],
       feedIntervalMs: 5000,
     });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   private push(item: TimelineItem) {

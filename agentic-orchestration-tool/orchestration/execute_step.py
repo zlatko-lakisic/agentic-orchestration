@@ -59,19 +59,55 @@ def _tool_root() -> Path:
 
 
 def _resolved_mcps_from_spec(data: dict[str, Any]) -> list[Any]:
+    """Resolved MCP entries for this step.
+
+    Step specs carry process-env ``${VAR}`` placeholders unresolved (secrets are
+    not written to the run store); resolve them here from the worker's env.
+    """
+    from orchestration.mcp_providers_catalog import (
+        resolve_deferred_mcp_env,
+        unresolved_env_placeholders,
+    )
+
     out: list[Any] = []
     for item in data.get("mcp_providers") or []:
         if not isinstance(item, dict):
             continue
         resolved = item.get("resolved")
+        if resolved is None:
+            continue
+        missing = unresolved_env_placeholders(resolved)
+        if missing:
+            # Names only, never values. The coordinator no longer bakes secrets
+            # into the spec, so the worker's own environment must provide them.
+            print(
+                f"warning: MCP {item.get('id') or '?'!s}: env var(s) not set in this worker: "
+                f"{', '.join(missing)} (set them in the worker env/Secret, or "
+                "AGENTIC_STEP_SPEC_RESOLVE_ENV=1 on the coordinator)",
+                file=sys.stderr,
+            )
+        resolved = resolve_deferred_mcp_env(resolved)
         if resolved is not None:
             out.append(resolved)
     return out
 
 
+def _substitute_topic(task_description: str, topic: str) -> str:
+    """Fill the ``{topic}`` placeholder used by workflow/planner task descriptions.
+
+    Fast paths (deterministic / media providers) bypass CrewAI's input
+    interpolation, so substitute here. ``{{topic}}`` is accepted for
+    backwards compatibility with hand-written specs.
+    """
+    if not topic:
+        return task_description
+    return task_description.replace("{{topic}}", topic).replace("{topic}", topic)
+
+
 def _write_step_result(path: Path, result: StepResult) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+    from orchestration.run_store import write_private_json
+
+    write_private_json(path, result.to_dict())
 
 
 def _is_ollama_provider(agent_provider: dict[str, Any]) -> bool:
@@ -87,16 +123,26 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
     run_id = str(data.get("run_id", ""))
 
     with worker_log_context(run_id=run_id, step_id=step_id):
-        if not agent_provider.get("id"):
-            print("error: step spec missing agent_provider.id", file=sys.stderr)
-            return 2
-
         topic = str(data.get("topic") or data.get("inputs", {}).get("topic") or "")
         paths = data.get("paths") or {}
         run_store = str(paths.get("run_store") or "").strip()
         result_path = (
             Path(run_store) / run_id / step_id / "result.json" if run_store and run_id else None
         )
+
+        def _fail_early(message: str, code: int = 2) -> int:
+            # Always leave a result so the coordinator never reuses a stale one
+            # (or waits for a file that will not appear).
+            print(f"error: {message}", file=sys.stderr)
+            if result_path is not None:
+                _write_step_result(
+                    result_path,
+                    StepResult(run_id=run_id, step_id=step_id, exit_code=code, error=message),
+                )
+            return code
+
+        if not agent_provider.get("id"):
+            return _fail_early("step spec missing agent_provider.id")
 
         print(f"loading spec {spec_path.name}", file=sys.stderr)
 
@@ -172,7 +218,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             print("(execute-step) deterministic entrypoint", file=sys.stderr)
             text = run_deterministic_step(
                 provider_payload,
-                text=task_description.replace("{{topic}}", topic) if topic else task_description,
+                text=_substitute_topic(task_description, topic),
                 context=topic,
                 mcp_tool_results_or_handles=mcp_resolved or mcp_ids,
             )
@@ -197,7 +243,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             import json as _json
 
             payload_text = (
-                task_description.replace("{{topic}}", topic) if topic else task_description
+                _substitute_topic(task_description, topic)
             )
             result = run_video_generation(
                 provider_payload,
@@ -224,7 +270,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             import json as _json
 
             payload_text = (
-                task_description.replace("{{topic}}", topic) if topic else task_description
+                _substitute_topic(task_description, topic)
             )
             result = run_tts(provider_payload, text=payload_text, tool_root=tool_root)
             text = _json.dumps(result, ensure_ascii=False, sort_keys=True)
@@ -244,7 +290,7 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             import json as _json
 
             payload_text = (
-                task_description.replace("{{topic}}", topic) if topic else task_description
+                _substitute_topic(task_description, topic)
             )
             result = run_stt(provider_payload, text=payload_text, tool_root=tool_root)
             text = _json.dumps(result, ensure_ascii=False, sort_keys=True)
@@ -268,8 +314,9 @@ def execute_step_from_spec_file(spec_path: Path) -> int:
             print("(execute-step) object_detection entrypoint", file=sys.stderr)
             step_images = data.get("images") if isinstance(data.get("images"), list) else []
             if not step_images:
-                raise SystemExit(
-                    "object_detection execute-step requires a non-empty images list on the step payload"
+                return _fail_early(
+                    "object_detection execute-step requires a non-empty images list "
+                    "on the step payload"
                 )
             from orchestration.reach_multimodal import parse_reach_images
 

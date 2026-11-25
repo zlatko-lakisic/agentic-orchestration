@@ -10,6 +10,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import {
   MatCard,
@@ -27,11 +28,10 @@ import {
   MatExpansionPanelHeader,
   MatExpansionPanelTitle,
 } from '@angular/material/expansion';
-import { MatIconModule } from '@angular/material/icon';
-import { RouterLink, ActivatedRoute } from '@angular/router';
-import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { RouterLink, ActivatedRoute } from '@angular/router';
 import {
   ApexAxisChartSeries,
   ApexChart,
@@ -48,7 +48,7 @@ import {
   TopologyComponent,
   TopologyResponse,
 } from '@/app/core/ao-api/types';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { HostUtilization } from '@/app/domains/admin/shared/host-utilization/host-utilization';
 
@@ -496,6 +496,7 @@ export class OverviewPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
   private route = inject(ActivatedRoute);
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
 
   private logViewport =
     viewChild<ElementRef<HTMLDivElement>>('logViewport');
@@ -652,7 +653,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.selectedSources.set([...this.live.logSourceOptions()]);
-    this.live.acquire({
+    this.liveHandle = this.live.acquire({
       metrics: true,
       logs: true,
       feeds: ['topology'],
@@ -685,12 +686,13 @@ export class OverviewPage implements OnInit, OnDestroy {
     this.runIdFilter.set(rid);
     if (rid) {
       this.logsExpanded.set(true);
-      this.live.followRunLogs(rid);
+      this.liveHandle?.followRunLogs(rid);
     }
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   sparkSeries(key: 'cpu' | 'mem' | 'gpu' | 'vram'): ApexAxisChartSeries {
@@ -705,7 +707,7 @@ export class OverviewPage implements OnInit, OnDestroy {
     const value = ev.value as string[] | string | undefined;
     const list = Array.isArray(value) ? value : value ? [value] : [];
     this.selectedSources.set(list);
-    this.live.setLogSources(list.length ? list : null);
+    this.liveHandle?.setLogSources(list.length ? list : null);
   }
 
   exportBundle() {
@@ -728,7 +730,7 @@ export class OverviewPage implements OnInit, OnDestroy {
 
   reload() {
     this.error.set(null);
-    this.live.setFeedParams({});
+    this.live.refreshFeeds();
     this.api.ping().subscribe((r) => r.ok && this.ping.set(r.data));
     this.api.session().subscribe((r) => r.ok && this.session.set(r.data));
     this.api.revision().subscribe((r) => r.ok && this.revision.set(r.data));

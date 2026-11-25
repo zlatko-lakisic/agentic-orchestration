@@ -603,6 +603,33 @@ def current_usage_identity() -> dict[str, str]:
     }
 
 
+def _context_then_env(cv: ContextVar[str], env_name: str) -> str:
+    """Per-request identity: the usage ContextVar wins; env is only a fallback.
+
+    The process environment is shared by every concurrent run in the daemon, so
+    it must never override an identity bound for the current context.
+    """
+    value = (cv.get() or "").strip()
+    if value:
+        return value
+    return os.getenv(env_name, "").strip()
+
+
+def current_run_id() -> str:
+    """Run id of the current context (ContextVar, then ``AGENTIC_RUN_ID``)."""
+    return _context_then_env(_cv_run_id, "AGENTIC_RUN_ID")
+
+
+def current_user_id() -> str:
+    """User id of the current context (ContextVar, then ``AGENTIC_USER_ID``)."""
+    return _context_then_env(_cv_user_id, "AGENTIC_USER_ID")
+
+
+def current_app_id() -> str:
+    """App id of the current context (ContextVar, then ``AGENTIC_APP_ID``)."""
+    return _context_then_env(_cv_app_id, "AGENTIC_APP_ID")
+
+
 def attach_usage_agent_to_crew_agent(agent: Any, agent_provider_id: str) -> None:
     """Tag a CrewAI agent LLM so LiteLLM usage rows carry ``agentProviderId``.
 

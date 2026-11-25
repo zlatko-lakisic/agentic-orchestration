@@ -16,7 +16,7 @@ variables:
   cache:
     key:
       files:
-        - agentic-orchestration-tool/requirements-test.txt
+        - agentic-orchestration-tool/requirements-dev.txt
         - agentic-orchestration-tool/requirements.txt
     paths:
       - .cache/pip
@@ -37,7 +37,7 @@ unit-tests:
     - .ci-rules
   stage: test
   script:
-    - pip install -r requirements-test.txt
+    - pip install -r requirements-dev.txt
     - python -m pytest
 
 import-smoke:

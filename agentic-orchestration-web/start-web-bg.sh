@@ -43,8 +43,8 @@ HOST="${HOST:-${AGENTIC_WEB_HOST:-127.0.0.1}}"
 PORT="${PORT:-${AGENTIC_WEB_PORT:-3847}}"
 
 if [[ ! -d "node_modules" ]]; then
-  echo "[web-bg] node_modules missing -> npm install"
-  npm install
+  echo "[web-bg] node_modules missing -> npm ci"
+  npm ci --omit=dev --no-audit --no-fund
 fi
 
 pidfile="$here/.web-server.pid"

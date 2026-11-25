@@ -83,6 +83,59 @@ const TOPIC_BUILDERS = {
   },
 };
 
+/**
+ * Feed snapshots are expensive (trace / run directory scans) and identical for every
+ * subscriber asking for the same topic + params, so build each one once per short window and
+ * share it — N open Admin tabs must not mean N synchronous directory walks per tick.
+ * `access` depends on the subscriber's own request, so it is never shared.
+ */
+const SHARED_SNAPSHOT_TTL_MS = 1500;
+const UNSHARED_TOPICS = new Set(["access"]);
+/** @type {Map<string, { at: number, promise: Promise<unknown> }>} */
+const sharedSnapshots = new Map();
+
+function stableStringify(value) {
+  if (value == null || typeof value !== "object") return JSON.stringify(value ?? null);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+    .join(",")}}`;
+}
+
+/**
+ * @param {string} topic
+ * @param {{ toolRoot?: string, webRoot?: string, req?: unknown }} ctx
+ * @param {unknown} topicParams
+ */
+export function buildFeedSnapshot(topic, ctx, topicParams) {
+  const builder = TOPIC_BUILDERS[topic];
+  if (UNSHARED_TOPICS.has(topic)) {
+    return builder(ctx, topicParams, ctx.req);
+  }
+  let paramsKey;
+  try {
+    paramsKey = stableStringify(topicParams);
+  } catch {
+    return builder(ctx, topicParams, ctx.req);
+  }
+  const key = `${topic}|${ctx.toolRoot || ""}|${ctx.webRoot || ""}|${paramsKey}`;
+  const now = Date.now();
+  const hit = sharedSnapshots.get(key);
+  if (hit && now - hit.at < SHARED_SNAPSHOT_TTL_MS) return hit.promise;
+  if (sharedSnapshots.size > 200) {
+    for (const [k, v] of sharedSnapshots) {
+      if (now - v.at >= SHARED_SNAPSHOT_TTL_MS) sharedSnapshots.delete(k);
+    }
+  }
+  const promise = Promise.resolve().then(() => builder(ctx, topicParams, ctx.req));
+  sharedSnapshots.set(key, { at: now, promise });
+  promise.catch(() => {
+    if (sharedSnapshots.get(key)?.promise === promise) sharedSnapshots.delete(key);
+  });
+  return promise;
+}
+
 export function knownAdminFeedTopics() {
   return Object.keys(TOPIC_BUILDERS);
 }
@@ -105,7 +158,7 @@ async function pushTopic(ws, sendJson, topic, ctx, params) {
     return;
   }
   try {
-    const data = await builder(ctx, params?.[topic] || params || {}, ctx.req);
+    const data = await buildFeedSnapshot(topic, ctx, params?.[topic] || params || {});
     if (ws.readyState !== 1) return;
     sendJson(ws, {
       type: "admin_feed",

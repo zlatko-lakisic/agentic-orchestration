@@ -24,9 +24,9 @@ import {
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
-import { AoResources, AoResourceRow } from '@/app/core/ao-api/types';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoResources, AoResourceRow } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { Theming } from '@/app/core/theming';
 import { resolveThermalRange } from '@/app/domains/admin/shared/thermal-ranges/thermal-ranges';
 
@@ -95,6 +95,14 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
             >
               {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
             </button>
+          }
+          @if (cancelError()) {
+            <div
+              class="basis-full text-xs text-red-600 dark:text-red-400"
+              role="alert"
+            >
+              Cancel failed: {{ cancelError() }}
+            </div>
           }
         </div>
       }
@@ -367,27 +375,37 @@ const AXIS_TEXT = 'var(--mat-sys-on-surface)';
 })
 export class HostUtilization implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   private theming = inject(Theming);
   private api = inject(AoApi);
   readonly cancelling = signal(false);
+  readonly cancelError = signal<string | null>(null);
   readonly backgroundActivity = computed(
     () => this.live.metrics()?.backgroundActivity ?? null
   );
 
   ngOnInit() {
-    this.live.acquire({ feeds: ['ao_resources'] });
+    this.liveHandle = this.live.acquire({ feeds: ['ao_resources'] });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   cancelBackground() {
     if (this.cancelling()) return;
     this.cancelling.set(true);
-    this.api.cancelBackgroundActivity().subscribe({
-      next: () => this.cancelling.set(false),
-      error: () => this.cancelling.set(false),
+    this.cancelError.set(null);
+    // AoApi never errors the stream: failures arrive as `{ ok: false }`, and a
+    // 200 can still carry `ok: false` from the engine.
+    this.api.cancelBackgroundActivity().subscribe((r) => {
+      this.cancelling.set(false);
+      if (!r.ok) {
+        this.cancelError.set(r.message || 'request failed');
+      } else if (r.data?.ok === false) {
+        this.cancelError.set(r.data.error || 'the engine refused the cancel');
+      }
     });
   }
 

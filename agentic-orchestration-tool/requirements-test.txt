@@ -1,6 +1,4 @@
-# Minimal deps for the unit test tier (no crewai / LLM stack required).
-pytest>=9.0.3,<10
-pytest-asyncio>=1.5.0,<2
-pyyaml
-python-dotenv
-httpx
+# Unit test tier. Identical to the GitHub Actions `python-unit` job.
+# (An earlier "minimal, no crewai" list no longer collected: about 25 test
+# modules import the real crewai / cryptography packages.)
+-r requirements-dev.txt

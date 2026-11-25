@@ -23,7 +23,7 @@ import {
   RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
-import { filter, map, startWith } from 'rxjs';
+import { Subscription, filter, map, startWith } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { CatalogEntry } from '@/app/core/ao-api/types';
 import { Media } from '@/app/core/media';
@@ -401,9 +401,13 @@ export class CatalogsPage implements OnInit {
     });
   }
 
+  /** In-flight list request; switching kind cancels it so it cannot win late. */
+  private loadSub: Subscription | null = null;
+
   load(kind: string) {
     this.error.set(null);
-    this.api.catalogs(kind).subscribe((r) => {
+    this.loadSub?.unsubscribe();
+    this.loadSub = this.api.catalogs(kind).subscribe((r) => {
       if (!r.ok) {
         this.error.set(r.message);
         this.entries.set([]);

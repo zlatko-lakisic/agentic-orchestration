@@ -151,34 +151,32 @@ def test_warm_pool_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.unit
-def test_warm_pool_ignores_stale_result_until_fresh(tmp_path: Path) -> None:
-    """A result.json from a prior attempt must not satisfy a new wait."""
+def test_warm_pool_accepts_result_written_by_lagging_clock(tmp_path: Path) -> None:
+    """A worker (or NFS server) whose clock lags must not turn a result into a timeout.
+
+    The wait used to ignore results whose mtime was older than the enqueue time.
+    Stale results are now prevented by ``dispatch_step_via_warm_pool`` deleting
+    the prior result before enqueueing (see the dispatch test below), so the
+    mtime of the result is irrelevant.
+    """
     mount = str(tmp_path)
     result_path = warm_pool_result_path(
-        run_store_mount=mount, run_id="run-stale", step_id="step-1"
+        run_store_mount=mount, run_id="run-skew", step_id="step-1"
     )
     result_path.parent.mkdir(parents=True)
-    result_path.write_text('{"exit_code":1,"error":"old failure"}', encoding="utf-8")
-    # Force mtime into the past so not_before rejects it.
+    result_path.write_text('{"exit_code":0}', encoding="utf-8")
+    # Worker clock 30s behind the coordinator: mtime is "before" the enqueue.
     past = time.time() - 30
     os_utime = __import__("os").utime
     os_utime(result_path, (past, past))
 
-    def _write_fresh() -> None:
-        time.sleep(0.25)
-        result_path.write_text('{"exit_code":0}', encoding="utf-8")
-
-    import threading
-
-    not_before = time.time()
-    threading.Thread(target=_write_fresh, daemon=True).start()
     wait = wait_for_warm_pool_result(
         run_store_mount=mount,
-        run_id="run-stale",
+        run_id="run-skew",
         step_id="step-1",
-        timeout_seconds=5,
+        timeout_seconds=2,
         poll_interval=0.05,
-        not_before=not_before,
+        not_before=time.time(),
     )
     assert wait.succeeded
     assert wait.failed is False
@@ -244,4 +242,7 @@ def test_dispatch_deletes_prior_result_before_enqueue(tmp_path: Path) -> None:
     )
     assert wait.failed
     assert "timed out" in (wait.message or "")
-    assert (warm_pool_queue_dir(mount) / "run-retry__step_1.json").is_file()
+    # The stale result stayed deleted, and the request nobody claimed is withdrawn
+    # so a worker cannot run it after the coordinator has given up.
+    assert not result_path.is_file()
+    assert not (warm_pool_queue_dir(mount) / "run-retry__step_1.json").exists()

@@ -3,7 +3,7 @@
 # Warm-pool mounts this read-only; packages must be installed on the host first.
 #
 #   bash agentic-orchestration-tool/scripts/edge-ensure-tool-venv.sh
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 REQ="${TOOL_ROOT}/requirements.txt"

@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from orchestration.custom_tool_contract import (
+    SEMVER_PATTERN,
+    TOOL_ID_PATTERN,
     CustomToolContractError,
     CustomToolManifest,
     app_id_from_tool_id,
@@ -22,6 +24,8 @@ from orchestration.custom_tool_contract import (
 )
 from orchestration.tool_sandbox_runtime import (
     ToolSandboxError,
+    _safe_segment,
+    env_passthrough_names,
     get_runtime,
     remove_runtime,
     start_tool_sandbox,
@@ -33,6 +37,9 @@ _artifacts: dict[str, "ToolArtifactRecord"] = {}
 _activated: dict[str, str] = {}  # activation key -> artifact storage key
 
 DEFAULT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+#: Cap on a single member once decompressed (zip-bomb guard).
+DEFAULT_MAX_UNPACKED_BYTES = 64 * 1024 * 1024
+MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 class ToolArtifactError(ValueError):
@@ -66,6 +73,35 @@ def max_upload_bytes() -> int:
     return max(64 * 1024, min(32 * 1024 * 1024, value))
 
 
+def max_unpacked_bytes() -> int:
+    raw = os.getenv("AGENTIC_CUSTOM_TOOL_MAX_UNPACKED_BYTES", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAX_UNPACKED_BYTES
+    except ValueError:
+        value = DEFAULT_MAX_UNPACKED_BYTES
+    return max(64 * 1024, min(512 * 1024 * 1024, value))
+
+
+def _read_zip_member(zf: zipfile.ZipFile, name: str, *, limit: int) -> bytes:
+    """Read one member after checking its declared uncompressed size against ``limit``."""
+    try:
+        info = zf.getinfo(name)
+    except KeyError as exc:
+        raise ToolArtifactError(f"upload zip is missing {name!r}") from exc
+    if info.file_size > limit:
+        raise ToolArtifactDenied(
+            f"{name!r} is {info.file_size} bytes uncompressed; max is {limit}"
+        )
+    return zf.read(info)
+
+
+def _require_valid_tool_ref(tool_id: str, tool_version: str) -> None:
+    if not TOOL_ID_PATTERN.match(str(tool_id or "")) or not SEMVER_PATTERN.match(
+        str(tool_version or "")
+    ):
+        raise ToolArtifactError("invalid toolId or toolVersion")
+
+
 def _storage_key(*, user_id: str, app_id: str, tool_id: str, tool_version: str) -> str:
     return f"{user_id}::{app_id}::{tool_id}@{tool_version}"
 
@@ -79,9 +115,18 @@ def artifact_store_root(tool_root: Path) -> Path:
 
 
 def _artifact_dir(tool_root: Path, *, user_id: str, app_id: str, record_key: str) -> Path:
-    safe_user = user_id.replace("/", "_").replace("\\", "_") or "anonymous"
-    safe_app = app_id.replace("/", "_").replace("\\", "_") or "default"
-    return artifact_store_root(tool_root) / safe_user / safe_app / record_key.replace("::", "__")
+    base = artifact_store_root(tool_root).resolve()
+    path = (
+        base
+        / _safe_segment(user_id, "anonymous")
+        / _safe_segment(app_id, "default")
+        / _safe_segment(record_key.replace("::", "__"), "artifact")
+    ).resolve()
+    # The record key embeds caller-supplied ids; it must stay a single directory
+    # under the store, never a path that walks out of it.
+    if base not in path.parents:
+        raise ToolArtifactError("artifact path escapes the artifact store")
+    return path
 
 
 @dataclass
@@ -132,14 +177,27 @@ def _truthy(name: str) -> bool:
 
 
 def _parse_manifest_from_zip(zf: zipfile.ZipFile) -> CustomToolManifest:
-    if "manifest.json" in zf.namelist():
-        raw = json.loads(zf.read("manifest.json").decode("utf-8"))
-    elif "manifest.yaml" in zf.namelist():
-        import yaml
+    try:
+        if "manifest.json" in zf.namelist():
+            raw = json.loads(
+                _read_zip_member(zf, "manifest.json", limit=MAX_MANIFEST_BYTES).decode("utf-8")
+            )
+        elif "manifest.yaml" in zf.namelist():
+            import yaml
 
-        raw = yaml.safe_load(zf.read("manifest.yaml").decode("utf-8"))
-    else:
-        raise CustomToolContractError("upload zip must include manifest.json")
+            raw = yaml.safe_load(
+                _read_zip_member(zf, "manifest.yaml", limit=MAX_MANIFEST_BYTES).decode("utf-8")
+            )
+        else:
+            raise CustomToolContractError("upload zip must include manifest.json")
+    except (ValueError, UnicodeDecodeError) as exc:
+        if isinstance(exc, (CustomToolContractError, ToolArtifactError)):
+            raise
+        raise CustomToolContractError(f"manifest is not valid JSON/YAML: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 — yaml.YAMLError is not a ValueError
+        if exc.__class__.__module__.startswith("yaml"):
+            raise CustomToolContractError(f"manifest is not valid YAML: {exc}") from exc
+        raise
     if not isinstance(raw, dict):
         raise CustomToolContractError("manifest must be a JSON object")
     manifest = CustomToolManifest.from_json(raw)
@@ -170,15 +228,18 @@ def ingest_upload(
         )
 
     zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        manifest = _parse_manifest_from_zip(zf)
-        _check_permissions(manifest)
-        expected_app = app_id_from_tool_id(manifest.tool_id)
-        if expected_app != aid:
-            raise ToolArtifactDenied(
-                f"app_id {aid!r} does not match manifest toolId app segment {expected_app!r}"
-            )
-        wheel_bytes = zf.read(manifest.wheel)
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            manifest = _parse_manifest_from_zip(zf)
+            _check_permissions(manifest)
+            expected_app = app_id_from_tool_id(manifest.tool_id)
+            if expected_app != aid:
+                raise ToolArtifactDenied(
+                    f"app_id {aid!r} does not match manifest toolId app segment {expected_app!r}"
+                )
+            wheel_bytes = _read_zip_member(zf, manifest.wheel, limit=max_unpacked_bytes())
+    except zipfile.BadZipFile as exc:
+        raise ToolArtifactError(f"upload is not a valid zip archive: {exc}") from exc
     wheel_sha256 = hashlib.sha256(wheel_bytes).hexdigest()
 
     key = _storage_key(
@@ -224,6 +285,7 @@ def register_artifact(
     tool_version: str,
 ) -> ToolArtifactRecord:
     """Mark an uploaded artifact as registered (idempotent)."""
+    _require_valid_tool_ref(tool_id, tool_version)
     key = _storage_key(
         user_id=user_id,
         app_id=app_id,
@@ -237,7 +299,12 @@ def register_artifact(
         manifest_path = bundle_dir / "manifest.json"
         if not manifest_path.is_file():
             raise ToolArtifactError(f"artifact not found: {tool_id}@{tool_version}")
-        manifest = CustomToolManifest.from_json(json.loads(manifest_path.read_text(encoding="utf-8")))
+        try:
+            manifest = CustomToolManifest.from_json(
+                json.loads(manifest_path.read_text(encoding="utf-8"))
+            )
+        except (OSError, ValueError) as exc:
+            raise ToolArtifactError(f"stored manifest is unreadable: {exc}") from exc
         wheel_path = bundle_dir / manifest.wheel
         if not wheel_path.is_file():
             raise ToolArtifactError(f"wheel missing for {tool_id}@{tool_version}")
@@ -298,8 +365,11 @@ def activate_artifact(
         tool_id=tool_id,
         tool_version=tool_version,
     )
+    # The tool only sees the activation env plus operator-approved passthrough names
+    # (see tool_sandbox_runtime.build_tool_env), so that is what "present" means here.
+    passthrough = env_passthrough_names()
     for req in record.manifest.required_env:
-        if req not in (env or {}) and req not in os.environ:
+        if req not in (env or {}) and not (req in passthrough and req in os.environ):
             raise ToolArtifactDenied(f"missing required env var {req!r}")
 
     existing = get_runtime(
@@ -433,6 +503,7 @@ def delete_artifact(
     uid, app_id, tool_id, tool_version = _parse_storage_key(artifact_id)
     if uid != str(user_id or "").strip():
         raise ToolArtifactError("artifact belongs to another user")
+    _require_valid_tool_ref(tool_id, tool_version)
 
     manifest = None
     with _lock:

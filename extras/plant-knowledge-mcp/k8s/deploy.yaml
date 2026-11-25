@@ -49,10 +49,29 @@ spec:
       labels:
         app.kubernetes.io/name: plant-knowledge-mcp
     spec:
+      # Read-only reference data served over HTTP: no Kubernetes API access, no root.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: plant-knowledge
+          # Locally built by scripts/jetson-deploy.sh (never pulled from a registry).
           image: plant-knowledge-mcp:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           ports:
             - containerPort: 8080
           env:

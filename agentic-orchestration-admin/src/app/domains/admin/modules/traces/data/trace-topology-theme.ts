@@ -1,6 +1,6 @@
 import { themeForKind, TopologyKindTheme } from '@/app/domains/admin/modules/topology/data/topology.theme';
 
-/** Fuse uses `scheme-dark` / `scheme-light` on <html>, not Tailwind's `.dark`. */
+/** Fuse uses `scheme-dark` / `scheme-light` on &lt;html>, not Tailwind's `.dark`. */
 export function isAoDarkScheme(): boolean {
   if (typeof document === 'undefined') return true;
   const root = document.documentElement;
@@ -310,7 +310,7 @@ function setSvgTitle(el: SVGElement, full: string): void {
  */
 export function applyMermaidTextTooltips(
   svg: SVGSVGElement,
-  tips: Array<{ shown?: string; full?: string }> | null | undefined,
+  tips: { shown?: string; full?: string }[] | null | undefined,
   host?: HTMLElement | null
 ): void {
   const byShown = new Map<string, string>();
@@ -452,7 +452,7 @@ export type MermaidTokenHelpClick = (help: {
   kind?: string;
 }) => void;
 
-/** Browsers often clip native ``<title>`` tooltips past roughly this length. */
+/** Browsers often clip native ``&lt;title>`` tooltips past roughly this length. */
 export const MERMAID_TOKEN_HELP_TRUNCATE_CHARS = 80;
 
 export function mermaidTokenHelpLikelyTruncated(tooltip: string): boolean {
@@ -500,7 +500,7 @@ export function applyMermaidTokenHelpIcons(
   const byIndex = new Map<number, MermaidTokenHelp>();
   for (const h of list) byIndex.set(Number(h.messageIndex), h);
 
-  let maxRight = 0;
+  let maxRight: number;
   try {
     maxRight = svg.getBBox().width;
   } catch {
@@ -514,10 +514,10 @@ export function applyMermaidTokenHelpIcons(
     if (!tip) continue;
     const detail = String(help.detail || '').trim();
 
-    let bx = 0;
-    let by = 0;
-    let bw = 0;
-    let bh = 0;
+    let bx: number;
+    let by: number;
+    let bw: number;
+    let bh: number;
     try {
       const box = el.getBBox();
       bx = box.x;
@@ -661,7 +661,7 @@ function truncateToWidth(el: SVGTextElement, full: string, maxPx: number): strin
     const mid = Math.floor((lo + hi) / 2);
     const candidate = truncateChars(raw, mid);
     el.textContent = candidate;
-    let width = maxPx + 1;
+    let width: number;
     try {
       width = el.getBBox().width;
     } catch {

@@ -36,7 +36,12 @@ def _resolve_data_dir() -> Path:
     if configured == _DEFAULT_DATA_DIR:
         return configured
 
-    configured.mkdir(parents=True, exist_ok=True)
+    try:
+        configured.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Read-only or not creatable (the container runs as a non-root user):
+        # use it only if it already holds the full set, else the bundled data.
+        pass
     if all((configured / name).is_file() for name in _REQUIRED_CSVS):
         return configured
 
@@ -70,7 +75,16 @@ _store = PlantKnowledgeStore(_DATA_DIR)
 
 
 def _reload_data() -> dict[str, Any]:
-    _store.reload()
+    """Reload the CSVs. On any error the previous dataset stays in service."""
+    try:
+        _store.reload()
+    except Exception as exc:  # noqa: BLE001 - bad CSV, missing file, permission error
+        sys.stderr.write(f"plant-knowledge MCP: reload failed, keeping previous data: {exc}\n")
+        return {
+            "reloaded": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "row_counts": _store.row_counts,
+        }
     return {"reloaded": True, "row_counts": _store.row_counts}
 
 
@@ -100,7 +114,8 @@ def create_mcp_server():
 
     @mcp.custom_route("/reload", methods=["POST"])
     async def reload_endpoint(_request: Request) -> Response:
-        return JSONResponse(_reload_data())
+        result = _reload_data()
+        return JSONResponse(result, status_code=200 if result.get("reloaded") else 500)
 
     @mcp.tool()
     def get_plant_profile(name: str) -> dict[str, Any]:
@@ -184,6 +199,8 @@ def create_mcp_server():
 
 
 def _handle_sighup(_signum: int, _frame: object) -> None:
+    # _reload_data never raises: an exception escaping a signal handler would
+    # surface in whatever the main thread happened to be doing.
     _reload_data()
 
 

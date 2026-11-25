@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from orchestration.env_values import env_int
+
 
 KB_DIR_NAME = "__orchestrator_kb__"
 
@@ -155,7 +157,7 @@ class KBQueryResult:
 
 
 def _doc_char_cap() -> int:
-    cap = int(os.getenv("AGENTIC_KB_DOC_CHARS", "20000"))
+    cap = env_int("AGENTIC_KB_DOC_CHARS", 20000, lo=0)
     return max(2000, min(200000, cap))
 
 
@@ -192,12 +194,12 @@ def add_document(
     """
     if not kb_enabled():
         return None
-    from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
+    from orchestration.cloud_anonymize import redact_for_storage
 
-    text = maybe_redact_for_cloud_provider((content or "").strip())
+    text = redact_for_storage((content or "").strip())
     if not text:
         return None
-    goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
+    goal = redact_for_storage(str(user_goal or "").strip())
     fp = (attachment_fingerprint or mcp_fingerprint or "").strip() or None
     text = text[: _doc_char_cap()]
 
@@ -253,20 +255,24 @@ def upsert_by_source(
     sid = _clean(source_id)
     if not sid:
         raise ValueError("source_id is required for upsert_by_source")
-    from orchestration.cloud_anonymize import maybe_redact_for_cloud_provider
+    from orchestration.cloud_anonymize import redact_for_storage
 
-    text = maybe_redact_for_cloud_provider((content or "").strip())[: _doc_char_cap()]
+    text = redact_for_storage((content or "").strip())[: _doc_char_cap()]
     if not text:
         raise ValueError("content is required for upsert_by_source")
-    goal = maybe_redact_for_cloud_provider(str(user_goal or "").strip())
+    goal = redact_for_storage(str(user_goal or "").strip())
     digest = content_hash(text)
     resolved_scope = _resolve_scope(scope, deal_id)
 
     with _connect(kb_path(tool_root)) as con:
         ensure_schema(con)
+        # A source id is only unique within its deal: without the deal in the key,
+        # an upsert for one deal would overwrite another deal's document.
         row = con.execute(
-            "SELECT id, content_hash FROM docs WHERE source_id = ? ORDER BY id DESC LIMIT 1;",
-            (sid,),
+            "SELECT id, content_hash FROM docs "
+            "WHERE source_id = ? AND coalesce(deal_id,'') = ? "
+            "ORDER BY id DESC LIMIT 1;",
+            (sid, _clean(deal_id) or ""),
         ).fetchone()
         if row is None:
             cur = con.execute(
@@ -460,6 +466,7 @@ def search(
     scope: str | None = None,
     deal_id: str | None = None,
     user_id: str | None = None,
+    allowed_deal_ids: list[str] | None = None,
 ) -> list[KBQueryResult]:
     """
     Full-text search over stored documents.
@@ -468,6 +475,9 @@ def search(
     With ``deal_id`` set, deal hits come first and global-tier hits follow — deal facts
     take precedence over company-tier documents on conflict. Pass ``scope="deal"`` to
     exclude the global tier entirely.
+
+    ``allowed_deal_ids`` (server mode, no ``deal_id``) restricts deal-tagged rows to
+    that list; rows without a deal stay visible. ``None`` means unrestricted.
     """
     if not kb_enabled():
         return []
@@ -475,7 +485,7 @@ def search(
     if not q:
         return []
     limit = max(1, min(12, int(limit)))
-    snippet_chars = int(os.getenv("AGENTIC_KB_SNIPPET_CHARS", "600"))
+    snippet_chars = env_int("AGENTIC_KB_SNIPPET_CHARS", 600, lo=0)
     snippet_chars = max(200, min(2000, snippet_chars))
     did = _clean(deal_id)
     uid = _clean(user_id)
@@ -494,6 +504,14 @@ def search(
 
     user_sql = " AND (d.user_id IS NULL OR d.user_id = ?)" if uid else ""
     user_params: tuple[Any, ...] = (uid,) if uid else ()
+    if allowed_deal_ids is not None and not did:
+        visible = [d for d in (_clean(x) for x in allowed_deal_ids) if d]
+        if visible:
+            marks = ",".join("?" for _ in visible)
+            user_sql += f" AND (coalesce(d.deal_id,'') = '' OR d.deal_id IN ({marks}))"
+            user_params = (*user_params, *visible)
+        else:
+            user_sql += " AND coalesce(d.deal_id,'') = ''"
 
     with _connect(kb_path(tool_root)) as con:
         ensure_schema(con)
@@ -523,17 +541,33 @@ def search(
         return _run(con, user_sql, user_params)
 
 
-def planner_kb_context(*, tool_root: Path, user_prompt: str) -> str:
+def planner_kb_context(
+    *,
+    tool_root: Path,
+    user_prompt: str,
+    user_id: str | None = None,
+    deal_id: str | None = None,
+) -> str:
     """
     Build a short context block for the planner from previously stored answers.
+
+    Pass ``user_id`` in multi-user deployments so one user's stored answers are never
+    injected into another user's planner prompt (rows without an owner stay shared).
+    ``user_id=None`` keeps the unscoped single-user behaviour.
     """
     if not kb_enabled():
         return ""
-    max_hits = int(os.getenv("AGENTIC_KB_MAX_HITS", "4"))
+    max_hits = env_int("AGENTIC_KB_MAX_HITS", 4)
     max_hits = max(0, min(12, max_hits))
     if max_hits <= 0:
         return ""
-    hits = search(tool_root=tool_root, query=user_prompt, limit=max_hits)
+    hits = search(
+        tool_root=tool_root,
+        query=user_prompt,
+        limit=max_hits,
+        user_id=user_id,
+        deal_id=deal_id,
+    )
     if not hits:
         return ""
     lines: list[str] = []

@@ -99,10 +99,15 @@ def run_config_via_kubernetes(
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # A result left by an earlier attempt (retry, recovery, or a reused
+            # run_id/step_id) must never be read back as this attempt's outcome.
+            _clear_prior_step_result(store, run_id, spec.step_id)
             wait: Any = None
-            if spec_requires_engine_mcp_tunnel(spec_dict) or any(
+            inprocess = spec_requires_engine_mcp_tunnel(spec_dict) or any(
                 str(mid).startswith("client.") for mid in mcp_ids
-            ):
+            )
+            inprocess_exit: int | None = None
+            if inprocess:
                 import sys
 
                 from orchestration.execute_step import execute_step_from_spec_file
@@ -112,7 +117,7 @@ def run_config_via_kubernetes(
                     f"(localhost loopback; skip warm-pool) {spec.step_id}",
                     file=sys.stderr,
                 )
-                execute_step_from_spec_file(spec_path)
+                inprocess_exit = int(execute_step_from_spec_file(spec_path) or 0)
             else:
                 record, wait = runner.run_step_job(
                     run_id=run_id,
@@ -146,12 +151,21 @@ def run_config_via_kubernetes(
                     pass
                 return saved
 
-            err = (getattr(wait, "message", None) if wait is not None else None) or (
-                "engine in-process step failed without result.json"
-                if spec_requires_engine_mcp_tunnel(spec_dict)
-                or any(str(mid).startswith("client.") for mid in mcp_ids)
-                else "kubernetes job failed without result.json"
-            )
+            # No result.json: always a failure, whatever the Job / in-process
+            # exit status says (a "succeeded" Job that wrote nothing produced nothing).
+            if inprocess:
+                err = (
+                    "engine in-process step produced no result.json"
+                    f" (exit code {inprocess_exit})"
+                )
+            else:
+                wait_message = getattr(wait, "message", None) if wait is not None else None
+                if wait_message:
+                    err = str(wait_message)
+                elif wait is not None and getattr(wait, "succeeded", False):
+                    err = "kubernetes job succeeded but wrote no result.json"
+                else:
+                    err = "kubernetes job failed without result.json"
             try:
                 from orchestration.run_trace import append_run_event
 
@@ -172,7 +186,7 @@ def run_config_via_kubernetes(
             return StepResult(
                 run_id=run_id,
                 step_id=spec.step_id,
-                exit_code=1 if wait.failed or not wait.succeeded else 0,
+                exit_code=1,
                 error=err,
             )
 
@@ -196,7 +210,9 @@ def run_config_via_kubernetes(
             execute_step=execute_step,
             try_recover=make_step_recovery_callback(
                 config_box,
-                catalog_path=options.mcp_catalog_path,
+                # The HF fallback looks up *agent providers*; passing the MCP
+                # catalog here made the fallback id "not in catalog" every time.
+                catalog_path=getattr(options, "agent_providers_catalog_path", None),
                 quiet=options.quiet,
             ),
             options=options,
@@ -212,6 +228,21 @@ def run_config_via_kubernetes(
                 k8s_jobs=k8s_jobs,
             )
         return result
+
+
+def _clear_prior_step_result(store: Any, run_id: str, step_id: str) -> None:
+    """Remove any earlier attempt's result for ``(run_id, step_id)``. Never raises."""
+    deleter = getattr(store, "delete_step_result", None)
+    if callable(deleter):
+        try:
+            deleter(run_id, step_id)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        store.step_result_path(run_id, step_id).unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _job_record_to_dict(record: K8sJobRecord, wait: Any) -> dict[str, Any]:

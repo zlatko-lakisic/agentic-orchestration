@@ -173,10 +173,14 @@ def test_admin_custom_tool_sandboxes_disabled(tmp_path: Path, monkeypatch: pytes
 
     monkeypatch.setenv("AGENTIC_CUSTOM_TOOL_SANDBOX", "0")
     monkeypatch.delenv("AGENTIC_REQUIRE_IDENTITY", raising=False)
+    # Admin routes need the operator credential (AGENTIC_SERVE_ADMIN_TOKEN).
+    monkeypatch.setenv("AGENTIC_SERVE_ADMIN_TOKEN", "test-operator-token")
+    operator = {"Authorization": "Bearer test-operator-token"}
     with TestClient(create_app(tool_root_path=tmp_path)) as client:
         health = client.get("/health").json()
         assert health["customToolSandbox"] is False
-        body = client.get("/api/v1/admin/custom-tool-sandboxes").json()
+        assert client.get("/api/v1/admin/custom-tool-sandboxes").status_code == 401
+        body = client.get("/api/v1/admin/custom-tool-sandboxes", headers=operator).json()
     assert body["ok"] is True
     assert body["enabled"] is False
     assert body["runtimes"] == []
@@ -215,10 +219,12 @@ def test_admin_custom_tool_sandboxes_lists_running(
         tool_version=record.manifest.tool_version,
     )
 
+    monkeypatch.setenv("AGENTIC_SERVE_ADMIN_TOKEN", "test-operator-token")
+    operator = {"Authorization": "Bearer test-operator-token"}
     with TestClient(create_app(tool_root_path=tmp_path)) as client:
         health = client.get("/health").json()
         assert health["customToolSandbox"] is True
-        body = client.get("/api/v1/admin/custom-tool-sandboxes").json()
+        body = client.get("/api/v1/admin/custom-tool-sandboxes", headers=operator).json()
 
     assert body["ok"] is True
     assert body["enabled"] is True

@@ -31,9 +31,15 @@ spec:
       labels:
         app.kubernetes.io/name: agentic-mcp-filesystem
     spec:
+      # Third-party gateway image: it never talks to the Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: gateway
+          # Floating tag, and the npm package is downloaded at pod start: pin both for
+          # production (an image digest, `@modelcontextprotocol/server-filesystem@<version>`).
           image: supercorp/supergateway:uvx
+          securityContext:
+            allowPrivilegeEscalation: false
           args:
             - --stdio
             - npx -y @modelcontextprotocol/server-filesystem /workspace

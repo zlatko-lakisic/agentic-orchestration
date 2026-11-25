@@ -2,13 +2,13 @@ import { Component, computed, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { statusGlyphColor, statusIcon } from '../data/topology.status';
+import { themeForKind } from '../data/topology.theme';
 import {
   LayoutResult,
   PositionedEdge,
   PositionedNode,
 } from '../data/topology.types';
-import { statusGlyphColor, statusIcon } from '../data/topology.status';
-import { themeForKind } from '../data/topology.theme';
 
 type AppGroupFrame = {
   appId: string;
@@ -71,7 +71,8 @@ function boundsOf(
       </div>
       <svg
         class="topology-svg block min-w-full"
-        role="img"
+        role="group"
+        aria-label="Live deployment topology"
         [attr.width]="layout().width"
         [attr.height]="layout().height"
         [attr.viewBox]="'0 0 ' + layout().width + ' ' + layout().height"
@@ -262,6 +263,7 @@ function boundsOf(
             (blur)="hover.emit(null)"
             (click)="nodeClick.emit(n)"
             (keydown.enter)="nodeClick.emit(n)"
+            (keydown.space)="$event.preventDefault(); nodeClick.emit(n)"
           >
             <title>{{ nodeHoverTitle(n) }}</title>
             <rect

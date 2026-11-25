@@ -116,7 +116,7 @@ Pipeline: **`.gitlab-ci.yml`** at the monorepo root (runs on merge requests and 
 
 | Job | What it does |
 |------|----------------|
-| **unit-tests** | `pip install -r requirements-test.txt` + `pytest` |
+| **unit-tests** | `pip install -r requirements-dev.txt` + `pytest` |
 | **import-smoke** | Install full `requirements.txt`; import `orchestration.*` and `main` |
 | **docker-worker-smoke** | DinD: build worker image + smoke script (same as GitHub job) |
 | **kind-kubernetes-e2e** | kind + hostPath PVC + stub worker (`scripts/k8s-kind-e2e.sh`) |

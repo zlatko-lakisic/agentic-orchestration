@@ -7,6 +7,57 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+Whole-repo review and fix pass. **Read "Upgrade notes" before deploying**: several defaults are now closed that used to be open.
+
+### Upgrade notes
+
+- **Rotate the chat-completions API key.** A key was committed in a root note and a smoke script. Both are removed, but the key remains in git history.
+- **Proxied web deployments need `AGENTIC_WEB_TRUSTED_PROXIES`.** The Admin and Chat pages get `403 web_auth_untrusted_source` on the token fetch until the proxy's IP/CIDR is listed (or `AGENTIC_WEB_AUTH_BOOTSTRAP=open`). A plain local `npm start` needs nothing.
+- **Coordinator and engine in different pods need `AGENTIC_SERVE_ADMIN_TOKEN`** on both. `jetson-sync-k8s-secret.sh` generates one into the Secret when `.env` has none.
+- **Rebuild images for this release.** The Jetson hotfix path still works (it now mounts the new modules), but the coordinator and delegation broker only get the Kubernetes Job, warm-pool and delegation fixes from a rebuilt image.
+- **Settings that were silently inert now take effect** where the execution queue is enabled (`config/env.jetson`): host CPU headroom (`AGENTIC_EXEC_QUEUE_HOST_HEADROOM_CPU_PCT`, default 20; `0` disables), preemption while waiting, and warm-pool autoscale (`AGENTIC_EXEC_QUEUE_AUTOSCALE_ENABLED=0` keeps the pool fixed).
+- **Fresh k3s installs need `INSTALL_K3S_VERSION`** (or `AGENTIC_K3S_ALLOW_UNPINNED=1`). Manual steps for existing hosts (kubeconfig mode, run-store directory mode, Ollama NodePort) are in `agentic-orchestration-tool/deploy/k8s/README.md`.
+- **Identified engine clients get new session slugs** (`u-<hash>-<id>`) and are capped at priority 75 unless configured; the fetch tool no longer reaches private addresses by default (`AGENTIC_FETCH_URL_ALLOW_PRIVATE=1`).
+- **`publish-github.sh` / `.ps1` and `.tools/kind.exe` are no longer tracked** (they were already in `.gitignore`). Pulling this change deletes your working copies; restore with `git show <previous-commit>:<path> > <path>` if you still use them.
+
+### Security
+
+- **Web server:** the UI token is only handed to a trusted source; UI tokens are refused on the Bearer API routes; Origin and Host checks; admin WebSocket message types require the `ao-web` token; prompts can no longer be parsed as `main.py` options; malformed requests and frames no longer crash the process; broader secret redaction in the effective-config view; the per-app agent allowlist no longer fails open; a proxy-supplied session id wins over the client's; WebSocket auth moves from the URL to the `Sec-WebSocket-Protocol` header.
+- **Engine daemon:** operator credential on every `/api/v1/admin/*` route (also under mTLS); enrollment tokens are bound to their client name; Origin and Host checks; a session-supplied provider base URL is never combined with the engine's API key; `${VAR}` in client MCP entries is not expanded from the engine environment; loopback sandbox URLs are parsed and ownership-checked; knowledge-base search, upsert and delete are scoped by user, deal and role; uploads are size-limited before buffering; path traversal through user ids and tool ids is closed; mTLS registries are written atomically and fail closed; the fetch tool refuses internal addresses.
+- **Kubernetes and deploy:** secret-like variables are no longer copied as literals into Job specs; step spec files keep `${VAR}` placeholders instead of resolved secrets and are written 0600; root systemd units run root-owned copies of their scripts; the host-control directory is no longer world-writable; k3s kubeconfig is group-restricted on new installs; `allowPrivilegeEscalation: false` on the main workloads; the Ollama NodePort is opt-in; an opt-in namespace NetworkPolicy is provided.
+- **Admin console:** Mermaid is bundled instead of loaded from a CDN at runtime and runs in strict mode; the token is kept in memory only and cleared on logout.
+- **CI and releases:** `:latest` images move only on pushed release tags; the release workflow checks the tag against `VERSION`; workflow inputs are no longer interpolated into shell; `litellm` is pinned and other open-ended Python dependencies are bounded.
+
+### Fixed
+
+- **RAG was silently dropped on the default in-process path** (`execution_dispatch.py` did not pass the RAG catalog).
+- **Worker fast paths never substituted the goal** (`{{topic}}` vs `{topic}`).
+- **Concurrent runs could leave `sys.stdout`/`sys.stderr` closed** for the whole daemon; quiet kickoff is now thread-aware.
+- **Planner knowledge-base context leaked across users**; it is now scoped to the caller.
+- **Execution queue:** a step lease no longer double-charges its own run's budget; preemption and quota are evaluated while waiting and at grant; cancelled leases no longer skew tenant counts; file-backend tickets are cleaned up; the host CPU headroom check reads the right metric.
+- **Ollama resource manager and GPU residency:** double grants, stuck waiters and unload-during-use races.
+- **Run store:** stale step results are cleared before each attempt (retries and iterative rounds on S3/Redis returned the first attempt's result).
+- **Kubernetes backend:** Jobs get per-attempt names, `activeDeadlineSeconds` and are deleted on timeout; a Job that succeeds without `result.json` is a failure; warm-pool and delegation files are written atomically with reclaim of dead claims; delegated children no longer deadlock the warm pool; autoscale uses the API instead of a `kubectl` binary the image never had.
+- **Planner:** tolerant JSON extraction inside the repair path; controller errors no longer abort a multi-round run; strict id checks apply in quiet mode; exact 429 retry counts; the planner call has a default timeout.
+- **State files:** session, learning and token files are written atomically under a lock; corrupt files are quarantined instead of failing every later turn.
+- **Config parsing:** an empty or malformed numeric `AGENTIC_*` value falls back to its default instead of failing every run.
+- **Web server:** orchestrator processes are tracked, bounded and killed on disconnect, deadline and shutdown; `/api/v1/orchestrate` no longer resets the session on short prompts; long prompts are streamed over stdin (`main.py --task-file`).
+- **Admin console:** live-socket subscriptions are tracked per page and released; reconnect uses backoff and refreshes auth; stale responses no longer overwrite fresh ones; failed loads show an error instead of an empty state; keyboard and screen-reader access to icon buttons, rows and topology nodes.
+- **Engine probes** use HTTP when the daemon has no TLS material configured.
+- **GitLab CI and `requirements-test.txt`** install the dependencies the unit tier actually needs.
+- **`extras/plant-knowledge-mcp`:** the Dockerfile's unquoted `mcp>=1.2.0`, reload safety, ET0 validation and an ignored `pytest.ini`.
+
+### Changed
+
+- **CI** now runs the Node web tests, the admin lint/test/build (failing on a stale committed bundle), the landing-site lint/build and the `plant-knowledge-mcp` tests.
+- **Admin console dependencies:** all `@angular/*` packages aligned on 22.3.0; Dependabot groups them.
+- **Installers** default to `127.0.0.1` and run the service as the checkout's owner instead of root; `agentic-orchestration-web/.env.example` no longer enables `0.0.0.0`.
+- **Custom tools** start with a minimal environment instead of inheriting the daemon's.
+
+### Removed
+
+- Stray tracked files: the root Cursor task note, `.ha-write-args.json`, `scripts/_tmp_ada_ha_venv_fix.sh`, the admin console's committed `out-tsc/` output and emitted config twins, and 14 unreachable admin modules.
+
 ## [2.28.0] - 2026-11-23
 
 ### Added

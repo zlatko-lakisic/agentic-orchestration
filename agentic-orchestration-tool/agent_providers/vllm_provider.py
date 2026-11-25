@@ -39,8 +39,12 @@ class VllmProvider(AgentProvider):
             raw = os.getenv("VLLM_BASE_URL", "").strip()
         self._base_url = _normalize_openai_base(raw) if raw else None
 
-        if self._base_url and _is_likely_local_url(self._base_url):
-            os.environ.setdefault("OPENAI_API_KEY", os.getenv("VLLM_API_KEY", "local").strip() or "local")
+        # Local endpoints need *some* key for the OpenAI client. Pass a
+        # placeholder to this agent's LLM only; exporting it as the process-wide
+        # ``OPENAI_API_KEY`` would hand "local" to unrelated cloud OpenAI agents.
+        self._local_placeholder_key = bool(
+            self._base_url and _is_likely_local_url(self._base_url)
+        )
 
     def health_check(self) -> None:
         if not self._base_url:
@@ -66,6 +70,8 @@ class VllmProvider(AgentProvider):
             "base_url": self._base_url,
         }
         api_key = os.getenv("VLLM_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key and getattr(self, "_local_placeholder_key", False):
+            api_key = "local"
         if api_key:
             llm_kwargs["api_key"] = api_key
         llm = LLM(**llm_kwargs)

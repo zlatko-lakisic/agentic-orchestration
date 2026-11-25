@@ -1,8 +1,8 @@
 name: Custom tool edge smoke
 
+# Manual only: this job cannot reach the edge host; it prints the entrypoint and
+# checks the script still exists.
 on:
-  schedule:
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:

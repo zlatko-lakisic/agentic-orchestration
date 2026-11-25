@@ -1,9 +1,10 @@
+import { Clipboard } from '@angular/cdk/clipboard';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTabLink, MatTabNav, MatTabNavPanel } from '@angular/material/tabs';
-import { Clipboard } from '@angular/cdk/clipboard';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { switchMap } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { TopologyComponent } from '@/app/core/ao-api/types';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
@@ -60,7 +61,10 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
         @for (t of tabs; track t.id) {
           <a
             mat-tab-link
+            tabindex="0"
             (click)="tab.set(t.id)"
+            (keydown.enter)="tab.set(t.id)"
+            (keydown.space)="$event.preventDefault(); tab.set(t.id)"
             [active]="tab() === t.id"
             >{{ t.label }}</a
           >
@@ -198,15 +202,21 @@ export class ComponentDetailPage implements OnInit {
   }
 
   ngOnInit() {
-    this.route.paramMap.subscribe((pm) => {
-      this.id.set(pm.get('id') || 'web');
-      this.probeResult.set(null);
-      this.api.topology().subscribe((r) => {
+    this.route.paramMap
+      .pipe(
+        switchMap((pm) => {
+          this.id.set(pm.get('id') || 'web');
+          this.probeResult.set(null);
+          // Invalidate probes started for the previous component.
+          this.probeGen += 1;
+          return this.api.topology();
+        })
+      )
+      .subscribe((r) => {
         if (!r.ok) return;
         const match = r.data.components?.find((c) => c.id === this.id());
         this.topo.set(match || null);
       });
-    });
   }
 
   copyEndpoint() {
@@ -223,10 +233,19 @@ export class ComponentDetailPage implements OnInit {
     );
   }
 
+  /**
+   * Bumped on every probe and on navigation: a probe that finishes after the
+   * user moved to another component (or started a newer probe) is dropped.
+   */
+  private probeGen = 0;
+
   testConnection() {
+    const gen = ++this.probeGen;
+    const current = () => gen === this.probeGen;
     this.probeResult.set('Probing…');
     if (this.id() === 'web') {
       this.api.ping().subscribe((r) => {
+        if (!current()) return;
         this.probeResult.set(
           r.ok ? `OK — ${r.data.service} pid ${r.data.pid}` : r.message
         );
@@ -235,6 +254,7 @@ export class ComponentDetailPage implements OnInit {
     }
     if (this.id() === 'engine') {
       this.api.topology().subscribe((r) => {
+        if (!current()) return;
         if (!r.ok) {
           this.probeResult.set(r.message);
           return;
@@ -250,6 +270,7 @@ export class ComponentDetailPage implements OnInit {
     }
     if (this.id() === 'ollama') {
       this.api.topology().subscribe((r) => {
+        if (!current()) return;
         const o = r.ok
           ? r.data.components?.find((c) => c.id === 'ollama')
           : null;
@@ -262,6 +283,7 @@ export class ComponentDetailPage implements OnInit {
     if (this.id() === 'detection') {
       this.probeResult.set('Ensuring detection ready (download + ORT warm)…');
       this.api.detectionEnsureReady({}).subscribe((r) => {
+        if (!current()) return;
         if (!r.ok) {
           this.probeResult.set(r.message || 'Ensure ready failed');
           return;
@@ -269,12 +291,12 @@ export class ComponentDetailPage implements OnInit {
         const data = r.data as {
           ok?: boolean;
           count?: number;
-          providers?: Array<{
+          providers?: {
             id?: string;
             ready?: boolean;
             executionProvider?: string;
             error?: string;
-          }>;
+          }[];
         };
         const lines = (data.providers || []).map((p) => {
           if (p.ready) {
@@ -290,7 +312,7 @@ export class ComponentDetailPage implements OnInit {
               : 'Ensure ready returned no providers'
         );
         this.api.topology().subscribe((tr) => {
-          if (!tr.ok) return;
+          if (!current() || !tr.ok) return;
           const match = tr.data.components?.find((c) => c.id === 'detection');
           this.topo.set(match || null);
         });

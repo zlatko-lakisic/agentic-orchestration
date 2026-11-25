@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
 import os
 import re
+import socket
 from html import unescape
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from crewai.tools import BaseTool
 
@@ -63,20 +67,107 @@ def _html_to_plain_text(html: str, *, max_chars: int) -> str:
     return text[:max_chars]
 
 
+class FetchUrlBlocked(ValueError):
+    """The URL (or a redirect hop) points at an address the fetch tool must not reach."""
+
+
+_MAX_REDIRECTS = 5
+
+
+def _allow_private_fetch() -> bool:
+    """``AGENTIC_FETCH_URL_ALLOW_PRIVATE=1`` lifts the internal-address block entirely."""
+    return os.getenv("AGENTIC_FETCH_URL_ALLOW_PRIVATE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _allowed_fetch_hosts() -> set[str]:
+    """``AGENTIC_FETCH_URL_ALLOWED_HOSTS`` — comma list of hostnames exempt from the block."""
+    raw = os.getenv("AGENTIC_FETCH_URL_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def _is_internal_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    mapped = getattr(addr, "ipv4_mapped", None)
+    if mapped is not None:
+        addr = mapped
+    # ``is_global`` is False for loopback, RFC 1918 / ULA, link-local (cloud metadata),
+    # carrier-grade NAT, documentation and other special-purpose ranges.
+    return bool(not addr.is_global or addr.is_multicast)
+
+
+def assert_public_fetch_url(url: str) -> None:
+    """
+    Raise :class:`FetchUrlBlocked` unless ``url`` is http(s) to a public address.
+
+    The tool is driven by model output (and by text on fetched pages), so without this a
+    remote client could read loopback-only surfaces of the engine host, cloud metadata
+    (``169.254.169.254``), Ollama, or in-cluster services through the answer text.
+    Every address the hostname resolves to must be public.
+    """
+    try:
+        parts = urlsplit(str(url or "").strip())
+        port = parts.port
+    except ValueError as exc:
+        raise FetchUrlBlocked(f"invalid URL: {exc}") from exc
+    if parts.scheme not in ("http", "https"):
+        raise FetchUrlBlocked("only http and https URLs can be fetched")
+    host = (parts.hostname or "").strip().lower()
+    if not host:
+        raise FetchUrlBlocked("URL has no host")
+    if _allow_private_fetch() or host in _allowed_fetch_hosts():
+        return
+    try:
+        infos = socket.getaddrinfo(host, port or (443 if parts.scheme == "https" else 80))
+    except (socket.gaierror, UnicodeError, OSError) as exc:
+        raise FetchUrlBlocked(f"could not resolve host {host!r}: {exc}") from exc
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(str(info[4][0]).split("%", 1)[0])
+        except ValueError:
+            raise FetchUrlBlocked(f"host {host!r} resolved to an unusable address") from None
+        if _is_internal_address(addr):
+            raise FetchUrlBlocked(
+                f"host {host!r} resolves to a loopback, private or link-local address"
+            )
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """Surface 3xx as ``HTTPError`` so each hop can be re-validated before it is followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D102
+        return None
+
+
 def fetch_url_text(url: str, *, max_chars: int | None = None) -> str:
     cap = max_chars if max_chars is not None else _max_fetch_chars()
-    req = Request(
-        url,
-        headers={
-            "User-Agent": os.getenv(
-                "AGENTIC_FETCH_URL_USER_AGENT",
-                "agentic-orchestration/1.10 (+https://github.com/zlatko-lakisic/agentic-orchestration)",
-            ),
-            "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
-        },
-    )
-    with urlopen(req, timeout=25) as resp:  # noqa: S310 — agent-invoked bounded fetch
-        raw = resp.read(cap * 8)
+    headers = {
+        "User-Agent": os.getenv(
+            "AGENTIC_FETCH_URL_USER_AGENT",
+            "agentic-orchestration/1.10 (+https://github.com/zlatko-lakisic/agentic-orchestration)",
+        ),
+        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+    }
+    opener = build_opener(_NoRedirect())
+    current = str(url or "").strip()
+    raw = b""
+    for _hop in range(_MAX_REDIRECTS + 1):
+        assert_public_fetch_url(current)
+        try:
+            with opener.open(Request(current, headers=headers), timeout=25) as resp:  # noqa: S310
+                raw = resp.read(cap * 8)
+            break
+        except HTTPError as exc:
+            location = exc.headers.get("Location") if exc.headers is not None else None
+            if exc.code in (301, 302, 303, 307, 308) and location:
+                current = urljoin(current, location)
+                continue
+            raise
+    else:
+        raise FetchUrlBlocked(f"too many redirects (>{_MAX_REDIRECTS})")
     text = raw.decode("utf-8", errors="replace")
     plain = _html_to_plain_text(text, max_chars=cap)
 
@@ -219,7 +310,16 @@ class FetchUrlTool(BaseTool):
             cap = 5000
         try:
             body = fetch_url_text(target, max_chars=cap)
-        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+        except FetchUrlBlocked as exc:
+            return f"Fetch blocked for {target}: {exc}"
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            ValueError,
+            http.client.HTTPException,
+            OSError,
+        ) as exc:
             return f"Fetch failed for {target}: {exc}"
         if not body.strip():
             return f"(empty page body for {target})"

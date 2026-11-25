@@ -24,6 +24,7 @@ from orchestration.goal_format_hints import (
     web_prose_synthesis_instructions,
 )
 from orchestration.dynamic_planner import (
+    llm_bool,
     build_dynamic_workflow_config,
     emit_faithfulness_qa_report,
     evaluate_run_quality,
@@ -36,6 +37,7 @@ from orchestration.orchestrator_session import (
     update_session_after_crew,
     update_session_after_final,
 )
+from orchestration.env_values import env_int
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.backends.crewai import run_options_from_legacy
 from orchestration.backends.base import WorkflowExecutionResult
@@ -422,6 +424,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         execution_error_sink=sink,
         log_terminal_execution_failure=False,
         run_id=run_id,
+        agent_providers_catalog_path=agent_providers_catalog_path,
     )
     if result.exit_code == 0:
         return 0, result.result_text, executed, result
@@ -453,6 +456,7 @@ def _run_dynamic_workflow_with_hf_fallback(
         emit_stdout_summary=emit_stdout_summary,
         emit_progress_lines=emit_progress_lines,
         run_id=run_id,
+        agent_providers_catalog_path=agent_providers_catalog_path,
     )
     return result2.exit_code, result2.result_text, fb, result2
 
@@ -470,6 +474,7 @@ def execute_workflow_from_config(
     execution_error_sink: list[str] | None = None,
     log_terminal_execution_failure: bool = True,
     run_id: str = "",
+    agent_providers_catalog_path: Path | None = None,
 ) -> WorkflowExecutionResult:
     """Execute a ``WorkflowConfig`` through the configured backend (F3/F4 entry)."""
     options = run_options_from_legacy(
@@ -483,6 +488,7 @@ def execute_workflow_from_config(
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
         run_id=run_id,
+        agent_providers_catalog_path=agent_providers_catalog_path,
     )
     return execute_workflow_config_resolved(config, options=options)
 
@@ -693,6 +699,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--task-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Read TASK from a UTF-8 file instead of the command line ('-' reads stdin). "
+            "Use for prompts too long for an argv string. Cannot be combined with TASK."
+        ),
+    )
+    parser.add_argument(
         "--batch",
         action="store_true",
         help=(
@@ -806,7 +821,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dynamic-iterative-rounds",
-        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_ROUNDS", "4")),
+        default=env_int("AGENTIC_DYNAMIC_ITERATIVE_ROUNDS", 4),
         type=int,
         metavar="N",
         help=(
@@ -824,7 +839,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dynamic-iterative-max-rounds",
-        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS", "8")),
+        default=env_int("AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS", 8),
         type=int,
         metavar="N",
         help=(
@@ -834,7 +849,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dynamic-iterative-min-rounds",
-        default=int(os.getenv("AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS", "1")),
+        default=env_int("AGENTIC_DYNAMIC_ITERATIVE_MIN_ROUNDS", 1),
         type=int,
         metavar="N",
         help=(
@@ -1098,8 +1113,28 @@ def _cli_output_dir(raw: str | None) -> Path | None:
     return Path(str(raw).strip()).expanduser().resolve()
 
 
+def _apply_task_file(args: argparse.Namespace) -> None:
+    """Load TASK from ``--task-file`` (``-`` = stdin) for prompts too long for argv."""
+    task_file = getattr(args, "task_file", None)
+    if not task_file:
+        return
+    if args.task is not None:
+        print("error: pass TASK or --task-file, not both", file=sys.stderr)
+        sys.exit(2)
+    try:
+        if task_file == "-":
+            raw_task_bytes = sys.stdin.buffer.read()
+        else:
+            raw_task_bytes = Path(task_file).read_bytes()
+    except OSError as exc:
+        print(f"error: cannot read --task-file: {exc}", file=sys.stderr)
+        sys.exit(2)
+    args.task = raw_task_bytes.decode("utf-8", errors="replace")
+
+
 def main() -> None:
     args = parse_args()
+    _apply_task_file(args)
     tool_root = Path(__file__).resolve().parent
 
     try:
@@ -1391,9 +1426,15 @@ def main() -> None:
                 raw_task = str(sess0.pending_reprocess_goal).strip()
                 logical_goal = raw_task
                 sess0.pending_reprocess_goal = None
-                from orchestration.orchestrator_session import save_session
+                from orchestration.orchestrator_session import update_session
 
-                save_session(orchestrator_session_path, sess0)
+                # Locked reload-modify-save: only touch the marker so a concurrent
+                # turn's history/outcome on this session is not overwritten.
+                _pending_goal = sess0.pending_reprocess_goal
+                update_session(
+                    orchestrator_session_path,
+                    lambda fresh, goal=_pending_goal: setattr(fresh, "pending_reprocess_goal", goal),
+                )
             elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
                 cache_goal = compose_goal(raw_task)
                 if _looks_like_detection_answer(sess0.last_final_answer_excerpt):
@@ -1401,9 +1442,15 @@ def main() -> None:
                 elif _norm(sess0.last_user_goal) == _norm(cache_goal):
                     # Mark pending so a follow-up "no" can trigger a re-run of the same goal.
                     sess0.pending_reprocess_goal = raw_task
-                    from orchestration.orchestrator_session import save_session
+                    from orchestration.orchestrator_session import update_session
 
-                    save_session(orchestrator_session_path, sess0)
+                    # Locked reload-modify-save: only touch the marker so a concurrent
+                    # turn's history/outcome on this session is not overwritten.
+                    _pending_goal = sess0.pending_reprocess_goal
+                    update_session(
+                        orchestrator_session_path,
+                        lambda fresh, goal=_pending_goal: setattr(fresh, "pending_reprocess_goal", goal),
+                    )
                     print(sess0.last_final_answer_excerpt.strip())
                     print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
                     return
@@ -1530,6 +1577,7 @@ def main() -> None:
                     learning_enabled,
                     load_stats,
                     save_stats,
+                    stats_lock,
                     update_provider_score,
                 )
 
@@ -1557,29 +1605,41 @@ def main() -> None:
                             "eval": eval_data,
                         },
                     )
-                    st = load_stats(tool_root)
-                    st = update_provider_score(
-                        stats=st,
-                        provider_id=provider_id,
-                        attachment_fingerprint=fp,
-                        user_prompt=compose_goal(logical_goal),
-                        eval_score=float(score) if isinstance(score, (int, float)) else None,
-                    )
-                    save_stats(tool_root, st)
+                    # Locked read-modify-write (concurrent turns share stats.json).
+                    with stats_lock(tool_root):
+                        st = load_stats(tool_root)
+                        st = update_provider_score(
+                            stats=st,
+                            provider_id=provider_id,
+                            attachment_fingerprint=fp,
+                            user_prompt=compose_goal(logical_goal),
+                            eval_score=float(score) if isinstance(score, (int, float)) else None,
+                        )
+                        save_stats(tool_root, st)
             except Exception:  # noqa: BLE001
                 pass
 
             if args.dynamic_iterative_auto:
                 sess = load_session(orchestrator_session_path)
                 excerpt = (sess.last_crew_output_excerpt or "").strip()
-                decision = iterative_controller_decision(
-                    original_goal=compose_goal(raw_task),
-                    latest_excerpt=excerpt,
-                    round_index=r,
-                    max_rounds=max_rounds,
-                    model=None,
-                )
-                done = bool(decision.get("done", False))
+                try:
+                    decision = iterative_controller_decision(
+                        original_goal=compose_goal(raw_task),
+                        latest_excerpt=excerpt,
+                        round_index=r,
+                        max_rounds=max_rounds,
+                        model=None,
+                    )
+                except Exception as ctrl_exc:  # noqa: BLE001
+                    # A controller failure after completed rounds must not
+                    # abort the run (and skip synthesis): keep iterating.
+                    print(
+                        f"(dynamic-iterative) controller failed on round {r}: {ctrl_exc}; "
+                        "continuing with the original goal.",
+                        file=sys.stderr,
+                    )
+                    decision = {"done": False, "reason": "controller error", "next_goal": ""}
+                done = llm_bool(decision.get("done", False))
                 reason = str(decision.get("reason", "")).strip()
                 next_goal = str(decision.get("next_goal", "")).strip()
                 est_left = decision.get("estimated_rounds_remaining", None)
@@ -1765,6 +1825,7 @@ def main() -> None:
                     learning_enabled,
                     load_stats,
                     save_stats,
+                    stats_lock,
                     update_provider_score,
                 )
 
@@ -1791,15 +1852,17 @@ def main() -> None:
                             "eval": eval_data,
                         },
                     )
-                    st = load_stats(tool_root)
-                    st = update_provider_score(
-                        stats=st,
-                        provider_id=provider_id,
-                        attachment_fingerprint=fp,
-                        user_prompt=cache_goal,
-                        eval_score=float(score) if isinstance(score, (int, float)) else None,
-                    )
-                    save_stats(tool_root, st)
+                    # Locked read-modify-write (concurrent turns share stats.json).
+                    with stats_lock(tool_root):
+                        st = load_stats(tool_root)
+                        st = update_provider_score(
+                            stats=st,
+                            provider_id=provider_id,
+                            attachment_fingerprint=fp,
+                            user_prompt=cache_goal,
+                            eval_score=float(score) if isinstance(score, (int, float)) else None,
+                        )
+                        save_stats(tool_root, st)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -1930,18 +1993,30 @@ def main() -> None:
             if sess0.pending_reprocess_goal and _is_negative(str(args.task or "").strip()):
                 raw_task = str(sess0.pending_reprocess_goal).strip()
                 sess0.pending_reprocess_goal = None
-                from orchestration.orchestrator_session import save_session
+                from orchestration.orchestrator_session import update_session
 
-                save_session(orchestrator_session_path, sess0)
+                # Locked reload-modify-save: only touch the marker so a concurrent
+                # turn's history/outcome on this session is not overwritten.
+                _pending_goal = sess0.pending_reprocess_goal
+                update_session(
+                    orchestrator_session_path,
+                    lambda fresh, goal=_pending_goal: setattr(fresh, "pending_reprocess_goal", goal),
+                )
             elif sess0.last_user_goal and sess0.last_final_answer_excerpt:
                 cache_goal = compose_goal(raw_task)
                 if _looks_like_detection_answer(sess0.last_final_answer_excerpt):
                     pass  # Y6: never replay detection boxes from answer cache
                 elif _norm(sess0.last_user_goal) == _norm(cache_goal):
                     sess0.pending_reprocess_goal = raw_task
-                    from orchestration.orchestrator_session import save_session
+                    from orchestration.orchestrator_session import update_session
 
-                    save_session(orchestrator_session_path, sess0)
+                    # Locked reload-modify-save: only touch the marker so a concurrent
+                    # turn's history/outcome on this session is not overwritten.
+                    _pending_goal = sess0.pending_reprocess_goal
+                    update_session(
+                        orchestrator_session_path,
+                        lambda fresh, goal=_pending_goal: setattr(fresh, "pending_reprocess_goal", goal),
+                    )
                     print(sess0.last_final_answer_excerpt.strip())
                     print("\n\nIs this the answer you wanted? Reply `no` to re-run.", file=sys.stdout)
                     return
@@ -2123,6 +2198,7 @@ def main() -> None:
                 learning_enabled,
                 load_stats,
                 save_stats,
+                stats_lock,
                 update_provider_score,
             )
 
@@ -2141,16 +2217,18 @@ def main() -> None:
                     tool_root,
                     {"kind": "run_result", "mode": "dynamic", "used": used, "eval": eval_data},
                 )
-                st = load_stats(tool_root)
-                for pid, fp in used:
-                    st = update_provider_score(
-                        stats=st,
-                        provider_id=pid,
-                        attachment_fingerprint=fp,
-                        user_prompt=cache_goal,
-                        eval_score=float(score) if isinstance(score, (int, float)) else None,
-                    )
-                save_stats(tool_root, st)
+                # Locked read-modify-write (concurrent turns share stats.json).
+                with stats_lock(tool_root):
+                    st = load_stats(tool_root)
+                    for pid, fp in used:
+                        st = update_provider_score(
+                            stats=st,
+                            provider_id=pid,
+                            attachment_fingerprint=fp,
+                            user_prompt=cache_goal,
+                            eval_score=float(score) if isinstance(score, (int, float)) else None,
+                        )
+                    save_stats(tool_root, st)
         except Exception:  # noqa: BLE001
             pass
         if result_text:

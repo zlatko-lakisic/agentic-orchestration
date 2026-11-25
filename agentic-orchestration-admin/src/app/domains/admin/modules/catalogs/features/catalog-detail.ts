@@ -4,12 +4,18 @@ import { MatDivider } from '@angular/material/divider';
 import { MatIcon } from '@angular/material/icon';
 import { MatTooltip } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
+import { switchMap } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { CatalogEntry } from '@/app/core/ao-api/types';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
 /** Fuse Order detail drawer pattern. */
+type CatalogDetailEntry = CatalogEntry & {
+  availabilityTrace?: { step: string; result: string; detail?: string }[];
+  file?: string;
+};
+
 @Component({
   selector: 'ao-catalog-detail-page',
   imports: [MatIcon, MatIconButton, MatTooltip, MatDivider, StatusChip, ErrorState],
@@ -34,6 +40,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
             matIconButton
             type="button"
             [matTooltip]="'Close'"
+            aria-label="Close details"
             (click)="close()"
           >
             <mat-icon svgIcon="x" />
@@ -118,28 +125,31 @@ export class CatalogDetailPage implements OnInit {
   private router = inject(Router);
 
   readonly kind = signal('agents');
-  readonly entry = signal<
-    (CatalogEntry & {
-      availabilityTrace?: { step: string; result: string; detail?: string }[];
-      file?: string;
-    }) | null
-  >(null);
+  readonly entry = signal<CatalogDetailEntry | null>(null);
   readonly error = signal<string | null>(null);
 
   ngOnInit() {
-    this.route.paramMap.subscribe((pm) => {
-      const kind = pm.get('kind') || 'agents';
-      const id = pm.get('id') || '';
-      this.kind.set(kind);
-      this.api.catalogDetail(kind, id).subscribe((r) => {
+    this.route.paramMap
+      .pipe(
+        // switchMap cancels the previous entry's request when the drawer is
+        // pointed at another one, so a slow response cannot overwrite it.
+        switchMap((pm) => {
+          const kind = pm.get('kind') || 'agents';
+          const id = pm.get('id') || '';
+          this.kind.set(kind);
+          return this.api.catalogDetail(kind, id);
+        })
+      )
+      .subscribe((r) => {
         if (!r.ok) {
           this.error.set(r.message);
           this.entry.set(null);
           return;
         }
-        this.entry.set(r.data as any);
+        // One failed load must not stick to every later entry.
+        this.error.set(null);
+        this.entry.set(r.data as CatalogDetailEntry);
       });
-    });
   }
 
   close() {

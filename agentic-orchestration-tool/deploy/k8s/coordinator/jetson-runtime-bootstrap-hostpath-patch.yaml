@@ -1,5 +1,7 @@
 # Mount git-synced orchestration modules that no longer fit in the 1MiB ConfigMap hotfix.
 # After git pull, pods see these without an image rebuild.
+# Read-only: the pod only imports these files; it must not be able to modify the
+# host's git checkout (other pods and host services run code from it).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,82 +16,146 @@ spec:
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/runtime_bootstrap.py
               subPath: runtime_bootstrap.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/ollama_ownership.py
               subPath: ollama_ownership.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/dynamic_planner.py
               subPath: dynamic_planner.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/ollama_catalog_filter.py
               subPath: ollama_catalog_filter.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/host_metrics.py
               subPath: host_metrics.py
+              readOnly: true
             # Imported unguarded by ollama_provider / serve.app; too large to add
             # to the orchestration ConfigMap, which is at the 1 MiB limit.
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/ollama_resource_manager.py
               subPath: ollama_resource_manager.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/reach_multimodal.py
               subPath: reach_multimodal.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/mcp_stdio_hygiene.py
               subPath: mcp_stdio_hygiene.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/mcp_stdio_jsonrpc_filter.py
               subPath: mcp_stdio_jsonrpc_filter.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/background_activity.py
               subPath: background_activity.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/run_status.py
               subPath: run_status.py
+              readOnly: true
             # execute_step / backends/crewai import this; ConfigMap hotfix is at 1 MiB.
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/crewai_template.py
               subPath: crewai_template.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/filesystem_tunnel_tool.py
               subPath: filesystem_tunnel_tool.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/terminal_tunnel_tool.py
               subPath: terminal_tunnel_tool.py
+              readOnly: true
             # Execution queue recovery (ghost active slots) — too large for ConfigMap.
             # fair_share / preempt are required imports of execution_queue.py and are
             # absent from the coordinator image; mount them with the queue modules.
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue.py
               subPath: execution_queue.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue_store.py
               subPath: execution_queue_store.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue_fair_share.py
               subPath: execution_queue_fair_share.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/execution_queue_preempt.py
               subPath: execution_queue_preempt.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/backends/kubernetes_warm_pool.py
               subPath: backends/kubernetes_warm_pool.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/rag_sources_catalog.py
               subPath: rag_sources_catalog.py
+              readOnly: true
+            # Engine API daemon modules: too large for the ConfigMap (1 MiB limit).
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/app.py
+              subPath: serve/app.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/ws.py
+              subPath: serve/ws.py
+              readOnly: true
+            # Modules the hot-fixed files import that an older image does not contain
+            # (or contains without the names they now use). Missing any of these
+            # makes main.py / the daemon fail at import on a hot-fixed pod.
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/env_values.py
+              subPath: env_values.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/atomic_io.py
+              subPath: atomic_io.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/quiet_streams.py
+              subPath: quiet_streams.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/access.py
+              subPath: serve/access.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/mtls_ca.py
+              subPath: serve/mtls_ca.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/tool_sandbox_runtime.py
+              subPath: tool_sandbox_runtime.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/backends/kubernetes_types.py
+              subPath: backends/kubernetes_types.py
+              readOnly: true
             # Planner contamination isolation (dynamic_planner imports these).
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/current_turn.py
               subPath: current_turn.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/social_turn.py
               subPath: social_turn.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/followup.py
               subPath: followup.py
+              readOnly: true
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/plan_validation.py
               subPath: plan_validation.py
+              readOnly: true
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

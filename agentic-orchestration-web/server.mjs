@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { WebSocketServer } from "ws";
 import { sampleHostMetrics } from "./host-metrics.mjs";
@@ -17,6 +17,7 @@ import { sanitizeUserFacingProse, stripWrappingQuotes } from "./lib/text-normali
 import {
   authProfileFromRequestHeaders,
   resolveSessionIdFromHeaders,
+  effectiveSessionId,
   sanitizeUserDisplayName,
   sessionPayloadFromAuthProfile,
   userDisplayNameSpawnEnv,
@@ -48,7 +49,7 @@ import {
   cancelEngineBackgroundActivity,
 } from "./lib/admin-api.mjs";
 import {
-  authenticateBearer,
+  authenticateApiBearer,
   authenticateChatUiBearer,
   authenticateFirstPartyUiBearer,
   authenticateWebUiBearer,
@@ -95,6 +96,25 @@ import {
   probeOllamaChatCompletionsHealth,
 } from "./lib/irrigation-chat.mjs";
 import { ollamaBaseUrl } from "./lib/admin-topology-probes.mjs";
+import {
+  bootstrapOpenMode,
+  isHostAllowed,
+  isOriginAllowed,
+  isTrustedBootstrapSource,
+  parseWsClientMessage,
+  promptTooLargeError,
+  sanitizePromptText,
+  selectWsSubprotocol,
+  stringField,
+  stripUntrustedIdentityHeaders,
+  untrustedSourceBody,
+  wsBearerFromProtocolHeader,
+} from "./lib/request-guards.mjs";
+import {
+  buildDynamicSpawnArgs,
+  EXAMPLE_VERTICAL_SUBDIR,
+  writePromptToChild,
+} from "./lib/spawn-args.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -321,7 +341,8 @@ function applyApiAccessGate(req, res, opts) {
   const cors = opts.cors || {};
   // authRequired is always true; keep the call for clarity / future policy hooks.
   void authRequired(TOOL_ROOT, envKeys);
-  const result = authenticateBearer(TOOL_ROOT, req.headers?.authorization || "", envKeys);
+  // First-party UI tokens (ao-web / ao-chat) are browser-session credentials, not API keys.
+  const result = authenticateApiBearer(TOOL_ROOT, req.headers?.authorization || "", envKeys);
   if (!result.ok) {
     if (opts.openAiStyle) {
       res.writeHead(401, { "Content-Type": "application/json; charset=utf-8", ...cors });
@@ -363,6 +384,35 @@ function applyWebUiAccessGate(req, res, opts = {}) {
   const assigned = isWebUiAssigned(TOOL_ROOT);
   const routeName = opts.routeName || null;
   const method = String(req.method || "GET").toUpperCase();
+  const isRead = method === "GET" || method === "HEAD";
+  const trusted = isTrustedBootstrapSource(req);
+  const refuseUntrusted = (assignedFlag) => {
+    res.writeHead(403, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    res.end(JSON.stringify(untrustedSourceBody(assignedFlag)));
+    return false;
+  };
+  // Token hand-out routes: the plaintext secret only ever goes to a trusted source
+  // (loopback without proxy headers, AGENTIC_WEB_TRUSTED_PROXIES, or AGENTIC_WEB_AUTH_BOOTSTRAP=open).
+  if (routeName === "web_auth" && isRead) {
+    if (!trusted) return refuseUntrusted(assigned);
+    req.agenticAuth = assigned
+      ? { tokenId: getWebAssignment(TOOL_ROOT)?.tokenId || null, appId: "ao-web", source: "token" }
+      : { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
+  if (routeName === "chat_auth" && isRead) {
+    const chatAssigned = isChatUiAssigned(TOOL_ROOT);
+    // Unassigned chat is open by design and the reply carries no secret, so only gate once
+    // there is a token to protect.
+    if (chatAssigned && !trusted) return refuseUntrusted(true);
+    req.agenticAuth = chatAssigned
+      ? { tokenId: getChatAssignment(TOOL_ROOT)?.tokenId || null, appId: "ao-chat", source: "token" }
+      : { tokenId: null, appId: "bootstrap", source: "env" };
+    return true;
+  }
   if (!assigned) {
     if (opts.allowBootstrap === false) {
       res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
@@ -384,20 +434,9 @@ function applyWebUiAccessGate(req, res, opts = {}) {
       );
       return false;
     }
+    // Pre-assignment bootstrap (incl. POST /api/v1/admin/tokens) is operator-only.
+    if (!trusted) return refuseUntrusted(false);
     req.agenticAuth = { tokenId: null, appId: "bootstrap", source: "env" };
-    return true;
-  }
-  if (routeName === "web_auth" && (method === "GET" || method === "HEAD")) {
-    // SPA boot: deliver the assigned secret so the interceptor can attach Bearer.
-    req.agenticAuth = { tokenId: getWebAssignment(TOOL_ROOT)?.tokenId || null, appId: "ao-web", source: "token" };
-    return true;
-  }
-  if (routeName === "chat_auth" && (method === "GET" || method === "HEAD")) {
-    req.agenticAuth = {
-      tokenId: getChatAssignment(TOOL_ROOT)?.tokenId || null,
-      appId: "ao-chat",
-      source: "token",
-    };
     return true;
   }
   const result = authenticateWebUiBearer(TOOL_ROOT, req.headers?.authorization || "");
@@ -490,6 +529,11 @@ function extractWsAccessToken(req) {
     if (/^Bearer\s+/i.test(auth)) return auth.replace(/^Bearer\s+/i, "").trim();
     return auth;
   }
+  // Preferred browser transport: `new WebSocket(url, ["ao-auth", "ao-bearer.<token>"])`
+  // keeps the token out of the URL (and therefore out of proxy / access logs).
+  const viaProtocol = wsBearerFromProtocolHeader(req?.headers?.["sec-websocket-protocol"]);
+  if (viaProtocol) return viaProtocol;
+  // Legacy clients: ?access_token= on the upgrade URL.
   try {
     const u = new URL(req?.url || "/", "http://localhost");
     return (
@@ -535,7 +579,7 @@ function authorizeWsConnection(req, ws) {
 }
 
 /**
- * Record one usage row when the response headers are written (token/env auth only).
+ * Record one usage row when the response completes (token/env auth only).
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
  * @param {string} pathLabel
@@ -565,22 +609,18 @@ function installApiUsageRecorder(req, res, pathLabel) {
       console.error("[agentic api-tokens] usage record failed:", err?.message || err);
     }
   };
-  const origWriteHead = res.writeHead.bind(res);
-  res.writeHead = function agenticUsageWriteHead(...args) {
-    const status = typeof args[0] === "number" ? args[0] : 200;
-    recordOnce(status);
-    return origWriteHead(...args);
-  };
-  res.on("finish", () => {
-    recordOnce(typeof res.statusCode === "number" ? res.statusCode : 200);
-  });
+  // Record once the response is complete so latency, run id and the final status are real.
+  // Handlers that already sent a 200 stream head can flag a later failure via req.agenticUsageStatus.
+  const finalStatus = (fallback) =>
+    typeof req.agenticUsageStatus === "number"
+      ? req.agenticUsageStatus
+      : typeof res.statusCode === "number"
+        ? res.statusCode
+        : fallback;
+  res.on("finish", () => recordOnce(finalStatus(200)));
+  // Client went away before the response finished (nginx convention: 499).
+  res.on("close", () => recordOnce(res.writableFinished ? finalStatus(200) : 499));
 }
-
-/** Match `orchestration/example_overlays.py` (no manual .env paths for vertical roots). */
-const EXAMPLE_VERTICAL_SUBDIR = {
-  healthcare: "healthcare",
-  logistics: "logistics",
-};
 
 function applyExampleOverlayFromEnv() {
   const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
@@ -665,8 +705,6 @@ const TOOL_REQUIREMENTS = path.join(TOOL_ROOT, "requirements.txt");
 
 /** Identifies this process in /api/ping (proves curl hit this server after restart). */
 const WEB_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
-let _pythonDepsChecked = false;
-let _pythonDepsOk = true;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -772,27 +810,91 @@ function normalizeUserFacingText(text) {
   return sanitizeUserFacingProse(stripWrappingQuotes(extractUserFacingStdout(text)));
 }
 
-function _pythonCanImportDotenv() {
-  const chk = spawnSync(PYTHON, ["-c", "import dotenv"], {
-    cwd: TOOL_ROOT,
-    env: { ...process.env, PYTHONUTF8: "1" },
-    stdio: "pipe",
-    encoding: "utf8",
-    timeout: 20000,
+/**
+ * Run a short helper command without blocking the event loop (the old spawnSync calls froze
+ * every HTTP / WebSocket client — including /api/ping liveness — for up to minutes).
+ * Never rejects.
+ * @returns {Promise<{ status: number|null, stdout: string, stderr: string }>}
+ */
+function runCommandAsync(cmd, args, timeoutMs) {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    let proc;
+    let timer = null;
+    const finish = (status) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      resolve({ status, stdout, stderr });
+    };
+    try {
+      proc = spawn(cmd, args, {
+        cwd: TOOL_ROOT,
+        env: { ...process.env, PYTHONUTF8: "1" },
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      stderr = String(err?.message || err);
+      finish(null);
+      return;
+    }
+    timer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+      stderr += `\n(timed out after ${timeoutMs} ms)`;
+      finish(null);
+    }, timeoutMs);
+    const cap = 200_000;
+    proc.stdout?.on("data", (c) => {
+      if (stdout.length < cap) stdout += c.toString("utf8");
+    });
+    proc.stderr?.on("data", (c) => {
+      if (stderr.length < cap) stderr += c.toString("utf8");
+    });
+    proc.on("error", (err) => {
+      stderr += String(err?.message || err);
+      finish(null);
+    });
+    proc.on("close", (code) => finish(typeof code === "number" ? code : null));
   });
+}
+
+async function _pythonCanImportDotenv() {
+  const chk = await runCommandAsync(PYTHON, ["-c", "import dotenv"], 20000);
   return chk.status === 0;
 }
 
+/** @type {Promise<boolean>|null} one shared check per process; concurrent first runs await it */
+let _pythonDepsPromise = null;
+
+/**
+ * @param {(msg: string) => void} [statusCb]
+ * @returns {Promise<boolean>}
+ */
 function ensurePythonDepsForWebRuns(statusCb) {
   const emit = typeof statusCb === "function" ? statusCb : () => {};
   emit("Checking Python dependencies…");
-  if (_pythonDepsChecked) return _pythonDepsOk;
-  _pythonDepsChecked = true;
+  if (!_pythonDepsPromise) {
+    _pythonDepsPromise = checkAndHealPythonDeps(emit)
+      .then((ok) => Boolean(ok))
+      .catch((err) => {
+        logServerError("[agentic-orchestration-web] dependency check failed", err);
+        return false;
+      });
+  }
+  return _pythonDepsPromise;
+}
 
+async function checkAndHealPythonDeps(emit) {
   PYTHON = resolvePythonExecutable();
-  if (_pythonCanImportDotenv()) {
+  if (await _pythonCanImportDotenv()) {
     emit("Python dependencies already satisfied.");
-    _pythonDepsOk = true;
     return true;
   }
 
@@ -801,12 +903,10 @@ function ensurePythonDepsForWebRuns(statusCb) {
     .toLowerCase();
   if (["0", "false", "no", "off"].includes(autoInstall)) {
     emit("Dependencies missing and auto-install is disabled.");
-    _pythonDepsOk = false;
     return false;
   }
   if (!fs.existsSync(TOOL_REQUIREMENTS)) {
     emit("requirements.txt not found for dependency healing.");
-    _pythonDepsOk = false;
     return false;
   }
 
@@ -817,15 +917,12 @@ function ensurePythonDepsForWebRuns(statusCb) {
     emit("Creating tool .venv…");
     console.error(`[agentic-orchestration-web] Creating venv at ${path.join(TOOL_ROOT, ".venv")}`);
     const bootstrapPy = process.platform === "win32" ? "python" : "python3";
-    const venvCreate = spawnSync(bootstrapPy, ["-m", "venv", path.join(TOOL_ROOT, ".venv")], {
-      cwd: TOOL_ROOT,
-      env: { ...process.env, PYTHONUTF8: "1" },
-      stdio: "pipe",
-      encoding: "utf8",
-      timeout: 180000,
-    });
+    const venvCreate = await runCommandAsync(
+      bootstrapPy,
+      ["-m", "venv", path.join(TOOL_ROOT, ".venv")],
+      180000,
+    );
     if (venvCreate.status !== 0 || !fs.existsSync(venvPython)) {
-      _pythonDepsOk = false;
       emit("Failed to create .venv.");
       console.error(
         "[agentic-orchestration-web] venv create failed:\n" +
@@ -842,41 +939,32 @@ function ensurePythonDepsForWebRuns(statusCb) {
   console.error(
     `[agentic-orchestration-web] Python deps missing for ${PYTHON}; auto-installing from ${TOOL_REQUIREMENTS}`,
   );
-  const upgrade = spawnSync(PYTHON, ["-m", "pip", "install", "--upgrade", "pip"], {
-    cwd: TOOL_ROOT,
-    env: { ...process.env, PYTHONUTF8: "1" },
-    stdio: "pipe",
-    encoding: "utf8",
-    timeout: 120000,
-  });
+  const upgrade = await runCommandAsync(PYTHON, ["-m", "pip", "install", "--upgrade", "pip"], 120000);
   if (upgrade.status !== 0) {
     console.error(
       "[agentic-orchestration-web] pip upgrade warning:\n" +
         String(upgrade.stderr || upgrade.stdout || "").trim(),
     );
   }
-  const install = spawnSync(PYTHON, ["-m", "pip", "install", "-r", TOOL_REQUIREMENTS], {
-    cwd: TOOL_ROOT,
-    env: { ...process.env, PYTHONUTF8: "1" },
-    stdio: "pipe",
-    encoding: "utf8",
-    timeout: 240000,
-  });
+  const install = await runCommandAsync(
+    PYTHON,
+    ["-m", "pip", "install", "-r", TOOL_REQUIREMENTS],
+    240000,
+  );
   if (install.status !== 0) {
-    _pythonDepsOk = false;
     emit("Auto-install failed.");
     const err = String(install.stderr || install.stdout || "").trim();
     console.error("[agentic-orchestration-web] Auto-install failed:\n" + err);
     return false;
   }
-  _pythonDepsOk = _pythonCanImportDotenv();
-  if (_pythonDepsOk) {
+  const ok = await _pythonCanImportDotenv();
+  if (ok) {
     emit("Dependency healing complete.");
     console.error("[agentic-orchestration-web] Python dependencies ready.");
   } else {
     emit("Dependencies still missing after install.");
   }
-  return _pythonDepsOk;
+  return ok;
 }
 
 function appendPendingRating(event) {
@@ -1143,16 +1231,24 @@ function normalizeOpenAiBaseUrl(raw) {
 
 const MAX_CHAT_COMPLETIONS_BODY_BYTES = 25 * 1024 * 1024;
 
-const _HOP_BY_HOP_RESPONSE_HEADERS = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailers",
-  "transfer-encoding",
-  "upgrade",
+/**
+ * Upstream response headers relayed to the client. Everything else is dropped:
+ * `content-encoding` / `content-length` (Node fetch already decoded the body, so relaying them
+ * corrupts the reply), hop-by-hop headers, `set-cookie`, and vendor account / rate-limit headers.
+ */
+const _FORWARD_RESPONSE_HEADERS = new Set([
+  "content-type",
+  "cache-control",
+  "retry-after",
+  "x-request-id",
+  "openai-processing-ms",
+  "openai-version",
 ]);
+
+/** Deadline for an upstream OpenAI-compatible call (until headers when streaming, else whole reply). */
+function upstreamProxyTimeoutMs() {
+  return envInt("AGENTIC_OPENAI_PROXY_UPSTREAM_TIMEOUT_SECONDS", 600, 5, 24 * 3600) * 1000;
+}
 
 function chatCompletionsCorsHeaders() {
   const origin = String(process.env.AGENTIC_CHAT_COMPLETIONS_CORS_ORIGIN || "*").trim() || "*";
@@ -1168,10 +1264,7 @@ function chatCompletionsCorsHeaders() {
 function collectForwardResponseHeaders(upstream) {
   const out = { ...chatCompletionsCorsHeaders() };
   upstream.headers.forEach((value, key) => {
-    const lk = key.toLowerCase();
-    if (_HOP_BY_HOP_RESPONSE_HEADERS.has(lk)) return;
-    if (lk === "content-length") return;
-    out[key] = value;
+    if (_FORWARD_RESPONSE_HEADERS.has(key.toLowerCase())) out[key] = value;
   });
   return out;
 }
@@ -1629,6 +1722,24 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
     upstreamHeaders["OpenAI-Beta"] = String(beta).trim();
   }
 
+  // One controller per request: aborted by the deadline or when the client goes away, so a hung
+  // upstream can no longer pin the request (and an Ollama gate slot) forever.
+  const abort = new AbortController();
+  let upstreamTimedOut = false;
+  let deadline = setTimeout(() => {
+    upstreamTimedOut = true;
+    abort.abort();
+  }, upstreamProxyTimeoutMs());
+  if (typeof deadline.unref === "function") deadline.unref();
+  const clearDeadline = () => {
+    if (deadline) clearTimeout(deadline);
+    deadline = null;
+  };
+  const onClientClose = () => {
+    if (!res.writableFinished) abort.abort();
+  };
+  res.on("close", onClientClose);
+
   const runProxy = async () => {
     const modelsToTry = [requestedModel];
     if (kind === "ollama" && fallbackModel && fallbackModel !== requestedModel) {
@@ -1644,16 +1755,23 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
           method: "POST",
           headers: upstreamHeaders,
           body: Buffer.from(JSON.stringify(body), "utf8"),
+          signal: abort.signal,
         });
       } catch (err) {
-        res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", ...cors });
+        if (res.destroyed || res.writableEnded) return;
+        res.writeHead(upstreamTimedOut ? 504 : 502, {
+          "Content-Type": "application/json; charset=utf-8",
+          ...cors,
+        });
         res.end(
           JSON.stringify({
             error: {
-              message: clientErrorMessage(err, "Upstream request failed"),
+              message: upstreamTimedOut
+                ? "Upstream request timed out"
+                : clientErrorMessage(err, "Upstream request failed"),
               type: "api_error",
               param: null,
-              code: "upstream_unreachable",
+              code: upstreamTimedOut ? "upstream_timeout" : "upstream_unreachable",
             },
           }),
         );
@@ -1662,6 +1780,8 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
 
       const wantsStream = Boolean(payload.stream);
       if (wantsStream && upstream.ok && upstream.body) {
+        // Streams may legitimately run long; the deadline only covers time-to-headers.
+        clearDeadline();
         try {
           const nodeReadable = Readable.fromWeb(upstream.body);
           const fwd = collectForwardResponseHeaders(upstream);
@@ -1704,7 +1824,29 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
         return;
       }
 
-      const outBuf = Buffer.from(await upstream.arrayBuffer());
+      let outBuf;
+      try {
+        outBuf = Buffer.from(await upstream.arrayBuffer());
+      } catch (err) {
+        if (res.destroyed || res.writableEnded || res.headersSent) return;
+        res.writeHead(upstreamTimedOut ? 504 : 502, {
+          "Content-Type": "application/json; charset=utf-8",
+          ...cors,
+        });
+        res.end(
+          JSON.stringify({
+            error: {
+              message: upstreamTimedOut
+                ? "Upstream request timed out"
+                : clientErrorMessage(err, "Upstream response failed"),
+              type: "api_error",
+              param: null,
+              code: upstreamTimedOut ? "upstream_timeout" : "upstream_unreachable",
+            },
+          }),
+        );
+        return;
+      }
       const canRetry =
         i < modelsToTry.length - 1 && isOllamaModelNotFound(upstream.status, outBuf);
       if (canRetry) {
@@ -1724,10 +1866,15 @@ async function proxyOpenAiCompatibleUpstream(req, res, opts) {
     }
   };
 
-  if (kind === "ollama") {
-    await ollamaChatProxyGate.run(runProxy);
-  } else {
-    await runProxy();
+  try {
+    if (kind === "ollama") {
+      await ollamaChatProxyGate.run(runProxy);
+    } else {
+      await runProxy();
+    }
+  } finally {
+    clearDeadline();
+    res.off("close", onClientClose);
   }
 }
 
@@ -1896,6 +2043,23 @@ async function handleOpenAiChatCompletions(req, res) {
       return;
     }
 
+    const promptTooLarge = promptTooLargeError(dynamicText);
+    if (promptTooLarge) {
+      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: promptTooLarge,
+            type: "invalid_request_error",
+            param: "messages",
+            code: "prompt_too_large",
+          },
+        }),
+      );
+      return;
+    }
+
     if (orchestrationRequestLogEnabled()) {
       console.error(
         "[agentic-orchestration-web] /v1/chat/completions orchestrate",
@@ -1928,7 +2092,7 @@ async function handleOpenAiChatCompletions(req, res) {
         autoIter: Boolean(agentic.autoIter),
         iterativeMaxRounds: agentic.iterativeMaxRounds,
         noSynthesize: Boolean(agentic.noSynthesize),
-        sessionId: agentic.sessionId,
+        sessionId: effectiveSessionId(req.headers, agentic.sessionId),
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
@@ -1940,21 +2104,25 @@ async function handleOpenAiChatCompletions(req, res) {
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
         identityEnv: spawnIdentityEnvFromReq(req),
+        abortOnClose: res,
       });
       if (runResult?.runId) req.agenticRunId = runResult.runId;
     } catch (err) {
+      const fail = orchestrationStartFailure(err);
       if (streamOut) {
-        streamOut.fail(clientErrorMessage(err, "Orchestration failed"));
+        // The 200 stream head is already out; make the usage ledger show the real outcome.
+        req.agenticUsageStatus = fail.status;
+        streamOut.fail(fail.message);
         return;
       }
-      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.writeHead(fail.status, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: clientErrorMessage(err, "Orchestration failed"),
-            type: "agentic_run_error",
+            message: fail.message,
+            type: fail.type,
             param: null,
-            code: "orchestration_failed",
+            code: fail.code,
           },
         }),
       );
@@ -1962,9 +2130,9 @@ async function handleOpenAiChatCompletions(req, res) {
     }
 
     if (runResult.code !== 0) {
-      const hint = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim();
-      const message = `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`;
+      const message = runFailureMessage(runResult);
       if (streamOut) {
+        req.agenticUsageStatus = 500;
         streamOut.fail(message);
         return;
       }
@@ -2191,6 +2359,23 @@ async function handleOpenAiResponses(req, res) {
       return;
     }
 
+    const promptTooLarge = promptTooLargeError(dynamicText);
+    if (promptTooLarge) {
+      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: promptTooLarge,
+            type: "invalid_request_error",
+            param: "input",
+            code: "prompt_too_large",
+          },
+        }),
+      );
+      return;
+    }
+
     if (orchestrationRequestLogEnabled()) {
       console.error(
         "[agentic-orchestration-web] /v1/responses orchestrate",
@@ -2215,7 +2400,7 @@ async function handleOpenAiResponses(req, res) {
         autoIter: Boolean(agentic.autoIter),
         iterativeMaxRounds: agentic.iterativeMaxRounds,
         noSynthesize: Boolean(agentic.noSynthesize),
-        sessionId: agentic.sessionId,
+        sessionId: effectiveSessionId(req.headers, agentic.sessionId),
         resetSession: effectiveOpenAiProxyOrchestratorReset(agentic),
         noVerify: agentic.noVerify !== false,
         verboseCrew: Boolean(agentic.verboseCrew) || chatCompletionsVerboseCrewFromEnv(),
@@ -2227,17 +2412,19 @@ async function handleOpenAiResponses(req, res) {
         disableAnswerCache: openAiApiDisablesAnswerCache(),
         userName: userNameFromRequestHeaders(req.headers),
         identityEnv: spawnIdentityEnvFromReq(req),
+        abortOnClose: res,
       });
       if (runResult?.runId) req.agenticRunId = runResult.runId;
     } catch (err) {
-      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
+      const fail = orchestrationStartFailure(err);
+      res.writeHead(fail.status, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: clientErrorMessage(err, "Orchestration failed"),
-            type: "agentic_run_error",
+            message: fail.message,
+            type: fail.type,
             param: null,
-            code: "orchestration_failed",
+            code: fail.code,
           },
         }),
       );
@@ -2245,12 +2432,11 @@ async function handleOpenAiResponses(req, res) {
     }
 
     if (runResult.code !== 0) {
-      const hint = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim();
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
       res.end(
         JSON.stringify({
           error: {
-            message: `Orchestration exited with code ${runResult.code}.${hint ? `\n${hint}` : ""}`,
+            message: runFailureMessage(runResult),
             type: "agentic_run_error",
             param: null,
             code: "orchestration_exit_nonzero",
@@ -2329,15 +2515,26 @@ async function handleApiV1Orchestrate(req, res) {
     return;
   }
 
-  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (body == null || typeof body !== "object" || Array.isArray(body)) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: "JSON body must be an object" }));
+    return;
+  }
+  const text = sanitizePromptText(body.text).trim();
   if (!text) {
     res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(JSON.stringify({ error: "body.text is required" }));
     return;
   }
+  const promptTooLarge = promptTooLargeError(text);
+  if (promptTooLarge) {
+    res.writeHead(413, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: promptTooLarge, code: "prompt_too_large" }));
+    return;
+  }
   req.agenticAuthPromptChars = text.length;
 
-  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+  const sessionId = effectiveSessionId(req.headers, body.sessionId) || undefined;
   const resetSession = body.resetSession === true;
   const runMode = effectiveRunMode(body.runMode, req.agenticAuth?.prefs, "dynamic");
   const verboseCrew = body.verboseCrew === true;
@@ -2347,7 +2544,10 @@ async function handleApiV1Orchestrate(req, res) {
     req.agenticAuth?.prefs,
   );
   const simpleChat = isSimpleChatPrompt(text);
-  const effectiveReset = resetSession || simpleChat;
+  // A short prompt is often a follow-up ("what about the second option?"). Only the cheap
+  // performance profile is applied automatically; the session is reset only when the caller
+  // asks (resetSession, or resetSessionSimple for the old "reset on simple prompts" behaviour).
+  const effectiveReset = resetSession || (body.resetSessionSimple === true && simpleChat);
   const performanceEnv = simpleChat
     ? performanceSpawnEnvOverrides({
         limitPlannerHistory: true,
@@ -2386,23 +2586,31 @@ async function handleApiV1Orchestrate(req, res) {
       performanceEnv,
       userName: userNameFromRequestHeaders(req.headers),
       identityEnv: spawnIdentityEnvFromReq(req),
+      abortOnClose: res,
     });
     if (runResult?.runId) req.agenticRunId = runResult.runId;
   } catch (e) {
-    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
-    res.end(JSON.stringify({ error: clientErrorMessage(e, "Orchestration failed") }));
+    const fail = orchestrationStartFailure(e);
+    res.writeHead(fail.status, { "Content-Type": "application/json; charset=utf-8", ...cors });
+    res.end(JSON.stringify({ error: fail.message, code: fail.code }));
     return;
   } finally {
     endOrchestrateOllamaBusy();
   }
 
   if (runResult.code !== 0) {
+    const message = runFailureMessage(runResult);
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", ...cors });
     res.end(
       JSON.stringify({
         error: "Orchestration process exited with non-zero code",
         code: runResult.code,
-        stderr: runResult.stderr?.slice(-2000),
+        runId: runResult.runId || null,
+        message,
+        // Raw child stderr only on request (AGENTIC_WEB_EXPOSE_RUN_ERRORS=1); it can carry paths and keys.
+        ...(envTruthy("AGENTIC_WEB_EXPOSE_RUN_ERRORS")
+          ? { stderr: runResult.stderr?.slice(-2000) }
+          : {}),
       }),
     );
     return;
@@ -2429,7 +2637,81 @@ function sendAgentProvidersJson(res) {
   res.end(JSON.stringify({ providers: data }));
 }
 
+/** Bearer-authenticated programmatic API routes (never ambient credentials; CORS is intentional). */
+function isBearerApiPath(req) {
+  return isOpenAiChatCompletionsPath(req) || isOpenAiResponsesPath(req) || isApiV1Orchestrate(req);
+}
+
+/**
+ * DNS-rebinding (Host) and cross-site (Origin) guard shared by HTTP requests and WS upgrades.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {{ upgrade?: boolean }} [opts]
+ * @returns {{ status: number, code: string, message: string } | null} rejection, or null when allowed
+ */
+function requestGuardRejection(req, opts = {}) {
+  const headers = req?.headers || {};
+  if (!isHostAllowed({ host: headers.host, bindHost: HOST })) {
+    return {
+      status: 403,
+      code: "host_not_allowed",
+      message:
+        "Host header not allowed: this server is bound to a loopback address and only answers loopback host names. " +
+        "Add the public host name to AGENTIC_WEB_ALLOWED_HOSTS (comma-separated) if a local reverse proxy fronts it.",
+    };
+  }
+  const method = String(req?.method || "GET").toUpperCase();
+  const stateChanging = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (opts.upgrade || (stateChanging && !isBearerApiPath(req))) {
+    if (
+      !isOriginAllowed({
+        origin: headers.origin,
+        host: headers.host,
+        forwardedHost: headers["x-forwarded-host"],
+      })
+    ) {
+      return {
+        status: 403,
+        code: "origin_not_allowed",
+        message:
+          "Cross-origin request refused. Add the page origin to AGENTIC_WEB_ALLOWED_ORIGINS (comma-separated) if it is legitimate.",
+      };
+    }
+  }
+  return null;
+}
+
+/** Top-level error boundary: one bad request must never take the whole server down. */
 function handleHttp(req, res) {
+  req.on("error", () => {});
+  res.on("error", () => {});
+  try {
+    stripUntrustedIdentityHeaders(req);
+    const rejection = requestGuardRejection(req);
+    if (rejection) {
+      res.writeHead(rejection.status, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify({ error: rejection.message, code: rejection.code }));
+      return;
+    }
+    routeHttp(req, res);
+  } catch (err) {
+    logServerError("[agentic-orchestration-web] request handler error", err);
+    try {
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: "Internal server error" }));
+      } else {
+        res.destroy();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function routeHttp(req, res) {
   if (tryServeVendorAsset(req, res)) {
     return;
   }
@@ -2588,6 +2870,11 @@ function handleHttp(req, res) {
   }
   const adminPath = getRequestPathname(req);
   const adminRoute = matchAdminRoute(adminPath);
+  if (adminRoute && adminRoute.name === "invalid_path") {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "Malformed request path", code: "invalid_path" }));
+    return;
+  }
   if (adminRoute) {
     if (!applyWebUiAccessGate(req, res, { routeName: adminRoute.name })) return;
     handleAdminApi(req, res, {
@@ -2656,7 +2943,10 @@ function serveStatic(req, res) {
         return;
       }
       const ext = path.extname(resolvedPath);
-      res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+      res.writeHead(200, {
+        "Content-Type": MIME[ext] || "application/octet-stream",
+        "X-Content-Type-Options": "nosniff",
+      });
       res.end(data);
     });
   };
@@ -2723,11 +3013,30 @@ function writeDynamicAttachmentManifest(toolRoot, files) {
   const id = crypto.randomUUID();
   const dir = path.join(toolRoot, "_web_uploads", id);
   fs.mkdirSync(dir, { recursive: true });
+  let keep = false;
+  try {
+    const manifestPath = writeAttachmentFilesInto(dir, files);
+    keep = Boolean(manifestPath);
+    return manifestPath;
+  } finally {
+    // Rejected (too large) or empty uploads must not leave a directory behind.
+    if (!keep) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+function writeAttachmentFilesInto(dir, files) {
   const manifest = { files: [] };
   let total = 0;
   const n = Math.min(files.length, MAX_UPLOAD_FILES);
   for (let i = 0; i < n; i++) {
     const f = files[i];
+    if (!f || typeof f !== "object") continue;
     const b64 = typeof f.data === "string" ? f.data : f.base64;
     if (!b64 || typeof b64 !== "string") continue;
     let buf;
@@ -3074,63 +3383,143 @@ function mintRunId() {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
-function buildDynamicSpawnArgs(text, opts) {
-  const {
-    runMode,
-    iterativeRounds,
-    autoIter,
-    iterativeMaxRounds,
-    noSynthesize,
-    sessionId,
-    resetSession,
-    noVerify,
-    verboseCrew,
-    selectedAgentProviderIds,
-    attachmentManifestPath,
-    runId,
-  } = opts;
-  const mode = String(runMode || "dynamic").trim();
-  const args = ["main.py"];
-  const ex = String(process.env.AGENTIC_EXAMPLE || "").trim().toLowerCase();
-  if (ex && Object.prototype.hasOwnProperty.call(EXAMPLE_VERTICAL_SUBDIR, ex)) {
-    args.push("--example", ex);
+/** Live orchestrator / greeting child processes (killed on shutdown, disconnect or deadline). */
+const _activeChildren = new Set();
+let _activeRuns = 0;
+let _activeGreets = 0;
+const MAX_CONCURRENT_RUNS = envInt("AGENTIC_WEB_MAX_CONCURRENT_RUNS", 16, 1, 512);
+const MAX_CONCURRENT_GREETS = envInt("AGENTIC_WEB_MAX_CONCURRENT_GREETS", 4, 1, 64);
+const GREET_TIMEOUT_MS = envInt("AGENTIC_WEB_GREET_TIMEOUT_SECONDS", 120, 5, 3600) * 1000;
+/** Buffered output caps for HTTP runs (the WS path streams instead of buffering). */
+const MAX_RUN_STDOUT_BYTES = 32 * 1024 * 1024;
+const MAX_RUN_STDERR_BYTES = 1024 * 1024;
+
+/** Wall-clock deadline for one orchestration run; 0 disables. Default 2 h. */
+function runTimeoutMs() {
+  return envInt("AGENTIC_WEB_RUN_TIMEOUT_SECONDS", 7200, 0, 7 * 24 * 3600) * 1000;
+}
+
+/** Stop the run when its WebSocket / HTTP client goes away (set to 0 to let it finish). */
+function killRunOnDisconnectEnabled() {
+  const v = String(process.env.AGENTIC_WEB_KILL_RUN_ON_DISCONNECT ?? "1").trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
+}
+
+function taggedError(message, code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+/**
+ * spawn() wrapper: never throws synchronously (E2BIG, NUL bytes, EACCES … are returned as an
+ * error), runs the child in its own process group on POSIX so the whole tree can be stopped,
+ * and registers it for shutdown cleanup.
+ * @returns {{ proc: import("node:child_process").ChildProcess|null, error: Error|null }}
+ */
+function spawnTracked(cmd, args, options) {
+  let proc;
+  try {
+    proc = spawn(cmd, args, {
+      ...options,
+      shell: false,
+      detached: process.platform !== "win32",
+    });
+  } catch (err) {
+    return { proc: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
-  if (mode === "dynamic-iterative") {
-    args.push("--dynamic-iterative", text);
-    const envDefaultRounds = envInt("AGENTIC_DYNAMIC_ITERATIVE_ROUNDS", 4, 1, 32);
-    const envMaxRounds = envInt("AGENTIC_DYNAMIC_ITERATIVE_MAX_ROUNDS", 8, 1, 32);
-    if (autoIter) {
-      const uiMax = Math.max(1, Math.min(32, Number(iterativeMaxRounds || envMaxRounds)));
-      const maxRounds = Math.min(uiMax, envMaxRounds);
-      args.push("--dynamic-iterative-auto");
-      args.push("--dynamic-iterative-max-rounds", String(maxRounds));
-    } else {
-      const uiRounds = Math.max(1, Math.min(32, Number(iterativeRounds || envDefaultRounds)));
-      const rounds = Math.min(uiRounds, envMaxRounds);
-      args.push("--dynamic-iterative-rounds", String(rounds));
+  _activeChildren.add(proc);
+  const forget = () => _activeChildren.delete(proc);
+  proc.once("close", forget);
+  proc.once("error", () => {
+    if (proc.pid == null) forget();
+  });
+  return { proc, error: null };
+}
+
+function childStillRunning(proc) {
+  return Boolean(proc) && proc.pid != null && proc.exitCode == null && proc.signalCode == null;
+}
+
+function signalChild(proc, signal) {
+  if (!childStillRunning(proc)) return;
+  try {
+    // Negative pid = the child's process group (MCP servers, workers it started).
+    if (process.platform !== "win32") process.kill(-proc.pid, signal);
+    else proc.kill(signal);
+  } catch {
+    try {
+      proc.kill(signal);
+    } catch {
+      /* already gone */
     }
-    if (noSynthesize) args.push("--dynamic-iterative-no-synthesize");
-  } else {
-    args.push("--dynamic", text);
   }
-  args.push("--no-save");
-  if (!verboseCrew) args.push("--quiet");
-  if (noVerify !== false) args.push("--no-verify");
-  if (resetSession) args.push("--orchestrator-session-reset");
-  const sess = sessionId && String(sessionId).trim();
-  if (sess) args.push("--orchestrator-session", sess);
-  const selectedIds = Array.isArray(selectedAgentProviderIds)
-    ? selectedAgentProviderIds.map((x) => String(x || "").trim()).filter(Boolean)
-    : [];
-  if (selectedIds.length > 0) {
-    args.push("--dynamic-agent-provider-ids", selectedIds.join(","));
+}
+
+/** SIGTERM now, SIGKILL after a grace period. */
+function killChild(proc) {
+  if (!childStillRunning(proc)) return;
+  signalChild(proc, "SIGTERM");
+  const t = setTimeout(() => signalChild(proc, "SIGKILL"), 5000);
+  if (typeof t.unref === "function") t.unref();
+}
+
+function killAllChildren(signal = "SIGTERM") {
+  for (const proc of _activeChildren) signalChild(proc, signal);
+}
+
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.once(sig, () => {
+    // Children run in their own process groups, so they would otherwise outlive the server.
+    killAllChildren("SIGTERM");
+    process.exit(sig === "SIGINT" ? 130 : 143);
+  });
+}
+process.once("exit", () => killAllChildren("SIGKILL"));
+
+/** Append to a bounded buffer; when over the cap keep the tail (stderr) or stop (stdout). */
+function appendBounded(current, chunk, maxBytes, keepTail) {
+  if (keepTail) {
+    const next = current + chunk;
+    return next.length > maxBytes ? next.slice(next.length - maxBytes) : next;
   }
-  if (attachmentManifestPath) {
-    args.push("--dynamic-attachments", attachmentManifestPath);
+  if (current.length >= maxBytes) return current;
+  return (current + chunk).slice(0, maxBytes);
+}
+
+/** Client-safe failure text for a non-zero run; child output stays in the server log. */
+function runFailureMessage(runResult) {
+  const reason = runResult.timedOut
+    ? "timed out"
+    : runResult.aborted
+      ? "was cancelled"
+      : `exited with code ${runResult.code}`;
+  const tail = [runResult.stderr, runResult.stdout].filter(Boolean).join("\n").trim().slice(-2000);
+  if (tail) {
+    console.error(
+      `[agentic-orchestration-web] run ${runResult.runId || "?"} ${reason}:\n${tail}`,
+    );
   }
-  const rid = runId && String(runId).trim();
-  if (rid) args.push("--run-id", rid);
-  return args;
+  const base = `Orchestration ${reason}${runResult.runId ? ` (run ${runResult.runId})` : ""}. See the server log or Admin → Traces for details.`;
+  // Opt-in for trusted API consumers that want the raw tail in the response.
+  return envTruthy("AGENTIC_WEB_EXPOSE_RUN_ERRORS") && tail ? `${base}\n${tail}` : base;
+}
+
+/** HTTP status + code for an error thrown by runDynamicAwait before / while starting a run. */
+function orchestrationStartFailure(err) {
+  const code = err && typeof err === "object" ? err.code : "";
+  if (code === "prompt_too_large") {
+    return { status: 413, code, type: "invalid_request_error", message: err.message };
+  }
+  if (code === "server_busy") {
+    return { status: 503, code, type: "api_error", message: err.message };
+  }
+  return {
+    status: 500,
+    code: "orchestration_failed",
+    type: "agentic_run_error",
+    message: clientErrorMessage(err, "Orchestration failed"),
+  };
 }
 
 async function runDynamicAwait({
@@ -3150,9 +3539,40 @@ async function runDynamicAwait({
   disableAnswerCache = false,
   userName = null,
   identityEnv = {},
+  abortOnClose = null,
 }) {
   const noop = () => {};
-  if (!ensurePythonDepsForWebRuns(noop)) {
+  const cleanupUploads = () => maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+  const tooLarge = promptTooLargeError(text);
+  if (tooLarge) {
+    cleanupUploads();
+    throw taggedError(tooLarge, "prompt_too_large");
+  }
+  if (_activeRuns >= MAX_CONCURRENT_RUNS) {
+    cleanupUploads();
+    throw taggedError(
+      `Server busy: ${_activeRuns} orchestration runs in progress (max ${MAX_CONCURRENT_RUNS}). Retry shortly.`,
+      "server_busy",
+    );
+  }
+  _activeRuns += 1;
+  let slotHeld = true;
+  const releaseSlot = () => {
+    if (!slotHeld) return;
+    slotHeld = false;
+    _activeRuns = Math.max(0, _activeRuns - 1);
+  };
+  let depsOk = false;
+  try {
+    depsOk = await ensurePythonDepsForWebRuns(noop);
+  } catch (err) {
+    releaseSlot();
+    cleanupUploads();
+    throw err;
+  }
+  if (!depsOk) {
+    releaseSlot();
+    cleanupUploads();
     throw new Error(
       "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled.",
     );
@@ -3181,18 +3601,57 @@ async function runDynamicAwait({
     ...performanceEnv,
   });
   return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON, args, {
-      cwd: TOOL_ROOT,
-      env,
-      shell: false,
-    });
+    const { proc, error: spawnError } = spawnTracked(PYTHON, args, { cwd: TOOL_ROOT, env });
+    if (!proc) {
+      releaseSlot();
+      cleanupUploads();
+      reject(spawnError);
+      return;
+    }
+    writePromptToChild(proc, text);
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let aborted = false;
+    let settled = false;
     const mirror = subprocessLogToConsoleEnabled();
+    const deadlineMs = runTimeoutMs();
+    const deadline =
+      deadlineMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            console.error(
+              `[agentic-orchestration-web] run ${runId} exceeded AGENTIC_WEB_RUN_TIMEOUT_SECONDS; stopping it`,
+            );
+            killChild(proc);
+          }, deadlineMs)
+        : null;
+    if (deadline && typeof deadline.unref === "function") deadline.unref();
+    const onClientClose = () => {
+      // Response finished normally → nothing to cancel.
+      if (settled || abortOnClose?.writableFinished) return;
+      if (!killRunOnDisconnectEnabled()) return;
+      aborted = true;
+      killChild(proc);
+    };
+    if (abortOnClose && typeof abortOnClose.on === "function") {
+      abortOnClose.on("close", onClientClose);
+    }
+    const finishOnce = () => {
+      if (settled) return false;
+      settled = true;
+      if (deadline) clearTimeout(deadline);
+      if (abortOnClose && typeof abortOnClose.off === "function") {
+        abortOnClose.off("close", onClientClose);
+      }
+      releaseSlot();
+      cleanupUploads();
+      return true;
+    };
     if (proc.stdout) {
       proc.stdout.on("data", (chunk) => {
         const s = chunk.toString("utf8");
-        stdout += s;
+        stdout = appendBounded(stdout, s, MAX_RUN_STDOUT_BYTES, false);
         if (mirror) {
           process.stderr.write(`[agentic spawn stdout] ${s}`);
         }
@@ -3201,14 +3660,14 @@ async function runDynamicAwait({
     if (proc.stderr) {
       proc.stderr.on("data", (chunk) => {
         const s = chunk.toString("utf8");
-        stderr += s;
+        stderr = appendBounded(stderr, s, MAX_RUN_STDERR_BYTES, true);
         if (mirror) {
           process.stderr.write(`[agentic spawn stderr] ${s}`);
         }
       });
     }
     proc.on("error", (err) => {
-      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+      if (!finishOnce()) return;
       try {
         recordWebRunEnd({ ok: false, elapsedMs: Date.now() - started });
       } catch {
@@ -3217,8 +3676,9 @@ async function runDynamicAwait({
       reject(err);
     });
     proc.on("close", (code, signal) => {
-      maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
-      const exitCode = typeof code === "number" ? code : 0;
+      if (!finishOnce()) return;
+      // Killed by a signal (deadline, disconnect, shutdown) is a failure, never exit 0.
+      const exitCode = typeof code === "number" ? code : signal || timedOut || aborted ? 1 : 0;
       try {
         recordWebRunEnd({ ok: exitCode === 0, elapsedMs: Date.now() - started });
       } catch {
@@ -3230,12 +3690,23 @@ async function runDynamicAwait({
         stdout,
         stderr,
         runId,
+        timedOut,
+        aborted,
       });
     });
   });
 }
 
-function runDynamic(
+/** `--dynamic-attachments=<server path>` must not be echoed to clients in `run_start`. */
+function clientSafeRunArgs(args) {
+  return args.map((a) =>
+    typeof a === "string" && a.startsWith("--dynamic-attachments=")
+      ? "--dynamic-attachments=<uploaded files>"
+      : a,
+  );
+}
+
+async function runDynamic(
   {
     text,
     runMode,
@@ -3256,14 +3727,44 @@ function runDynamic(
   const runId = mintRunId();
   const started = Date.now();
   const runTag = { run_id: runId, runId };
+  let slotHeld = false;
+  let finished = false;
+  /** Release everything exactly once, whichever way the run ends. */
+  const finish = () => {
+    if (finished) return false;
+    finished = true;
+    if (slotHeld) {
+      slotHeld = false;
+      _activeRuns = Math.max(0, _activeRuns - 1);
+    }
+    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+    ws._runProc = null;
+    ws._busy = false;
+    return true;
+  };
+
+  if (_activeRuns >= MAX_CONCURRENT_RUNS) {
+    sendJson(ws, {
+      type: "error",
+      message: `Server busy: ${_activeRuns} orchestration runs in progress (max ${MAX_CONCURRENT_RUNS}). Try again shortly.`,
+      ...runTag,
+    });
+    finish();
+    return;
+  }
+  _activeRuns += 1;
+  slotHeld = true;
+
   sendJson(ws, {
     type: "preflight",
     status: "start",
     message: "Checking Python dependencies…",
     ...runTag,
   });
-  if (!ensurePythonDepsForWebRuns((msg) => sendJson(ws, { type: "preflight", status: "progress", message: String(msg || ""), ...runTag }))) {
-    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+  const depsOk = await ensurePythonDepsForWebRuns((msg) =>
+    sendJson(ws, { type: "preflight", status: "progress", message: String(msg || ""), ...runTag }),
+  );
+  if (!depsOk) {
     sendJson(ws, { type: "preflight", status: "error", message: "Python dependency healing failed.", ...runTag });
     sendJson(ws, {
       type: "error",
@@ -3271,10 +3772,15 @@ function runDynamic(
         "Python dependencies are missing for the configured AGENTIC_PYTHON. Auto-install failed or is disabled. Activate/install the tool venv and restart web server.",
       ...runTag,
     });
-    ws._busy = false;
+    finish();
     return;
   }
   sendJson(ws, { type: "preflight", status: "done", message: "Dependencies ready.", ...runTag });
+  // The socket may have closed while dependencies were being checked.
+  if (ws.readyState !== 1 && killRunOnDisconnectEnabled()) {
+    finish();
+    return;
+  }
 
   const args = buildDynamicSpawnArgs(text, {
     runMode,
@@ -3291,18 +3797,45 @@ function runDynamic(
     runId,
   });
 
-  sendJson(ws, { type: "run_start", args, ...runTag });
+  sendJson(ws, { type: "run_start", args: clientSafeRunArgs(args), ...runTag });
 
   const env = {
     ...webOrchestratorSpawnEnvForWs(ws, performanceEnv),
     AGENTIC_RUN_ID: runId,
   };
 
-  const proc = spawn(PYTHON, args, {
-    cwd: TOOL_ROOT,
-    env,
-    shell: false,
-  });
+  const { proc, error: spawnError } = spawnTracked(PYTHON, args, { cwd: TOOL_ROOT, env });
+  if (!proc) {
+    sendJson(ws, {
+      type: "error",
+      message: clientErrorMessage(spawnError, "Failed to start orchestration process"),
+      ...runTag,
+    });
+    try {
+      recordWebRunEnd({ ok: false, elapsedMs: Date.now() - started });
+    } catch {
+      /* ignore */
+    }
+    finish();
+    return;
+  }
+  writePromptToChild(proc, text);
+  ws._runProc = proc;
+  let timedOut = false;
+  const deadlineMs = runTimeoutMs();
+  const deadline =
+    deadlineMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          sendJson(ws, {
+            type: "error",
+            message: "Run exceeded the server time limit (AGENTIC_WEB_RUN_TIMEOUT_SECONDS) and was stopped.",
+            ...runTag,
+          });
+          killChild(proc);
+        }, deadlineMs)
+      : null;
+  if (deadline && typeof deadline.unref === "function") deadline.unref();
 
   if (proc.stdout) {
     proc.stdout.on("data", (chunk) => {
@@ -3315,7 +3848,8 @@ function runDynamic(
     });
   }
   proc.on("error", (err) => {
-    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+    if (deadline) clearTimeout(deadline);
+    if (!finish()) return;
     sendJson(ws, {
       type: "error",
       message: clientErrorMessage(err, "Failed to start orchestration process"),
@@ -3326,11 +3860,11 @@ function runDynamic(
     } catch {
       /* ignore */
     }
-    ws._busy = false;
   });
   proc.on("close", (code, signal) => {
-    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
-    const exitCode = typeof code === "number" ? code : 0;
+    if (deadline) clearTimeout(deadline);
+    if (!finish()) return;
+    const exitCode = typeof code === "number" ? code : signal || timedOut ? 1 : 0;
     sendJson(ws, {
       type: "run_end",
       code: exitCode,
@@ -3342,49 +3876,79 @@ function runDynamic(
     } catch {
       /* ignore */
     }
-    ws._busy = false;
   });
+}
+
+function sendFallbackWelcome(ws) {
+  const fallback = webWelcomeMessage();
+  if (fallback) {
+    sendJson(ws, {
+      type: "welcome_message",
+      text: stripWrappingQuotes(fallback),
+      fallback: true,
+    });
+  }
+  return Boolean(fallback);
 }
 
 function runPlannerGreet(ws) {
   if (!webPlannerGreetEnabled()) {
-    const fallback = webWelcomeMessage();
-    if (fallback) {
+    sendFallbackWelcome(ws);
+    return;
+  }
+  if (ws._greetBusy) return;
+  // Bound greeting processes server-wide: a connection flood must not become a process flood.
+  if (_activeGreets >= MAX_CONCURRENT_GREETS) {
+    sendFallbackWelcome(ws);
+    return;
+  }
+  ws._greetBusy = true;
+  _activeGreets += 1;
+  let done = false;
+  const release = () => {
+    if (done) return false;
+    done = true;
+    _activeGreets = Math.max(0, _activeGreets - 1);
+    ws._greetBusy = false;
+    ws._greetProc = null;
+    return true;
+  };
+  sendJson(ws, { type: "welcome_start" });
+
+  const { proc, error: spawnError } = spawnTracked(
+    PYTHON,
+    ["-m", "orchestration.planner_greeting", "--quiet"],
+    { cwd: TOOL_ROOT, env: webOrchestratorSpawnEnvForWs(ws) },
+  );
+  if (!proc) {
+    release();
+    if (!sendFallbackWelcome(ws)) {
       sendJson(ws, {
-        type: "welcome_message",
-        text: stripWrappingQuotes(fallback),
-        fallback: true,
+        type: "welcome_error",
+        message: clientErrorMessage(spawnError, "Planner greeting failed"),
       });
     }
     return;
   }
-  if (ws._greetBusy) return;
-  ws._greetBusy = true;
-  sendJson(ws, { type: "welcome_start" });
-
-  const proc = spawn(PYTHON, ["-m", "orchestration.planner_greeting", "--quiet"], {
-    cwd: TOOL_ROOT,
-    env: webOrchestratorSpawnEnvForWs(ws),
-    shell: false,
-  });
+  ws._greetProc = proc;
+  const timer = setTimeout(() => killChild(proc), GREET_TIMEOUT_MS);
+  if (typeof timer.unref === "function") timer.unref();
   let stdout = "";
   let stderr = "";
   if (proc.stdout) {
     proc.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
+      stdout = appendBounded(stdout, chunk.toString("utf8"), 256 * 1024, false);
     });
   }
   if (proc.stderr) {
     proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
+      stderr = appendBounded(stderr, chunk.toString("utf8"), 64 * 1024, true);
     });
   }
   proc.on("error", (err) => {
-    ws._greetBusy = false;
-    const fallback = webWelcomeMessage();
-    if (fallback) {
-      sendJson(ws, { type: "welcome_message", text: fallback, fallback: true });
-    } else {
+    clearTimeout(timer);
+    if (!release()) return;
+    if (!sendFallbackWelcome(ws)) {
       sendJson(ws, {
         type: "welcome_error",
         message: clientErrorMessage(err, "Planner greeting failed"),
@@ -3392,32 +3956,62 @@ function runPlannerGreet(ws) {
     }
   });
   proc.on("close", (code) => {
-    ws._greetBusy = false;
+    clearTimeout(timer);
+    if (!release()) return;
     const text = stripWrappingQuotes(stdout.trim());
     if (code === 0 && text) {
       sendJson(ws, { type: "welcome_message", text });
       return;
     }
-    const fallback = webWelcomeMessage();
-    if (fallback) {
-      sendJson(ws, {
-        type: "welcome_message",
-        text: stripWrappingQuotes(fallback),
-        fallback: true,
-      });
-      return;
+    if (sendFallbackWelcome(ws)) return;
+    if (stderr.trim()) {
+      console.error("[agentic-orchestration-web] planner greeting failed:\n" + stderr.trim().slice(-2000));
     }
     sendJson(ws, {
       type: "welcome_error",
-      message:
-        stderr.trim() ||
-        `Planner greeting exited with code ${typeof code === "number" ? code : "unknown"}`,
+      message: `Planner greeting failed (exit code ${typeof code === "number" ? code : "unknown"}).`,
     });
   });
 }
 
 const server = http.createServer(handleHttp);
-const wss = new WebSocketServer({ server, perMessageDeflate: false });
+// A malformed HTTP request must not surface as an unhandled 'clientError'.
+server.on("clientError", (err, socket) => {
+  try {
+    if (socket.writable && !socket.destroyed) {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+    } else {
+      socket.destroy();
+    }
+  } catch {
+    /* ignore */
+  }
+});
+const wss = new WebSocketServer({
+  server,
+  perMessageDeflate: false,
+  // Cross-site WebSocket hijacking / DNS-rebinding guard: browsers always send Origin on the
+  // upgrade, and WebSockets are not covered by the same-origin policy.
+  verifyClient: (info, done) => {
+    let rejection = null;
+    try {
+      stripUntrustedIdentityHeaders(info.req);
+      rejection = requestGuardRejection(info.req, { upgrade: true });
+    } catch {
+      rejection = { status: 400, code: "bad_request", message: "Bad request" };
+    }
+    if (rejection) {
+      console.error(
+        `[agentic-orchestration-web] ws upgrade refused (${rejection.code}) origin=${String(info.origin || "").slice(0, 120)}`,
+      );
+      done(false, rejection.status, "Forbidden");
+      return;
+    }
+    done(true);
+  },
+  // Token transport: client offers ["ao-auth", "ao-bearer.<token>"]; never echo the token.
+  handleProtocols: (protocols) => selectWsSubprotocol(protocols),
+});
 
 let _listenErrorLogged = false;
 function logListenError(err) {
@@ -3436,25 +4030,293 @@ function logListenError(err) {
 server.on("error", logListenError);
 wss.on("error", logListenError);
 
+/** Admin console message types: Admin token only (or a trusted operator before any token exists). */
+const WS_ADMIN_ONLY_TYPES = new Set([
+  "admin_logs_subscribe",
+  "admin_logs_follow_run",
+  "admin_logs_unsubscribe",
+  "topology_subscribe",
+  "topology_unsubscribe",
+  "topology_resync",
+  "topology_watch_subscribe",
+  "topology_watch_unsubscribe",
+  "admin_feed_subscribe",
+  "admin_feed_params",
+  "admin_feed_unsubscribe",
+]);
+/** Write actions the Chat page also offers (cancel a background download). */
+const WS_OPERATOR_TYPES = new Set(["background_activity_cancel"]);
+
+/**
+ * @param {import("ws").WebSocket} ws
+ * @param {string} type
+ * @returns {string|null} refusal message, or null when the message type is allowed
+ */
+function wsMessageRefusal(ws, type) {
+  const adminOnly = WS_ADMIN_ONLY_TYPES.has(type);
+  if (!adminOnly && !WS_OPERATOR_TYPES.has(type)) return null;
+  const appId = ws._agenticAuth?.appId || "";
+  if (appId === "ao-web") return null;
+  if (!adminOnly && appId === "ao-chat") return null;
+  // No first-party token assigned yet: same rule as the HTTP bootstrap routes.
+  if (appId === "bootstrap" && ws._trustedSource === true) return null;
+  return adminOnly
+    ? `'${type}' requires the Admin Web UI token (ao-web).`
+    : `'${type}' requires a first-party UI token (ao-web or ao-chat).`;
+}
+
+function topologyWsContext() {
+  return {
+    toolRoot: TOOL_ROOT,
+    webRoot: __dirname,
+    webInstanceId: WEB_INSTANCE_ID,
+    webPid: process.pid,
+    fetchJson,
+    buildCatalogs,
+  };
+}
+
+/**
+ * Handle one validated client message. May throw — the caller is the error boundary.
+ * @param {import("ws").WebSocket} ws
+ * @param {import("node:http").IncomingMessage} req
+ * @param {Record<string, any>} msg
+ */
+function handleWsMessage(ws, req, msg) {
+  const refusal = wsMessageRefusal(ws, msg.type);
+  if (refusal) {
+    sendJson(ws, { type: "error", code: "forbidden", message: refusal });
+    return;
+  }
+  if (msg.type === "ping") {
+    sendJson(ws, { type: "pong" });
+    return;
+  }
+  if (msg.type === "host_metrics_subscribe") {
+    startHostMetricsPush(ws);
+    return;
+  }
+  if (msg.type === "host_metrics_unsubscribe") {
+    stopHostMetricsPush(ws);
+    return;
+  }
+  if (msg.type === "background_activity_cancel") {
+    void cancelEngineBackgroundActivity()
+      .then((result) => {
+        sendJson(ws, {
+          type: "status",
+          processing: false,
+          phase: result.ok === false ? "error" : "cancelled",
+          message:
+            result.ok === false
+              ? String(result.error || "Cancel failed")
+              : result.cancelled === false
+                ? "No background download to cancel."
+                : "Background work cancelled.",
+          code: result.ok === false ? "error" : "cancelled",
+        });
+      })
+      .catch((err) => logServerError("[agentic-orchestration-web] background cancel failed", err));
+    return;
+  }
+  if (msg.type === "admin_logs_subscribe") {
+    startAdminLogsPush(ws, sendJson, { sources: msg.sources });
+    return;
+  }
+  if (msg.type === "admin_logs_follow_run") {
+    const runId = String(msg.runId || msg.run_id || "").trim();
+    if (runId) followWorkerLogsForRun(runId);
+    return;
+  }
+  if (msg.type === "admin_logs_unsubscribe") {
+    stopAdminLogsPush(ws);
+    return;
+  }
+  if (msg.type === "topology_subscribe") {
+    startTopologyPush(ws, sendJson, topologyWsContext());
+    return;
+  }
+  if (msg.type === "topology_unsubscribe") {
+    stopTopologyPush(ws);
+    return;
+  }
+  if (msg.type === "topology_resync") {
+    resyncTopology(ws, sendJson, topologyWsContext());
+    return;
+  }
+  if (msg.type === "topology_watch_subscribe") {
+    subscribeTopologyWatch(ws, sendJson, topologyWsContext(), msg).catch(() => {});
+    return;
+  }
+  if (msg.type === "topology_watch_unsubscribe") {
+    unsubscribeTopologyWatch(ws, msg);
+    return;
+  }
+  if (msg.type === "admin_feed_subscribe") {
+    const topics = Array.isArray(msg.topics)
+      ? msg.topics
+      : msg.topic
+        ? [msg.topic]
+        : [];
+    startAdminFeedsPush(
+      ws,
+      sendJson,
+      { ...topologyWsContext(), req },
+      {
+        topics,
+        intervalMs: msg.intervalMs,
+        params: msg.params && typeof msg.params === "object" ? msg.params : {},
+      },
+    );
+    return;
+  }
+  if (msg.type === "admin_feed_params") {
+    updateAdminFeedsParams(
+      ws,
+      msg.params && typeof msg.params === "object" ? msg.params : {},
+    );
+    return;
+  }
+  if (msg.type === "admin_feed_unsubscribe") {
+    const topics = Array.isArray(msg.topics)
+      ? msg.topics
+      : msg.topic
+        ? [msg.topic]
+        : null;
+    stopAdminFeedsPush(ws, topics);
+    return;
+  }
+  if (msg.type === "client_hello") {
+    const resume = Boolean(msg.resume);
+    if (!resume && webPlannerGreetEnabled()) {
+      // One planner greeting per connection.
+      if (ws._greeted) return;
+      ws._greeted = true;
+      runPlannerGreet(ws);
+    } else if (!resume) {
+      sendFallbackWelcome(ws);
+    }
+    return;
+  }
+  if (msg.type === "rate") {
+    const fp =
+      (stringField(msg.attachmentFingerprint) || stringField(msg.mcpFingerprint) || "none").trim() ||
+      "none";
+    appendPendingRating({
+      session_slug: effectiveSessionId(req?.headers, msg.sessionId) || ws._sessionId || "",
+      provider_id: stringField(msg.providerId).slice(0, 200),
+      attachment_fingerprint: fp.slice(0, 200),
+      mcp_fingerprint: fp.slice(0, 200),
+      task_tag: stringField(msg.taskTag).slice(0, 120) || "general",
+      rating: typeof msg.rating === "number" || typeof msg.rating === "string" ? msg.rating : null,
+    });
+    sendJson(ws, { type: "rated", ok: true });
+    return;
+  }
+  if (msg.type !== "chat") {
+    sendJson(ws, {
+      type: "error",
+      message: `Unknown message type: ${String(msg.type).slice(0, 64)}`,
+    });
+    return;
+  }
+  if (ws._busy) {
+    sendJson(ws, { type: "error", message: "A run is already in progress for this connection." });
+    return;
+  }
+  let text = sanitizePromptText(msg.text).trim();
+  const promptTooLarge = promptTooLargeError(text);
+  if (promptTooLarge) {
+    sendJson(ws, { type: "error", code: "prompt_too_large", message: promptTooLarge });
+    return;
+  }
+  const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
+  let attachmentManifestPath = null;
+  if (hasFiles) {
+    try {
+      attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, msg.files);
+    } catch (err) {
+      sendJson(ws, { type: "error", message: clientErrorMessage(err, "Invalid attachment") });
+      return;
+    }
+    if (!attachmentManifestPath) {
+      sendJson(ws, { type: "error", message: "No valid file data in upload." });
+      return;
+    }
+  }
+  if (!text && attachmentManifestPath) {
+    text =
+      "Analyze the attached files and follow any instructions in their names or contents.";
+  }
+  if (!text) {
+    sendJson(ws, { type: "error", message: "Empty message" });
+    return;
+  }
+  ws._busy = true;
+  const performanceEnv = webPerformanceSpawnEnv(msg);
+  const msgUserName = resolveWsUserName(ws, msg.userName);
+  if (msgUserName && !ws._userName) {
+    ws._userName = msgUserName;
+  }
+  runDynamic(
+    {
+      text,
+      runMode: msg.runMode,
+      iterativeRounds: msg.iterativeRounds,
+      autoIter: Boolean(msg.autoIter),
+      iterativeMaxRounds: msg.iterativeMaxRounds,
+      noSynthesize: Boolean(msg.noSynthesize),
+      // A proxy-injected session header always wins over the client-supplied id.
+      sessionId: effectiveSessionId(req?.headers, msg.sessionId) || ws._sessionId,
+      resetSession: effectiveResetSession(msg, text),
+      noVerify: msg.noVerify !== false,
+      verboseCrew: Boolean(msg.verboseCrew),
+      selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
+        msg.selectedAgentProviderIds,
+        getAppPrefs(TOOL_ROOT, "ao-chat"),
+      ),
+      attachmentManifestPath,
+      performanceEnv,
+    },
+    ws,
+  ).catch((err) => {
+    logServerError("[agentic-orchestration-web] ws run failed", err);
+    maybeRemoveWebUploadSession(TOOL_ROOT, attachmentManifestPath);
+    ws._busy = false;
+    sendJson(ws, { type: "error", message: "Failed to start orchestration process" });
+  });
+}
+
 wss.on("connection", (ws, req) => {
+  // Without a listener, a protocol error on one socket (e.g. an unmasked frame) is an
+  // unhandled 'error' event that takes the whole process down.
+  ws.on("error", (err) => {
+    console.error(`[agentic-orchestration-web] ws error: ${String(err?.message || err).slice(0, 200)}`);
+  });
   if (!authorizeWsConnection(req, ws)) return;
   ws._busy = false;
   ws._greetBusy = false;
+  ws._greeted = false;
+  ws._runProc = null;
+  ws._greetProc = null;
   const profile = authProfileFromRequestHeaders(req?.headers || {});
   ws._userName = profile.userName;
   ws._userId = profile.userId;
   ws._sessionId = resolveSessionIdFromHeaders(req?.headers || {});
   ws._agenticAuth = req.agenticAuth || null;
+  ws._trustedSource = isTrustedBootstrapSource(req);
   try {
     ws._clientIp = clientIp(req);
   } catch {
     ws._clientIp = "";
   }
   const plannerGreet = webPlannerGreetEnabled();
+  // Absolute server paths are operator detail: only for authenticated or trusted connections.
+  const showServerPaths = ws._agenticAuth?.appId !== "bootstrap" || ws._trustedSource === true;
   sendJson(ws, {
     type: "hello",
-    toolRoot: TOOL_ROOT,
-    python: PYTHON,
+    toolRoot: showServerPaths ? TOOL_ROOT : undefined,
+    python: showServerPaths ? PYTHON : undefined,
     uiDefaults: webUiDefaultsFromEnv(),
     edgeRuntime: edgeRuntimeFromEnv(),
     plannerGreet,
@@ -3472,236 +4334,31 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("message", (raw) => {
-    let msg;
+    // Error boundary: one malformed frame must never crash the server for every user.
     try {
-      msg = JSON.parse(raw.toString("utf8"));
-    } catch {
-      sendJson(ws, { type: "error", message: "Invalid JSON message" });
-      return;
-    }
-    if (msg.type === "ping") {
-      sendJson(ws, { type: "pong" });
-      return;
-    }
-    if (msg.type === "host_metrics_subscribe") {
-      startHostMetricsPush(ws);
-      return;
-    }
-    if (msg.type === "host_metrics_unsubscribe") {
-      stopHostMetricsPush(ws);
-      return;
-    }
-    if (msg.type === "background_activity_cancel") {
-      void cancelEngineBackgroundActivity().then((result) => {
-        sendJson(ws, {
-          type: "status",
-          processing: false,
-          phase: result.ok === false ? "error" : "cancelled",
-          message:
-            result.ok === false
-              ? String(result.error || "Cancel failed")
-              : result.cancelled === false
-                ? "No background download to cancel."
-                : "Background work cancelled.",
-          code: result.ok === false ? "error" : "cancelled",
-        });
-      });
-      return;
-    }
-    if (msg.type === "admin_logs_subscribe") {
-      startAdminLogsPush(ws, sendJson, { sources: msg.sources });
-      return;
-    }
-    if (msg.type === "admin_logs_follow_run") {
-      const runId = String(msg.runId || msg.run_id || "").trim();
-      if (runId) followWorkerLogsForRun(runId);
-      return;
-    }
-    if (msg.type === "admin_logs_unsubscribe") {
-      stopAdminLogsPush(ws);
-      return;
-    }
-    if (msg.type === "topology_subscribe") {
-      startTopologyPush(ws, sendJson, {
-        toolRoot: TOOL_ROOT,
-        webRoot: __dirname,
-        webInstanceId: WEB_INSTANCE_ID,
-        webPid: process.pid,
-        fetchJson,
-        buildCatalogs,
-      });
-      return;
-    }
-    if (msg.type === "topology_unsubscribe") {
-      stopTopologyPush(ws);
-      return;
-    }
-    if (msg.type === "topology_resync") {
-      resyncTopology(ws, sendJson, {
-        toolRoot: TOOL_ROOT,
-        webRoot: __dirname,
-        webInstanceId: WEB_INSTANCE_ID,
-        webPid: process.pid,
-        fetchJson,
-        buildCatalogs,
-      });
-      return;
-    }
-    if (msg.type === "topology_watch_subscribe") {
-      subscribeTopologyWatch(
-        ws,
-        sendJson,
-        {
-          toolRoot: TOOL_ROOT,
-          webRoot: __dirname,
-          webInstanceId: WEB_INSTANCE_ID,
-          webPid: process.pid,
-          fetchJson,
-          buildCatalogs,
-        },
-        msg,
-      ).catch(() => {});
-      return;
-    }
-    if (msg.type === "topology_watch_unsubscribe") {
-      unsubscribeTopologyWatch(ws, msg);
-      return;
-    }
-    if (msg.type === "admin_feed_subscribe") {
-      const topics = Array.isArray(msg.topics)
-        ? msg.topics
-        : msg.topic
-          ? [msg.topic]
-          : [];
-      startAdminFeedsPush(
-        ws,
-        sendJson,
-        {
-          toolRoot: TOOL_ROOT,
-          webRoot: __dirname,
-          webInstanceId: WEB_INSTANCE_ID,
-          webPid: process.pid,
-          fetchJson,
-          buildCatalogs,
-          req,
-        },
-        {
-          topics,
-          intervalMs: msg.intervalMs,
-          params: msg.params && typeof msg.params === "object" ? msg.params : {},
-        },
-      );
-      return;
-    }
-    if (msg.type === "admin_feed_params") {
-      updateAdminFeedsParams(
-        ws,
-        msg.params && typeof msg.params === "object" ? msg.params : {},
-      );
-      return;
-    }
-    if (msg.type === "admin_feed_unsubscribe") {
-      const topics = Array.isArray(msg.topics)
-        ? msg.topics
-        : msg.topic
-          ? [msg.topic]
-          : null;
-      stopAdminFeedsPush(ws, topics);
-      return;
-    }
-    if (msg.type === "client_hello") {
-      const resume = Boolean(msg.resume);
-      if (!resume && webPlannerGreetEnabled()) {
-        runPlannerGreet(ws);
-      } else if (!resume) {
-        const fallback = webWelcomeMessage();
-        if (fallback) {
-          sendJson(ws, {
-            type: "welcome_message",
-            text: stripWrappingQuotes(fallback),
-            fallback: true,
-          });
-        }
+      const parsed = parseWsClientMessage(raw);
+      if (!parsed.ok) {
+        sendJson(ws, { type: "error", message: parsed.error });
+        return;
       }
-      return;
-    }
-    if (msg.type === "rate") {
-      const fp = (msg.attachmentFingerprint || msg.mcpFingerprint || "none").trim() || "none";
-      appendPendingRating({
-        session_slug: msg.sessionId || ws._sessionId || "",
-        provider_id: msg.providerId || "",
-        attachment_fingerprint: fp,
-        mcp_fingerprint: fp,
-        task_tag: msg.taskTag || "general",
-        rating: msg.rating,
-      });
-      sendJson(ws, { type: "rated", ok: true });
-      return;
-    }
-    if (msg.type !== "chat") {
-      sendJson(ws, { type: "error", message: `Unknown message type: ${msg.type}` });
-      return;
-    }
-    if (ws._busy) {
-      sendJson(ws, { type: "error", message: "A run is already in progress for this connection." });
-      return;
-    }
-    const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
-    let attachmentManifestPath = null;
-    if (hasFiles) {
+      handleWsMessage(ws, req, parsed.msg);
+    } catch (err) {
+      logServerError("[agentic-orchestration-web] ws message handler error", err);
       try {
-        attachmentManifestPath = writeDynamicAttachmentManifest(TOOL_ROOT, msg.files);
-      } catch (err) {
-        sendJson(ws, { type: "error", message: clientErrorMessage(err, "Invalid attachment") });
-        return;
-      }
-      if (!attachmentManifestPath) {
-        sendJson(ws, { type: "error", message: "No valid file data in upload." });
-        return;
+        sendJson(ws, { type: "error", message: "Internal error handling message" });
+      } catch {
+        /* ignore */
       }
     }
-    let text = (msg.text || "").trim();
-    if (!text && attachmentManifestPath) {
-      text =
-        "Analyze the attached files and follow any instructions in their names or contents.";
-    }
-    if (!text) {
-      sendJson(ws, { type: "error", message: "Empty message" });
-      return;
-    }
-    ws._busy = true;
-    const performanceEnv = webPerformanceSpawnEnv(msg);
-    const msgUserName = resolveWsUserName(ws, msg.userName);
-    if (msgUserName && !ws._userName) {
-      ws._userName = msgUserName;
-    }
-    runDynamic(
-      {
-        text,
-        runMode: msg.runMode,
-        iterativeRounds: msg.iterativeRounds,
-        autoIter: Boolean(msg.autoIter),
-        iterativeMaxRounds: msg.iterativeMaxRounds,
-        noSynthesize: Boolean(msg.noSynthesize),
-        sessionId: msg.sessionId || ws._sessionId,
-        resetSession: effectiveResetSession(msg, text),
-        noVerify: msg.noVerify !== false,
-        verboseCrew: Boolean(msg.verboseCrew),
-        selectedAgentProviderIds: effectiveOpenAiProxyAgentProviderIds(
-          msg.selectedAgentProviderIds,
-          getAppPrefs(TOOL_ROOT, "ao-chat"),
-        ),
-        attachmentManifestPath,
-        performanceEnv,
-      },
-      ws,
-    );
   });
 
   ws.on("close", (code, reason) => {
     stopHostMetricsPush(ws);
     stopAdminLogsPush(ws);
     stopTopologyPush(ws);
+    // Nobody is left to read the output: stop the orchestrator / greeting processes.
+    if (killRunOnDisconnectEnabled()) killChild(ws._runProc);
+    killChild(ws._greetProc);
     const r = reason?.toString?.() || "";
     if (code !== 1000 && code !== 1001) {
       console.error(`[agentic-orchestration-web] ws close code=${code} reason=${r.slice(0, 120)}`);
@@ -3711,6 +4368,11 @@ wss.on("connection", (ws, req) => {
 
 server.listen(PORT, HOST, () => {
   console.error(`agentic-orchestration-web http://${HOST}:${PORT}/`);
+  if (bootstrapOpenMode()) {
+    console.error(
+      "  WARNING: AGENTIC_WEB_AUTH_BOOTSTRAP=open — the first-party UI tokens are handed to ANY client that can reach this port. Prefer AGENTIC_WEB_TRUSTED_PROXIES.",
+    );
+  }
   console.error(`  OpenAI-compatible POST ${`http://${HOST}:${PORT}/v1/chat/completions`}`);
   console.error(`  OpenAI-compatible POST ${`http://${HOST}:${PORT}/v1/responses`}`);
   console.error(`  instance=${WEB_INSTANCE_ID}  (curl /api/ping to verify this process)`);

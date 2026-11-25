@@ -43,6 +43,16 @@ def serve_port() -> int:
     return port if 1 <= port <= 65535 else DEFAULT_PORT
 
 
+#: Address the listener actually bound (set by :func:`run`); ``None`` when the app is
+#: used without a listener (in-process test clients).
+_BOUND_HOST: str | None = None
+
+
+def bound_host() -> str | None:
+    """Host passed to uvicorn by :func:`run`, used for the loopback ``Host`` check."""
+    return _BOUND_HOST
+
+
 def engine_version() -> str:
     """Repo ``VERSION`` contents, or ``dev`` for a working tree without one."""
     for candidate in (tool_root().parent / "VERSION", tool_root() / "VERSION"):
@@ -101,9 +111,11 @@ def run(host: str | None = None, port: int | None = None) -> None:
     except Exception:  # noqa: BLE001
         pass
     ssl_kwargs = uvicorn_ssl_kwargs()
+    global _BOUND_HOST
+    _BOUND_HOST = host or serve_host()
     uvicorn.run(
         create_app(),
-        host=host or serve_host(),
+        host=_BOUND_HOST,
         port=port if port is not None else serve_port(),
         log_level=os.getenv("AGENTIC_SERVE_LOG_LEVEL", "info").strip() or "info",
         **ssl_kwargs,
@@ -122,6 +134,7 @@ __all__ = [
     "DEFAULT_HOST",
     "DEFAULT_PORT",
     "SERVE_DEPS_HINT",
+    "bound_host",
     "create_app",
     "engine_version",
     "fastapi_available",

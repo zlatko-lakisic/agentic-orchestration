@@ -7,7 +7,11 @@ from typing import Any, Sequence
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider, resolve_agent_backstory
+from agent_providers.base import (
+    AgentProvider,
+    legacy_env_export_allowed,
+    resolve_agent_backstory,
+)
 
 try:
     from crewai import LLM
@@ -49,8 +53,11 @@ class AnthropicProvider(AgentProvider):
             )
         if raw:
             normalized = _normalize_anthropic_base(raw)
-            os.environ["ANTHROPIC_API_URL"] = normalized
+            # Passed explicitly as ``base_url`` in ``build_agent``; not exported to
+            # the (process-global) environment unless the operator opted in.
             self._base_url = normalized
+            if legacy_env_export_allowed(self.config.id):
+                os.environ["ANTHROPIC_API_URL"] = normalized
         else:
             self._base_url = None
 

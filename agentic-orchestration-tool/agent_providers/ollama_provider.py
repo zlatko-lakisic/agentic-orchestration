@@ -585,15 +585,60 @@ def warmup_ollama_model_on_api(
     log(f"ollama prewarm ok: {model_clean}")
 
 
+def ollama_auto_install_enabled() -> bool:
+    """``AGENTIC_OLLAMA_AUTO_INSTALL=0`` forbids downloading/running an Ollama installer.
+
+    Default on (existing behaviour). Locked-down hosts can keep auto start/pull
+    of an already-installed Ollama while refusing the network installer.
+    """
+    return os.getenv("AGENTIC_OLLAMA_AUTO_INSTALL", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def ollama_install_timeout_seconds() -> float:
+    """Wall-clock bound for the installer (``AGENTIC_OLLAMA_INSTALL_TIMEOUT_SECONDS``, default 900)."""
+    raw = os.getenv("AGENTIC_OLLAMA_INSTALL_TIMEOUT_SECONDS", "").strip()
+    try:
+        value = float(raw) if raw else 900.0
+    except ValueError:
+        value = 900.0
+    return max(30.0, min(7200.0, value))
+
+
+def _require_auto_install_allowed() -> None:
+    if not ollama_auto_install_enabled():
+        raise RuntimeError(
+            "Ollama is not installed and automatic installation is disabled "
+            "(AGENTIC_OLLAMA_AUTO_INSTALL=0). Install Ollama manually and retry."
+        )
+
+
 def install_ollama_native_linux() -> None:
-    """Install upstream Ollama via ollama.com install.sh (ARM64 CUDA on Jetson when supported)."""
+    """Install upstream Ollama via ollama.com install.sh (ARM64 CUDA on Jetson when supported).
+
+    Bounded by :func:`ollama_install_timeout_seconds`. Set
+    ``AGENTIC_OLLAMA_INSTALL_VERSION`` (e.g. ``0.5.7``) to pin the release the
+    official script installs instead of whatever is latest.
+    """
+    _require_auto_install_allowed()
     out, err = _ollama_subprocess_stdio()
+    env = os.environ.copy()
+    pinned = os.getenv("AGENTIC_OLLAMA_INSTALL_VERSION", "").strip()
+    if pinned:
+        # Honoured by the upstream install.sh.
+        env["OLLAMA_VERSION"] = pinned
     try:
         subprocess.run(
             ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
             check=True,
             stdout=out,
             stderr=err,
+            env=env,
+            timeout=ollama_install_timeout_seconds(),
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
@@ -602,8 +647,10 @@ def install_ollama_native_linux() -> None:
 
 
 def install_ollama() -> None:
+    _require_auto_install_allowed()
     system = platform.system().lower()
     out, err = _ollama_subprocess_stdio()
+    install_timeout = ollama_install_timeout_seconds()
     try:
         if "windows" in system:
             subprocess.run(
@@ -619,6 +666,7 @@ def install_ollama() -> None:
                 check=True,
                 stdout=out,
                 stderr=err,
+                timeout=install_timeout,
             )
             return
 
@@ -628,6 +676,7 @@ def install_ollama() -> None:
                 check=True,
                 stdout=out,
                 stderr=err,
+                timeout=install_timeout,
             )
             return
 
@@ -1014,7 +1063,9 @@ class OllamaProvider(AgentProvider):
                     "ollama_host": self.config.ollama_host,
                 }
             )
-            os.environ["OLLAMA_HOST"] = host
+            # Client-registered agent: keep its host on the instance. Writing it
+            # to ``os.environ`` would redirect every other tenant's Ollama calls.
+            self._api_base_override = host
             ensure_client_agent_ollama_runtime(
                 {
                     "id": pid,
@@ -1029,15 +1080,35 @@ class OllamaProvider(AgentProvider):
         host = normalize_ollama_host(
             self.config.ollama_host or os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
         )
-        if str(self.config.ollama_host or "").strip().casefold() == "workflow":
+        explicit_host = str(self.config.ollama_host or "").strip()
+        if explicit_host.casefold() == "workflow":
             host = litellm_api_base_for_ollama()
-        os.environ["OLLAMA_HOST"] = host
+            explicit_host = ""
+        if explicit_host:
+            # Per-agent host from YAML: carry it on the instance instead of
+            # overriding the process-wide default for every other agent.
+            self._api_base_override = host
+        else:
+            # Env-derived value (normalisation of the operator's own setting).
+            os.environ["OLLAMA_HOST"] = host
 
         from orchestration.runtime_bootstrap import should_ensure_ollama
 
         if should_ensure_ollama(selfcontained=self.config.selfcontained):
             model = self.config.model.removeprefix("ollama/")
             ensure_ollama_runtime(model=model, host=host)
+
+    def _inference_api_base(self) -> str:
+        """LiteLLM ``api_base`` for this agent.
+
+        A per-agent host (explicit ``ollama_host`` in YAML, or a client-registered
+        agent's host) is carried on the instance and used for this agent only;
+        everything else follows the operator's ``OLLAMA_API_BASE`` / ``OLLAMA_HOST``.
+        """
+        override = str(getattr(self, "_api_base_override", "") or "").strip()
+        if override:
+            return normalize_ollama_host(override)
+        return litellm_api_base_for_ollama()
 
     def health_check(self) -> None:
         host = normalize_ollama_host(
@@ -1094,7 +1165,7 @@ class OllamaProvider(AgentProvider):
         # Ollama provider (is_litellm=False) bypasses litellm.callbacks entirely.
         llm_kwargs: dict[str, Any] = {
             "model": model,
-            "api_base": litellm_api_base_for_ollama(),
+            "api_base": self._inference_api_base(),
             "is_litellm": True,
         }
         from orchestration.direct_agent import ollama_chat_timeout_sec

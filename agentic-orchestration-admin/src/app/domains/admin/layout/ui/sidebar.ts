@@ -3,6 +3,7 @@ import { MatButton } from '@angular/material/button';
 import { MatIcon } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { DeployRevision, SessionResponse } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { logoutFromSession } from '@/app/core/auth/warpgate-logout';
 import { Navigation } from '@/app/domains/admin/layout/ui/navigation';
 import { User } from '@/app/domains/admin/layout/ui/user';
@@ -110,6 +111,7 @@ import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 })
 export class AdminSidebar implements OnInit {
   private api = inject(AoApi);
+  private webAuth = inject(WebAuth);
   readonly hostname = signal<string | null>(null);
   readonly profile = signal<string | null>(null);
   readonly session = signal<SessionResponse | null>(null);
@@ -136,6 +138,8 @@ export class AdminSidebar implements OnInit {
   }
 
   logout() {
+    // Drop the in-memory Admin token before leaving the session.
+    this.webAuth.clear();
     void logoutFromSession(this.session());
   }
 }

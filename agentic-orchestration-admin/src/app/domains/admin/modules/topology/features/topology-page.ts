@@ -11,8 +11,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
@@ -22,15 +22,15 @@ import {
   PositionedEdge,
   PositionedNode,
 } from '../data/topology.types';
-import { TopologyCanvas } from '../ui/topology-canvas';
-import { TopologyTable } from '../ui/topology-table';
-import { TopologyLegend } from '../ui/topology-legend';
+import { ClusterDialog } from '../ui/cluster-dialog';
+import { EdgeDetailDialog } from '../ui/edge-detail-dialog';
 import {
   NodeDetailDialog,
   NodeDetailDialogData,
 } from '../ui/node-detail-dialog';
-import { EdgeDetailDialog } from '../ui/edge-detail-dialog';
-import { ClusterDialog } from '../ui/cluster-dialog';
+import { TopologyCanvas } from '../ui/topology-canvas';
+import { TopologyLegend } from '../ui/topology-legend';
+import { TopologyTable } from '../ui/topology-table';
 
 /** Full-screen focus mode always shows the canvas, even on a narrow/table layout. */
 export function topologyShowsTable(

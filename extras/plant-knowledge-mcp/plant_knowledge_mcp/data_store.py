@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -76,32 +77,60 @@ class PlantKnowledgeStore:
         self.reload()
 
     def reload(self) -> None:
-        self.plants = self._load_csv("plant_water_needs.csv")
-        self.water_use_classes = {
+        """Load every CSV, then swap the new tables in together.
+
+        Everything is built in locals first: a missing file, a missing column or a
+        malformed row raises *before* any attribute changes, so a bad reload leaves
+        the previous dataset fully intact (it used to replace the tables one by one
+        and could stop half way).
+        """
+        plants = self._load_csv("plant_water_needs.csv")
+        water_use_classes = {
             row["code"]: row for row in self._load_csv("wucols_water_use_classes.csv")
         }
-        self.plant_types = {row["code"]: row for row in self._load_csv("wucols_plant_types.csv")}
-        self.regions = self._load_csv("wucols_regions.csv")
-        self.usda_zones = {row["zone"]: row for row in self._load_csv("usda_hardiness_zones.csv")}
-        self.reference_et0 = {
+        plant_types = {row["code"]: row for row in self._load_csv("wucols_plant_types.csv")}
+        regions = self._load_csv("wucols_regions.csv")
+        usda_zones = {row["zone"]: row for row in self._load_csv("usda_hardiness_zones.csv")}
+        reference_et0 = {
             row["climate_setting"]: row for row in self._load_csv("reference_et0.csv")
         }
 
-        self.plant_by_key = {}
-        for plant in self.plants:
+        plant_by_key: dict[str, dict[str, str]] = {}
+        for plant in plants:
             for field in ("scientific_name", "common_name"):
                 key = normalize_text(plant[field])
                 if key:
-                    self.plant_by_key[key] = plant
+                    plant_by_key[key] = plant
 
-        self.row_counts = {
-            "plant_water_needs.csv": len(self.plants),
-            "wucols_water_use_classes.csv": len(self.water_use_classes),
-            "wucols_regions.csv": len(self.regions),
-            "wucols_plant_types.csv": len(self.plant_types),
-            "usda_hardiness_zones.csv": len(self.usda_zones),
-            "reference_et0.csv": len(self.reference_et0),
+        row_counts = {
+            "plant_water_needs.csv": len(plants),
+            "wucols_water_use_classes.csv": len(water_use_classes),
+            "wucols_regions.csv": len(regions),
+            "wucols_plant_types.csv": len(plant_types),
+            "usda_hardiness_zones.csv": len(usda_zones),
+            "reference_et0.csv": len(reference_et0),
         }
+
+        # Nothing below can raise: plain attribute assignments.
+        (
+            self.plants,
+            self.plant_by_key,
+            self.water_use_classes,
+            self.plant_types,
+            self.regions,
+            self.usda_zones,
+            self.reference_et0,
+            self.row_counts,
+        ) = (
+            plants,
+            plant_by_key,
+            water_use_classes,
+            plant_types,
+            regions,
+            usda_zones,
+            reference_et0,
+            row_counts,
+        )
 
     def _load_csv(self, filename: str) -> list[dict[str, str]]:
         path = self.data_dir / filename
@@ -285,7 +314,21 @@ class PlantKnowledgeStore:
         et0_value: float
         if et0_mm_per_week is not None:
             et0_source = "explicit_et0_mm_per_week"
-            et0_value = float(et0_mm_per_week)
+            # A caller-supplied ET0 must be a real, non-negative number: a negative
+            # or NaN value used to come back as found=true with a nonsense need.
+            try:
+                et0_value = float(et0_mm_per_week)
+            except (TypeError, ValueError):
+                et0_value = math.nan
+            if not math.isfinite(et0_value) or et0_value < 0:
+                return {
+                    "found": False,
+                    "query": name,
+                    "message": (
+                        "et0_mm_per_week must be a finite, non-negative number "
+                        f"(got {et0_mm_per_week!r})."
+                    ),
+                }
         elif climate_setting:
             key = normalize_text(climate_setting)
             row = self.reference_et0.get(key)

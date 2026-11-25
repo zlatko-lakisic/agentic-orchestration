@@ -33,6 +33,12 @@ spec:
     spec:
       containers:
         - name: ollama
+          # ":latest" + Always on a privileged pod runs whatever upstream pushed last
+          # every time the pod restarts. scripts/jetson-enable-ollama.sh replaces
+          # this image with AGENTIC_OLLAMA_IMAGE — set that to a release tag you have
+          # tested (ollama/ollama:<version>) or a digest in config/env.host. No
+          # version is pinned here because the right one depends on the host's
+          # NVIDIA driver and the models in use.
           image: ollama/ollama:latest
           imagePullPolicy: Always
           command: ["/bin/sh", "-c"]

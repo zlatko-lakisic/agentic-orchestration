@@ -6,26 +6,28 @@ permalink: /GitHub-Pages-publish/
 
 # Publishing docs on GitHub Pages
 
-The documentation site is built with [Jekyll](https://jekyllrb.com/) and the [Slate theme](https://github.com/pages-themes/slate), then deployed by GitHub Actions.
+GitHub Pages serves two builds from one workflow: the landing page, a Vite + React app in [`site/`](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/site) published at `/`, and the documentation, a [Jekyll](https://jekyllrb.com/) site in `docs/` published at `/docs`. Both are built and deployed by GitHub Actions.
 
 **Live site:** [https://zlatko-lakisic.github.io/agentic-orchestration/](https://zlatko-lakisic.github.io/agentic-orchestration/)
 
 ## Source and workflow
 
-- **Content:** [`docs/`](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/docs) in [agentic-orchestration](https://github.com/zlatko-lakisic/agentic-orchestration)
+- **Landing page:** [`site/`](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/site) (`npm ci && npm run build` → `site/dist/`)
+- **Docs content:** [`docs/`](https://github.com/zlatko-lakisic/agentic-orchestration/tree/main/docs) in [agentic-orchestration](https://github.com/zlatko-lakisic/agentic-orchestration)
 - **Workflow:** [`.github/workflows/pages.yml`](https://github.com/zlatko-lakisic/agentic-orchestration/blob/main/.github/workflows/pages.yml)
-- **Theme:** Slate via `remote_theme: pages-themes/slate@v0.2.0` in `docs/_config.yml`
+- **Docs theme:** the repo's own layouts and styles (`docs/_layouts/`, `docs/_includes/`, `docs/_sass/`); no remote theme
+- **CI:** pull requests lint and build `site/` in `.github/workflows/ci.yml` (`site-build` job); the Pages workflow itself runs only on pushes to `main`
 
 ## One-time setup (repo maintainer)
 
 1. Open [agentic-orchestration](https://github.com/zlatko-lakisic/agentic-orchestration) on GitHub.
 2. Go to **Settings → Pages**.
 3. Under **Build and deployment**, set **Source** to **GitHub Actions** (required before the first workflow run; otherwise `configure-pages` fails with "Get Pages site failed").
-4. Push to `main` (or run **Deploy docs to GitHub Pages** manually).
+4. Push to `main` (or run **Deploy site and docs to GitHub Pages** manually).
 
 ## Editing content
 
-**Product pages** (`index.md`, `features.md`, `getting-started.md`, `documentation.md`) are edited directly in `docs/` and are **not** overwritten by wiki sync.
+**The docs home page** (`docs/index.md`) is edited directly and is **not** overwritten by wiki sync. The landing page is edited in `site/src/`.
 
 **Technical reference pages** are synced from the GitHub wiki:
 
@@ -46,7 +48,15 @@ bundle install
 bundle exec jekyll serve
 ```
 
-Open [http://127.0.0.1:4000/agentic-orchestration/](http://127.0.0.1:4000/agentic-orchestration/).
+Open [http://127.0.0.1:4000/agentic-orchestration/docs/](http://127.0.0.1:4000/agentic-orchestration/docs/).
+
+Landing page:
+
+```bash
+cd site
+npm ci
+npm run dev
+```
 
 ## Updating
 

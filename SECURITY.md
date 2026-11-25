@@ -62,9 +62,11 @@ We may publish a GitHub Security Advisory (and CVE when appropriate) and credit 
 | Boundary | Assumption |
 |----------|------------|
 | **Operator host** | Whoever can run the tool/web process or `kubectl` in the cluster is trusted like a local developer or admin |
-| **Web UI / WebSocket** | Unauthenticated by default for local use; **must not** be exposed to untrusted networks without an auth proxy (Warpgate, Traefik forward-auth, VPN, etc.) |
+| **Web UI / WebSocket** | Unauthenticated by default for local use; **must not** be exposed to untrusted networks without an auth proxy (Warpgate, Traefik forward-auth, VPN, etc.). Cross-site pages are refused by an `Origin` check, and a loopback bind only answers to loopback `Host` names (DNS-rebinding guard). |
 | **`POST /api/v1/orchestrate` and chat-completions / responses proxies** | **Always** require `Authorization: Bearer` — minted `ao_…` API token or env shared secret (`AGENTIC_ORCHESTRATE_API_KEY` / `AGENTIC_CHAT_COMPLETIONS_API_KEY`). No anonymous open mode. |
-| **Admin / operator HTTP (`/api/v1/admin/*`, host-metrics, …)** | Require the assigned reserved **`ao-web`** Web UI token. Until that token is minted/assigned, only Access bootstrap routes stay open so operators can mint it. |
+| **Admin / operator HTTP (`/api/v1/admin/*`, host-metrics, …)** | Require the assigned reserved **`ao-web`** Web UI token. The token is handed to the Admin page, and the pre-assignment bootstrap routes are usable, **only from a trusted source**: a loopback client with no proxy headers, or a peer listed in `AGENTIC_WEB_TRUSTED_PROXIES`. `AGENTIC_WEB_AUTH_BOOTSTRAP=open` restores the old hand-out to any caller. UI tokens are not accepted on the Bearer API routes above. |
+| **Engine daemon (`python -m orchestration.serve`) admin routes** | `/api/v1/admin/*` requires `Authorization: Bearer <AGENTIC_SERVE_ADMIN_TOKEN>`; when that is unset, only a direct loopback peer. This holds under mTLS too: the operator credential, not the absence of a client certificate, opens these routes. An enrollment token bound to a client name can only enroll that name. |
+| **Reach / session-overlay clients** | Untrusted input. A client-supplied provider base URL is never combined with the engine's own API key; `${VAR}` in client-registered MCP entries is not expanded from the engine's environment; client priority and quota requests are clamped to operator policy. |
 | **LLM providers** | Prompts and tool results leave the host when cloud APIs are configured |
 | **MCP tools** | Credentialed integrations (Home Assistant, search, filesystem, media, Xquik, …) inherit the privilege of those credentials and allowed paths |
 | **Kubernetes workers** | Can access mounted secrets, run-store PVC, and any network the pod can reach |
@@ -79,6 +81,13 @@ We may publish a GitHub Security Advisory (and CVE when appropriate) and credit 
 - Supply-chain issues in **this** repo’s release artifacts, workflows, or published images (typosquat, compromised Actions, malicious release assets)
 - Cross-tenant session mix-ups when session IDs are attacker-controlled in multi-user reverse-proxy deployments
 
+### Known limits (not vulnerabilities, but do not rely on them)
+
+- **The custom tool "sandbox" is not OS isolation.** Uploaded tools start with a minimal environment (no engine secrets), but run as the daemon user with network and filesystem access. Enable `AGENTIC_CUSTOM_TOOL_SANDBOX` only for operators you would let run code on the host.
+- **Reversible cloud anonymisation is best effort.** Unknown provider prefixes are treated as cloud and redacted, and final answers restore placeholders from a per-run map; placeholders carried in older session history are not restored.
+- **Usage attribution** (`appId` / `tokenId` on engine WebSocket messages) is self-asserted by the client.
+- **Kubernetes images run as root by default**, and several edge workloads are privileged for GPU access. A non-root account (uid 10001) exists in the images for deployments that can use it; see `agentic-orchestration-tool/deploy/k8s/README.md`.
+
 ### Explicit non-goals
 
 This project **executes models and tools chosen by configuration**. Prompt injection that causes an agent to call an MCP the operator already enabled is expected risk; we still welcome reports that show **unexpected privilege** beyond catalog/env policy (e.g. escaping `FILESYSTEM_MCP_ALLOWED_DIRECTORY`).
@@ -88,6 +97,7 @@ This project **executes models and tools chosen by configuration**. Prompt injec
 Use this when deploying beyond a personal laptop:
 
 1. **Never** bind `AGENTIC_WEB_HOST=0.0.0.0` to an untrusted network without authentication in front of the UI and WebSocket.
+   Behind a proxy, set **`AGENTIC_WEB_TRUSTED_PROXIES`** to the proxy's address so only it can obtain the UI token and assert identity headers; set **`AGENTIC_SERVE_ADMIN_TOKEN`** (same value on the web server and the engine daemon) whenever the daemon is not on the web server's loopback.
 2. Set strong **`AGENTIC_ORCHESTRATE_API_KEY`** (and/or `AGENTIC_CHAT_COMPLETIONS_API_KEY`) for any HTTP bridge used by plugins or proxies.
 3. Keep secrets in `.env` / Kubernetes Secrets — never commit them; rotate after any leak (including chat pastes).
 4. Scope MCP credentials to least privilege (HA tokens, search keys, filesystem allowlists).

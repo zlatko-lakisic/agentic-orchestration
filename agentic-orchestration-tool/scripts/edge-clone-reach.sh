@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Clone or update agentic-orchestration-reach for edge smoke tests.
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

@@ -6,12 +6,12 @@ TOOL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_ROOT="${TOOL_ROOT}/deploy/k8s"
 CLUSTER_NAME="${AGENTIC_KIND_CLUSTER_NAME:-agentic}"
 
-if [[ -f "${TOOL_ROOT}/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "${TOOL_ROOT}/.env"
-  set +a
-fi
+# Read only the settings this script uses; never `source` the .env (see lib-env-file.sh).
+# shellcheck source=lib-env-file.sh
+source "${TOOL_ROOT}/scripts/lib-env-file.sh"
+load_env_keys "${TOOL_ROOT}/.env" \
+  AGENTIC_K8S_RUN_STORE_HOST_PATH AGENTIC_RUN_STORE_PATH \
+  AGENTIC_KIND_RECREATE AGENTIC_KIND_USE_CI_CONFIG
 
 HOST_PATH="${AGENTIC_K8S_RUN_STORE_HOST_PATH:-${AGENTIC_RUN_STORE_PATH:-/tmp/agentic-run-store}}"
 HOST_PATH="${HOST_PATH//\\//}"

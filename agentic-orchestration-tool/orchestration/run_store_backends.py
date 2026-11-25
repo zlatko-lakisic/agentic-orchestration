@@ -81,6 +81,18 @@ class _RemoteRunStore(RunStore):
     def has_step_result(self, run_id: str, step_id: str) -> bool:
         return self._remote_has(run_id, step_id) or self._mirror.has_step_result(run_id, step_id)
 
+    def clear_step_result(self, run_id: str, step_id: str) -> None:
+        """Drop remote and mirrored results before a step (re-)runs.
+
+        Reads are remote-first while workers write only the mirror, so a stale
+        remote result would otherwise shadow every later attempt.
+        """
+        self._remote_delete(run_id, step_id)
+        self._mirror.clear_step_result(run_id, step_id)
+
+    @abstractmethod
+    def _remote_delete(self, run_id: str, step_id: str) -> None: ...
+
     @abstractmethod
     def _remote_write(self, run_id: str, step_id: str, payload: str) -> None: ...
 
@@ -183,6 +195,16 @@ class S3RunStore(_RemoteRunStore):
         body = response["Body"].read()
         return body.decode("utf-8") if isinstance(body, bytes) else str(body)
 
+    def _remote_delete(self, run_id: str, step_id: str) -> None:
+        try:
+            self._client.delete_object(
+                Bucket=self._bucket,
+                Key=self.object_key(run_id, step_id),
+            )
+        except Exception as exc:  # noqa: BLE001 - boto3 error classes are runtime-built
+            if not _is_missing_object(exc):
+                raise
+
     def _remote_has(self, run_id: str, step_id: str) -> bool:
         try:
             self._client.head_object(
@@ -215,6 +237,16 @@ def _build_s3_client(
     return boto3.client("s3", **kwargs)
 
 
+def _redis_socket_timeout_seconds() -> float:
+    """``AGENTIC_RUN_STORE_REDIS_TIMEOUT_SECONDS`` (default 15): a hung Redis must not hang a run."""
+    raw = _env_first("AGENTIC_RUN_STORE_REDIS_TIMEOUT_SECONDS")
+    try:
+        value = float(raw) if raw else 15.0
+    except ValueError:
+        value = 15.0
+    return max(0.5, min(600.0, value))
+
+
 class RedisRunStore(_RemoteRunStore):
     """Step results in Redis under ``{prefix}:run:{run_id}:step:{step_id}:result``."""
 
@@ -234,7 +266,12 @@ class RedisRunStore(_RemoteRunStore):
             self._client = client
         else:
             redis = _load_redis()
-            self._client = redis.Redis.from_url((url or DEFAULT_REDIS_URL).strip())
+            timeout = _redis_socket_timeout_seconds()
+            self._client = redis.Redis.from_url(
+                (url or DEFAULT_REDIS_URL).strip(),
+                socket_timeout=timeout,
+                socket_connect_timeout=timeout,
+            )
 
     def result_key(self, run_id: str, step_id: str) -> str:
         return f"{self._prefix}:run:{run_id}:step:{step_id}:result"
@@ -251,6 +288,9 @@ class RedisRunStore(_RemoteRunStore):
         if raw is None:
             return None
         return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+
+    def _remote_delete(self, run_id: str, step_id: str) -> None:
+        self._client.delete(self.result_key(run_id, step_id))
 
     def _remote_has(self, run_id: str, step_id: str) -> bool:
         return bool(self._client.exists(self.result_key(run_id, step_id)))

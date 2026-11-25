@@ -24,6 +24,12 @@ spec:
         - name: worker
           image: agentic-orchestrator-worker:local
           imagePullPolicy: IfNotPresent
+          # No setuid helpers are used; forbid gaining privileges. The container
+          # still runs as the image user (root): it writes hostPath/PVC directories
+          # owned by other uids and installs packages at start, so runAsNonRoot and
+          # dropped capabilities are not safe defaults here (see README, Hardening).
+          securityContext:
+            allowPrivilegeEscalation: false
           # Bootstrap fastapi when the local worker image predates the litellm
           # MCP → fastapi dependency (requirements.txt). Survives until the
           # worker image is rebuilt with fastapi baked in.

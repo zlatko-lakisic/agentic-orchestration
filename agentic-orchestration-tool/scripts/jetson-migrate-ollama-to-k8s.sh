@@ -8,7 +8,7 @@
 # 4. Verifies models, then stops/disables/removes host ollama
 #
 #   bash agentic-orchestration-tool/scripts/jetson-migrate-ollama-to-k8s.sh
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
@@ -223,8 +223,12 @@ bash "${TOOL_ROOT}/scripts/jetson-enable-ollama.sh" "${PROJECT_ROOT}"
 echo "=== verify in-cluster models ==="
 sleep 5
 kubectl -n "${NS}" exec deploy/agentic-ollama -- ollama list || true
-TAGS="$(curl -sS --max-time 30 http://127.0.0.1:31134/api/tags || echo '{}')"
-echo "${TAGS}" | head -c 2000
+# The NodePort (31134) is opt-in; ask through the API server's Service proxy first.
+TAGS="$(kubectl get --raw "/api/v1/namespaces/${NS}/services/agentic-ollama:11434/proxy/api/tags" 2>/dev/null \
+  || curl -sS --max-time 30 http://127.0.0.1:31134/api/tags 2>/dev/null \
+  || curl -sS --max-time 30 http://127.0.0.1:11434/api/tags 2>/dev/null \
+  || echo '{}')"
+printf '%s\n' "${TAGS:0:2000}"
 echo
 MODEL_COUNT="$(printf '%s' "${TAGS}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("models") or []))')"
 if [[ "${MODEL_COUNT}" == "0" && ${#MODEL_NAMES[@]} -gt 0 ]]; then

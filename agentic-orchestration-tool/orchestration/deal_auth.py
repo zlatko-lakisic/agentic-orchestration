@@ -93,7 +93,11 @@ def load_members(tool_root: Path) -> dict[str, Any]:
 def save_members(tool_root: Path, data: dict[str, Any]) -> None:
     path = members_path(tool_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Temp file + rename: a reader never sees a half-written membership file (which
+    # load_members would treat as "no deals").
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def add_member(
@@ -167,6 +171,10 @@ def check_deal_access(
     """
     did = safe_id(deal_id)
     if not did:
+        if str(deal_id or "").strip() and not local_mode():
+            # A deal id was supplied but nothing survives normalization ("!!!"):
+            # that is not "no deal", it is an id no membership row can ever match.
+            raise DealAccessDenied("deal id is not valid")
         return True
     if local_mode():
         return True

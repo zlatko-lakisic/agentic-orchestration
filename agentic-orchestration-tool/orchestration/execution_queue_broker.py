@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import threading
 import time
 from typing import Any, Callable
@@ -14,6 +13,19 @@ from orchestration.execution_queue import (
     queue_status,
     unify_warm_pool_enabled,
 )
+from orchestration.structured_logging import emit_log
+
+
+def warm_pool_namespace() -> str:
+    """Namespace of the warm-pool Deployment.
+
+    Same default as ``K8sSettings`` (``agentic-orchestration``); this module used
+    to fall back to ``default`` and scaled the wrong namespace when the env was unset.
+    """
+    return (
+        os.getenv("AGENTIC_K8S_NAMESPACE", "agentic-orchestration").strip()
+        or "agentic-orchestration"
+    )
 
 
 def autoscale_enabled() -> bool:
@@ -83,6 +95,8 @@ class ExecutionQueueBroker:
         self._last_scale_at = 0.0
         self._last_idle_at: float | None = None
         self._current_replicas: int | None = None
+        self._apps: Any = None
+        self._last_scale_error: str | None = None
 
     def start(self) -> None:
         if self._thread is not None:
@@ -110,8 +124,12 @@ class ExecutionQueueBroker:
                 last_autoscale = now
                 try:
                     self._maybe_autoscale()
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    emit_log(
+                        f"warm pool autoscale tick failed: {type(exc).__name__}: {exc}"[:400],
+                        level="error",
+                        component="execution-queue-broker",
+                    )
             self._stop.wait(self._reconcile_interval)
 
     def _maybe_autoscale(self) -> None:
@@ -147,21 +165,66 @@ class ExecutionQueueBroker:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _apps_api(self) -> Any:
+        """Kubernetes ``AppsV1Api`` (in-cluster config first, then kubeconfig)."""
+        if self._apps is None:
+            from kubernetes import client, config
+
+            try:
+                config.load_incluster_config()
+            except config.ConfigException:
+                config.load_kube_config()
+            self._apps = client.AppsV1Api()
+        return self._apps
+
     def _patch_replicas(self, replicas: int) -> bool:
-        ns = os.getenv("AGENTIC_K8S_NAMESPACE", "default").strip() or "default"
-        deploy = os.getenv("AGENTIC_K8S_WARM_POOL_DEPLOYMENT", "agentic-warm-pool").strip()
-        cmd = [
-            "kubectl",
-            "scale",
-            f"deployment/{deploy}",
-            f"--replicas={replicas}",
-            f"-n={ns}",
-        ]
+        """Scale the warm-pool Deployment through the ``deployments/scale`` subresource.
+
+        Uses the Python client (the images ship no ``kubectl``) and logs every
+        failure: a silent ``False`` here made autoscale a no-op nobody noticed.
+        """
+        ns = warm_pool_namespace()
+        deploy = (
+            os.getenv("AGENTIC_K8S_WARM_POOL_DEPLOYMENT", "agentic-warm-pool").strip()
+            or "agentic-warm-pool"
+        )
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
-            return res.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
+            self._apps_api().patch_namespaced_deployment_scale(
+                name=deploy,
+                namespace=ns,
+                body={"spec": {"replicas": int(replicas)}},
+            )
+        except Exception as exc:  # noqa: BLE001 - ApiException, config and transport errors
+            self._apps = None
+            status = getattr(exc, "status", None)
+            reason = getattr(exc, "reason", None)
+            detail = (
+                f"{status or ''} {reason or ''}".strip()
+                if (status or reason)
+                else f"{type(exc).__name__}: {exc}"[:300]
+            )
+            self._log_scale_failure(deploy, ns, replicas, detail)
             return False
+        self._last_scale_error = None
+        emit_log(
+            f"warm pool scaled to {replicas} replica(s)",
+            component="execution-queue-broker",
+            extra={"deployment": deploy, "namespace": ns},
+        )
+        return True
+
+    def _log_scale_failure(self, deploy: str, ns: str, replicas: int, detail: str) -> None:
+        # The loop retries every autoscale interval; log a given error once.
+        key = f"{deploy}/{ns}/{detail}"
+        if key == self._last_scale_error:
+            return
+        self._last_scale_error = key
+        emit_log(
+            f"warm pool autoscale failed: could not scale deployment/{deploy} "
+            f"in namespace {ns} to {replicas}: {detail}",
+            level="error",
+            component="execution-queue-broker",
+        )
 
     def status(self) -> dict[str, Any]:
         base = queue_status()

@@ -6,24 +6,24 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { RouterLink } from '@angular/router';
 import { TopologyComponent, TopologyResponse } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 
-const CATALOG: Array<{
+const CATALOG: {
   id: string;
   label: string;
   kind: string;
   notes: string;
   /** When true, render brand mark + steel “Reach” instead of plain label. */
   brandReach?: boolean;
-}> = [
+}[] = [
   {
     id: 'web',
     label: 'Web / Coordinator',
@@ -148,6 +148,7 @@ const CATALOG: Array<{
 })
 export class ComponentsPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   readonly error = signal<string | null>(null);
   readonly topology = signal<TopologyResponse | null>(null);
   readonly catalog = CATALOG;
@@ -159,17 +160,21 @@ export class ComponentsPage implements OnInit, OnDestroy {
       if (err) this.error.set(err);
       const snap = this.live.feeds()['topology'] as TopologyResponse | undefined;
       if (!snap) return;
-      this.error.set(null);
+      if (!err) this.error.set(null);
       this.topology.set(snap);
     });
   }
 
   ngOnInit() {
-    this.live.acquire({ feeds: ['topology'], feedIntervalMs: 5000 });
+    this.liveHandle = this.live.acquire({
+      feeds: ['topology'],
+      feedIntervalMs: 5000,
+    });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   private component(id: string): TopologyComponent | undefined {

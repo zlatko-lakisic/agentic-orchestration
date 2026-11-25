@@ -117,7 +117,41 @@ class StepCoordinator:
         result: StepResult | None = None
         attempts = max(1, max_attempts_per_step)
         for attempt in range(attempts):
-            from orchestration.execution_queue import acquire_step, step_sublease_enabled
+            from orchestration.execution_queue import (
+                RunPreemptedError,
+                acquire_step,
+                raise_if_preempted,
+                step_sublease_enabled,
+            )
+
+            cancel_event = getattr(options, "cancel_event", None)
+            if cancel_event is not None and cancel_event.is_set():
+                return StepResult(
+                    run_id=spec.run_id,
+                    step_id=spec.step_id,
+                    exit_code=1,
+                    error="cancelled",
+                )
+            # Cooperative preemption checkpoint: a preempted run stops before
+            # starting (or retrying) another step instead of running alongside
+            # the work that displaced it.
+            try:
+                raise_if_preempted(spec.run_id)
+            except RunPreemptedError:
+                return StepResult(
+                    run_id=spec.run_id,
+                    step_id=spec.step_id,
+                    exit_code=1,
+                    error="preempted",
+                )
+            # Results are keyed by (run_id, step_id) only: drop the previous
+            # attempt's (or a previous iterative round's) result so a worker
+            # that dies before writing cannot be mistaken for a success, and a
+            # stale remote result cannot shadow this attempt.
+            try:
+                self._store.clear_step_result(spec.run_id, spec.step_id)
+            except Exception as exc:  # noqa: BLE001
+                _progress(f"could not clear previous result for {spec.step_id}: {exc}")
 
             if step_sublease_enabled():
                 with acquire_step(

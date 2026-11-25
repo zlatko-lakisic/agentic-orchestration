@@ -215,12 +215,6 @@ spec:
               mountPath: /app/tool/orchestration/serve/__main__.py
               subPath: serve_main.py
             - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/serve/app.py
-              subPath: serve_app.py
-            - name: tool-hotfix-orchestration
-              mountPath: /app/tool/orchestration/serve/ws.py
-              subPath: serve_ws.py
-            - name: tool-hotfix-orchestration
               mountPath: /app/tool/orchestration/backends/base.py
               subPath: backends_base.py
             - name: tool-hotfix-orchestration

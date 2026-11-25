@@ -38,6 +38,16 @@ spec:
         - name: engine
           image: agentic-orchestrator-coordinator:local
           imagePullPolicy: IfNotPresent
+          # No setuid helpers are used; forbid gaining privileges. The container
+          # still runs as the image user (root): it writes hostPath/PVC directories
+          # owned by other uids and installs packages at start, so runAsNonRoot and
+          # dropped capabilities are not safe defaults here (see README, Hardening).
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
           workingDir: /app/tool
           command: ["/bin/bash", "-c"]
           args:

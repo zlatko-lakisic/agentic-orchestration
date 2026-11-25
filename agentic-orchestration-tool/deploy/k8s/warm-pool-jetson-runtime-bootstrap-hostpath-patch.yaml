@@ -17,6 +17,10 @@ spec:
           volumeMounts:
             - name: jetson-orch-hostpath
               mountPath: /app/orchestration
+              # Code only; nothing writes here (PYTHONDONTWRITEBYTECODE=1 in the image).
+              # Read-write let a compromised worker rewrite the code the engine,
+              # coordinator and Ollama broker run from the same host directory.
+              readOnly: true
       volumes:
         - name: jetson-orch-hostpath
           hostPath:

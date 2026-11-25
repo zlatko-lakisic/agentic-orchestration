@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Hot-update web UI files in the coordinator pod without rebuilding the Docker image.
 # Requires kubectl access (no sudo). Run via jetson-deploy.sh (git pull first — never SCP).
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 WEB_ROOT="${PROJECT_ROOT}/agentic-orchestration-web"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+# shellcheck source=lib-openclaw.sh
+source "${TOOL_ROOT}/scripts/lib-openclaw.sh"
 
 # Prefer replace/create over client-side apply: large Python files exceed the
 # last-applied-configuration annotation size limit (262144 bytes).
@@ -62,7 +64,9 @@ apply_configmap agentic-web-hotfix-root \
   --from-file=ao-metrics.mjs="${WEB_ROOT}/lib/ao-metrics.mjs" \
   --from-file=ao-resource-usage.mjs="${WEB_ROOT}/lib/ao-resource-usage.mjs" \
   --from-file=irrigation-chat.mjs="${WEB_ROOT}/lib/irrigation-chat.mjs" \
-  --from-file=deploy-revision.mjs="${WEB_ROOT}/lib/deploy-revision.mjs"
+  --from-file=deploy-revision.mjs="${WEB_ROOT}/lib/deploy-revision.mjs" \
+  --from-file=request-guards.mjs="${WEB_ROOT}/lib/request-guards.mjs" \
+  --from-file=spawn-args.mjs="${WEB_ROOT}/lib/spawn-args.mjs"
 
 TOOL_PY_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 ORCH_ROOT="${TOOL_PY_ROOT}/orchestration"
@@ -137,9 +141,10 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=backends_base.py="${ORCH_ROOT}/backends/base.py" \
   --from-file=backends_crewai.py="${ORCH_ROOT}/backends/crewai.py" \
   --from-file=serve_init.py="${ORCH_ROOT}/serve/__init__.py" \
-  --from-file=serve_main.py="${ORCH_ROOT}/serve/__main__.py" \
-  --from-file=serve_app.py="${ORCH_ROOT}/serve/app.py" \
-  --from-file=serve_ws.py="${ORCH_ROOT}/serve/ws.py"
+  --from-file=serve_main.py="${ORCH_ROOT}/serve/__main__.py"
+# serve/app.py and serve/ws.py are mounted from the checkout by
+# jetson-runtime-bootstrap-hostpath-patch.yaml: with them this ConfigMap exceeds
+# the 1 MiB object limit (tests/test_jetson_hotfix_web.py enforces the budget).
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
 apply_configmap agentic-tool-hotfix-agent-providers \
@@ -207,9 +212,8 @@ fi
 if [[ -f "${MCP_SERVERS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MCP_SERVERS_PATCH}"
 fi
-if [[ -f "${OPENCLAW_MCP_PATCH}" ]]; then
-  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${OPENCLAW_MCP_PATCH}"
-fi
+# OpenClaw mounts are host-specific: rendered for AGENTIC_OPENCLAW_HOME, skipped when unset.
+apply_openclaw_patch agentic-coordinator "${NS}" "${OPENCLAW_MCP_PATCH}" "${TOOL_ROOT}"
 if [[ -f "${RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${RUNTIME_BOOTSTRAP_PATCH}"
 fi
@@ -225,9 +229,7 @@ fi
 if [[ -f "${WARM_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_MCP_PATCH}"
 fi
-if [[ -f "${WARM_OPENCLAW_MCP_PATCH}" ]]; then
-  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_OPENCLAW_MCP_PATCH}"
-fi
+apply_openclaw_patch agentic-warm-pool "${NS}" "${WARM_OPENCLAW_MCP_PATCH}" "${TOOL_ROOT}"
 if [[ -f "${WARM_RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUNTIME_BOOTSTRAP_PATCH}"
 fi

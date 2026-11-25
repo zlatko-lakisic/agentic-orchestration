@@ -37,6 +37,9 @@ def execute_workflow_config_resolved(
         quiet=options.quiet,
         mcp_catalog_path=options.mcp_catalog_path,
         agent_skills_catalog_path=options.agent_skills_catalog_path,
+        # Without this the planner's ``rag_ids`` resolve against an empty
+        # catalog and are silently dropped (no context, no RAG tool).
+        rag_sources_catalog_path=options.rag_sources_catalog_path,
         emit_progress_lines=options.emit_progress_lines,
     )
     return backend.execute_built(built, options=options)

@@ -13,9 +13,9 @@ import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { DeployRevision, TopologyResponse } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { ConfigSettingsPage } from '@/app/domains/admin/shared/config-settings/config-settings-page';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
 import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
@@ -149,7 +149,12 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
             <ng-container matColumnDef="copy">
               <th mat-header-cell *matHeaderCellDef></th>
               <td mat-cell *matCellDef="let e">
-                <button matIconButton type="button" (click)="copy(e.url)">
+                <button
+                  matIconButton
+                  type="button"
+                  aria-label="Copy URL"
+                  (click)="copy(e.url)"
+                >
                   <mat-icon svgIcon="copy" />
                 </button>
               </td>
@@ -256,6 +261,7 @@ import { SourceChip } from '@/app/domains/admin/shared/source-chip/source-chip';
 })
 export class DeployPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   private api = inject(AoApi);
   private config = inject(EffectiveConfigStore);
   private clipboard = inject(Clipboard);
@@ -333,7 +339,10 @@ export class DeployPage implements OnInit, OnDestroy {
   ngOnInit() {
     this.config.load();
     this.api.revision().subscribe((r) => r.ok && this.revision.set(r.data));
-    this.live.acquire({ feeds: ['topology'], feedIntervalMs: 5000 });
+    this.liveHandle = this.live.acquire({
+      feeds: ['topology'],
+      feedIntervalMs: 5000,
+    });
   }
 
   revisionTitle() {
@@ -343,7 +352,8 @@ export class DeployPage implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   copy(text: string) {

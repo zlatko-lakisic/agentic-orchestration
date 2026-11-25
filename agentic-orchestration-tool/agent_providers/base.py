@@ -27,6 +27,37 @@ _MCP_TOOL_CALLING_HINT = (
 )
 
 
+def legacy_env_export_allowed(provider_id: str) -> bool:
+    """Whether a provider may still export its resolved base URL to ``os.environ``.
+
+    Providers pass base URL / key to their LLM explicitly and do **not** touch
+    the process environment (it is shared by every concurrent run, so a
+    per-session or per-agent value would leak to other tenants). Single-user
+    setups that relied on the old side effect — e.g. the planner following an
+    agent's YAML ``openai_base_url`` — can opt back in with
+    ``AGENTIC_PROVIDER_EXPORT_BASE_URL=1``. Even then nothing is exported for
+    client-registered (``client.*``) agents or while a session overlay env is
+    bound.
+    """
+    if os.getenv("AGENTIC_PROVIDER_EXPORT_BASE_URL", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return False
+    if str(provider_id or "").strip().lower().startswith("client."):
+        return False
+    try:
+        from orchestration.session_env import current_session_env
+
+        if current_session_env():
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
 def augment_backstory_for_mcp_tools(backstory: str, mcps: Sequence[Any] | None) -> str:
     if not mcps:
         return backstory

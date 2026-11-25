@@ -13,6 +13,8 @@ spec:
           volumeMounts:
             - name: web-admin-dist
               mountPath: /app/web/public/admin
+              # Static files served as-is; the pod never writes them.
+              readOnly: true
       volumes:
         - name: web-admin-dist
           hostPath:

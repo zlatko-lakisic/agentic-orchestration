@@ -6,22 +6,125 @@ import os
 import re
 import sys
 from collections import Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import yaml
 
 _EXTRA_MCP_PATH_ENV = "AGENTIC_EXTRA_MCP_PROVIDERS_PATH"
 
 
-def substitute_mcp_env_vars(text: str) -> str:
-    """Replace ``${VAR}`` placeholders (session overlay env, then process env)."""
-    from orchestration.session_env import getenv
+_ENV_PLACEHOLDER_RE = re.compile(r"\$\{([^}]+)\}")
+
+#: When set, ``${VAR}`` placeholders that would resolve from the *process*
+#: environment are left verbatim so secrets are not written into step spec
+#: files; the worker resolves them at execution time (see
+#: :func:`resolve_deferred_mcp_env`).
+_DEFER_PROCESS_ENV: ContextVar[bool] = ContextVar(
+    "agentic_mcp_defer_process_env", default=False
+)
+
+
+def is_client_overlay_mcp_id(mcp_id: Any) -> bool:
+    """True for client-registered session-overlay MCP ids (``client.*`` namespace)."""
+    return str(mcp_id or "").strip().lower().startswith("client.")
+
+
+def step_spec_resolves_env_on_coordinator() -> bool:
+    """Legacy escape hatch: resolve ``${VAR}`` into step specs on the coordinator."""
+    return os.getenv("AGENTIC_STEP_SPEC_RESOLVE_ENV", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+@contextmanager
+def defer_process_env_substitution(enabled: bool = True) -> Iterator[None]:
+    """Keep process-env ``${VAR}`` placeholders unresolved inside this context."""
+    token = _DEFER_PROCESS_ENV.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _DEFER_PROCESS_ENV.reset(token)
+
+
+def substitute_mcp_env_vars(text: str, *, session_only: bool = False) -> str:
+    """Replace ``${VAR}`` placeholders (session overlay env, then process env).
+
+    ``session_only`` restricts lookups to the session overlay env (used for
+    client-registered ``client.*`` MCP entries, which must never read engine
+    process secrets); unknown names resolve to the empty string.
+
+    Inside :func:`defer_process_env_substitution`, names that are not in the
+    session overlay env are left as ``${VAR}`` for the worker to resolve.
+    """
+    from orchestration.session_env import current_session_env, getenv
+
+    session = current_session_env()
+    defer = _DEFER_PROCESS_ENV.get()
 
     def _repl(match: re.Match[str]) -> str:
-        return getenv(match.group(1).strip(), "") or ""
+        name = match.group(1).strip()
+        if name in session:
+            return session[name] or ""
+        if session_only:
+            return ""
+        if defer:
+            return match.group(0)
+        return getenv(name, "") or ""
 
-    return re.sub(r"\$\{([^}]+)\}", _repl, text)
+    return _ENV_PLACEHOLDER_RE.sub(_repl, text)
+
+
+def _resolve_deferred_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return substitute_mcp_env_vars(value) if "${" in value else value
+    if isinstance(value, list):
+        return [_resolve_deferred_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _resolve_deferred_value(v) for k, v in value.items()}
+    return value
+
+
+def unresolved_env_placeholders(value: Any) -> list[str]:
+    """Names of ``${VAR}`` placeholders in ``value`` that have no value here."""
+    from orchestration.session_env import getenv
+
+    names: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, str):
+            for match in _ENV_PLACEHOLDER_RE.finditer(node):
+                name = match.group(1).strip()
+                if name and name not in names and not (getenv(name, "") or ""):
+                    names.append(name)
+        elif isinstance(node, list):
+            for child in node:
+                _walk(child)
+        elif isinstance(node, dict):
+            for child in node.values():
+                _walk(child)
+
+    _walk(value)
+    return names
+
+
+def resolve_deferred_mcp_env(resolved: Any) -> Any | None:
+    """Worker side: resolve ``${VAR}`` left in a step spec's resolved MCP entry.
+
+    Returns ``None`` when a string ref expands to nothing (same as the
+    coordinator-side resolution dropping empty refs).
+    """
+    out = _resolve_deferred_value(resolved)
+    if isinstance(out, str):
+        return out if out.strip() else None
+    if isinstance(out, dict) and isinstance(out.get("url"), str):
+        out["url"] = out["url"].strip().rstrip("/")
+    return out
 
 
 def _load_mcp_bundle_file(path: Path) -> list[dict[str, Any]]:
@@ -258,7 +361,16 @@ def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
             f"MCP provider {item.get('id', '?')!r}: streamable_http.url is required when "
             f"streamable_http is set",
         )
-    url = substitute_mcp_env_vars(raw_url).strip().rstrip("/")
+    # Client-registered (session overlay) entries must never read engine
+    # process secrets: no placeholders in the URL (it was validated verbatim at
+    # registration) and headers substitute from the session's own env only.
+    client_entry = is_client_overlay_mcp_id(item.get("id"))
+    if client_entry and "${" in raw_url:
+        raise ValueError(
+            f"MCP provider {item.get('id', '?')!r}: ${{VAR}} placeholders are not allowed "
+            f"in a client overlay streamable_http.url",
+        )
+    url = substitute_mcp_env_vars(raw_url, session_only=client_entry).strip().rstrip("/")
     if url.startswith("tunnel://session-mcp/"):
         from orchestration.mcp_tunnel import rewrite_tunnel_url_if_needed
 
@@ -271,7 +383,7 @@ def _streamable_http_mcps_entry(item: dict[str, Any]) -> dict[str, Any] | None:
             key = str(hk).strip()
             if not key:
                 continue
-            headers[key] = substitute_mcp_env_vars(str(hv))
+            headers[key] = substitute_mcp_env_vars(str(hv), session_only=client_entry)
 
     return {
         "url": url,

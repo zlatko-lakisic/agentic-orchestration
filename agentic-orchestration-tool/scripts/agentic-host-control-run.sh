@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Consume Admin-written host control request files (reboot / Ollama restart).
 # Stale requests older than 120s are ignored so leftover files cannot reboot later.
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 CONTROL_DIR="${AGENTIC_HOST_CONTROL_DIR:-${PROJECT_ROOT}/var/agentic-control}"
 MAX_AGE_SEC="${AGENTIC_HOST_CONTROL_MAX_AGE_SEC:-120}"

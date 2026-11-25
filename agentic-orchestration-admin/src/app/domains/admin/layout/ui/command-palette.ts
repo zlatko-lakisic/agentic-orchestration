@@ -62,6 +62,7 @@ type PaletteHit = {
             matIconButton
             type="button"
             [matTooltip]="'Close'"
+            aria-label="Close search"
             (click)="close()"
           >
             <mat-icon svgIcon="x" />
@@ -74,7 +75,7 @@ type PaletteHit = {
             placeholder="Search pages and settings…"
             [ngModel]="query()"
             (ngModelChange)="query.set($event)"
-            autofocus
+           
           />
         </div>
 
@@ -157,7 +158,9 @@ export class CommandPalette {
   onKey(ev: KeyboardEvent) {
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') {
       ev.preventDefault();
-      this.visible.update((v) => !v);
+      // Go through open() so the shortcut also loads the settings index.
+      if (this.visible()) this.close();
+      else this.open();
     }
     if (ev.key === 'Escape') this.close();
   }

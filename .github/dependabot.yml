@@ -5,6 +5,16 @@ updates:
     directory: /agentic-orchestration-tool
     schedule:
       interval: weekly
+    groups:
+      # The OpenTelemetry packages must move together (see requirements.txt).
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+
+  - package-ecosystem: pip
+    directory: /extras/plant-knowledge-mcp
+    schedule:
+      interval: weekly
 
   - package-ecosystem: npm
     directory: /agentic-orchestration-web
@@ -15,8 +25,26 @@ updates:
     directory: /agentic-orchestration-admin
     schedule:
       interval: weekly
+    groups:
+      # Angular framework packages have exact peer dependencies on each other;
+      # bumping them one at a time leaves the tree in an unsupported mix.
+      angular:
+        patterns:
+          - "@angular/*"
+          - "angular-eslint"
+          - "ng-apexcharts"
+
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
 
   - package-ecosystem: bundler
     directory: /docs
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
       interval: weekly

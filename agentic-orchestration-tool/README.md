@@ -289,7 +289,7 @@ Useful env vars: `AGENTIC_SKILLS_MAX_CHARS_PER_TASK`, `AGENTIC_DISABLE_SKILL_GOA
 Unit tests live under **`tests/`**. CI runs on **GitHub Actions** (`.github/workflows/ci.yml`) and **GitLab CI** (`.gitlab-ci.yml` at repo root).
 
 ```bash
-pip install -r requirements-test.txt   # unit tier only
+pip install -r requirements-test.txt   # unit tier (same set as CI: requirements.txt + pytest plugins)
 pytest
 
 # Or full stack + tests (matches CI import-smoke job):
