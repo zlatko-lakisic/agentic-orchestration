@@ -63,7 +63,7 @@ kubectl apply -n "${NS}" \
   -f "${TOOL_ROOT}/deploy/k8s/coordinator/role.yaml" \
   -f "${TOOL_ROOT}/deploy/k8s/coordinator/rolebinding.yaml" \
   2>/dev/null || true
-bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
+PROJECT_ROOT="${PROJECT_ROOT}" bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh"
 # Install the correct host GPU writer (Jetson / CUDA / AMD) before hotfix.
 bash "${TOOL_ROOT}/scripts/install-host-gpu-metrics.sh" "${PROJECT_ROOT}" || true
 bash "${TOOL_ROOT}/scripts/jetson-install-host-control.sh" "${PROJECT_ROOT}" || true
