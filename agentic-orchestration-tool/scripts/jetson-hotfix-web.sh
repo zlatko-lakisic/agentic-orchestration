@@ -141,9 +141,10 @@ apply_configmap agentic-tool-hotfix-orchestration \
   --from-file=backends_base.py="${ORCH_ROOT}/backends/base.py" \
   --from-file=backends_crewai.py="${ORCH_ROOT}/backends/crewai.py" \
   --from-file=serve_init.py="${ORCH_ROOT}/serve/__init__.py" \
-  --from-file=serve_main.py="${ORCH_ROOT}/serve/__main__.py" \
-  --from-file=serve_app.py="${ORCH_ROOT}/serve/app.py" \
-  --from-file=serve_ws.py="${ORCH_ROOT}/serve/ws.py"
+  --from-file=serve_main.py="${ORCH_ROOT}/serve/__main__.py"
+# serve/app.py and serve/ws.py are mounted from the checkout by
+# jetson-runtime-bootstrap-hostpath-patch.yaml: with them this ConfigMap exceeds
+# the 1 MiB object limit (tests/test_jetson_hotfix_web.py enforces the budget).
 
 PROV_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool/agent_providers"
 apply_configmap agentic-tool-hotfix-agent-providers \

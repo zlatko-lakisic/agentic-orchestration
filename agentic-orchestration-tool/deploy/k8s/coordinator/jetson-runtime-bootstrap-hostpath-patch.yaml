@@ -99,6 +99,46 @@ spec:
               mountPath: /app/tool/orchestration/rag_sources_catalog.py
               subPath: rag_sources_catalog.py
               readOnly: true
+            # Engine API daemon modules: too large for the ConfigMap (1 MiB limit).
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/app.py
+              subPath: serve/app.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/ws.py
+              subPath: serve/ws.py
+              readOnly: true
+            # Modules the hot-fixed files import that an older image does not contain
+            # (or contains without the names they now use). Missing any of these
+            # makes main.py / the daemon fail at import on a hot-fixed pod.
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/env_values.py
+              subPath: env_values.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/atomic_io.py
+              subPath: atomic_io.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/quiet_streams.py
+              subPath: quiet_streams.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/access.py
+              subPath: serve/access.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/serve/mtls_ca.py
+              subPath: serve/mtls_ca.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/tool_sandbox_runtime.py
+              subPath: tool_sandbox_runtime.py
+              readOnly: true
+            - name: jetson-orch-hostpath
+              mountPath: /app/tool/orchestration/backends/kubernetes_types.py
+              subPath: backends/kubernetes_types.py
+              readOnly: true
             # Planner contamination isolation (dynamic_planner imports these).
             - name: jetson-orch-hostpath
               mountPath: /app/tool/orchestration/current_turn.py

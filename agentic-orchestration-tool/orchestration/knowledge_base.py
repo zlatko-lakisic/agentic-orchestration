@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from orchestration.env_values import env_int
+
 
 KB_DIR_NAME = "__orchestrator_kb__"
 
@@ -155,7 +157,7 @@ class KBQueryResult:
 
 
 def _doc_char_cap() -> int:
-    cap = int(os.getenv("AGENTIC_KB_DOC_CHARS", "20000"))
+    cap = env_int("AGENTIC_KB_DOC_CHARS", 20000, lo=0)
     return max(2000, min(200000, cap))
 
 
@@ -483,7 +485,7 @@ def search(
     if not q:
         return []
     limit = max(1, min(12, int(limit)))
-    snippet_chars = int(os.getenv("AGENTIC_KB_SNIPPET_CHARS", "600"))
+    snippet_chars = env_int("AGENTIC_KB_SNIPPET_CHARS", 600, lo=0)
     snippet_chars = max(200, min(2000, snippet_chars))
     did = _clean(deal_id)
     uid = _clean(user_id)
@@ -555,10 +557,7 @@ def planner_kb_context(
     """
     if not kb_enabled():
         return ""
-    try:
-        max_hits = int(os.getenv("AGENTIC_KB_MAX_HITS", "").strip() or "4")
-    except ValueError:
-        max_hits = 4
+    max_hits = env_int("AGENTIC_KB_MAX_HITS", 4)
     max_hits = max(0, min(12, max_hits))
     if max_hits <= 0:
         return ""

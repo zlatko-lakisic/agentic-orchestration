@@ -164,3 +164,51 @@ def test_broker_dependencies_reach_the_coordinator() -> None:
     )
     for module in ("ollama_resource_manager.py", "reach_multimodal.py"):
         assert module in delivered, f"coordinator never receives {module}"
+
+
+# Kubernetes rejects a ConfigMap whose keys + values exceed 1 MiB. Leave headroom so
+# an ordinary edit to a shipped file does not break the next hotfix deploy.
+_CONFIGMAP_LIMIT_BYTES = 1024 * 1024
+_CONFIGMAP_HEADROOM_BYTES = 32 * 1024
+
+
+@pytest.mark.unit
+def test_hotfix_configmaps_fit_the_object_size_limit() -> None:
+    for name, keys in _configmap_entries().items():
+        total = sum(len(key.encode()) + path.stat().st_size for key, path in keys.items())
+        budget = _CONFIGMAP_LIMIT_BYTES - _CONFIGMAP_HEADROOM_BYTES
+        assert total <= budget, (
+            f"{name} is {total} bytes; the limit is {_CONFIGMAP_LIMIT_BYTES} "
+            f"(budget {budget}). Move large modules to "
+            "coordinator/jetson-runtime-bootstrap-hostpath-patch.yaml."
+        )
+
+
+@pytest.mark.unit
+def test_modules_added_after_the_image_reach_the_coordinator() -> None:
+    """
+    Hot-fixed files import these; an older coordinator image does not have them
+    (or lacks names they now use), so each must be shipped or hostPath-mounted.
+    """
+    shipped = {
+        str(path.relative_to(_TOOL_ROOT / "orchestration"))
+        for path in _configmap_entries()["agentic-tool-hotfix-orchestration"].values()
+        if (_TOOL_ROOT / "orchestration") in path.parents
+    }
+    patch = _K8S / "coordinator" / "jetson-runtime-bootstrap-hostpath-patch.yaml"
+    mounted = {
+        m["subPath"] for m in _mounts(patch) if m.get("name") == "jetson-orch-hostpath"
+    }
+    covered = shipped | mounted
+    required = {
+        "env_values.py",
+        "atomic_io.py",
+        "quiet_streams.py",
+        "tool_sandbox_runtime.py",
+        "serve/app.py",
+        "serve/ws.py",
+        "serve/access.py",
+        "serve/mtls_ca.py",
+        "backends/kubernetes_types.py",
+    }
+    assert required - covered == set(), "hotfix does not deliver these modules"
