@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import urllib.error
 import urllib.request
 from typing import Any, Sequence
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider, resolve_agent_backstory
+from agent_providers.base import (
+    AgentProvider,
+    legacy_env_export_allowed,
+    resolve_agent_backstory,
+)
 
 try:
     from crewai import LLM
@@ -82,6 +87,11 @@ class OpenAIProvider(AgentProvider):
             self._base_url = normalized
             if _is_likely_local_url(normalized) and not (getenv("OPENAI_API_KEY", "") or "").strip():
                 self._local_placeholder_key = True
+            if legacy_env_export_allowed(self.config.id):
+                # Operator opt-in (AGENTIC_PROVIDER_EXPORT_BASE_URL=1), single-user only.
+                os.environ["OPENAI_BASE_URL"] = normalized
+                if self._local_placeholder_key:
+                    os.environ.setdefault("OPENAI_API_KEY", "local")
         else:
             self._base_url = None
 

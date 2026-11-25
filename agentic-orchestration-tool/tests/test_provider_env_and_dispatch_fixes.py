@@ -85,6 +85,39 @@ def test_openai_provider_does_not_export_agent_base_url_or_placeholder_key(
 
 
 @pytest.mark.unit
+def test_legacy_base_url_export_is_opt_in_and_never_for_sessions_or_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-key")
+    monkeypatch.setenv("AGENTIC_PROVIDER_EXPORT_BASE_URL", "1")
+
+    # Client-registered agent: never exported, even with the opt-in.
+    client = _provider("openai", id="client.local", openai_base_url="http://127.0.0.1:1234")
+    client.initialize()
+    assert "OPENAI_BASE_URL" not in os.environ
+
+    # Session overlay env bound: never exported.
+    token = set_session_env({"OPENAI_BASE_URL": "https://a.example/v1"})
+    try:
+        _provider("openai").initialize()
+    finally:
+        reset_session_env(token)
+    assert "OPENAI_BASE_URL" not in os.environ
+
+    # Operator catalog entry in a single-user process: legacy behaviour restored.
+    static = _provider("openai", id="local_llm", openai_base_url="http://127.0.0.1:1234")
+    try:
+        static.initialize()
+        assert os.environ["OPENAI_BASE_URL"] == "http://127.0.0.1:1234/v1"
+    finally:
+        # The provider wrote the real process env (that is the legacy
+        # behaviour under test); monkeypatch does not track it.
+        os.environ.pop("OPENAI_BASE_URL", None)
+
+
+@pytest.mark.unit
 def test_anthropic_provider_does_not_export_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
