@@ -96,6 +96,7 @@ const MAX_LANES = 12;
 const CLEARANCE = 14;
 /** Perpendicular stub so wires leave/enter with room before the arrowhead. */
 const PORT_STUB = 28;
+
 /**
  * Hard floor for every route vertex. Left-gutter detours used to run at
  * `MARGIN/2 - 8` (or negative farLeft), which clipped through the canvas
@@ -114,6 +115,7 @@ const APP_FAMILY_LABEL_H = 20;
 const APP_FAMILY_PAD = 12;
 /** Gap from a k8s node card down to its first nested pod (wire channel). */
 const K8S_NEST_GAP = 40;
+
 /**
  * Vertical gap between pods stacked inside a node group.
  * Must leave a channel for Service→Pod orthogonal edges (PORT_STUB + CLEARANCE).
@@ -222,7 +224,7 @@ function slotFor(
   };
   let lane = base.lane;
   let order = base.order;
-  let rank = base.rank;
+  const rank = base.rank;
 
   // Application accordion: all app panels on rank 0 (LTR); expanded children on rank 1.
   if (node.band === 'application' && node.appId && appLaneById) {
@@ -698,8 +700,8 @@ function chooseSides(
     return { fromSide: 'top', toSide: 'top' };
   }
 
-  let fromSide: Side = dx >= 0 ? 'right' : 'left';
-  let toSide: Side = dx >= 0 ? 'left' : 'right';
+  const fromSide: Side = dx >= 0 ? 'right' : 'left';
+  const toSide: Side = dx >= 0 ? 'left' : 'right';
   if (stubWouldLeaveCanvas(from, fromSide) || stubWouldLeaveCanvas(to, toSide)) {
     return verticalPair(from, to);
   }

@@ -6,28 +6,29 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { MatSidenav, MatSidenavContainer, MatSidenavContent } from '@angular/material/sidenav';
-import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatSidenav, MatSidenavContainer, MatSidenavContent } from '@angular/material/sidenav';
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { AoClock } from '@/app/core/ao-time/ao-time';
 import {
   AoAbsoluteTimePipe,
   AoTimeAgoPipe,
 } from '@/app/core/ao-time/ao-time-ago.pipe';
-import { AdminRun, RunDetail, RunsListResponse } from '@/app/core/ao-api/types';
-import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
-import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
-import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import {
   formatDetectionAnswer,
   isDetectionAnswer,
   parseDetectionResult,
 } from '@/app/domains/admin/shared/detection/detection-answer';
 import { DetectionOverlay } from '@/app/domains/admin/shared/detection/detection-overlay';
+import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
+import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
+import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 
 @Component({
   selector: 'ao-runs-page',
@@ -68,7 +69,12 @@ import { DetectionOverlay } from '@/app/domains/admin/shared/detection/detection
                   >
                     <mat-icon svgIcon="copy" />
                   </button>
-                  <button matIconButton type="button" (click)="closeDetail()">
+                  <button
+                    matIconButton
+                    type="button"
+                    aria-label="Close run details"
+                    (click)="closeDetail()"
+                  >
                     <mat-icon svgIcon="x" />
                   </button>
                 </div>
@@ -258,7 +264,11 @@ import { DetectionOverlay } from '@/app/domains/admin/shared/detection/detection
                 mat-row
                 *matRowDef="let row; columns: columns"
                 class="cursor-pointer hover:bg-neutral-50 dark:hover:bg-white/5"
+                tabindex="0"
+                [attr.aria-label]="'Open run ' + row.id"
                 (click)="open(row)"
+                (keydown.enter)="open(row)"
+                (keydown.space)="$event.preventDefault(); open(row)"
               ></tr>
             </table>
           }
@@ -270,6 +280,7 @@ import { DetectionOverlay } from '@/app/domains/admin/shared/detection/detection
 export class RunsPage implements OnInit, OnDestroy {
   private api = inject(AoApi);
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   readonly clock = inject(AoClock);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -280,6 +291,8 @@ export class RunsPage implements OnInit, OnDestroy {
   readonly columns = ['id', 'scope', 'outcome', 'updated', 'mode', 'steps'];
   readonly dataSource = new MatTableDataSource<AdminRun>([]);
   private openedFromQuery = false;
+  /** In-flight detail request; a newer open cancels it so it cannot win late. */
+  private detailSub: Subscription | null = null;
 
   constructor() {
     effect(() => {
@@ -287,7 +300,7 @@ export class RunsPage implements OnInit, OnDestroy {
       if (err) this.error.set(err);
       const snap = this.live.feeds()['runs'] as RunsListResponse | undefined;
       if (!snap) return;
-      this.error.set(null);
+      if (!err) this.error.set(null);
       this.scopeNote.set(snap.scopeNote || null);
       this.dataSource.data = snap.runs || [];
       if (!this.openedFromQuery) {
@@ -301,24 +314,29 @@ export class RunsPage implements OnInit, OnDestroy {
         this.openedFromQuery = true;
         const row = this.dataSource.data.find((x) => x.id === qid);
         if (row) this.open(row);
-        else
-          this.api.runDetail(qid).subscribe((d) => {
+        else {
+          this.detailSub?.unsubscribe();
+          this.detailSub = this.api.runDetail(qid).subscribe((d) => {
             if (d.ok) this.detail.set(d.data);
           });
+        }
       }
     });
   }
 
   ngOnInit() {
-    this.live.acquire({
+    this.liveHandle = this.live.acquire({
       feeds: ['runs'],
       feedIntervalMs: 4000,
-      feedParams: { limit: 80 },
+      feedParams: { runs: { limit: 80 } },
     });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.detailSub?.unsubscribe();
+    this.detailSub = null;
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   isDetection(text: string | null | undefined): boolean {
@@ -344,13 +362,16 @@ export class RunsPage implements OnInit, OnDestroy {
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-    this.api.runDetail(row.id).subscribe((r) => {
+    this.detailSub?.unsubscribe();
+    this.detailSub = this.api.runDetail(row.id).subscribe((r) => {
       if (r.ok) this.detail.set(r.data);
       else this.detail.set({ ...row });
     });
   }
 
   closeDetail() {
+    this.detailSub?.unsubscribe();
+    this.detailSub = null;
     this.detail.set(null);
     void this.router.navigate([], {
       relativeTo: this.route,

@@ -8,8 +8,8 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
-import { MatDivider } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
+import { MatDivider } from '@angular/material/list';
 import {
   MatSidenav,
   MatSidenavContainer,
@@ -68,6 +68,7 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
           <button
             matIconButton
             type="button"
+            aria-label="Toggle navigation"
             (click)="sidenav.toggle()"
           >
             <mat-icon svgIcon="panel-left" />
@@ -93,6 +94,7 @@ import { AdminSidebar } from '@/app/domains/admin/layout/ui/sidebar';
               matIconButton
               type="button"
               matTooltip="Search"
+              aria-label="Search"
               (click)="openPalette()"
             >
               <mat-icon
@@ -136,8 +138,8 @@ export class AdminLayout {
   });
 
   constructor() {
-    this.live.acquire({ metrics: true });
-    inject(DestroyRef).onDestroy(() => this.live.release());
+    const liveHandle = this.live.acquire({ metrics: true });
+    inject(DestroyRef).onDestroy(() => liveHandle.release());
   }
 
   openPalette() {

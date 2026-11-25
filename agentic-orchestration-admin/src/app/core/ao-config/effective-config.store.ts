@@ -45,10 +45,18 @@ export class EffectiveConfigStore {
     );
   }
 
+  /** True while an effective-config request is in flight. */
+  private inFlight = false;
+
   load(): void {
+    // A page and the table it hosts both call load() on init: one request
+    // serves both.
+    if (this.inFlight) return;
+    this.inFlight = true;
     this.loading.set(true);
     this.error.set(null);
     this.api.effectiveConfig().subscribe((r) => {
+      this.inFlight = false;
       this.loading.set(false);
       if (!r.ok) {
         this.missing.set(r.missing);

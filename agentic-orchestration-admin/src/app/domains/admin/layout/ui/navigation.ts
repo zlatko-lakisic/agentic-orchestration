@@ -82,7 +82,7 @@ import {
                 [(expanded)]="node.expanded"
                 [routerLink]="node.route"
                 [routerLinkActiveOptions]="
-                  node.activeOptions ?? { exact: true }
+                  node.activeOptions ?? defaultActiveOptions
                 "
                 (click)="$event.preventDefault()"
                 #rla="routerLinkActive"
@@ -161,6 +161,18 @@ export class Navigation {
   // Dependencies
   private router = inject(Router);
 
+  /**
+   * Default active match: exact path, any query string. Pages keep state in
+   * query params (/traces?runId=..., /runs?id=...), and the nav item must stay
+   * highlighted there.
+   */
+  protected readonly defaultActiveOptions: IsActiveMatchOptions = {
+    paths: 'exact',
+    queryParams: 'ignored',
+    fragment: 'ignored',
+    matrixParams: 'ignored',
+  };
+
   // State
   protected navigation = signal<NavigationItem[]>(NAVIGATION);
   protected navigationEnd = toSignal(
@@ -201,7 +213,7 @@ export class Navigation {
         isActive(
           item.route,
           this.router,
-          this.isActiveOption(item.activeOptions ?? { exact: true })
+          this.isActiveOption(item.activeOptions ?? this.defaultActiveOptions)
         )()
       ) {
         item.expanded = true;

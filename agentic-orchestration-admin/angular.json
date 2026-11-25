@@ -29,7 +29,14 @@
                 "input": "public"
               }
             ],
-            "styles": ["src/styles/styles.css"]
+            "styles": ["src/styles/styles.css"],
+            "allowedCommonJsDependencies": [
+              "@braintree/sanitize-url",
+              "cytoscape-cose-bilkent",
+              "cytoscape-fcose",
+              "dayjs",
+              "fastdom"
+            ]
           },
           "configurations": {
             "production": {

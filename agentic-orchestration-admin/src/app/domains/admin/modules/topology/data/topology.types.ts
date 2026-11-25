@@ -53,7 +53,7 @@ export type TopologyNodeKind =
   | string;
 
 /** Overlay ids currently registered by one Reach appId. */
-export interface TopologyAppMembers {
+export type TopologyAppMembers = {
   appId: string;
   instanceCount: number;
   /** Union of packed client.* overlays and stock allowlist (agents). */
@@ -71,7 +71,7 @@ export interface TopologyAppMembers {
   };
 }
 
-export interface TopologyNode {
+export type TopologyNode = {
   id: string;
   kind: TopologyNodeKind;
   band: TopologyBand;
@@ -86,6 +86,7 @@ export interface TopologyNode {
   parent?: string;
   /** Reach client appId when this node belongs to an app group. */
   appId?: string;
+
   /**
    * Application-band family: Reach-framework clients vs Web API / bypass clients.
    * Drives the two labeled frames inside band 1.
@@ -94,7 +95,7 @@ export interface TopologyNode {
   /** Distinct connecting client IPs (Web API ledger or Reach peer IPs). */
   clientIpCount?: number;
   /** Optional inline IP list for Reach apps (from live sessions). */
-  clientIps?: Array<string | { ip: string; lastSeenAt?: string | null; count?: number }>;
+  clientIps?: (string | { ip: string; lastSeenAt?: string | null; count?: number })[];
   /** Connected Reach sessions for this appId (Application header). */
   instanceCount?: number;
   /** Apps currently owning / using this Reach or AO component. */
@@ -118,15 +119,15 @@ export interface TopologyNode {
     group?: string;
     logSource?: string;
     workloadName?: string | null;
-    ports?: Array<{
+    ports?: {
       name?: string | null;
       port?: number;
       targetPort?: number | string;
       protocol?: string;
       nodePort?: number | null;
-    }>;
+    }[];
     endpointPods?: string[];
-    pods?: Array<{
+    pods?: {
       name: string;
       phase: string;
       ready: boolean;
@@ -135,13 +136,13 @@ export interface TopologyNode {
       podIP?: string | null;
       hostIP?: string | null;
       workloadName?: string | null;
-      containers?: Array<{
+      containers?: {
         name: string;
         ready: boolean;
         restartCount: number;
         state?: string | null;
-      }>;
-    }>;
+      }[];
+    }[];
   };
   /** Internal / cluster addresses for k8s nodes, pods, and services. */
   addresses?: {
@@ -155,7 +156,7 @@ export interface TopologyNode {
   lastProbeAt?: string | null;
 }
 
-export interface TopologyEdge {
+export type TopologyEdge = {
   id: string;
   from: string;
   to: string;
@@ -166,7 +167,7 @@ export interface TopologyEdge {
   status?: string;
 }
 
-export interface TopologyCapabilities {
+export type TopologyCapabilities = {
   edgeMetrics?: string[];
   nodeProbes?: string[];
   historyWindow?: string;
@@ -176,7 +177,7 @@ export interface TopologyCapabilities {
   >;
 }
 
-export interface TopologyGraph {
+export type TopologyGraph = {
   seq: number;
   generatedAt?: string;
   nodes: TopologyNode[];
@@ -186,7 +187,7 @@ export interface TopologyGraph {
   meta?: Record<string, unknown>;
 }
 
-export interface TopologyNodeDetail {
+export type TopologyNodeDetail = {
   id: string;
   node: TopologyNode;
   inbound: TopologyEdge[];
@@ -198,11 +199,11 @@ export interface TopologyNodeDetail {
   /** Per-app overlay member ids for Agents / MCP / Skills clusters. */
   appMembers?: TopologyAppMembers[];
   /** Connecting client IPs for Web API / Reach apps. */
-  clientIps?: Array<{
+  clientIps?: {
     ip: string;
     lastSeenAt?: string | null;
     count?: number;
-  }>;
+  }[];
   k8sResource?: TopologyNode['k8sResource'];
   addresses?: TopologyNode['addresses'];
   probe?: {
@@ -220,7 +221,7 @@ export interface TopologyNodeDetail {
   generatedAt?: string;
 }
 
-export interface PositionedNode extends TopologyNode {
+export type PositionedNode = {
   x: number;
   y: number;
   width: number;
@@ -229,36 +230,37 @@ export interface PositionedNode extends TopologyNode {
   rank: number;
   order: number;
   displayStatus: TopologyNodeStatus | string;
-}
+} & TopologyNode
 
-export interface PositionedEdge extends TopologyEdge {
+export type PositionedEdge = {
   points: string;
   pathD: string;
-}
+} & TopologyEdge
 
-export interface LayoutResult {
+export type LayoutResult = {
   width: number;
   height: number;
-  bands: Array<{
+  bands: {
     id: TopologyBand;
     label: string;
     y: number;
     height: number;
-  }>;
+  }[];
   /** Labeled frames for Reach apps vs Web API inside the Application band. */
-  applicationFamilies?: Array<{
+  applicationFamilies?: {
     id: TopologyAppGroup;
     label: string;
     x: number;
     y: number;
     width: number;
     height: number;
-  }>;
+  }[];
+
   /**
    * Labeled Kubernetes containment frames (cluster → nodes with nested pods,
    * plus a Services group). Drawn only while the platform accordion is open.
    */
-  k8sGroups?: Array<{
+  k8sGroups?: {
     id: string;
     role: 'cluster' | 'node' | 'services';
     label: string;
@@ -266,7 +268,7 @@ export interface LayoutResult {
     y: number;
     width: number;
     height: number;
-  }>;
+  }[];
   nodes: PositionedNode[];
   edges: PositionedEdge[];
 }

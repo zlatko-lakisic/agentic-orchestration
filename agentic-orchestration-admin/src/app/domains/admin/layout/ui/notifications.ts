@@ -8,7 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { TopologyAttention } from '@/app/core/ao-api/types';
 
-interface AttentionNote {
+type AttentionNote = {
   id: string;
   title: string;
   description: string;
@@ -69,6 +69,7 @@ interface AttentionNote {
             <button
               matIconButton
               type="button"
+              aria-label="Reload attention items"
               (click)="reload()"
             >
               <mat-icon svgIcon="refresh-cw" />
@@ -110,9 +111,18 @@ interface AttentionNote {
               />
             }
           } @empty {
-            <div class="px-6 py-8 text-sm text-neutral-500">
-              Nothing needs attention right now.
-            </div>
+            @if (loadError()) {
+              <div
+                class="px-6 py-8 text-sm text-red-600 dark:text-red-400"
+                role="alert"
+              >
+                Could not load attention items: {{ loadError() }}
+              </div>
+            } @else {
+              <div class="px-6 py-8 text-sm text-neutral-500">
+                Nothing needs attention right now.
+              </div>
+            }
           }
         </div>
       </div>
@@ -125,6 +135,8 @@ export class Notifications implements OnInit {
 
   protected open = signal(false);
   protected notes = signal<AttentionNote[]>([]);
+  /** Set when the last load failed, so "nothing to see" is not shown for an outage. */
+  protected loadError = signal<string | null>(null);
   protected unreadCount = computed(() => this.notes().length);
 
   ngOnInit() {
@@ -135,8 +147,10 @@ export class Notifications implements OnInit {
     this.api.topology().subscribe((r) => {
       if (!r.ok) {
         this.notes.set([]);
+        this.loadError.set(r.message || 'request failed');
         return;
       }
+      this.loadError.set(null);
       const at = r.data.generatedAt
         ? new Date(r.data.generatedAt)
         : new Date();

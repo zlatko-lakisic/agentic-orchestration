@@ -8,7 +8,7 @@ export type {
   ControlTargetKind,
 } from '@/app/core/ao-api/types';
 
-export interface ControlConfirmSpec {
+export type ControlConfirmSpec = {
   title: string;
   body: string;
   phrase: string | null;

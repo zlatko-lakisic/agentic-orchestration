@@ -5,6 +5,7 @@ import { MatDivider } from '@angular/material/list';
 import { MatMenu, MatMenuItem, MatMenuTrigger } from '@angular/material/menu';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { SessionResponse } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { logoutFromSession } from '@/app/core/auth/warpgate-logout';
 import { Scheme, Theming } from '@/app/core/theming';
 
@@ -139,6 +140,7 @@ import { Scheme, Theming } from '@/app/core/theming';
 export class User implements OnInit {
   private theming = inject(Theming);
   private api = inject(AoApi);
+  private webAuth = inject(WebAuth);
 
   private sessionData = signal<SessionResponse | null>(null);
 
@@ -176,6 +178,8 @@ export class User implements OnInit {
   }
 
   logout() {
+    // Drop the in-memory Admin token before leaving the session.
+    this.webAuth.clear();
     void logoutFromSession(this.sessionData());
   }
 }

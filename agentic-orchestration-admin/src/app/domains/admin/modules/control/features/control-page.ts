@@ -12,7 +12,7 @@ import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
@@ -193,6 +193,7 @@ import { ControlConfirmDialog } from '../ui/control-confirm-dialog';
 export class ControlPage implements OnInit, OnDestroy {
   private readonly api = inject(AoApi);
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   private readonly dialog = inject(MatDialog);
 
   readonly status = computed(
@@ -220,15 +221,19 @@ export class ControlPage implements OnInit, OnDestroy {
   readonly hostArmed = computed(() => Boolean(this.status()?.hostControl?.armed));
 
   ngOnInit() {
-    this.live.acquire({ feeds: ['control'], feedIntervalMs: 4000 });
+    this.liveHandle = this.live.acquire({
+      feeds: ['control'],
+      feedIntervalMs: 4000,
+    });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   resync() {
-    this.live.setFeedParams({});
+    this.live.refreshFeeds();
   }
 
   reload() {

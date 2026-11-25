@@ -1,5 +1,20 @@
-import { Component, OnInit, computed, inject, input } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import {
+  Component,
+  Injector,
+  OnInit,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  MatAccordion,
+  MatExpansionPanel,
+  MatExpansionPanelHeader,
+  MatExpansionPanelTitle,
+} from '@angular/material/expansion';
 import {
   MatCell,
   MatCellDef,
@@ -12,12 +27,8 @@ import {
   MatRowDef,
   MatTable,
 } from '@angular/material/table';
-import {
-  MatAccordion,
-  MatExpansionPanel,
-  MatExpansionPanelHeader,
-  MatExpansionPanelTitle,
-} from '@angular/material/expansion';
+import { ActivatedRoute } from '@angular/router';
+import { map } from 'rxjs';
 import { EffectiveConfigEntry } from '@/app/core/ao-api/types';
 import { EffectiveConfigStore } from '@/app/core/ao-config/effective-config.store';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
@@ -259,6 +270,7 @@ export type SettingsSection = {
 export class ConfigSettingsTable implements OnInit {
   protected config = inject(EffectiveConfigStore);
   private route = inject(ActivatedRoute);
+  private injector = inject(Injector);
 
   readonly groups = input<string[] | null>(null);
   readonly component = input<string | null>(null);
@@ -311,18 +323,37 @@ export class ConfigSettingsTable implements OnInit {
     return String(v);
   }
 
-  ngOnInit() {
-    this.config.load();
-    const flash = this.route.snapshot.queryParamMap.get('flash');
-    if (flash) {
-      setTimeout(
+  /** `?flash=&lt;KEY>` from the command palette: scroll that setting into view. */
+  private readonly flash = toSignal(
+    this.route.queryParamMap.pipe(map((pm) => pm.get('flash'))),
+    { initialValue: this.route.snapshot.queryParamMap.get('flash') }
+  );
+  private flashedFor: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const key = this.flash();
+      if (!key) {
+        this.flashedFor = null;
+        return;
+      }
+      if (this.flashedFor === key) return;
+      // Wait until the row exists: the config may still be loading, and the
+      // param can change while this table stays mounted.
+      if (!this.filtered().some((e) => e.key === key)) return;
+      this.flashedFor = key;
+      afterNextRender(
         () =>
-          document.getElementById(flash)?.scrollIntoView({
+          document.getElementById(key)?.scrollIntoView({
             behavior: 'smooth',
             block: 'center',
           }),
-        350
+        { injector: this.injector }
       );
-    }
+    });
+  }
+
+  ngOnInit() {
+    this.config.load();
   }
 }

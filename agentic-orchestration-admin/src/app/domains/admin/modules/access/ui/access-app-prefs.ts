@@ -1,4 +1,10 @@
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
@@ -8,8 +14,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AppPlanningPrefs } from '@/app/core/ao-api/types';
+import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
@@ -155,7 +161,8 @@ import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-s
     </mat-card>
   `,
 })
-export class AccessAppPrefs implements OnInit {
+/** The parent Access page owns the live feed subscription. */
+export class AccessAppPrefs {
   private readonly api = inject(AoApi);
   readonly live = inject(AoLiveWs);
 
@@ -166,7 +173,15 @@ export class AccessAppPrefs implements OnInit {
     'allowedAgents',
   ];
   readonly apps = signal<AppPlanningPrefs[]>([]);
-  readonly error = signal<string | null>(null);
+  /** Failure of a save; kept apart so feed ticks cannot wipe it. */
+  readonly actionError = signal<string | null>(null);
+  readonly error = computed(
+    () =>
+      this.actionError() ||
+      this.live.feedErrors()['access'] ||
+      this.live.feedErrors()['_'] ||
+      null
+  );
   readonly saving = signal(false);
   readonly savingId = signal<string | null>(null);
 
@@ -182,27 +197,20 @@ export class AccessAppPrefs implements OnInit {
         | undefined;
       if (!snap?.apps) return;
       this.apps.set(snap.apps);
-      const err =
-        this.live.feedErrors()['access'] || this.live.feedErrors()['_'];
-      if (err) this.error.set(err);
-      else this.error.set(null);
     });
   }
 
-  ngOnInit() {
-    // Parent Access page owns the live feed subscription.
-  }
-
   reload() {
-    this.live.setFeedParams({});
+    this.live.refreshFeeds();
   }
 
   saveNew() {
     const appId = this.newAppId.trim().toLowerCase();
     if (!appId) {
-      this.error.set('App ID is required');
+      this.actionError.set('App ID is required');
       return;
     }
+    this.actionError.set(null);
     this.saving.set(true);
     this.api
       .setAppPrefs(appId, {
@@ -213,7 +221,7 @@ export class AccessAppPrefs implements OnInit {
       .subscribe((r) => {
         this.saving.set(false);
         if (!r.ok) {
-          this.error.set(r.message);
+          this.actionError.set(r.message);
           return;
         }
         this.newAppId = '';
@@ -262,10 +270,11 @@ export class AccessAppPrefs implements OnInit {
     }
   ) {
     this.savingId.set(appId);
+    this.actionError.set(null);
     this.api.setAppPrefs(appId, body).subscribe((r) => {
       this.savingId.set(null);
       if (!r.ok) {
-        this.error.set(r.message);
+        this.actionError.set(r.message);
         return;
       }
       this.reload();
