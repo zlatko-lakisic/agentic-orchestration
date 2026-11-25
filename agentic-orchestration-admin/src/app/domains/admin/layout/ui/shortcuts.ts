@@ -46,6 +46,7 @@ const DEFAULT_SHORTCUTS = ['overview', 'capabilities', 'behaviour'];
         matIconButton
         [routerLink]="item.route"
         [matTooltip]="item.label"
+        [attr.aria-label]="item.label"
       >
         <mat-icon [svgIcon]="item.icon ?? 'circle'" />
       </button>
@@ -53,6 +54,7 @@ const DEFAULT_SHORTCUTS = ['overview', 'capabilities', 'behaviour'];
 
     <button
       matIconButton
+      aria-label="Shortcuts"
       [matMenuTriggerFor]="shortcutsMenu"
       (menuOpened)="focusSearch()"
       (menuClosed)="search.set('')"
@@ -109,6 +111,7 @@ const DEFAULT_SHORTCUTS = ['overview', 'capabilities', 'behaviour'];
             </button>
             <button
               matIconButton
+              [attr.aria-label]="'Toggle bookmark for ' + item.label"
               (click)="$event.stopPropagation(); toggleBookmark(item.id)"
             >
               <mat-icon

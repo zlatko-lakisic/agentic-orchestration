@@ -133,6 +133,13 @@ export default defineConfig(
       angular.configs.templateRecommended,
       angular.configs.templateAccessibility,
     ],
+    rules: {
+      // `x != null` is the deliberate "neither null nor undefined" check.
+      '@angular-eslint/template/eqeqeq': [
+        'error',
+        { allowNullOrUndefined: true },
+      ],
+    },
   },
 
   // Test files

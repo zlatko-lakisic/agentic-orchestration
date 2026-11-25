@@ -18,6 +18,7 @@ import { Scheme, Theming } from '@/app/core/theming';
   template: `
     <button
       matIconButton
+      aria-label="Change color scheme"
       [matMenuTriggerFor]="schemeMenu"
     >
       <mat-icon svgIcon="sun-moon" />

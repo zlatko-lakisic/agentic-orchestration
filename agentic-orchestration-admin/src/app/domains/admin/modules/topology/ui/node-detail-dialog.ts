@@ -6,8 +6,8 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatTabsModule } from '@angular/material/tabs';
 import { RouterLink } from '@angular/router';
 import {
@@ -26,9 +26,9 @@ import { Subscription } from 'rxjs';
 import { AoApi } from '@/app/core/ao-api/ao-api';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
-import { TopologyAppMembers, TopologyNodeDetail } from '../data/topology.types';
 import { helpForNode, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';
 import { themeForKind } from '../data/topology.theme';
+import { TopologyAppMembers, TopologyNodeDetail } from '../data/topology.types';
 
 export type NodeDetailDialogData = {
   nodeId: string;

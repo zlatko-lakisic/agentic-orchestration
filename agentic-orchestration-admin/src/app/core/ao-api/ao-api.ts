@@ -1,6 +1,10 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, map, of } from 'rxjs';
+import type {
+  TopologyGraph,
+  TopologyNodeDetail,
+} from '@/app/domains/admin/modules/topology/data/topology.types';
 import {
   AccessPosture,
   AgentProvider,
@@ -32,10 +36,6 @@ import {
   OllamaPullResponse,
   OllamaTagsResponse,
 } from './types';
-import type {
-  TopologyGraph,
-  TopologyNodeDetail,
-} from '@/app/domains/admin/modules/topology/data/topology.types';
 
 export type ApiResult<T> =
   | { ok: true; data: T }
@@ -327,13 +327,13 @@ export class AoApi {
     return this.post<{
       ok?: boolean;
       count?: number;
-      providers?: Array<{
+      providers?: {
         id?: string;
         ready?: boolean;
         executionProvider?: string;
         weightsCached?: boolean;
         error?: string;
-      }>;
+      }[];
     }>('/api/v1/admin/detection/ensure-ready', body);
   }
 

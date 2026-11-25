@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
-import { MatMenuModule } from '@angular/material/menu';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { AoMark } from '@/app/domains/admin/shared/ao-mark/ao-mark';
 import { STATUS_MARK_LIST } from '../data/topology.status';
 import { KIND_THEMES, themeForBand } from '../data/topology.theme';
@@ -15,6 +15,7 @@ import { KIND_THEMES, themeForBand } from '../data/topology.theme';
       Legend
     </button>
     <mat-menu #menu="matMenu" class="topology-legend-menu">
+      <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events, @angular-eslint/template/interactive-supports-focus -- propagation guard, not a control -->
       <div
         class="flex max-w-sm flex-col gap-2 px-4 py-3 text-sm"
         (click)="$event.stopPropagation()"

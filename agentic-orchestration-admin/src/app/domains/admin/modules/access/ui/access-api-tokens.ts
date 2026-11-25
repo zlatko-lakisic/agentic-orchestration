@@ -1,5 +1,11 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -7,14 +13,14 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatTableModule } from '@angular/material/table';
 import { AoApi } from '@/app/core/ao-api/ao-api';
+import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AoClock } from '@/app/core/ao-time/ao-time';
 import {
   AoAbsoluteTimePipe,
   AoTimeAgoPipe,
 } from '@/app/core/ao-time/ao-time-ago.pipe';
-import { ApiAccessToken, ApiAccessTokenUsage } from '@/app/core/ao-api/types';
-import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { EmptyState } from '@/app/domains/admin/shared/empty-state/empty-state';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
@@ -60,8 +66,15 @@ import { MintTokenDialog } from './mint-token-dialog';
             </div>
           </mat-card-header>
           <mat-card-content class="pt-3">
-            @if (error()) {
-              <ao-error-state [message]="error()!" />
+            @if (actionError()) {
+              <ao-error-state
+                class="mb-3 block"
+                title="Action failed"
+                [message]="actionError()!"
+              />
+            }
+            @if (feedError()) {
+              <ao-error-state [message]="feedError()!" />
             } @else if (live.feedLoading('access')) {
               <ao-loading-state
                 title="Loading access"
@@ -182,7 +195,12 @@ import { MintTokenDialog } from './mint-token-dialog';
                 {{ t.appId }} · {{ t.prefix }}…
               </div>
             </div>
-            <button matIconButton type="button" (click)="closeUsage()">
+            <button
+              matIconButton
+              type="button"
+              aria-label="Close token usage"
+              (click)="closeUsage()"
+            >
               <mat-icon svgIcon="x" />
             </button>
           </div>
@@ -226,7 +244,8 @@ import { MintTokenDialog } from './mint-token-dialog';
     </mat-drawer-container>
   `,
 })
-export class AccessApiTokens implements OnInit {
+/** The parent Access page owns the live feed subscription. */
+export class AccessApiTokens {
   private readonly api = inject(AoApi);
   readonly live = inject(AoLiveWs);
   readonly clock = inject(AoClock);
@@ -242,7 +261,13 @@ export class AccessApiTokens implements OnInit {
     'actions',
   ];
   readonly tokens = signal<ApiAccessToken[]>([]);
-  readonly error = signal<string | null>(null);
+  /** Failure of a user action (revoke); kept apart so feed ticks cannot wipe it. */
+  readonly actionError = signal<string | null>(null);
+  /** Failure of the live access feed, with or without an earlier snapshot. */
+  readonly feedError = computed(
+    () =>
+      this.live.feedErrors()['access'] || this.live.feedErrors()['_'] || null
+  );
   readonly revokingId = signal<string | null>(null);
   readonly usageOpen = signal(false);
   readonly usageToken = signal<ApiAccessToken | null>(null);
@@ -256,15 +281,7 @@ export class AccessApiTokens implements OnInit {
         | undefined;
       if (!snap?.tokens) return;
       this.tokens.set(snap.tokens);
-      const err =
-        this.live.feedErrors()['access'] || this.live.feedErrors()['_'];
-      if (err) this.error.set(err);
-      else this.error.set(null);
     });
-  }
-
-  ngOnInit() {
-    // Parent Access page owns the live feed subscription.
   }
 
   statusTone(status: string | undefined): string {
@@ -275,7 +292,7 @@ export class AccessApiTokens implements OnInit {
   }
 
   reload() {
-    this.live.setFeedParams({});
+    this.live.refreshFeeds();
   }
 
   openMint() {
@@ -309,10 +326,11 @@ export class AccessApiTokens implements OnInit {
       return;
     }
     this.revokingId.set(t.id);
+    this.actionError.set(null);
     this.api.revokeApiToken(t.id).subscribe((r) => {
       this.revokingId.set(null);
       if (!r.ok) {
-        this.error.set(r.message);
+        this.actionError.set(r.message);
         return;
       }
       if (wasWeb) this.webAuth.clear();

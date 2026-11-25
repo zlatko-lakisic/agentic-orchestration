@@ -7,7 +7,7 @@
 
 export type ThermalKind = 'cpu' | 'gpu';
 
-export interface ThermalRange {
+export type ThermalRange = {
   kind: ThermalKind;
   match: string;
   minC: number;

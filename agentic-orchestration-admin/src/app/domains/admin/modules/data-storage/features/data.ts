@@ -7,8 +7,8 @@ import {
   signal,
 } from '@angular/core';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { StorageEntry, StorageResponse } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
@@ -152,6 +152,7 @@ import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
 })
 export class DataPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   readonly error = signal<string | null>(null);
   readonly columns = ['name', 'path', 'files', 'bytes', 'status'];
   readonly dataSource: MatTableDataSource<StorageEntry> =
@@ -164,17 +165,21 @@ export class DataPage implements OnInit, OnDestroy {
       if (err) this.error.set(err);
       const snap = this.live.feeds()['storage'] as StorageResponse | undefined;
       if (!snap) return;
-      this.error.set(null);
+      if (!err) this.error.set(null);
       this.dataSource.data = snap.roots || snap.entries || [];
     });
   }
 
   ngOnInit() {
-    this.live.acquire({ feeds: ['storage'], feedIntervalMs: 5000 });
+    this.liveHandle = this.live.acquire({
+      feeds: ['storage'],
+      feedIntervalMs: 5000,
+    });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   formatBytes(n?: number | null) {

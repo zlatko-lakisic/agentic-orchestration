@@ -37,7 +37,7 @@ Response fields:
 
 **`GET /api/v1/admin/topology/node/{id}`** — the node modal's detail payload: probe history, recent transitions, replica list, related config keys, log source name.
 
-**`GET /api/v1/admin/topology/edge/{id}/metrics?window=15m`** — time series for the edge modal.
+**`GET /api/v1/admin/topology/edge/{id}/metrics?window=15m`** — time series for an edge. The server implements it, but the Admin SPA does not call it: the edge (and node) modal gets its series over the WebSocket via `topology_watch_subscribe` → `topology_watch_snapshot` / `topology_watch_tick`.
 
 ---
 

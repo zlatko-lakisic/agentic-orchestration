@@ -33,7 +33,7 @@ export type AoApplyTier =
   | 'redeploy'
   | 'restart';
 
-export interface EffectiveConfigEntry {
+export type EffectiveConfigEntry = {
   key: string;
   label?: string;
   value?: string | number | boolean | null;
@@ -47,7 +47,7 @@ export interface EffectiveConfigEntry {
   sourceFile?: string | null;
   sourcePath?: string | null;
   overriddenBy?: unknown[];
-  overrides?: Array<{ plane: string; path: string; value?: string | null }>;
+  overrides?: { plane: string; path: string; value?: string | null }[];
   applyTier?: AoApplyTier | string;
   tier?: string;
   group?: string;
@@ -64,7 +64,7 @@ export interface EffectiveConfigEntry {
   secretState?: { set?: boolean; usedBy?: string[] };
 }
 
-export interface EffectiveConfigResponse {
+export type EffectiveConfigResponse = {
   entries?: EffectiveConfigEntry[] | Record<string, EffectiveConfigEntry>;
   keys?: Record<string, EffectiveConfigEntry>;
   fingerprint?: string;
@@ -74,12 +74,12 @@ export interface EffectiveConfigResponse {
   includeInjected?: boolean;
 }
 
-export interface ConfigFingerprint {
+export type ConfigFingerprint = {
   fingerprint: string;
   generatedAt?: string;
 }
 
-export interface CatalogEntry {
+export type CatalogEntry = {
   id: string;
   kind?: string;
   name?: string;
@@ -98,21 +98,21 @@ export interface CatalogEntry {
   weightsSha256?: string | null;
   min_vram_gb?: number | null;
   file?: string | null;
-  availabilityTrace?: Array<{
+  availabilityTrace?: {
     step: string;
     result: string;
     detail?: string;
     fixKey?: string | null;
-  }>;
+  }[];
 }
 
-export interface CatalogListResponse {
+export type CatalogListResponse = {
   items?: CatalogEntry[];
   entries?: CatalogEntry[];
   providers?: CatalogEntry[];
 }
 
-export interface TopologyComponent {
+export type TopologyComponent = {
   id: string;
   label: string;
   status: AoStatus | string;
@@ -129,13 +129,13 @@ export interface TopologyComponent {
   delegation?: boolean;
 }
 
-export interface TopologyAttention {
+export type TopologyAttention = {
   severity?: string;
   message?: string;
   href?: string;
 }
 
-export interface TopologyResponse {
+export type TopologyResponse = {
   components?: TopologyComponent[];
   attention?: TopologyAttention[];
   ports?: Record<string, number>;
@@ -149,7 +149,7 @@ export interface TopologyResponse {
   generatedAt?: string;
 }
 
-export interface StorageEntry {
+export type StorageEntry = {
   id?: string;
   path: string;
   label?: string;
@@ -165,14 +165,14 @@ export interface StorageEntry {
   mountExpected?: boolean;
 }
 
-export interface StorageResponse {
+export type StorageResponse = {
   roots?: StorageEntry[];
   entries?: StorageEntry[];
   generatedAt?: string;
   probeScope?: string;
 }
 
-export interface AccessPosture {
+export type AccessPosture = {
   generatedAt?: string;
   severity?: 'ok' | 'warning' | 'critical' | string;
   verdict?: string;
@@ -180,7 +180,7 @@ export interface AccessPosture {
   flags?: Record<string, unknown>;
 }
 
-export interface ApiAccessToken {
+export type ApiAccessToken = {
   id: string;
   prefix: string;
   appId: string;
@@ -199,7 +199,7 @@ export interface ApiAccessToken {
   assignedToChat?: boolean;
 }
 
-export interface ApiAccessTokenUsage {
+export type ApiAccessTokenUsage = {
   ts?: string;
   tokenId?: string | null;
   appId?: string;
@@ -211,7 +211,7 @@ export interface ApiAccessTokenUsage {
 }
 
 /** Sticky dynamic-planning prefs keyed by appId (Access → Dynamic planning by app). */
-export interface AppPlanningPrefs {
+export type AppPlanningPrefs = {
   appId: string;
   dynamicPlanning: boolean;
   defaultRunMode?: 'dynamic' | 'dynamic-iterative' | null;
@@ -219,7 +219,7 @@ export interface AppPlanningPrefs {
   allowedAgentProviderIds?: string[];
 }
 
-export interface MtlsClient {
+export type MtlsClient = {
   serial?: string | null;
   subject?: string;
   issuedAt?: string | null;
@@ -229,7 +229,7 @@ export interface MtlsClient {
   revokeReason?: string | null;
 }
 
-export interface MtlsEnrollToken {
+export type MtlsEnrollToken = {
   ok?: boolean;
   token: string;
   expiresAt?: number | string | null;
@@ -237,7 +237,7 @@ export interface MtlsEnrollToken {
   clientName?: string | null;
 }
 
-export interface AdminRun {
+export type AdminRun = {
   id: string;
   scope?: string;
   userId?: string | null;
@@ -255,14 +255,14 @@ export interface AdminRun {
   path?: string;
 }
 
-export interface RunsListResponse {
+export type RunsListResponse = {
   generatedAt?: string;
   scopeNote?: string;
   runs?: AdminRun[];
 }
 
-export interface RunDetail extends AdminRun {
-  stepsDetail?: Array<{
+export type RunDetail = {
+  stepsDetail?: {
     id: string;
     exitCode?: number | null;
     error?: string | null;
@@ -270,7 +270,7 @@ export interface RunDetail extends AdminRun {
     recoveryHint?: string | null;
     resultText?: string | null;
     ok?: boolean | null;
-  }>;
+  }[];
   plannerHistory?: unknown[];
   lastAnswerExcerpt?: string | null;
   detectionPreview?: {
@@ -280,17 +280,17 @@ export interface RunDetail extends AdminRun {
     height?: number;
     name?: string | null;
   } | null;
-  k8sJobs?: Array<{
+  k8sJobs?: {
     job_name?: string;
     namespace?: string;
     pod_name?: string | null;
     succeeded?: boolean;
     failed?: boolean;
     message?: string | null;
-  }>;
-}
+  }[];
+} & AdminRun
 
-export interface TraceListItem {
+export type TraceListItem = {
   runId: string;
   updatedAt?: string | null;
   startedAt?: string | null;
@@ -315,12 +315,12 @@ export interface TraceListItem {
   totalTokens?: number | null;
 }
 
-export interface TracesListResponse {
+export type TracesListResponse = {
   generatedAt?: string;
   runs?: TraceListItem[];
 }
 
-export interface RunTraceEvent {
+export type RunTraceEvent = {
   ts?: number;
   run_id?: string;
   kind?: string;
@@ -329,7 +329,7 @@ export interface RunTraceEvent {
   detail?: Record<string, unknown>;
 }
 
-export interface TraceInstrumentation {
+export type TraceInstrumentation = {
   capabilities?: Record<string, boolean>;
   present?: Record<string, boolean>;
   recorded?: string[];
@@ -338,7 +338,7 @@ export interface TraceInstrumentation {
   summary?: string;
 }
 
-export interface TraceCrewStep {
+export type TraceCrewStep = {
   index?: number;
   id?: string | null;
   agentProviderId?: string | null;
@@ -348,21 +348,21 @@ export interface TraceCrewStep {
   harness?: string | null;
 }
 
-export interface RunTraceResponse {
+export type RunTraceResponse = {
   runId: string;
   eventCount?: number;
   events?: RunTraceEvent[];
   mermaid?: string;
   /** Truncated diagram label → full text for hover tooltips. */
-  mermaidTips?: Array<{ shown: string; full: string }>;
+  mermaidTips?: { shown: string; full: string }[];
   /** Per message-arrow token help chips (prompt on outbound, completion on return). */
-  mermaidTokenHelps?: Array<{
+  mermaidTokenHelps?: {
     messageIndex: number;
     tooltip: string;
     /** Full text for inspect modal (not hover-truncated). */
     detail?: string;
     kind?: string;
-  }>;
+  }[];
   durationMs?: number | null;
   instrumentation?: TraceInstrumentation;
   depth?: string;
@@ -383,7 +383,7 @@ export interface RunTraceResponse {
   finalResponse?: string | null;
 }
 
-export interface LlmUsageRollupRow {
+export type LlmUsageRollupRow = {
   key: string;
   calls: number;
   promptTokens?: number;
@@ -391,14 +391,14 @@ export interface LlmUsageRollupRow {
   totalTokens?: number;
 }
 
-export interface ApiUsageRollupRow {
+export type ApiUsageRollupRow = {
   key: string;
   calls: number;
   latencyMsSum?: number;
   promptCharsSum?: number;
 }
 
-export interface LlmUsageEventRow {
+export type LlmUsageEventRow = {
   ts?: number | string | null;
   runId?: string | null;
   userId?: string | null;
@@ -416,7 +416,7 @@ export interface LlmUsageEventRow {
   ok?: boolean | null;
 }
 
-export interface LlmSpendTotals {
+export type LlmSpendTotals = {
   calls: number;
   promptTokens: number;
   completionTokens: number;
@@ -426,7 +426,7 @@ export interface LlmSpendTotals {
   to?: string;
 }
 
-export interface LlmSpendDay {
+export type LlmSpendDay = {
   day: string;
   ts: number;
   calls: number;
@@ -435,7 +435,7 @@ export interface LlmSpendDay {
   totalTokens: number;
 }
 
-export interface LlmUsageResponse {
+export type LlmUsageResponse = {
   generatedAt?: string;
   recent?: LlmUsageEventRow[];
   spend?: {
@@ -482,7 +482,7 @@ export interface LlmUsageResponse {
   };
 }
 
-export interface SupportBundle {
+export type SupportBundle = {
   generatedAt?: string;
   fingerprint?: string;
   environment?: string;
@@ -492,7 +492,7 @@ export interface SupportBundle {
   topology?: unknown;
 }
 
-export interface PingResponse {
+export type PingResponse = {
   ok?: boolean;
   service?: string;
   pid?: number;
@@ -500,7 +500,7 @@ export interface PingResponse {
 }
 
 /** Checkout identity relative to the published VERSION file. */
-export interface DeployRevision {
+export type DeployRevision = {
   version: string | null;
   label: string;
   kind: 'release' | 'branch' | 'commit' | 'pull_request' | 'merge_request';
@@ -513,7 +513,7 @@ export interface DeployRevision {
   target: string | null;
 }
 
-export interface SessionResponse {
+export type SessionResponse = {
   userName?: string | null;
   sessionId?: string | null;
   userId?: string | null;
@@ -526,7 +526,7 @@ export interface SessionResponse {
   avatarUrl?: string | null;
 }
 
-export interface HostMetrics {
+export type HostMetrics = {
   ts?: string;
   hostname?: string;
   platform?: string;
@@ -581,7 +581,7 @@ export interface HostMetrics {
   } | null;
 }
 
-export interface AoResourceRow {
+export type AoResourceRow = {
   id: string;
   label: string;
   kind: 'application' | 'model' | 'video' | 'tts' | 'stt';
@@ -598,7 +598,7 @@ export interface AoResourceRow {
 }
 
 /** AO's own RAM/VRAM footprint, split by application and resident providers. */
-export interface AoResources {
+export type AoResources = {
   ts?: string;
   scope?: string;
   sources?: {
@@ -628,11 +628,11 @@ export interface AoResources {
     configured?: boolean;
     ready?: boolean | null;
     missing?: string[];
-    providers?: Array<{ id?: string; ready?: boolean; missing?: string[] }>;
+    providers?: { id?: string; ready?: boolean; missing?: string[] }[];
   };
 }
 
-export interface AgentProvider {
+export type AgentProvider = {
   id: string;
   type?: string;
   role?: string;
@@ -646,7 +646,7 @@ export type ControlTargetKind =
   | 'host-service'
   | 'host-reboot';
 
-export interface ControlTarget {
+export type ControlTarget = {
   id: string;
   label: string;
   kind: ControlTargetKind | string;
@@ -660,13 +660,13 @@ export interface ControlTarget {
   rebootVia?: string | null;
 }
 
-export interface ControlRestartAction {
+export type ControlRestartAction = {
   id: string;
   ok: boolean;
   detail?: string;
 }
 
-export interface ControlRestartResult {
+export type ControlRestartResult = {
   ok?: boolean;
   accepted?: boolean;
   target?: string;
@@ -679,7 +679,7 @@ export interface ControlRestartResult {
   code?: string;
 }
 
-export interface ControlStatus {
+export type ControlStatus = {
   generatedAt?: string;
   hostname?: string | null;
   kubernetes?: {
@@ -702,13 +702,13 @@ export interface ControlStatus {
   lastAction?: ControlRestartResult | null;
 }
 
-export interface OllamaTagsResponse {
+export type OllamaTagsResponse = {
   ok?: boolean;
   base?: string | null;
-  models?: Array<{ name?: string; model?: string; size?: number; modified_at?: string }>;
+  models?: { name?: string; model?: string; size?: number; modified_at?: string }[];
 }
 
-export interface OllamaPullResponse {
+export type OllamaPullResponse = {
   ok?: boolean;
   model?: string;
   base?: string | null;

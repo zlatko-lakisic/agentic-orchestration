@@ -69,3 +69,42 @@ export function scaleBoxXyxy(
   const height = ((y2 - y1) / sh) * dh;
   return { left, top, width: Math.max(0, width), height: Math.max(0, height) };
 }
+
+export type OverlayBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  label: string;
+  conf: string;
+}
+
+/**
+ * Boxes positioned for an image displayed at `dest` size. The source size
+ * comes from the answer, then the preview, then the decoded image.
+ */
+export function overlayBoxes(
+  answer: DetectionAnswer | null | undefined,
+  preview: DetectionPreview | null | undefined,
+  natural: { width: number; height: number },
+  dest: { width: number; height: number }
+): OverlayBox[] {
+  if (!answer) return [];
+  const srcW = Number(answer.image?.width || preview?.width || natural.width || 1);
+  const srcH = Number(
+    answer.image?.height || preview?.height || natural.height || 1
+  );
+  const destW = dest.width || natural.width || 1;
+  const destH = dest.height || natural.height || 1;
+  const out: OverlayBox[] = [];
+  for (const d of answer.detections || []) {
+    const scaled = scaleBoxXyxy(d.box_xyxy, srcW, srcH, destW, destH);
+    if (!scaled) continue;
+    const conf =
+      d.confidence != null && Number.isFinite(Number(d.confidence))
+        ? ` ${(Number(d.confidence) * 100).toFixed(0)}%`
+        : '';
+    out.push({ ...scaled, label: String(d.label || 'obj'), conf });
+  }
+  return out;
+}

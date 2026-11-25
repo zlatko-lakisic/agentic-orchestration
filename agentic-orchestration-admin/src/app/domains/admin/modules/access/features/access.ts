@@ -7,8 +7,8 @@ import {
   inject,
 } from '@angular/core';
 import { MatCard, MatCardContent, MatCardHeader } from '@angular/material/card';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
 import { AccessPosture } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
 import { AccessApiTokens } from '@/app/domains/admin/modules/access/ui/access-api-tokens';
 import { AccessAppPrefs } from '@/app/domains/admin/modules/access/ui/access-app-prefs';
 import { AccessMtlsClients } from '@/app/domains/admin/modules/access/ui/access-mtls-clients';
@@ -85,6 +85,7 @@ import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 })
 export class AccessPage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
 
   readonly posture = computed(() => {
     const snap = this.live.feeds()['access'] as
@@ -106,10 +107,14 @@ export class AccessPage implements OnInit, OnDestroy {
   ];
 
   ngOnInit() {
-    this.live.acquire({ feeds: ['access'], feedIntervalMs: 4000 });
+    this.liveHandle = this.live.acquire({
+      feeds: ['access'],
+      feedIntervalMs: 4000,
+    });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 }

@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
+import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { RouterLink } from '@angular/router';
 import { EnvHelp } from '@/app/domains/admin/shared/env-help/env-help';
 import { helpForNode, TOPOLOGY_WIKI_PAGE } from '../data/topology.help';

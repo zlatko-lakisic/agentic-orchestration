@@ -61,7 +61,12 @@ import { MtlsEnrollToken } from '@/app/core/ao-api/types';
           class="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-3 font-mono text-sm break-all dark:border-neutral-700 dark:bg-neutral-900"
         >
           <span class="min-w-0 flex-auto">{{ minted()!.token }}</span>
-          <button matIconButton type="button" (click)="copySecret()">
+          <button
+            matIconButton
+            type="button"
+            aria-label="Copy token"
+            (click)="copySecret()"
+          >
             <mat-icon svgIcon="copy" />
           </button>
         </div>

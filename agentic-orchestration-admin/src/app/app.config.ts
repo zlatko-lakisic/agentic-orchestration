@@ -2,7 +2,6 @@ import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/
 import {
   ApplicationConfig,
   inject,
-  isDevMode,
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
@@ -13,12 +12,10 @@ import {
   withComponentInputBinding,
   withInMemoryScrolling,
 } from '@angular/router';
-import { provideTransloco } from '@jsverse/transloco';
+import { WebAuth } from '@/app/core/ao-api/web-auth';
+import { webAuthInterceptor } from '@/app/core/ao-api/web-auth.interceptor';
 import { provideIcons } from '@/app/core/icons/provider';
 import { provideTheming } from '@/app/core/theming';
-import { TranslocoHttpLoader } from '@/app/core/transloco/transloco-http-loader';
-import { webAuthInterceptor } from '@/app/core/ao-api/web-auth.interceptor';
-import { WebAuth } from '@/app/core/ao-api/web-auth';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -43,20 +40,6 @@ export const appConfig: ApplicationConfig = {
       scheme: 'system',
       primary: '#3B6EA5',
       error: '#dc2626',
-    }),
-    provideTransloco({
-      config: {
-        availableLangs: [
-          {
-            id: 'en',
-            label: 'English',
-          },
-        ],
-        defaultLang: 'en',
-        reRenderOnLangChange: true,
-        prodMode: !isDevMode(),
-      },
-      loader: TranslocoHttpLoader,
     }),
   ],
 };

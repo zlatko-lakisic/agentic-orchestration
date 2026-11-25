@@ -36,18 +36,18 @@ import {
   ApexYAxis,
   ChartComponent,
 } from 'ng-apexcharts';
-import { AoLiveWs } from '@/app/core/ao-live/ao-live-ws';
-import { AoClock } from '@/app/core/ao-time/ao-time';
-import {
-  AoAbsoluteTimePipe,
-  AoTimeAgoPipe,
-} from '@/app/core/ao-time/ao-time-ago.pipe';
 import {
   LlmSpendTotals,
   LlmUsageEventRow,
   LlmUsageResponse,
   LlmUsageRollupRow,
 } from '@/app/core/ao-api/types';
+import { AoLiveWs, LiveHandle } from '@/app/core/ao-live/ao-live-ws';
+import { AoClock } from '@/app/core/ao-time/ao-time';
+import {
+  AoAbsoluteTimePipe,
+  AoTimeAgoPipe,
+} from '@/app/core/ao-time/ao-time-ago.pipe';
 import { ErrorState } from '@/app/domains/admin/shared/error-state/error-state';
 import { LoadingState } from '@/app/domains/admin/shared/loading-state/loading-state';
 import { StatusChip } from '@/app/domains/admin/shared/status-chip/status-chip';
@@ -65,7 +65,7 @@ type LlmTxRow = {
 
 type SpendRangeId = '6h' | '1d' | '7d' | '15d' | '30d';
 
-const SPEND_RANGES: ReadonlyArray<{ id: SpendRangeId; label: string; hours: number }> = [
+const SPEND_RANGES: readonly { id: SpendRangeId; label: string; hours: number }[] = [
   { id: '6h', label: '6 hours', hours: 6 },
   { id: '1d', label: '1 day', hours: 24 },
   { id: '7d', label: '7 days', hours: 7 * 24 },
@@ -641,6 +641,7 @@ function pieFromRows(
 })
 export class LlmUsagePage implements OnInit, OnDestroy {
   readonly live = inject(AoLiveWs);
+  private liveHandle: LiveHandle | null = null;
   readonly clock = inject(AoClock);
   readonly llmCols = ['key', 'calls', 'total'];
   readonly txCols = ['when', 'app', 'model', 'tokens', 'status'];
@@ -1066,28 +1067,29 @@ export class LlmUsagePage implements OnInit, OnDestroy {
     const id = (SPEND_RANGES.find((r) => r.id === value)?.id ||
       '6h') as SpendRangeId;
     this.spendRange.set(id);
-    this.live.setFeedParams({ llm_usage: { window: id, limit: 200 } });
+    this.liveHandle?.setFeedParams('llm_usage', this.usageParams());
   }
 
-  private feedParams() {
-    return { llm_usage: { window: this.spendRange(), limit: 200 } };
+  private usageParams() {
+    return { window: this.spendRange(), limit: 200 };
   }
 
   ngOnInit() {
-    this.live.acquire({
+    this.liveHandle = this.live.acquire({
       feeds: ['llm_usage'],
       feedIntervalMs: 2000,
-      feedParams: this.feedParams(),
+      feedParams: { llm_usage: this.usageParams() },
     });
   }
 
   ngOnDestroy() {
-    this.live.release();
+    this.liveHandle?.release();
+    this.liveHandle = null;
   }
 
   resync() {
-    this.live.setFeedParams(this.feedParams());
-    this.live.refreshFeeds();
+    // Re-applies the params and makes the server push a fresh snapshot now.
+    this.liveHandle?.setFeedParams('llm_usage', this.usageParams());
   }
 }
 
