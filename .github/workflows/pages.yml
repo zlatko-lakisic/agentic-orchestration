@@ -59,7 +59,7 @@ jobs:
           test -d _site/assets
           test -d _site/docs/assets
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
