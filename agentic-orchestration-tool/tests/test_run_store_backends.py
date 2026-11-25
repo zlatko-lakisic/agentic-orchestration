@@ -71,6 +71,10 @@ class FakeS3Client:
             raise _MissingKey()
         return {"ContentLength": len(self.objects[(Bucket, Key)])}
 
+    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        self.objects.pop((Bucket, Key), None)
+        return {}
+
 
 class FakeRedisClient:
     def __init__(self) -> None:
@@ -88,6 +92,9 @@ class FakeRedisClient:
 
     def exists(self, key: str) -> int:
         return 1 if key in self.values else 0
+
+    def delete(self, key: str) -> int:
+        return 1 if self.values.pop(key, None) is not None else 0
 
 
 def _result(text: str = "done", *, exit_code: int = 0) -> StepResult:
@@ -316,8 +323,9 @@ def test_factory_redis_uses_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     class _FakeRedisModule:
         class Redis:
             @staticmethod
-            def from_url(url: str) -> FakeRedisClient:
+            def from_url(url: str, **kwargs: Any) -> FakeRedisClient:
                 seen["url"] = url
+                seen["kwargs"] = kwargs
                 return FakeRedisClient()
 
     monkeypatch.setattr(
@@ -332,6 +340,9 @@ def test_factory_redis_uses_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     store = run_store_from_env(tmp_path)
     assert isinstance(store, RedisRunStore)
     assert seen["url"] == "redis://cache:6379/2"
+    # A hung Redis must not hang a run: the client is built with socket timeouts.
+    assert seen["kwargs"]["socket_timeout"] > 0
+    assert seen["kwargs"]["socket_connect_timeout"] > 0
     assert store.result_key("r", "s") == "edge:run:r:step:s:result"
 
     store.write_step_result("r", "s", _result())
@@ -358,7 +369,7 @@ def test_run_store_session_uses_configured_backend(
         lambda: type(
             "_Mod",
             (),
-            {"Redis": type("_R", (), {"from_url": staticmethod(lambda url: FakeRedisClient())})},
+            {"Redis": type("_R", (), {"from_url": staticmethod(lambda url, **_kw: FakeRedisClient())})},
         ),
     )
     monkeypatch.setenv("AGENTIC_RUN_STORE_BACKEND", "redis")

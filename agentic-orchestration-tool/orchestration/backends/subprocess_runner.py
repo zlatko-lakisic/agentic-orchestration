@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,21 @@ from orchestration.step_coordinator import StepCoordinator
 from orchestration.step_recovery import make_step_recovery_callback
 from orchestration.structured_logging import emit_log
 from orchestration.workflow_materializer import build_step_specs
+
+
+def subprocess_step_timeout_seconds() -> float | None:
+    """Wall-clock limit for one step worker (``AGENTIC_SUBPROCESS_STEP_TIMEOUT_SECONDS``).
+
+    Default 3600s (same as the Kubernetes Job timeout); ``0`` disables the limit.
+    Without a limit a hung MCP server or LLM call blocks the run and its queue
+    leases forever.
+    """
+    raw = os.getenv("AGENTIC_SUBPROCESS_STEP_TIMEOUT_SECONDS", "").strip()
+    try:
+        value = float(raw) if raw else 3600.0
+    except ValueError:
+        value = 3600.0
+    return value if value > 0 else None
 
 
 def run_config_via_subprocess(
@@ -52,14 +68,38 @@ def run_config_via_subprocess(
                 component="coordinator",
             )
             cmd = [sys.executable, str(tool_root / "main.py"), "--execute-step", str(spec_path)]
-            proc = subprocess.run(
-                cmd,
-                cwd=str(tool_root),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+            # Never reuse a result left by an earlier attempt / iterative round
+            # with the same (run_id, step_id).
+            store.clear_step_result(run_id, spec.step_id)
+            timeout = subprocess_step_timeout_seconds()
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(tool_root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                # ``subprocess.run`` has already killed and reaped the worker.
+                err = f"step worker timed out after {timeout:.0f}s"
+                emit_log(
+                    f"subprocess step fail {spec.step_id}: {err}",
+                    level="error",
+                    run_id=run_id,
+                    step_id=spec.step_id,
+                    component="coordinator",
+                )
+                timed_out = StepResult(
+                    run_id=run_id,
+                    step_id=spec.step_id,
+                    exit_code=124,
+                    error=err,
+                )
+                store.clear_step_result(run_id, spec.step_id)
+                return timed_out
             saved = store.read_step_result(run_id, spec.step_id)
             if saved is not None:
                 if saved.result_text:
@@ -110,7 +150,8 @@ def run_config_via_subprocess(
             execute_step=execute_step,
             try_recover=make_step_recovery_callback(
                 config_box,
-                catalog_path=options.mcp_catalog_path,
+                # Agent-providers catalog (not the MCP catalog) for HF fallback.
+                catalog_path=options.agent_providers_catalog_path,
                 quiet=options.quiet,
             ),
             options=options,

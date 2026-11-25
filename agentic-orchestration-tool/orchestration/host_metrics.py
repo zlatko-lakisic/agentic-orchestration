@@ -31,6 +31,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -112,20 +113,76 @@ def reset_cpu_sample() -> None:
     _prev_cpu = None
 
 
+#: Thread-local capture slot: when set, platform samplers hand their raw
+#: counters to :func:`cpu_percent_snapshot` instead of advancing ``_prev_cpu``.
+_cpu_capture = threading.local()
+
+
+def _delta_percent(prev: _CpuSample | None, sample: _CpuSample) -> float | None:
+    if prev is None:
+        return None
+    dt = sample.total - prev.total
+    di = sample.idle - prev.idle
+    if dt > 0:
+        raw = (1.0 - (di / dt)) * 100.0
+        # Clamp: clock skew / suspend can theoretically push outside [0, 100].
+        return round(max(0.0, min(100.0, raw)) * 10) / 10
+    return 0.0
+
+
 def _percent_from(sample: _CpuSample) -> float | None:
     global _prev_cpu
-    percent: float | None = None
-    if _prev_cpu is not None:
-        dt = sample.total - _prev_cpu.total
-        di = sample.idle - _prev_cpu.idle
-        if dt > 0:
-            raw = (1.0 - (di / dt)) * 100.0
-            # Clamp: clock skew / suspend can theoretically push outside [0, 100].
-            percent = round(max(0.0, min(100.0, raw)) * 10) / 10
-        else:
-            percent = 0.0
+    sink = getattr(_cpu_capture, "sink", None)
+    if sink is not None:
+        sink.append(sample)
+        return None
+    percent = _delta_percent(_prev_cpu, sample)
     _prev_cpu = sample
     return percent
+
+
+_snapshot_lock = threading.Lock()
+_snapshot_prev: _CpuSample | None = None
+_snapshot_at: float = 0.0
+_snapshot_value: float | None = None
+
+
+def reset_cpu_percent_snapshot() -> None:
+    """Drop the admission-control CPU snapshot state (tests)."""
+    global _snapshot_prev, _snapshot_at, _snapshot_value
+    with _snapshot_lock:
+        _snapshot_prev = None
+        _snapshot_at = 0.0
+        _snapshot_value = None
+
+
+def cpu_percent_snapshot(*, min_interval_seconds: float = 2.0) -> float | None:
+    """System-wide CPU busy percent for admission control (cheap, cached).
+
+    Unlike :func:`sample_host_metrics` this reads only the CPU counters, at most
+    once per ``min_interval_seconds``, and keeps its **own** delta window so
+    frequent admission checks do not shorten the window used by the metrics
+    stream (``sample_cpu_percent``). ``None`` until two samples exist.
+    """
+    global _snapshot_prev, _snapshot_at, _snapshot_value
+    now = time.monotonic()
+    with _snapshot_lock:
+        if _snapshot_prev is not None and (now - _snapshot_at) < max(0.0, min_interval_seconds):
+            return _snapshot_value
+        sink: list[_CpuSample] = []
+        _cpu_capture.sink = sink
+        try:
+            sample_cpu_percent()
+        finally:
+            _cpu_capture.sink = None
+        if not sink:
+            return _snapshot_value
+        sample = sink[-1]
+        if _snapshot_prev is not None:
+            _snapshot_value = _delta_percent(_snapshot_prev, sample)
+        _snapshot_prev = sample
+        _snapshot_at = now
+        return _snapshot_value
 
 
 def _sample_cpu_from_proc() -> float | None:

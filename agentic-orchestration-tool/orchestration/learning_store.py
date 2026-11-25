@@ -5,9 +5,14 @@ import os
 import hashlib
 import sys
 import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from orchestration.atomic_io import atomic_write_text, file_lock, quarantine_corrupt_file
 
 
 RUN_RATING_META_PREFIX = "(agentic) run_rating_meta:"
@@ -36,15 +41,30 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    try:
+        raw = json.loads(text)
+    except Exception as exc:  # noqa: BLE001
+        # Do not read a garbled file as ``{}`` and then overwrite it: the next
+        # save would erase every learned score. Keep it aside instead.
+        if text.strip():
+            quarantine_corrupt_file(path, reason=type(exc).__name__)
         return {}
     return raw if isinstance(raw, dict) else {}
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Atomic: readers (and a kill mid-write) never see an empty/partial file.
+    atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))
+
+
+@contextmanager
+def stats_lock(tool_root: Path) -> Iterator[None]:
+    """Hold this around a ``load_stats`` → mutate → ``save_stats`` cycle."""
+    with file_lock(stats_path(tool_root)):
+        yield
 
 
 def append_trace_event(
@@ -162,7 +182,23 @@ def consume_pending_ratings(tool_root: Path, stats: dict[str, Any]) -> dict[str,
     if not p.exists():
         return stats
 
-    lines = p.read_text(encoding="utf-8").splitlines()
+    # Claim the file by renaming it first: ratings appended while we merge go
+    # to a fresh file instead of being truncated away (read-then-truncate lost
+    # them).
+    claimed = p.with_name(f"{p.name}.consuming-{uuid.uuid4().hex}")
+    try:
+        os.replace(p, claimed)
+    except OSError:
+        return stats
+    try:
+        lines = claimed.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    finally:
+        try:
+            claimed.unlink()
+        except OSError:
+            pass
     if not lines:
         return stats
 
@@ -193,11 +229,6 @@ def consume_pending_ratings(tool_root: Path, stats: dict[str, Any]) -> dict[str,
         bucket["user_votes"] = int(bucket.get("user_votes", 0)) + 1
         bucket["user_vote_sum"] = int(bucket.get("user_vote_sum", 0)) + rating_i
 
-    # Clear after consumption (best-effort).
-    try:
-        p.write_text("", encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        pass
     return stats
 
 

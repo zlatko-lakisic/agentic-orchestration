@@ -103,7 +103,10 @@ class StoredTicket:
             run_id=str(data.get("run_id") or ""),
             phase=str(data.get("phase") or "planning"),
             kind=str(data.get("kind") or data.get("phase") or "run_planning"),
-            priority=int(data.get("priority") or 50),
+            # Explicit None check: priority 0 ("background") is valid and falsy.
+            priority=(
+                int(data["priority"]) if data.get("priority") is not None else 50
+            ),
             priority_label=(
                 str(data["priority_label"]).strip()
                 if data.get("priority_label") is not None

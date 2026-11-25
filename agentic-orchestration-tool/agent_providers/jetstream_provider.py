@@ -39,11 +39,10 @@ class JetstreamProvider(AgentProvider):
             raw = os.getenv("JETSTREAM_BASE_URL", "").strip()
         self._base_url = _normalize_openai_base(raw) if raw else None
 
-        if self._base_url and _is_likely_local_url(self._base_url):
-            os.environ.setdefault(
-                "OPENAI_API_KEY",
-                os.getenv("JETSTREAM_API_KEY", "local").strip() or "local",
-            )
+        # See VllmProvider: placeholder key stays on this agent's LLM.
+        self._local_placeholder_key = bool(
+            self._base_url and _is_likely_local_url(self._base_url)
+        )
 
     def health_check(self) -> None:
         if not self._base_url:
@@ -69,6 +68,8 @@ class JetstreamProvider(AgentProvider):
             "base_url": self._base_url,
         }
         api_key = os.getenv("JETSTREAM_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key and getattr(self, "_local_placeholder_key", False):
+            api_key = "local"
         if api_key:
             llm_kwargs["api_key"] = api_key
         llm = LLM(**llm_kwargs)

@@ -491,6 +491,9 @@ class OllamaResourceManager:
             with self._lock:
                 if self._closed:
                     raise RuntimeError("resource manager is closed")
+                granted = self._waiter_outcome(waiter)
+                if granted is not None:
+                    return granted
 
             loaded = self.list_loaded_models()
             self._reconcile_orphan_actives(loaded)
@@ -500,10 +503,21 @@ class OllamaResourceManager:
                 self._reconcile_orphan_actives(loaded2)
                 if self.can_admit(tag, loaded=loaded2):
                     with self._cond:
-                        lease = self._grant(tag)
-                        if waiter is not None and waiter in self._queue:
-                            self._queue.remove(waiter)
-                        return lease
+                        # ``_drain_queue`` (another thread's release) may have
+                        # granted this waiter while we polled off the lock:
+                        # granting again would leave a phantom lease that pins
+                        # the model forever.
+                        granted = self._waiter_outcome(waiter)
+                        if granted is not None:
+                            return granted
+                        if self.can_admit(tag, loaded=loaded2):
+                            lease = self._grant(tag)
+                            if waiter is not None:
+                                if waiter in self._queue:
+                                    self._queue.remove(waiter)
+                                waiter.lease = lease
+                                waiter.done = True
+                            return lease
 
             with self._cond:
                 if waiter is None:
@@ -515,6 +529,12 @@ class OllamaResourceManager:
                     waiter = _Waiter(id=uuid.uuid4().hex, model=tag)
                     self._queue.append(waiter)
 
+                # Outcome and deadline are checked under one lock hold, so a
+                # grant landing just before the deadline is returned instead of
+                # being abandoned behind a ``TimeoutError``.
+                granted = self._waiter_outcome(waiter)
+                if granted is not None:
+                    return granted
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     if waiter in self._queue:
@@ -524,19 +544,27 @@ class OllamaResourceManager:
                         f"timed out after {wait_s:.0f}s waiting for VRAM for model {tag}"
                     )
                 self._cond.wait(timeout=min(1.0, remaining))
-
-            if waiter.done and waiter.lease is not None:
-                return waiter.lease
-            if waiter.done and waiter.error:
-                raise RuntimeError(waiter.error)
-            if self._clock() >= deadline:
-                with self._cond:
+                granted = self._waiter_outcome(waiter)
+                if granted is not None:
+                    return granted
+                if self._clock() >= deadline:
                     if waiter in self._queue:
                         self._queue.remove(waiter)
                     self._rejects += 1
-                raise TimeoutError(
-                    f"timed out after {wait_s:.0f}s waiting for VRAM for model {tag}"
-                )
+                    raise TimeoutError(
+                        f"timed out after {wait_s:.0f}s waiting for VRAM for model {tag}"
+                    )
+
+    @staticmethod
+    def _waiter_outcome(waiter: "_Waiter | None") -> "_Lease | None":
+        """Lease granted to ``waiter`` (caller holds the lock), raising its error if any."""
+        if waiter is None or not waiter.done:
+            return None
+        if waiter.lease is not None:
+            return waiter.lease
+        if waiter.error:
+            raise RuntimeError(waiter.error)
+        return None
 
     def _grant(self, model: str) -> _Lease:
         """Caller must hold ``_cond`` / ``_lock``."""

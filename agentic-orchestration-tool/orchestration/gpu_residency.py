@@ -61,6 +61,10 @@ def queue_wait_seconds() -> float:
     return max(1.0, min(value, 7_200.0))
 
 
+#: How often a queued GPU waiter re-runs admission while it waits.
+_WAIT_REPOLL_SECONDS = 2.0
+
+
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
@@ -85,6 +89,9 @@ class _Resident:
     last_used_at: float = field(default_factory=time.time)
     measured_vram_gb: float | None = None
     unload: Callable[[], None] | None = None
+    #: Set (under the manager lock) while the unload callback runs, so the
+    #: resident cannot be granted a new lease mid-unload.
+    unloading: bool = False
 
 
 @dataclass
@@ -248,7 +255,7 @@ class GpuResidencyManager:
                 idle = [
                     (r.last_used_at, key, r)
                     for key, r in self._residents.items()
-                    if r.active <= 0
+                    if r.active <= 0 and not r.unloading
                 ]
                 idle.sort(key=lambda row: row[0])
             if not idle:
@@ -257,7 +264,19 @@ class GpuResidencyManager:
             _, key, res = idle[0]
             self._unload_resident(key, res)
 
-    def _unload_resident(self, key: str, res: _Resident) -> None:
+    def _unload_resident(self, key: str, res: _Resident) -> bool:
+        """Unload an idle resident. Returns ``False`` when it is no longer idle.
+
+        The victim was picked earlier under the lock; re-verify under the lock
+        that it is still the registered, idle resident and mark it
+        ``unloading`` so a concurrent "already resident" grant cannot make it
+        active while its weights are being dropped.
+        """
+        with self._lock:
+            current = self._residents.get(key)
+            if current is not res or res.active > 0 or res.unloading:
+                return False
+            res.unloading = True
         cb = res.unload
         try:
             if cb is not None:
@@ -265,9 +284,11 @@ class GpuResidencyManager:
         except Exception as exc:  # noqa: BLE001
             self._last_error = f"unload {res.provider_id}: {exc}"
         with self._lock:
-            self._residents.pop(key, None)
+            if self._residents.get(key) is res:
+                self._residents.pop(key, None)
             self._evictions += 1
             self._cond.notify_all()
+        return True
 
     def acquire(
         self,
@@ -310,12 +331,23 @@ class GpuResidencyManager:
             self._queue.append(waiter)
             self._cond.notify_all()
         self._drain_queue()
-        if not waiter.event.wait(timeout=queue_wait_seconds()):
-            with self._cond:
-                if waiter in self._queue:
-                    self._queue.remove(waiter)
-                self._rejects += 1
-            raise GpuResidencyError(f"timed out waiting for GPU lease ({pid})")
+        # Re-evaluate periodically while waiting: VRAM can free up without any
+        # GPU lease being released here (Ollama unloading a model, an idle
+        # unload finishing), and nothing else would wake this waiter.
+        deadline = time.monotonic() + queue_wait_seconds()
+        while not waiter.event.wait(
+            timeout=max(0.05, min(_WAIT_REPOLL_SECONDS, deadline - time.monotonic()))
+        ):
+            if time.monotonic() >= deadline:
+                with self._cond:
+                    if waiter.done:
+                        # Granted (or failed) right at the deadline.
+                        break
+                    if waiter in self._queue:
+                        self._queue.remove(waiter)
+                    self._rejects += 1
+                raise GpuResidencyError(f"timed out waiting for GPU lease ({pid})")
+            self._drain_queue()
         if waiter.error:
             with self._lock:
                 self._rejects += 1
@@ -386,6 +418,11 @@ class GpuResidencyManager:
                 already = self._residents.get(key)
             if already is not None:
                 with self._cond:
+                    current = self._residents.get(key)
+                    if current is None or current.unloading:
+                        # Being unloaded right now: wait for the next drain
+                        # (after the unload) instead of leasing vanishing weights.
+                        continue
                     if waiter in self._queue:
                         self._queue.remove(waiter)
                         self._grant(waiter)
@@ -411,8 +448,14 @@ class GpuResidencyManager:
                 if res.active <= 0 and (now - res.last_used_at) >= timeout
             ]
         for key, res in victims:
-            self._unload_resident(key, res)
-            unloaded.append(res.provider_id)
+            if self._unload_resident(key, res):
+                unloaded.append(res.provider_id)
+        # Idle tick: give queued waiters a chance even when no GPU lease was
+        # released (e.g. Ollama freed VRAM on its own).
+        with self._lock:
+            has_waiters = bool(self._queue)
+        if has_waiters:
+            self._drain_queue()
         return unloaded
 
     def note_measured_vram(self, provider_id: str, vram_gb: float | None) -> None:

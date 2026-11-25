@@ -41,6 +41,68 @@ class RunStore(ABC):
     def has_step_result(self, run_id: str, step_id: str) -> bool:
         return self.read_step_result(run_id, step_id) is not None
 
+    def clear_step_result(self, run_id: str, step_id: str) -> None:
+        """Drop any stored result before a (re-)run of the step.
+
+        Results are keyed by ``(run_id, step_id)`` only; without this a retry,
+        a recovery attempt, or an iterative round that reuses the ids would
+        read the previous attempt's result. Default: no-op.
+        """
+        return None
+
+
+def run_store_private_enabled() -> bool:
+    """Owner-only run-store dirs/files (``AGENTIC_RUN_STORE_PRIVATE``, default on).
+
+    Set ``AGENTIC_RUN_STORE_PRIVATE=0`` when coordinator and workers share the
+    volume under different uids.
+    """
+    return os.getenv("AGENTIC_RUN_STORE_PRIVATE", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def make_private_dir(path: Path) -> None:
+    """``mkdir -p`` and (when private mode is on) tighten the leaf to 0700."""
+    path.mkdir(parents=True, exist_ok=True)
+    if run_store_private_enabled():
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+
+
+def write_private_json(path: Path, payload: object) -> None:
+    """Atomically write JSON (temp file + ``os.replace``), mode 0600 when private.
+
+    Readers polling the shared volume never observe a partial file.
+    """
+    make_private_dir(path.parent)
+    private = run_store_private_enabled()
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+            fh.flush()
+        # mkstemp creates 0600; relax to the umask default when not private.
+        if not private:
+            umask = os.umask(0)
+            os.umask(umask)
+            try:
+                os.chmod(tmp, 0o666 & ~umask)
+            except OSError:
+                pass
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
 
 class FileSystemRunStore(RunStore):
     def __init__(self, root: Path) -> None:
@@ -60,9 +122,13 @@ class FileSystemRunStore(RunStore):
         return self.step_result_path(run_id, step_id).is_file()
 
     def write_step_result(self, run_id: str, step_id: str, result: StepResult) -> None:
-        path = self.step_result_path(run_id, step_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+        write_private_json(self.step_result_path(run_id, step_id), result.to_dict())
+
+    def clear_step_result(self, run_id: str, step_id: str) -> None:
+        try:
+            self.step_result_path(run_id, step_id).unlink()
+        except FileNotFoundError:
+            pass
 
     def read_step_result(self, run_id: str, step_id: str) -> StepResult | None:
         path = self.step_result_path(run_id, step_id)
@@ -108,8 +174,18 @@ def new_run_id() -> str:
 
 
 def resolve_run_id(explicit: str | None = None) -> str:
-    """Prefer an explicit id, then ``AGENTIC_RUN_ID``, else mint a new hex uuid."""
-    for candidate in (explicit, os.getenv("AGENTIC_RUN_ID", "")):
+    """Prefer an explicit id, then the current context's run id, else mint a new hex uuid.
+
+    The context id is the usage ContextVar when bound (concurrent daemon runs),
+    falling back to ``AGENTIC_RUN_ID`` (CLI / worker processes).
+    """
+    try:
+        from orchestration.llm_usage import current_run_id
+
+        ambient = current_run_id()
+    except Exception:  # noqa: BLE001
+        ambient = os.getenv("AGENTIC_RUN_ID", "")
+    for candidate in (explicit, ambient):
         text = str(candidate or "").strip()
         if text:
             return text
@@ -164,7 +240,7 @@ def allocate_run_store_root(*, run_id: str, user_id: str | None = None) -> tuple
     if base is not None:
         prefix = _safe_user_prefix(user_id) if run_store_user_namespace_enabled() else ""
         root = (base / "users" / prefix / run_id) if prefix else (base / run_id)
-        root.mkdir(parents=True, exist_ok=True)
+        make_private_dir(root)
         return root, False
     root = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))
     return root, True
@@ -227,7 +303,7 @@ def run_store_session(run_id: str) -> Iterator[tuple[RunStore, Path]]:
     if base is not None:
         local_root = base
         workspace = base / run_id
-        workspace.mkdir(parents=True, exist_ok=True)
+        make_private_dir(workspace)
         ephemeral = False
     else:
         workspace = Path(tempfile.mkdtemp(prefix=f"agentic-run-{run_id}-"))
@@ -243,5 +319,4 @@ def run_store_session(run_id: str) -> Iterator[tuple[RunStore, Path]]:
 
 def write_step_spec(spec_path: Path, spec_dict: dict[str, object]) -> None:
     """Write a worker ``StepSpec`` JSON file."""
-    spec_path.parent.mkdir(parents=True, exist_ok=True)
-    spec_path.write_text(json.dumps(spec_dict, indent=2), encoding="utf-8")
+    write_private_json(spec_path, spec_dict)

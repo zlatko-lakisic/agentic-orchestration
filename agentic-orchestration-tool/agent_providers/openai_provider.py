@@ -9,7 +9,11 @@ from typing import Any, Sequence
 
 from crewai import Agent
 
-from agent_providers.base import AgentProvider, resolve_agent_backstory
+from agent_providers.base import (
+    AgentProvider,
+    legacy_env_export_allowed,
+    resolve_agent_backstory,
+)
 
 try:
     from crewai import LLM
@@ -57,10 +61,13 @@ class OpenAIProvider(AgentProvider):
     Same *shape* as ``OllamaProvider``: read base URL from YAML + env, health check, build ``Agent``.
 
     - **Base URL**: ``openai_base_url`` in YAML, else ``OPENAI_BASE_URL``, else ``OPENAI_API_BASE``.
-      When set, ``/v1`` is appended if missing and ``OPENAI_BASE_URL`` is updated for the process.
+      When set, ``/v1`` is appended if missing. The resolved URL is passed to the LLM
+      explicitly; it is **never** written to ``os.environ`` (a per-session or per-agent
+      URL would otherwise leak to every later run in the process, together with the
+      server's own API key).
     - **Cloud** (no base URL): requires ``OPENAI_API_KEY``; no bootstrap or server management.
     - **Local OpenAI-compatible servers**: set the base URL; if it looks loopback and no key is set,
-      ``OPENAI_API_KEY`` defaults to ``local`` so the client can connect.
+      the client is given the placeholder key ``local`` so it can connect.
     """
 
     def initialize(self) -> None:
@@ -71,13 +78,20 @@ class OpenAIProvider(AgentProvider):
             raw = (getenv("OPENAI_BASE_URL", "") or "").strip() or (
                 getenv("OPENAI_API_BASE", "") or ""
             ).strip()
+        self._local_placeholder_key = False
         if raw:
             normalized = _normalize_openai_base(raw)
-            # Process-level base URL still helps CrewAI/LiteLLM; session key is read per call.
-            os.environ["OPENAI_BASE_URL"] = normalized
+            # Passed explicitly as ``base_url`` in ``build_agent``. Do not export it
+            # to ``os.environ``: the value may come from a session overlay or a
+            # client-registered agent, and the process env is shared by all runs.
             self._base_url = normalized
             if _is_likely_local_url(normalized) and not (getenv("OPENAI_API_KEY", "") or "").strip():
-                os.environ.setdefault("OPENAI_API_KEY", "local")
+                self._local_placeholder_key = True
+            if legacy_env_export_allowed(self.config.id):
+                # Operator opt-in (AGENTIC_PROVIDER_EXPORT_BASE_URL=1), single-user only.
+                os.environ["OPENAI_BASE_URL"] = normalized
+                if self._local_placeholder_key:
+                    os.environ.setdefault("OPENAI_API_KEY", "local")
         else:
             self._base_url = None
 
@@ -114,6 +128,8 @@ class OpenAIProvider(AgentProvider):
         if self._base_url:
             llm_kwargs["base_url"] = self._base_url
         api_key = (getenv("OPENAI_API_KEY", "") or "").strip()
+        if not api_key and getattr(self, "_local_placeholder_key", False):
+            api_key = "local"
         if api_key:
             llm_kwargs["api_key"] = api_key
 
