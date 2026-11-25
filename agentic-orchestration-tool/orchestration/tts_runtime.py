@@ -200,12 +200,22 @@ def run_tts(
     preferred_env = str(_opts(entry).get("endpoint_env") or "AGENTIC_SPEECH_TTS_URL")
     try:
         base = _endpoint(entry)
-    except TtsError:
-        fallback = _fallback_endpoint(entry)
-        if not fallback:
-            raise
-        base = fallback
-        engine_used = str(_opts(entry).get("fallback_engine") or "piper")
+    except TtsError as exc:
+        # Fail closed when the preferred endpoint env is unset (#185). Silent
+        # Piper fallback made logs claim Orpheus/Kokoro while Piper ran.
+        # Fallback still applies below when the preferred URL is set but the
+        # sidecar is unreachable or returns 5xx.
+        fallback_env = str(_opts(entry).get("fallback_endpoint_env") or "").strip()
+        hint = (
+            f" Configure {preferred_env}, or call tts_piper_en explicitly."
+            if fallback_env
+            else ""
+        )
+        raise TtsError(
+            f"{preferred_env} is not set; refusing silent fallback"
+            + (f" to {fallback_env}." if fallback_env else ".")
+            + hint
+        ) from exc
     path = str(_opts(entry).get("speech_path") or "/v1/audio/speech")
     own = client is None
     http = client or httpx.Client(timeout=float(os.getenv("AGENTIC_SPEECH_TTS_TIMEOUT_S", "120") or 120))
