@@ -187,15 +187,20 @@ test("stringField / sanitizePromptText tolerate non-strings and strip NUL", () =
   assert.equal(sanitizePromptText("a\u0000b"), "ab");
 });
 
-test("promptTooLargeError guards the argv size limit", () => {
+test("promptTooLargeError enforces the configured prompt size limit", () => {
   assert.equal(promptTooLargeError("hello", {}), null);
-  assert.match(promptTooLargeError("x".repeat(130_000), {}), /Prompt too large/);
+  // Long prompts go over stdin, so sizes past the argv limit are accepted by default.
+  assert.equal(promptTooLargeError("x".repeat(130_000), {}), null);
+  assert.match(promptTooLargeError("x".repeat(2_000_001), {}), /Prompt too large/);
   // Multi-byte text is measured in bytes, not characters.
-  assert.match(promptTooLargeError("é".repeat(70_000), {}), /Prompt too large/);
-  assert.equal(maxPromptBytes({}), 120_000);
+  assert.match(
+    promptTooLargeError("é".repeat(3_000), { AGENTIC_WEB_MAX_PROMPT_BYTES: "4096" }),
+    /Prompt too large/,
+  );
+  assert.equal(maxPromptBytes({}), 2_000_000);
   assert.equal(maxPromptBytes({ AGENTIC_WEB_MAX_PROMPT_BYTES: "4096" }), 4096);
-  assert.equal(maxPromptBytes({ AGENTIC_WEB_MAX_PROMPT_BYTES: "999999999" }), 130_000);
-  assert.equal(maxPromptBytes({ AGENTIC_WEB_MAX_PROMPT_BYTES: "abc" }), 120_000);
+  assert.equal(maxPromptBytes({ AGENTIC_WEB_MAX_PROMPT_BYTES: "999999999" }), 16 * 1024 * 1024);
+  assert.equal(maxPromptBytes({ AGENTIC_WEB_MAX_PROMPT_BYTES: "abc" }), 2_000_000);
 });
 
 test("identity headers are only honoured from configured trusted proxies", () => {

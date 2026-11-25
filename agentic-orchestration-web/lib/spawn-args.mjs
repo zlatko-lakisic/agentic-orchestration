@@ -4,6 +4,7 @@
  * The user prompt is argparse's positional TASK. It is always emitted last, after a `--`
  * separator, so a prompt that starts with `-` (for example `--execute-step=/path`) can never be
  * parsed as a main.py option. Other caller-influenced values use the `--flag=value` form.
+ * A prompt too long for one argv string goes over stdin (`--task-file=-`) instead.
  */
 import { normalizeClientSessionId } from "./user-context.mjs";
 import { sanitizePromptText } from "./request-guards.mjs";
@@ -99,7 +100,39 @@ export function buildDynamicSpawnArgs(text, opts = {}, env = process.env) {
   }
   const rid = runId && String(runId).trim();
   if (rid) args.push(`--run-id=${rid}`);
-  // Positional TASK last, after the option terminator.
-  args.push("--", sanitizePromptText(text));
+  const prompt = sanitizePromptText(text);
+  if (promptGoesViaStdin(prompt)) {
+    // Too long for one argv string: main.py reads TASK from stdin (see writePromptToChild).
+    args.push("--task-file=-");
+  } else {
+    // Positional TASK last, after the option terminator.
+    args.push("--", prompt);
+  }
   return args;
+}
+
+/**
+ * Linux rejects a single argv string over 128 KiB (MAX_ARG_STRLEN). Prompts above this
+ * size are streamed to the child's stdin instead.
+ */
+export const ARGV_PROMPT_SAFE_BYTES = 100_000;
+
+/** @param {unknown} text */
+export function promptGoesViaStdin(text) {
+  return Buffer.byteLength(sanitizePromptText(text), "utf8") > ARGV_PROMPT_SAFE_BYTES;
+}
+
+/**
+ * Call right after spawning with args from buildDynamicSpawnArgs: delivers the prompt on
+ * stdin when it was too long for argv. No-op otherwise.
+ * @param {{ stdin?: import("node:stream").Writable | null }} proc
+ * @param {unknown} text
+ */
+export function writePromptToChild(proc, text) {
+  if (!promptGoesViaStdin(text)) return;
+  const stdin = proc?.stdin;
+  if (!stdin) return;
+  // The child may exit before reading everything; that surfaces as its exit code.
+  stdin.on("error", () => {});
+  stdin.end(sanitizePromptText(text), "utf8");
 }

@@ -352,15 +352,19 @@ export function sanitizePromptText(text) {
   return stringField(text).replace(/\u0000/g, "");
 }
 
-/** Largest single argv string Linux accepts is 128 KiB (MAX_ARG_STRLEN); stay under it. */
-export const DEFAULT_MAX_PROMPT_BYTES = 120_000;
+/**
+ * Upper bound on prompt size. Long prompts are streamed to the orchestrator over stdin
+ * (see lib/spawn-args.mjs), so this is a resource limit, not an argv limit.
+ */
+export const DEFAULT_MAX_PROMPT_BYTES = 2_000_000;
+export const HARD_MAX_PROMPT_BYTES = 16 * 1024 * 1024;
 
 /** @param {Record<string, string|undefined>} [env] */
 export function maxPromptBytes(env = process.env) {
   const raw = String(env.AGENTIC_WEB_MAX_PROMPT_BYTES ?? "").trim();
   const n = Number(raw);
   if (!raw || !Number.isFinite(n) || n < 1024) return DEFAULT_MAX_PROMPT_BYTES;
-  return Math.min(Math.trunc(n), 130_000);
+  return Math.min(Math.trunc(n), HARD_MAX_PROMPT_BYTES);
 }
 
 /**

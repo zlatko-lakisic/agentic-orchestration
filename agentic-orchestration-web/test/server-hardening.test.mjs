@@ -33,11 +33,13 @@ const path = require("path");
 const args = process.argv.slice(2);
 if (args[0] === "-c") process.exit(0); // dependency probe: "import dotenv"
 const i = args.indexOf("--");
-const prompt = i >= 0 ? String(args[i + 1] || "") : "";
+const viaStdin = args.includes("--task-file=-");
+const stdinText = viaStdin ? fs.readFileSync(0, "utf8") : "";
+const prompt = viaStdin ? stdinText : i >= 0 ? String(args[i + 1] || "") : "";
 const out = process.env.STUB_OUT_DIR;
 fs.writeFileSync(
   path.join(out, "run-" + (process.env.AGENTIC_RUN_ID || "x") + ".json"),
-  JSON.stringify({ args, pid: process.pid }),
+  JSON.stringify({ args, pid: process.pid, stdinBytes: Buffer.byteLength(stdinText) }),
 );
 if (prompt === "sleep") {
   setInterval(() => {}, 1000);
@@ -417,8 +419,24 @@ test("non-string and oversized prompts are rejected cleanly", { skip }, async ()
   });
   assert.equal(s.messages.find((m) => m.type === "run_end")?.code, 0, JSON.stringify(s.messages));
 
-  const big = await wsSession({
+  // Past the argv limit (128 KiB per string on Linux): delivered over stdin, not rejected.
+  const before = new Set(fs.readdirSync(stubOut));
+  const long = await wsSession({
     send: [{ type: "chat", text: "x".repeat(200_000) }],
+    until: (m) => m.type === "error" || m.type === "run_end",
+    timeoutMs: 15000,
+  });
+  assert.equal(long.messages.at(-1)?.type, "run_end", JSON.stringify(long.messages.at(-1)));
+  assert.equal(long.messages.at(-1)?.code, 0);
+  const fresh = fs.readdirSync(stubOut).filter((n) => !before.has(n));
+  assert.equal(fresh.length, 1);
+  const record = JSON.parse(fs.readFileSync(path.join(stubOut, fresh[0]), "utf8"));
+  assert.ok(record.args.includes("--task-file=-"));
+  assert.equal(record.stdinBytes, 200_000);
+  assert.ok(record.args.every((a) => a.length < 1000), "prompt must not be on argv");
+
+  const big = await wsSession({
+    send: [{ type: "chat", text: "x".repeat(2_000_001) }],
     until: (m) => m.type === "error" || m.type === "run_end",
   });
   assert.equal(big.messages.at(-1)?.code, "prompt_too_large");

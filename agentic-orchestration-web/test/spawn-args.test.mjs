@@ -116,3 +116,30 @@ test("example overlay and flags", () => {
   const none = split(buildDynamicSpawnArgs("go", {}, { AGENTIC_EXAMPLE: "__proto__" })).options;
   assert.ok(!none.includes("--example"));
 });
+
+test("a prompt too long for argv is handed over on stdin, never on the command line", async () => {
+  const { promptGoesViaStdin, writePromptToChild, ARGV_PROMPT_SAFE_BYTES } = await import(
+    "../lib/spawn-args.mjs"
+  );
+  const { PassThrough } = await import("node:stream");
+  const long = "--execute-step=/etc/passwd " + "x".repeat(ARGV_PROMPT_SAFE_BYTES);
+  assert.equal(promptGoesViaStdin(long), true);
+  assert.equal(promptGoesViaStdin("short prompt"), false);
+
+  const args = buildDynamicSpawnArgs(long, {}, {});
+  assert.ok(args.includes("--task-file=-"));
+  assert.equal(args.includes("--"), false);
+  assert.ok(args.every((a) => a.length < 1000), "no argv string carries the prompt");
+
+  const stdin = new PassThrough();
+  const chunks = [];
+  stdin.on("data", (c) => chunks.push(c));
+  writePromptToChild({ stdin }, long);
+  await new Promise((resolve) => stdin.on("end", resolve));
+  assert.equal(Buffer.concat(chunks).toString("utf8"), long);
+
+  // Short prompts are untouched: stdin is left alone.
+  const idle = new PassThrough();
+  writePromptToChild({ stdin: idle }, "short prompt");
+  assert.equal(idle.writableEnded, false);
+});

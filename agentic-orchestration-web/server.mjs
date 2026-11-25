@@ -110,7 +110,11 @@ import {
   untrustedSourceBody,
   wsBearerFromProtocolHeader,
 } from "./lib/request-guards.mjs";
-import { buildDynamicSpawnArgs, EXAMPLE_VERTICAL_SUBDIR } from "./lib/spawn-args.mjs";
+import {
+  buildDynamicSpawnArgs,
+  EXAMPLE_VERTICAL_SUBDIR,
+  writePromptToChild,
+} from "./lib/spawn-args.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3604,6 +3608,7 @@ async function runDynamicAwait({
       reject(spawnError);
       return;
     }
+    writePromptToChild(proc, text);
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -3814,6 +3819,7 @@ async function runDynamic(
     finish();
     return;
   }
+  writePromptToChild(proc, text);
   ws._runProc = proc;
   let timedOut = false;
   const deadlineMs = runTimeoutMs();

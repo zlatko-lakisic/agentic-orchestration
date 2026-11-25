@@ -699,6 +699,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--task-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Read TASK from a UTF-8 file instead of the command line ('-' reads stdin). "
+            "Use for prompts too long for an argv string. Cannot be combined with TASK."
+        ),
+    )
+    parser.add_argument(
         "--batch",
         action="store_true",
         help=(
@@ -1104,8 +1113,28 @@ def _cli_output_dir(raw: str | None) -> Path | None:
     return Path(str(raw).strip()).expanduser().resolve()
 
 
+def _apply_task_file(args: argparse.Namespace) -> None:
+    """Load TASK from ``--task-file`` (``-`` = stdin) for prompts too long for argv."""
+    task_file = getattr(args, "task_file", None)
+    if not task_file:
+        return
+    if args.task is not None:
+        print("error: pass TASK or --task-file, not both", file=sys.stderr)
+        sys.exit(2)
+    try:
+        if task_file == "-":
+            raw_task_bytes = sys.stdin.buffer.read()
+        else:
+            raw_task_bytes = Path(task_file).read_bytes()
+    except OSError as exc:
+        print(f"error: cannot read --task-file: {exc}", file=sys.stderr)
+        sys.exit(2)
+    args.task = raw_task_bytes.decode("utf-8", errors="replace")
+
+
 def main() -> None:
     args = parse_args()
+    _apply_task_file(args)
     tool_root = Path(__file__).resolve().parent
 
     try:
