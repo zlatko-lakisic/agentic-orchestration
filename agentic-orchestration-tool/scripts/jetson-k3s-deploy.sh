@@ -64,11 +64,56 @@ fi
 
 log "Ensure run-store host directory"
 mkdir -p "${RUN_STORE_HOST}/mcp-fs-workspace"
-chmod 1777 "${RUN_STORE_HOST}" || true
+# The run store holds step specs and results (prompts, tool output, artifacts):
+# it must not be readable by every local user (it used to be chmod 1777).
+# Pods write it as root; the deploy user gets access through its primary group
+# (setgid keeps new entries in that group) for host-side runs and smoke tests.
+RUN_STORE_GROUP="${AGENTIC_RUN_STORE_GROUP:-}"
+if [[ -z "${RUN_STORE_GROUP}" ]]; then
+  RUN_STORE_OWNER_USER="${SUDO_USER:-${DEPLOY_USER:-}}"
+  if [[ -n "${RUN_STORE_OWNER_USER}" && "${RUN_STORE_OWNER_USER}" != "root" ]]; then
+    RUN_STORE_GROUP="$(id -gn "${RUN_STORE_OWNER_USER}" 2>/dev/null || true)"
+  fi
+fi
+if [[ -n "${RUN_STORE_GROUP}" ]] && getent group "${RUN_STORE_GROUP}" >/dev/null 2>&1; then
+  chown "root:${RUN_STORE_GROUP}" "${RUN_STORE_HOST}" "${RUN_STORE_HOST}/mcp-fs-workspace" || true
+  chmod 2770 "${RUN_STORE_HOST}" || true
+else
+  chmod 0700 "${RUN_STORE_HOST}" || true
+fi
 
 log "Install k3s (docker runtime) if needed"
 if ! command -v k3s >/dev/null 2>&1; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--docker --write-kubeconfig-mode 644" sh -
+  # Pin the release. Unpinned, the node gets whatever get.k3s.io serves that day.
+  # Pick a version from https://github.com/k3s-io/k3s/releases, e.g.
+  #   INSTALL_K3S_VERSION=v1.xx.y+k3s1 sudo -E bash scripts/jetson-k3s-deploy.sh
+  # AGENTIC_K3S_ALLOW_UNPINNED=1 installs the current stable channel instead.
+  if [[ -z "${INSTALL_K3S_VERSION:-}" && "${AGENTIC_K3S_ALLOW_UNPINNED:-0}" != "1" ]]; then
+    echo "error: k3s is not installed and INSTALL_K3S_VERSION is not set." >&2
+    echo "       Set INSTALL_K3S_VERSION=<release tag> (https://github.com/k3s-io/k3s/releases)," >&2
+    echo "       or AGENTIC_K3S_ALLOW_UNPINNED=1 to accept the current stable release." >&2
+    exit 1
+  fi
+  # The admin kubeconfig is cluster-admin and, on this single node, host root
+  # (privileged pods). Mode 644 handed that to every local user. Restrict it to
+  # a group: root plus the members of AGENTIC_KUBECONFIG_GROUP (default k3s-admin).
+  # AGENTIC_KUBECONFIG_GROUP="" writes it root-only (0600); use sudo for kubectl.
+  # (Also use that when pinning an old k3s that lacks --write-kubeconfig-group:
+  # check `k3s server --help` for the release you pin.)
+  KUBECONFIG_GROUP="${AGENTIC_KUBECONFIG_GROUP-k3s-admin}"
+  K3S_KUBECONFIG_FLAGS="--write-kubeconfig-mode 600"
+  if [[ -n "${KUBECONFIG_GROUP}" ]]; then
+    groupadd -f "${KUBECONFIG_GROUP}"
+    KUBECONFIG_USER="${SUDO_USER:-${DEPLOY_USER:-}}"
+    if [[ -n "${KUBECONFIG_USER}" && "${KUBECONFIG_USER}" != "root" ]]; then
+      usermod -aG "${KUBECONFIG_GROUP}" "${KUBECONFIG_USER}"
+      echo "added ${KUBECONFIG_USER} to group ${KUBECONFIG_GROUP} (log in again for kubectl without sudo)"
+    fi
+    K3S_KUBECONFIG_FLAGS="--write-kubeconfig-mode 640 --write-kubeconfig-group ${KUBECONFIG_GROUP}"
+  fi
+  curl -sfL https://get.k3s.io \
+    | INSTALL_K3S_VERSION="${INSTALL_K3S_VERSION:-}" \
+      INSTALL_K3S_EXEC="--docker ${K3S_KUBECONFIG_FLAGS}" sh -
 fi
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
@@ -120,55 +165,9 @@ spec:
 EOF
 
 log "Sync K8s secret from tool .env"
-ENV_FILE="${TOOL_ROOT}/.env"
-APPLY_ENV="${TOOL_ROOT}/scripts/jetson-apply-env.sh"
-if [[ -f "${APPLY_ENV}" ]]; then
-  bash "${APPLY_ENV}"
-fi
-if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "Missing ${ENV_FILE}" >&2
-  exit 1
-fi
-SECRET_TMP="$(mktemp)"
-{
-  grep -v '^#' "${ENV_FILE}" | grep '=' || true
-  cat <<ENVEOF
-AGENTIC_EXECUTION_BACKEND=kubernetes
-AGENTIC_RUN_STORE_PATH=${RUN_STORE_HOST}
-AGENTIC_K8S_RUN_STORE_VOLUME=hostpath
-AGENTIC_K8S_RUN_STORE_HOST_PATH=${RUN_STORE_HOST}
-AGENTIC_K8S_WORKER_IMAGE=${WORKER_IMAGE}
-AGENTIC_K8S_NAMESPACE=agentic-orchestration
-AGENTIC_K8S_RUN_STORE_PVC=agentic-run-store
-AGENTIC_K8S_RUN_STORE_MOUNT=/run/store
-AGENTIC_K8S_ENV_SECRET=agentic-orchestrator-env
-AGENTIC_K8S_WARM_POOL_ENABLED=1
-AGENTIC_K8S_DELEGATION_ENABLED=1
-AGENTIC_K8S_WORKER_STDIO_MCPS=fetch_url,filesystem_local
-AGENTIC_MCP_FETCH_ENABLED=1
-FILESYSTEM_MCP_ALLOWED_DIRECTORY=/run/store/mcp-fs-workspace
-AGENTIC_LOG_FORMAT=json
-ENVEOF
-} | awk -F= '{
-  line=$0
-  sub(/\r$/, "", line)
-  if (line ~ /^[[:space:]]*#/ || line !~ /=/) next
-  key=line
-  sub(/=.*$/, "", key)
-  gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-  if (key == "") next
-  # order[] is numeric-indexed; use seen[] so duplicate keys are not printed twice
-  if (!(key in seen)) {
-    seen[key]=1
-    order[++n]=key
-  }
-  vals[key]=line
-} END { for (i=1;i<=n;i++) print vals[order[i]] }' > "${SECRET_TMP}"
-kubectl create secret generic agentic-orchestrator-env \
-  -n agentic-orchestration \
-  --from-env-file="${SECRET_TMP}" \
-  --dry-run=client -o yaml | kubectl apply -f -
-rm -f "${SECRET_TMP}"
+# One generator for the Secret (same script the routine deploy uses).
+PROJECT_ROOT="${PROJECT_ROOT}" RUN_STORE_HOST="${RUN_STORE_HOST}" WORKER_IMAGE="${WORKER_IMAGE}" \
+  bash "${TOOL_ROOT}/scripts/jetson-sync-k8s-secret.sh" --no-restart
 
 log "Build or pull coordinator + worker images"
 if [[ "${AGENTIC_USE_GHCR}" == "1" || "${AGENTIC_USE_GHCR}" == "true" || "${AGENTIC_USE_GHCR}" == "yes" ]]; then

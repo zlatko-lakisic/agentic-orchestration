@@ -10,7 +10,7 @@
 # because /var/projects is root-owned and passwordless sudo is not available.
 #
 #   bash agentic-orchestration-tool/scripts/jetson-migrate-to-nvme.sh
-set -eu
+set -euo pipefail
 
 NVME_ROOT="${AGENTIC_JETSON_NVME_ROOT:-/mnt/nvme}"
 PROJECT_LINK="${AGENTIC_JETSON_PROJECT_LINK:-/var/projects/agentic-orchestration}"
@@ -50,10 +50,30 @@ fi
 mkdir -p "${NVME_ROOT}/projects" "${OLLAMA_MODELS_NVME}"
 chmod 775 "${NVME_ROOT}/projects" "${NVME_ROOT}/ollama" "${OLLAMA_MODELS_NVME}" 2>/dev/null || true
 
-# Run a host script as root via privileged nsenter (no passwordless sudo).
+# Run a host script as root. Real root (already root, or passwordless sudo) is
+# used when available. Only when neither exists does this fall back to a
+# privileged hostPID nsenter pod — that path works solely because the caller's
+# kubeconfig is cluster-admin, i.e. it turns kubectl access into host root.
+# Prefer giving the deploy user sudo for this one-off migration; set
+# AGENTIC_ALLOW_NSENTER_ROOT=0 to refuse the pod fallback outright.
 nsenter_root() {
   local name="$1"
   local script="$2"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    echo "--- ${name}: running as root ---"
+    sh -c "${script}"
+    return $?
+  fi
+  if sudo -n true 2>/dev/null; then
+    echo "--- ${name}: running via sudo ---"
+    printf '%s\n' "${script}" | sudo -n sh
+    return $?
+  fi
+  if [[ "${AGENTIC_ALLOW_NSENTER_ROOT:-1}" == "0" ]]; then
+    echo "error: ${name} needs root; no sudo available and AGENTIC_ALLOW_NSENTER_ROOT=0" >&2
+    return 1
+  fi
+  echo "warning: no root/sudo — using a privileged nsenter pod (kubeconfig acts as host root)" >&2
   local b64
   b64="$(printf '%s' "${script}" | base64 -w0 2>/dev/null || printf '%s' "${script}" | base64)"
   kubectl -n "${NS}" delete pod "${name}" --ignore-not-found >/dev/null 2>&1 || true

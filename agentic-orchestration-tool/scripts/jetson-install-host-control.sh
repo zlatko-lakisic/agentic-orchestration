@@ -2,18 +2,44 @@
 # Install host control watcher (reboot / Ollama restart) and mount the dir
 # into the coordinator. Safe to re-run. Prefers a system unit when root or
 # passwordless sudo is available; otherwise a systemd --user path unit.
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 CONTROL_DIR="${PROJECT_ROOT}/var/agentic-control"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
+# shellcheck source=lib-root-install.sh
+source "${TOOL_ROOT}/scripts/lib-root-install.sh"
+
+# Anyone who can create "reboot.request" in this directory reboots the host, so it
+# must not be world-writable (it used to be chmod 777). Writers are: the coordinator
+# pod (root in the container) and the watcher (root system unit, or the deploy
+# user's --user unit). Mode 0770 + a dedicated group; add operators to the group
+# (AGENTIC_HOST_CONTROL_GROUP, default agentic-control) if they need direct access.
+CONTROL_GROUP="${AGENTIC_HOST_CONTROL_GROUP:-agentic-control}"
 mkdir -p "${CONTROL_DIR}"
-chmod 775 "${CONTROL_DIR}" 2>/dev/null || true
+chmod 770 "${CONTROL_DIR}" 2>/dev/null || true
 hostname >"${CONTROL_DIR}/hostname" 2>/dev/null || true
 
 can_sudo() { sudo -n true 2>/dev/null; }
+
+secure_control_dir() {
+  # Root / passwordless sudo: owner stays the deploy user, group is dedicated, 2770.
+  local owner
+  owner="$(stat -c '%u' "${CONTROL_DIR}" 2>/dev/null || id -u)"
+  if [[ "${owner}" == "0" && "$(id -u)" -ne 0 ]]; then
+    owner="$(id -u)"
+  fi
+  as_root groupadd -f "${CONTROL_GROUP}" 2>/dev/null || true
+  if getent group "${CONTROL_GROUP}" >/dev/null 2>&1; then
+    as_root chown "${owner}:${CONTROL_GROUP}" "${CONTROL_DIR}"
+    as_root chmod 2770 "${CONTROL_DIR}"
+  else
+    as_root chown "${owner}" "${CONTROL_DIR}"
+    as_root chmod 0770 "${CONTROL_DIR}"
+  fi
+}
 as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     "$@"
@@ -32,7 +58,8 @@ can_ollama() {
 }
 
 subst_root() {
-  sed -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" "$1"
+  sed -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" \
+      -e "s|/usr/local/libexec/agentic-orchestration|${AGENTIC_LIBEXEC_DIR}|g" "$1"
 }
 
 install_system_units() {
@@ -40,6 +67,9 @@ install_system_units() {
   local path_src="${TOOL_ROOT}/deploy/systemd/agentic-host-control.path"
   local svc_dst="/etc/systemd/system/agentic-host-control.service"
   local path_dst="/etc/systemd/system/agentic-host-control.path"
+  # The root unit runs a root-owned copy, not the script in the git checkout.
+  install_root_owned_script agentic-host-control-run.sh
+  secure_control_dir || true
   subst_root "${svc_src}" | as_root tee "${svc_dst}" >/dev/null
   subst_root "${path_src}" | as_root tee "${path_dst}" >/dev/null
   as_root systemctl daemon-reload
@@ -116,7 +146,13 @@ if command -v kubectl >/dev/null 2>&1; then
     echo "Patching coordinator host sysrq trigger"
     kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${SYSRQ_PATCH}" || true
   fi
-  kubectl exec -n "${NS}" deploy/agentic-coordinator -- chmod 777 /host/agentic-control 2>/dev/null || true
+  # No root/sudo on the host (user-mode watcher): use the pod's root to hand a
+  # root-created hostPath directory to the deploy user — owner-only + group, never 777.
+  if [[ "${MODE}" != "system" ]]; then
+    kubectl exec -n "${NS}" deploy/agentic-coordinator -- \
+      chown "$(id -u):$(id -g)" /host/agentic-control 2>/dev/null || true
+    kubectl exec -n "${NS}" deploy/agentic-coordinator -- chmod 770 /host/agentic-control 2>/dev/null || true
+  fi
   kubectl exec -i -n "${NS}" deploy/agentic-coordinator -- tee /host/agentic-control/watcher.json >/dev/null <"${WATCHER_JSON}" || true
   kubectl exec -n "${NS}" deploy/agentic-coordinator -- sh -c 'hostname > /host/agentic-control/hostname' || true
 fi

@@ -2,7 +2,7 @@
 # Routine Jetson deploy: git pull only (never SCP), then env + k8s + hotfix.
 # Run on the device as the repo owner (kubectl works without sudo):
 #   bash /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/jetson-deploy.sh
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 GIT_REMOTE="${GIT_REMOTE:-origin}"

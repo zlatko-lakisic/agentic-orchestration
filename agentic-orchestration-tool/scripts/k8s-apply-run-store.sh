@@ -6,12 +6,11 @@ set -euo pipefail
 TOOL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_ROOT="${TOOL_ROOT}/deploy/k8s"
 
-if [[ -f "${TOOL_ROOT}/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "${TOOL_ROOT}/.env"
-  set +a
-fi
+# Read only the settings this script uses; never `source` the .env (see lib-env-file.sh).
+# shellcheck source=lib-env-file.sh
+source "${TOOL_ROOT}/scripts/lib-env-file.sh"
+load_env_keys "${TOOL_ROOT}/.env" \
+  AGENTIC_K8S_RUN_STORE_VOLUME AGENTIC_K8S_FILESTORE_NETWORK AGENTIC_K8S_FILESTORE_TIER
 
 VOLUME="${AGENTIC_K8S_RUN_STORE_VOLUME:-nfs}"
 VOLUME="${VOLUME,,}"

@@ -1,0 +1,56 @@
+# Docker build context for the coordinator image, which is built from the repo root:
+#   docker build -f agentic-orchestration-tool/docker/Dockerfile.coordinator .
+#
+# Without this file the whole checkout — .git, node_modules, local .env files,
+# runtime state with API tokens and session history — is sent to the Docker daemon,
+# and `COPY agentic-orchestration-tool/config` bakes per-host files into the image.
+# (The worker image builds from agentic-orchestration-tool/ and has its own
+# .dockerignore there.)
+
+.git
+.github
+.cursor
+.githooks
+
+# Dependencies and caches
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/out-tsc
+
+# Secrets and per-host configuration — never in an image
+**/.env
+**/.env.*
+!**/.env.example
+**/.secrets
+agentic-orchestration-tool/config/env.host
+
+# Runtime state (sessions, KB, learning, run traces, LLM usage, API tokens, mTLS CA, deals)
+**/__orchestrator_*
+**/__output__
+**/_web_uploads
+**/_tool_artifacts
+**/_tool_sandbox
+**/harness_runs
+var
+agentic-orchestration-web/public/admin/deploy-stamp.json
+
+# Not part of the coordinator image
+agentic-orchestration-admin
+agentic-orchestration-tool/tests
+agentic-orchestration-tool/scripts
+agentic-orchestration-tool/deploy
+agentic-orchestration-tool/docker
+agentic-orchestration-tool/.tools
+agentic-orchestration-tool/.mirrord
+agentic-orchestration-web/test
+docs
+site
+examples
+extras
+assets
+*.png
+*.md

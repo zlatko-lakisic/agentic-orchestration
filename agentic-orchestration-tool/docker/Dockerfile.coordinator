@@ -41,4 +41,12 @@ COPY agentic-orchestration-web/public /app/web/public
 WORKDIR /app/web
 EXPOSE 3847
 
+# Runs as root by default: the server creates a Python venv / installs packages on
+# first run, writes __orchestrator_* state under /app/tool, and on edge hosts
+# writes hostPath directories owned by other uids (host control, run traces, API
+# tokens). A non-root default would break those deployments; the account below
+# exists so a deployment that mounts writable volumes for that state can opt in
+# with securityContext.runAsUser: 10001.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin agentic
+
 CMD ["node", "server.mjs"]

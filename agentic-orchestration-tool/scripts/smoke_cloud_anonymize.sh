@@ -22,12 +22,12 @@ fi
 # Pull API key from k8s secret when available.
 if [[ -z "${SMOKE_API_KEY:-}" ]] && command -v kubectl >/dev/null 2>&1; then
   SMOKE_API_KEY="$(
-    kubectl -n agentic-orchestration get secret agentic-orchestration-env -o jsonpath='{.data.AGENTIC_ORCHESTRATE_API_KEY}' 2>/dev/null \
+    kubectl -n agentic-orchestration get secret agentic-orchestrator-env -o jsonpath='{.data.AGENTIC_ORCHESTRATE_API_KEY}' 2>/dev/null \
       | base64 -d 2>/dev/null || true
   )"
   if [[ -z "${SMOKE_API_KEY}" ]]; then
     SMOKE_API_KEY="$(
-      kubectl -n agentic-orchestration get secret agentic-orchestration-env -o jsonpath='{.data.AGENTIC_CHAT_COMPLETIONS_API_KEY}' 2>/dev/null \
+      kubectl -n agentic-orchestration get secret agentic-orchestrator-env -o jsonpath='{.data.AGENTIC_CHAT_COMPLETIONS_API_KEY}' 2>/dev/null \
         | base64 -d 2>/dev/null || true
     )"
   fi

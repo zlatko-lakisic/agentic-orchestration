@@ -1,0 +1,76 @@
+# OPT-IN network isolation for the agentic-orchestration namespace.
+#
+# NOT applied by any script or kustomization in this repo. Apply it yourself once
+# you have checked the caveats below:
+#
+#   kubectl apply -f deploy/k8s/network-policy/namespace-isolation.yaml
+#   kubectl delete -f deploy/k8s/network-policy/namespace-isolation.yaml   # roll back
+#
+# What it does
+#   1. default-deny-ingress      — pods accept no traffic unless another policy allows it.
+#   2. allow-same-namespace      — pods in this namespace may talk to each other
+#                                  (coordinator -> engine, workers -> ollama, ...).
+#   3. allow-published-endpoints — the two intended entry points stay reachable from
+#                                  outside the namespace: the web UI (3847) and the
+#                                  engine API (8765). Everything else — Ollama (11434),
+#                                  ComfyUI (8188), MCP gateways (8080/8081) — is closed
+#                                  to other namespaces and to NodePort/LAN clients.
+#
+# Caveats — read before applying
+#   * Requires a CNI that enforces NetworkPolicy. k3s ships one (kube-router's
+#     policy controller) unless started with --disable-network-policy; kind's
+#     default CNI (kindnet) only enforces policies in recent releases.
+#   * Pods using hostNetwork are NOT covered by NetworkPolicy. The Jetson
+#     "host-binary" Ollama pod (scripts/jetson-enable-ollama.sh) runs with
+#     hostNetwork, so its broker on host port 11434 stays reachable from the LAN;
+#     firewall that port on the host if it must not be.
+#   * Traffic arriving through a NodePort or hostPort is seen with a node/CNI
+#     source address, which is why rule 3 has no "from" restriction. Narrow it with
+#     an ipBlock for your reverse proxy if you can.
+#   * Egress is not restricted here. Workers and the fetch gateway can still reach
+#     any address; add an egress policy if you need that too (remember DNS and the
+#     LLM / MCP endpoints you use).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: agentic-orchestration
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: agentic-orchestration
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-published-endpoints
+  namespace: agentic-orchestration
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - agentic-coordinator
+          - agentic-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3847
+        - protocol: TCP
+          port: 8765

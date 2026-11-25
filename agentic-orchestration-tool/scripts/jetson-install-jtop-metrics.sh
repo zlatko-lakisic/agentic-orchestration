@@ -4,7 +4,7 @@
 # Root: installs system unit agentic-jtop-metrics.service
 # Non-root: installs user unit (~/.config/systemd/user/) — works without jtop group
 #           via tegrastats. Requires linger enabled for the user (already on Jetson).
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 WRITER="${TOOL_ROOT}/scripts/jetson-jtop-metrics-writer.py"
@@ -43,7 +43,16 @@ install_system_unit() {
   else
     echo "note: jtop not installed; writer will use tegrastats"
   fi
-  install -m 0644 "${unit_src}" "${unit_dst}"
+  # The unit runs as root: give it a root-owned copy of the writer instead of the
+  # file in the deploy user's checkout (see scripts/lib-root-install.sh).
+  # shellcheck source=lib-root-install.sh
+  source "${TOOL_ROOT}/scripts/lib-root-install.sh"
+  install_root_owned_script jetson-jtop-metrics-writer.py
+  sed \
+    -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" \
+    -e "s|/usr/local/libexec/agentic-orchestration|${AGENTIC_LIBEXEC_DIR}|g" \
+    "${unit_src}" >"${unit_dst}"
+  chmod 0644 "${unit_dst}"
   systemctl daemon-reload
   systemctl enable --now agentic-jtop-metrics.service
   systemctl restart agentic-jtop-metrics.service

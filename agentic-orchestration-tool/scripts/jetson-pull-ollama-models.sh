@@ -6,6 +6,8 @@
 # The dynamic planner only schedules agents whose models appear in
 # OLLAMA_API_BASE /api/tags (see filter_catalog_by_pulled_ollama_models).
 # Pull CORE first for a usable chat path; OPTIONAL fills the rest of the catalog.
+# Deliberately not `set -e`/pipefail: one failed pull must not stop the rest
+# (the script is safe to re-run and reports what is missing at the end).
 set -u
 MODELS_DIR="${AGENTIC_OLLAMA_MODELS_HOSTPATH:-/mnt/nvme/ollama/models}"
 export OLLAMA_MODELS="${MODELS_DIR}"

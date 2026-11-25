@@ -7,11 +7,13 @@
 #   bash agentic-orchestration-tool/scripts/jetson-sync-warm-pool.sh
 #
 # If a prior apply already broke the rollout, this script re-applies warm-pool patches first.
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+# shellcheck source=lib-openclaw.sh
+source "${TOOL_ROOT}/scripts/lib-openclaw.sh"
 
 BOOTSTRAP_PATCH="${TOOL_ROOT}/deploy/k8s/warm-pool-fastapi-bootstrap-patch.yaml"
 if [[ ! -f "${BOOTSTRAP_PATCH}" ]]; then
@@ -113,7 +115,6 @@ _reapply_warm_pool_patches() {
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-agent-skills-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-rag-sources-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-mcp-hostpath-patch.yaml" \
-    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-run-traces-hostpath-patch.yaml" \
     "${TOOL_ROOT}/deploy/k8s/warm-pool-llm-usage-hostpath-patch.yaml"
   do
@@ -122,6 +123,10 @@ _reapply_warm_pool_patches() {
       kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${patch}"
     fi
   done
+
+  # OpenClaw mounts are host-specific: rendered for AGENTIC_OPENCLAW_HOME, skipped when unset.
+  apply_openclaw_patch agentic-warm-pool "${NS}" \
+    "${TOOL_ROOT}/deploy/k8s/warm-pool-jetson-openclaw-mcp-hostpath-patch.yaml" "${TOOL_ROOT}"
 
   _strip_configmap_orch_mounts
   _strip_orch_hostpath_mounts

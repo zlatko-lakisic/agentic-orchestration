@@ -4,7 +4,7 @@
 # Default: skip. Coordinator/worker images since v2.25.1 ship apt ``ffmpeg``.
 # Host binary mounts alone break (missing shared libs). Opt in only when needed:
 #   AGENTIC_MOUNT_HOST_FFMPEG=1 bash scripts/jetson-mount-ffmpeg.sh
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"

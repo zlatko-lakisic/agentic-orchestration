@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install AMD host metrics writer (amdgpu sysfs) for engine / web GPU monitor.
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 WRITER="${TOOL_ROOT}/scripts/amd-host-metrics-writer.py"
@@ -21,9 +21,16 @@ fi
 mkdir -p "${OUT_DIR}"
 chmod 755 "${OUT_DIR}"
 
+# The unit runs as root: give it a root-owned copy of the writer instead of the
+# file in the deploy user's checkout (see scripts/lib-root-install.sh).
+# shellcheck source=lib-root-install.sh
+source "${TOOL_ROOT}/scripts/lib-root-install.sh"
+install_root_owned_script amd-host-metrics-writer.py
+
 # Render unit with this checkout's paths.
 sed \
   -e "s|/var/projects/agentic-orchestration|${PROJECT_ROOT}|g" \
+  -e "s|/usr/local/libexec/agentic-orchestration|${AGENTIC_LIBEXEC_DIR}|g" \
   "${UNIT_SRC}" >"${UNIT_DST}"
 systemctl daemon-reload
 systemctl enable --now agentic-amd-metrics.service

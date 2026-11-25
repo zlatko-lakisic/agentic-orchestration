@@ -7,10 +7,12 @@
 #   bash agentic-orchestration-tool/scripts/jetson-enable-comfyui.sh
 #
 # Env:
-#   AGENTIC_COMFYUI_IMAGE           — GHCR tag (default ghcr.io/.../agentic-comfyui:latest)
+#   AGENTIC_COMFYUI_IMAGE           — full image ref (default ghcr.io/.../agentic-comfyui:v<VERSION>,
+#                                     i.e. the release this checkout is on; was :latest)
+#   AGENTIC_IMAGE_TAG               — tag only (e.g. latest to restore the old default)
 #   AGENTIC_COMFYUI_MODELS_HOSTPATH — models hostPath (default PROJECT/var/comfyui/models)
 #   AGENTIC_COMFYUI_DRY_RUN=1       — print manifest, apply nothing
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
@@ -50,7 +52,18 @@ IMAGE="${AGENTIC_COMFYUI_IMAGE:-}"
 if [[ -z "${IMAGE}" ]]; then
   OWNER_LC="$(echo "${AGENTIC_GHCR_OWNER:-zlatko-lakisic}" | tr '[:upper:]' '[:lower:]')"
   REG="${AGENTIC_GHCR_REGISTRY:-ghcr.io}"
-  TAG="${AGENTIC_IMAGE_TAG:-latest}"
+  # Default to the release this checkout is on (VERSION → vX.Y.Z, published by
+  # .github/workflows/publish-images.yml) instead of the mutable :latest tag, which
+  # on a privileged GPU pod means "whatever was pushed last". Override with
+  # AGENTIC_IMAGE_TAG or a full AGENTIC_COMFYUI_IMAGE (a digest pins it exactly).
+  TAG="${AGENTIC_IMAGE_TAG:-}"
+  if [[ -z "${TAG}" && -f "${PROJECT_ROOT}/VERSION" ]]; then
+    VERSION_TEXT="$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")"
+    if [[ "${VERSION_TEXT}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${VERSION_TEXT}" != "0.0.0" ]]; then
+      TAG="v${VERSION_TEXT}"
+    fi
+  fi
+  TAG="${TAG:-latest}"
   IMAGE="${REG}/${OWNER_LC}/agentic-comfyui:${TAG}"
 fi
 

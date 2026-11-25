@@ -29,4 +29,16 @@ COPY config ./config
 COPY orchestration ./orchestration
 COPY main.py .
 
+# A non-root account is provided but NOT the default. This image also backs the
+# warm pool and the delegation broker, which install packages at start and write
+# hostPath / PVC directories owned by root on existing deployments, so switching
+# the default USER would break them. To run worker Jobs unprivileged, set
+#   AGENTIC_K8S_WORKER_RUN_AS_USER=10001   (adds runAsNonRoot to the Job pod)
+#   AGENTIC_K8S_WORKER_HARDENED=1          (drops all capabilities, seccomp default)
+# on the coordinator, and make the run store writable by uid 10001.
+# /app itself (not the code under it) is owned by that account so it can create
+# the __orchestrator_* state directories; the code stays root-owned.
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin agentic \
+    && chown agentic:agentic /app
+
 ENTRYPOINT ["python", "main.py", "--execute-step"]

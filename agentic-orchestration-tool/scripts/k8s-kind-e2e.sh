@@ -27,8 +27,28 @@ mkdir -p "${RUN_STORE}"
 
 if ! command -v kind >/dev/null 2>&1; then
   KIND_VERSION="${KIND_VERSION:-v0.27.0}"
-  curl -fsSL "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-$(uname)-amd64" -o /usr/local/bin/kind
-  chmod +x /usr/local/bin/kind
+  KIND_ASSET="kind-$(uname)-amd64"
+  KIND_URL="https://kind.sigs.k8s.io/dl/${KIND_VERSION}/${KIND_ASSET}"
+  KIND_TMP="$(mktemp)"
+  curl -fsSL "${KIND_URL}" -o "${KIND_TMP}"
+  # Verify before installing a binary we are about to run as root.
+  # KIND_SHA256 pins the expected digest; otherwise the release's published
+  # .sha256sum is used (catches truncated/corrupted downloads, not a compromised
+  # release — pin KIND_SHA256 for that).
+  KIND_EXPECTED="${KIND_SHA256:-}"
+  if [[ -z "${KIND_EXPECTED}" ]]; then
+    KIND_EXPECTED="$( (curl -fsSL "${KIND_URL}.sha256sum" 2>/dev/null || true) | awk '{print $1}')"
+  fi
+  KIND_ACTUAL="$(sha256sum "${KIND_TMP}" | awk '{print $1}')"
+  if [[ -z "${KIND_EXPECTED}" ]]; then
+    echo "warning: no checksum available for kind ${KIND_VERSION}; set KIND_SHA256 to verify the download" >&2
+  elif [[ "${KIND_ACTUAL}" != "${KIND_EXPECTED}" ]]; then
+    echo "error: kind ${KIND_VERSION} checksum mismatch (expected ${KIND_EXPECTED}, got ${KIND_ACTUAL})" >&2
+    rm -f "${KIND_TMP}"
+    exit 1
+  fi
+  install -m 0755 "${KIND_TMP}" /usr/local/bin/kind
+  rm -f "${KIND_TMP}"
 fi
 
 bash scripts/k8s-kind-up.sh
