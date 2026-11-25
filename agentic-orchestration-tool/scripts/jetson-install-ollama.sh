@@ -22,7 +22,21 @@ case "${MODE}" in
   native)
     echo "=== Install native Ollama (ollama.com install.sh) ==="
     if ! command -v ollama >/dev/null 2>&1; then
-      curl -fsSL https://ollama.com/install.sh | sh
+      # Download fully, then run: `curl | sh` executes a truncated script if the
+      # connection drops. Pin the release with OLLAMA_VERSION=<x.y.z> (honoured by
+      # the upstream installer); unset installs whatever is current that day.
+      OLLAMA_INSTALLER="$(mktemp)"
+      trap 'rm -f "${OLLAMA_INSTALLER}"' EXIT
+      curl -fsSL https://ollama.com/install.sh -o "${OLLAMA_INSTALLER}"
+      if [[ -n "${OLLAMA_INSTALL_SHA256:-}" ]]; then
+        echo "${OLLAMA_INSTALL_SHA256}  ${OLLAMA_INSTALLER}" | sha256sum -c -
+      fi
+      if [[ -n "${OLLAMA_VERSION:-}" ]]; then
+        OLLAMA_VERSION="${OLLAMA_VERSION}" sh "${OLLAMA_INSTALLER}"
+      else
+        echo "note: OLLAMA_VERSION not set — installing the current Ollama release (unpinned)" >&2
+        sh "${OLLAMA_INSTALLER}"
+      fi
     else
       echo "ollama already installed: $(ollama --version 2>/dev/null || true)"
     fi

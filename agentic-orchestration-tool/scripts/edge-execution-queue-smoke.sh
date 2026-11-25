@@ -24,7 +24,8 @@ _queue_enabled_hint() {
     return
   fi
   if command -v kubectl >/dev/null 2>&1; then
-    kubectl get secret agentic-env -o jsonpath='{.data.AGENTIC_EXECUTION_QUEUE_ENABLED}' 2>/dev/null \
+    kubectl get secret agentic-orchestrator-env -n "${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}" \
+      -o jsonpath='{.data.AGENTIC_EXECUTION_QUEUE_ENABLED}' 2>/dev/null \
       | python3 -c "import base64,sys; b=sys.stdin.read().strip(); print('AGENTIC_EXECUTION_QUEUE_ENABLED='+base64.b64decode(b).decode() if b else '')" 2>/dev/null \
       || true
   fi

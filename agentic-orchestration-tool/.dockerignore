@@ -7,10 +7,20 @@ __pycache__
 .env
 .env.*
 !.env.example
-__orchestrator_sessions__
-__orchestrator_kb__
-__orchestrator_learning__
+# Per-host overrides merged into .env on the device; `COPY config` must not bake
+# one machine's settings into an image.
+config/env.host
+.secrets
+# Runtime state (sessions, KB, learning, run traces, LLM usage, API tokens, mTLS CA, deals)
+__orchestrator_*
 __output__
+_web_uploads
+_tool_artifacts
+_tool_sandbox
+harness_runs
+.tools
+.mirrord
+deploy
 docker/.dockerignore
 tests
 scripts/*

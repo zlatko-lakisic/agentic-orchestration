@@ -1,0 +1,2 @@
+# Runtime dependencies (installed into the container image).
+mcp>=1.2.0

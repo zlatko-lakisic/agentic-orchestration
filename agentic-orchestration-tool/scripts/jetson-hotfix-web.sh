@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Hot-update web UI files in the coordinator pod without rebuilding the Docker image.
 # Requires kubectl access (no sudo). Run via jetson-deploy.sh (git pull first — never SCP).
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 WEB_ROOT="${PROJECT_ROOT}/agentic-orchestration-web"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+# shellcheck source=lib-openclaw.sh
+source "${TOOL_ROOT}/scripts/lib-openclaw.sh"
 
 # Prefer replace/create over client-side apply: large Python files exceed the
 # last-applied-configuration annotation size limit (262144 bytes).
@@ -207,9 +209,8 @@ fi
 if [[ -f "${MCP_SERVERS_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${MCP_SERVERS_PATCH}"
 fi
-if [[ -f "${OPENCLAW_MCP_PATCH}" ]]; then
-  kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${OPENCLAW_MCP_PATCH}"
-fi
+# OpenClaw mounts are host-specific: rendered for AGENTIC_OPENCLAW_HOME, skipped when unset.
+apply_openclaw_patch agentic-coordinator "${NS}" "${OPENCLAW_MCP_PATCH}" "${TOOL_ROOT}"
 if [[ -f "${RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-coordinator -n "${NS}" --patch-file "${RUNTIME_BOOTSTRAP_PATCH}"
 fi
@@ -225,9 +226,7 @@ fi
 if [[ -f "${WARM_MCP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_MCP_PATCH}"
 fi
-if [[ -f "${WARM_OPENCLAW_MCP_PATCH}" ]]; then
-  kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_OPENCLAW_MCP_PATCH}"
-fi
+apply_openclaw_patch agentic-warm-pool "${NS}" "${WARM_OPENCLAW_MCP_PATCH}" "${TOOL_ROOT}"
 if [[ -f "${WARM_RUNTIME_BOOTSTRAP_PATCH}" ]]; then
   kubectl patch deployment agentic-warm-pool -n "${NS}" --patch-file "${WARM_RUNTIME_BOOTSTRAP_PATCH}"
 fi

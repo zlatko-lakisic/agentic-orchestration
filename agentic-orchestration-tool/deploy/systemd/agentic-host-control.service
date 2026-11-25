@@ -4,7 +4,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/agentic-host-control-run.sh /var/projects/agentic-orchestration
+# Runs as root. The script is a root-owned copy installed by
+# scripts/jetson-install-host-control.sh (see scripts/lib-root-install.sh): a root
+# unit must not execute files from the deploy user's git checkout, which is also
+# hostPath-mounted read-write into network-facing pods.
+ExecStart=/usr/local/libexec/agentic-orchestration/agentic-host-control-run.sh /var/projects/agentic-orchestration
 
 [Install]
 WantedBy=multi-user.target

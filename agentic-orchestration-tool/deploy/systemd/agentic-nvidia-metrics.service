@@ -7,7 +7,9 @@ ConditionPathExists=/usr/bin/nvidia-smi
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /var/projects/agentic-orchestration/agentic-orchestration-tool/scripts/nvidia-host-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json --interval 1
+# Root-owned copy installed by scripts/install-nvidia-host-metrics.sh (never run
+# files from the deploy user's git checkout as root; see scripts/lib-root-install.sh).
+ExecStart=/usr/bin/python3 /usr/local/libexec/agentic-orchestration/nvidia-host-metrics-writer.py --output /var/projects/agentic-orchestration/var/agentic-metrics/nvidia-metrics.json --interval 1
 Restart=always
 RestartSec=3
 

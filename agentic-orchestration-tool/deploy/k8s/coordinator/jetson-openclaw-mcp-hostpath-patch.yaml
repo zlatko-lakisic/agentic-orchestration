@@ -1,6 +1,12 @@
 # Mount OpenClaw-synced MCP provider YAML + OpenClaw workspace into the coordinator.
 # Plugin writes fragments to ~/.openclaw/agentic-orchestration/openclaw-mcp-providers when
 # syncOpenClawMcp=true (managedBackend false still materializes them on the host).
+#
+# TEMPLATE — not applied as-is. scripts/lib-openclaw.sh replaces
+# __AGENTIC_OPENCLAW_HOME__ with the host's OpenClaw directory (AGENTIC_OPENCLAW_HOME,
+# e.g. /home/<your-user>/.openclaw; set it in config/env.host) and skips the patch
+# when it is not set. Do not hard-code a home directory here: hostPath type
+# DirectoryOrCreate would create it as root on every host that deploys.
 spec:
   template:
     spec:
@@ -11,13 +17,13 @@ spec:
               mountPath: /openclaw/mcp-providers
               readOnly: true
             - name: openclaw-workspace
-              mountPath: /home/zlatko.lakisic/.openclaw/workspace
+              mountPath: __AGENTIC_OPENCLAW_HOME__/workspace
       volumes:
         - name: openclaw-mcp-providers
           hostPath:
-            path: /home/zlatko.lakisic/.openclaw/agentic-orchestration/openclaw-mcp-providers
+            path: __AGENTIC_OPENCLAW_HOME__/agentic-orchestration/openclaw-mcp-providers
             type: DirectoryOrCreate
         - name: openclaw-workspace
           hostPath:
-            path: /home/zlatko.lakisic/.openclaw/workspace
+            path: __AGENTIC_OPENCLAW_HOME__/workspace
             type: DirectoryOrCreate

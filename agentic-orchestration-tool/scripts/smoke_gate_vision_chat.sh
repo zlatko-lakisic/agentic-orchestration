@@ -1,10 +1,43 @@
 #!/usr/bin/env bash
 # Smoke: POST /v1/chat/completions with HA gate PEOPLE/NOPEOPLE vision contract.
-# Usage: bash scripts/smoke_gate_vision_chat.sh [url] [jpeg_path] [api_key]
+#
+# Usage:
+#   SMOKE_CHAT_URL=https://host/v1/chat/completions \
+#   AGENTIC_CHAT_COMPLETIONS_API_KEY=... \
+#     bash scripts/smoke_gate_vision_chat.sh <jpeg_path>
+#   bash scripts/smoke_gate_vision_chat.sh <url> <jpeg_path>     # key from env
+#
+# The endpoint and the API key have no defaults: pass the URL as the first
+# argument or SMOKE_CHAT_URL, and the key via AGENTIC_CHAT_COMPLETIONS_API_KEY
+# (preferred: it stays out of the process list and shell history) or as the
+# third argument. Never commit a key into this script.
 set -euo pipefail
-URL="${1:-http://127.0.0.1:30487/v1/chat/completions}"
-IMG="${2:-}"
-KEY="${3:-${AGENTIC_CHAT_COMPLETIONS_API_KEY:-fl!ntst0n3}}"
+
+usage() {
+  echo "usage: [SMOKE_CHAT_URL=...] [AGENTIC_CHAT_COMPLETIONS_API_KEY=...] $0 [url] <jpeg_path> [api_key]" >&2
+  exit 2
+}
+
+if [[ $# -eq 1 ]]; then
+  URL="${SMOKE_CHAT_URL:-}"
+  IMG="$1"
+  KEY="${AGENTIC_CHAT_COMPLETIONS_API_KEY:-}"
+elif [[ $# -ge 2 ]]; then
+  URL="$1"
+  IMG="$2"
+  KEY="${3:-${AGENTIC_CHAT_COMPLETIONS_API_KEY:-}}"
+else
+  usage
+fi
+
+if [[ -z "${URL}" ]]; then
+  echo "error: no endpoint URL (first argument or SMOKE_CHAT_URL)" >&2
+  usage
+fi
+if [[ -z "${KEY}" ]]; then
+  echo "error: no API key (set AGENTIC_CHAT_COMPLETIONS_API_KEY)" >&2
+  usage
+fi
 
 if [[ -z "${IMG}" || ! -f "${IMG}" ]]; then
   echo "usage: $0 [url] <jpeg_path> [api_key]" >&2

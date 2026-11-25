@@ -1,5 +1,6 @@
 # Stub worker for kind CI e2e — implements the --execute-step contract without LLM calls.
-FROM python:3.12-slim
+# Same base as the real worker image (the bare "3.12-slim" tag follows Debian releases).
+FROM python:3.12-slim-bookworm
 WORKDIR /app
 COPY orchestration/__init__.py orchestration/__init__.py
 COPY orchestration/k8s_stub_skills.py orchestration/k8s_stub_skills.py
@@ -7,4 +8,9 @@ COPY config/agent_skills /app/config/agent_skills
 COPY scripts/k8s-stub-worker.py /app/k8s-stub-worker.py
 ENV PYTHONPATH=/app
 ENV AGENTIC_K8S_STUB_SKILLS_CATALOG=/app/config/agent_skills
+ENV PYTHONDONTWRITEBYTECODE=1
+# The stub only reads /app and writes result.json to the mounted run store, so it
+# never needs root. scripts/k8s-kind-e2e.sh overrides the uid with the CI user's
+# (AGENTIC_K8S_WORKER_RUN_AS_USER) so it can write the hostPath run store.
+USER 65534:65534
 ENTRYPOINT ["python", "/app/k8s-stub-worker.py"]

@@ -4,7 +4,7 @@
 #
 # Usage:
 #   bash install-host-gpu-metrics.sh [/var/projects/agentic-orchestration]
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 OUT_DIR="${PROJECT_ROOT}/var/agentic-metrics"

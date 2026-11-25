@@ -15,7 +15,10 @@
 # Env: AGENTIC_OLLAMA_RESOURCE_SHARING=0 → no broker, plain Ollama on :11434.
 #      AGENTIC_OLLAMA_BROKER_IMAGE=…     → override the sidecar image.
 #      AGENTIC_OLLAMA_DRY_RUN=1          → print the manifest, apply nothing.
-set -eu
+#      AGENTIC_OLLAMA_NODEPORT=1         → also publish NodePort 31134 on the LAN.
+#        Ollama has no authentication: off by default. An already-applied
+#        agentic-ollama-nodeport Service is left in place (a notice is printed).
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
@@ -382,8 +385,18 @@ fi
 echo "=== apply agentic-ollama ==="
 kubectl apply -f "${TMP_DEPLOY}"
 kubectl apply -f "${SVC_YAML}"
-if [[ "${AGENTIC_OLLAMA_NODEPORT:-1}" != "0" ]]; then
+# NodePort 31134 exposes unauthenticated Ollama to every host on the LAN: opt-in.
+OLLAMA_NODEPORT="${AGENTIC_OLLAMA_NODEPORT:-0}"
+if [[ "${OLLAMA_NODEPORT}" == "1" || "${OLLAMA_NODEPORT}" == "true" || "${OLLAMA_NODEPORT}" == "yes" ]]; then
+  OLLAMA_NODEPORT=1
   kubectl apply -f "${NP_YAML}"
+else
+  OLLAMA_NODEPORT=0
+  if kubectl get service agentic-ollama-nodeport -n "${NS}" >/dev/null 2>&1; then
+    echo "notice: Service agentic-ollama-nodeport exists — unauthenticated Ollama is reachable on <host>:31134." >&2
+    echo "        Remove it:  kubectl delete service agentic-ollama-nodeport -n ${NS}" >&2
+    echo "        Keep it:    set AGENTIC_OLLAMA_NODEPORT=1 (config/env.host) to silence this notice." >&2
+  fi
 fi
 
 echo "=== wait for agentic-ollama rollout ==="
@@ -412,11 +425,12 @@ if [[ -f "${ENV_FILE}" ]]; then
 fi
 
 echo "Ollama Service: http://agentic-ollama:11434 (in-cluster)"
-if [[ "${AGENTIC_OLLAMA_NODEPORT:-1}" != "0" ]]; then
+if [[ "${OLLAMA_NODEPORT}" == "1" ]]; then
   echo "Ollama NodePort: http://<host>:31134"
 fi
 # hostNetwork Jetson listens on host :11434; Ada uses ClusterIP/NodePort.
 kubectl exec -n "${NS}" deploy/agentic-ollama -- ollama list 2>/dev/null \
+  || kubectl get --raw "/api/v1/namespaces/${NS}/services/agentic-ollama:11434/proxy/api/tags" 2>/dev/null | head -c 200 \
   || curl -sf "http://127.0.0.1:31134/api/tags" | head -c 200 \
   || curl -sf "http://127.0.0.1:11434/api/tags" | head -c 200 \
   || true

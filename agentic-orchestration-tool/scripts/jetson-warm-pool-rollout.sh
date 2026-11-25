@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Warm-pool rollout helpers — Recreate strategy, stale ReplicaSet cleanup (Jetson/Ada).
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
@@ -37,10 +37,11 @@ _unblock_stale_replicasets() {
   desired_rev="$(kubectl get deployment "${DEPLOY}" -n "${NS}" \
     -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null || true)"
 
-  running="$(kubectl get pods -n "${NS}" -l "${LABEL}" \
-    --field-selector=status.phase=Running -o name 2>/dev/null | wc -l | tr -d ' ')"
-  pending="$(kubectl get pods -n "${NS}" -l "${LABEL}" \
-    --field-selector=status.phase=Pending -o name 2>/dev/null | wc -l | tr -d ' ')"
+  # `|| true` inside the group: a failed kubectl must count as 0, not abort (pipefail).
+  running="$( (kubectl get pods -n "${NS}" -l "${LABEL}" \
+    --field-selector=status.phase=Running -o name 2>/dev/null || true) | wc -l | tr -d ' ')"
+  pending="$( (kubectl get pods -n "${NS}" -l "${LABEL}" \
+    --field-selector=status.phase=Pending -o name 2>/dev/null || true) | wc -l | tr -d ' ')"
 
   if [[ "${pending}" -eq 0 && "${running}" -le 2 ]]; then
     local not_ready

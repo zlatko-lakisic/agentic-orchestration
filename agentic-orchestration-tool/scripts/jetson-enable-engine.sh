@@ -9,7 +9,7 @@
 # Verify:
 #   curl -s http://127.0.0.1:8765/health
 #   curl -s http://127.0.0.1:30487/api/ping   # web still agentic-orchestration-web
-set -eu
+set -euo pipefail
 PROJECT_ROOT="${1:-/var/projects/agentic-orchestration}"
 TOOL_ROOT="${PROJECT_ROOT}/agentic-orchestration-tool"
 NS="${AGENTIC_K8S_NAMESPACE:-agentic-orchestration}"
@@ -58,12 +58,48 @@ else
   echo "=== engine worker image (from coordinator): ${WORKER_IMAGE} ==="
 fi
 
+# Does the daemon serve TLS? Mirrors orchestration/serve/mtls_tls.py: TLS only when
+# BOTH AGENTIC_SERVE_TLS_CERTFILE and AGENTIC_SERVE_TLS_KEYFILE have a value (the
+# pod gets them from the Secret, which is generated from this .env). The kubelet
+# probes and the verification below must use the same scheme: with HTTPS probes
+# against a cleartext daemon the pod never becomes Ready and liveness restarts it.
+env_value() {
+  local key="$1" val=""
+  val="$(grep -E "^[[:space:]]*${key}=" "${TOOL_ROOT}/.env" 2>/dev/null | tail -n 1 \
+    | sed -e "s/^[[:space:]]*${key}=//" -e 's/\r$//' || true)"
+  val="${val%\"}"; val="${val#\"}"
+  val="${val%\'}"; val="${val#\'}"
+  printf '%s' "${val}"
+}
+ENGINE_SCHEME="${AGENTIC_ENGINE_PROBE_SCHEME:-}"
+if [[ -z "${ENGINE_SCHEME}" ]]; then
+  if [[ -n "$(env_value AGENTIC_SERVE_TLS_CERTFILE)" && -n "$(env_value AGENTIC_SERVE_TLS_KEYFILE)" ]]; then
+    ENGINE_SCHEME="HTTPS"
+  else
+    ENGINE_SCHEME="HTTP"
+  fi
+fi
+ENGINE_SCHEME="$(printf '%s' "${ENGINE_SCHEME}" | tr '[:lower:]' '[:upper:]')"
+if [[ "${ENGINE_SCHEME}" != "HTTP" && "${ENGINE_SCHEME}" != "HTTPS" ]]; then
+  echo "error: AGENTIC_ENGINE_PROBE_SCHEME must be HTTP or HTTPS" >&2
+  exit 1
+fi
+echo "=== engine probe scheme: ${ENGINE_SCHEME} ==="
+
 TMP_DEPLOY="$(mktemp)"
-trap 'rm -f "${TMP_DEPLOY}"' EXIT
-python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" "${WORKER_IMAGE}" <<'PY'
+HEALTH_TMP="$(mktemp)"
+PING_TMP="$(mktemp)"
+trap 'rm -f "${TMP_DEPLOY}" "${HEALTH_TMP}" "${PING_TMP}"' EXIT
+python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" "${WORKER_IMAGE}" "${ENGINE_SCHEME}" <<'PY'
 import sys
-src, dst, image, worker_image = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+src, dst, image, worker_image, scheme = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 text = open(src, encoding="utf-8").read()
+# The manifest ships HTTPS probes; switch both when the daemon serves cleartext.
+probe = "scheme: HTTPS"
+if text.count(probe) != 2:
+    raise SystemExit(f"expected two {probe!r} probe lines in {src}")
+if scheme != "HTTPS":
+    text = text.replace(probe, f"scheme: {scheme}")
 old = "image: agentic-orchestrator-coordinator:local"
 new = f"image: {image}"
 if old not in text:
@@ -94,9 +130,9 @@ kubectl rollout status deployment/agentic-engine -n "${NS}" --timeout=300s
 ENGINE_URL="${AGENTIC_ENGINE_URL:-}"
 WEB_URL="${AGENTIC_WEB_URL:-http://127.0.0.1:30487}"
 
-# Prefer HTTPS when TLS env is present in the tool .env (mTLS / server TLS).
+# Same TLS decision as the probes above.
 if [[ -z "${ENGINE_URL}" ]]; then
-  if grep -qE '^[[:space:]]*AGENTIC_SERVE_TLS_CERTFILE=' "${TOOL_ROOT}/.env" 2>/dev/null; then
+  if [[ "${ENGINE_SCHEME}" == "HTTPS" ]]; then
     ENGINE_URL="https://127.0.0.1:8765"
   else
     ENGINE_URL="http://127.0.0.1:8765"
@@ -109,18 +145,21 @@ fi
 
 echo "=== verify engine /health (expect service=agentic-orchestration-engine) ==="
 for i in 1 2 3 4 5 6 7 8 9 10; do
-  if "${CURL_ENGINE[@]}" "${ENGINE_URL}/health" | tee /tmp/agentic-engine-health.json | grep -q 'agentic-orchestration-engine'; then
+  # No `curl | tee | grep -q`: grep -q exits on the first match, tee then dies of
+  # SIGPIPE and (with pipefail) a healthy engine would read as a failed check.
+  "${CURL_ENGINE[@]}" "${ENGINE_URL}/health" >"${HEALTH_TMP}" 2>/dev/null || true
+  if grep -q 'agentic-orchestration-engine' "${HEALTH_TMP}" 2>/dev/null; then
     break
   fi
   sleep 3
 done
-if ! grep -q 'agentic-orchestration-engine' /tmp/agentic-engine-health.json 2>/dev/null; then
+if ! grep -q 'agentic-orchestration-engine' "${HEALTH_TMP}" 2>/dev/null; then
   echo "error: engine /health failed or wrong service" >&2
   kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-engine -o wide >&2 || true
   kubectl logs -n "${NS}" -l app.kubernetes.io/name=agentic-engine --tail=80 >&2 || true
   exit 1
 fi
-cat /tmp/agentic-engine-health.json
+cat "${HEALTH_TMP}"
 echo
 
 echo "=== verify engine /api/ping ==="
@@ -128,8 +167,9 @@ echo "=== verify engine /api/ping ==="
 echo
 
 echo "=== verify web UI still on 30487 (expect agentic-orchestration-web) ==="
-if curl -sf "${WEB_URL}/api/ping" | tee /tmp/agentic-web-ping.json | grep -q 'agentic-orchestration-web\|"ok"'; then
-  cat /tmp/agentic-web-ping.json
+curl -sf "${WEB_URL}/api/ping" >"${PING_TMP}" 2>/dev/null || true
+if grep -q 'agentic-orchestration-web\|"ok"' "${PING_TMP}" 2>/dev/null; then
+  cat "${PING_TMP}"
   echo
 else
   echo "warning: web /api/ping check failed — web UI may still be rolling out" >&2

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Redirect host TCP :80 -> NodePort 30487 (Traefik / bookmarks use :80 without hostPort).
 # Requires root (or sudo). Safe with Recreate rollouts — no CNI hostPort conflict.
-set -eu
+set -euo pipefail
 TARGET_PORT="${AGENTIC_WEB_NODEPORT:-30487}"
 WEB_PORT="${WEB_PORT:-80}"
 

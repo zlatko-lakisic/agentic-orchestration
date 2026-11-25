@@ -2,10 +2,54 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from orchestration.backends.k8s_settings import K8sSettings, worker_env_from_process
+from orchestration.backends.k8s_settings import (
+    K8sSettings,
+    withheld_worker_secret_names,
+    worker_env_from_process,
+    worker_env_literal_secrets_enabled,
+)
 from orchestration.k8s_mcp_compat import K8S_POD_SIDECAR_LOCAL_URL, sidecar_containers_for_mcps
+
+_warned_no_env_secret = False
+
+
+def worker_hardened_from_env() -> bool:
+    """Opt-in strict container security context for worker Jobs.
+
+    ``AGENTIC_K8S_WORKER_HARDENED=1`` drops all Linux capabilities and applies the
+    runtime-default seccomp profile. Off by default: a root worker without
+    ``CAP_DAC_OVERRIDE`` cannot write run-store directories owned by another uid,
+    which this repo cannot verify for every run-store layout.
+    """
+    raw = os.getenv("AGENTIC_K8S_WORKER_HARDENED", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _warn_secrets_withheld_without_secret(settings: K8sSettings) -> None:
+    """Log once when credentials are withheld but no Secret is configured to supply them."""
+    global _warned_no_env_secret
+    if _warned_no_env_secret or settings.env_secret_name or worker_env_literal_secrets_enabled():
+        return
+    names = withheld_worker_secret_names()
+    if not names:
+        return
+    _warned_no_env_secret = True
+    try:
+        from orchestration.structured_logging import emit_log
+
+        emit_log(
+            "worker Jobs will not receive secret-like env vars: AGENTIC_K8S_ENV_SECRET is unset. "
+            "Create a Secret and set AGENTIC_K8S_ENV_SECRET, or set "
+            "AGENTIC_K8S_WORKER_ENV_LITERAL_SECRETS=1 to copy them into Job specs as literals.",
+            level="warning",
+            component="coordinator",
+            extra={"withheld": names},
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def build_worker_job_pod_spec(
@@ -35,6 +79,14 @@ def build_worker_job_pod_spec(
         worker["env"] = env_vars
     if settings.env_secret_name:
         worker["envFrom"] = [{"secretRef": {"name": settings.env_secret_name}}]
+    _warn_secrets_withheld_without_secret(settings)
+
+    # The worker never needs to gain privileges (no setuid helpers in the image).
+    container_security: dict[str, Any] = {"allowPrivilegeEscalation": False}
+    if worker_hardened_from_env():
+        container_security["capabilities"] = {"drop": ["ALL"]}
+        container_security["seccompProfile"] = {"type": "RuntimeDefault"}
+    worker["securityContext"] = container_security
 
     if sidecars:
         probe_port = min(
@@ -72,7 +124,10 @@ def build_worker_job_pod_spec(
         pod_spec["nodeSelector"] = node_selector
 
     if settings.worker_run_as_user is not None:
-        pod_spec["securityContext"] = {"runAsUser": settings.worker_run_as_user}
+        pod_security: dict[str, Any] = {"runAsUser": settings.worker_run_as_user}
+        if settings.worker_run_as_user != 0:
+            pod_security["runAsNonRoot"] = True
+        pod_spec["securityContext"] = pod_security
 
     return pod_spec
 

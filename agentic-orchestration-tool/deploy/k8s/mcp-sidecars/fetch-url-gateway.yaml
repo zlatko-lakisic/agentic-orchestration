@@ -32,9 +32,15 @@ spec:
       labels:
         app.kubernetes.io/name: agentic-mcp-fetch
     spec:
+      # Third-party gateway image: it never talks to the Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: gateway
+          # Floating tag, and `uvx mcp-server-fetch` is downloaded at pod start: pin both
+          # for production (an image digest here, `uvx mcp-server-fetch==<version>` below).
           image: supercorp/supergateway:uvx
+          securityContext:
+            allowPrivilegeEscalation: false
           args:
             - --stdio
             - uvx mcp-server-fetch
@@ -44,10 +50,8 @@ spec:
             - streamableHttp
           ports:
             - containerPort: 8080
+          # No envFrom: this pod fetches arbitrary URLs with third-party code and needs
+          # none of the orchestrator's API keys (it used to receive the whole Secret).
           env:
             - name: AGENTIC_MCP_FETCH_ENABLED
               value: "1"
-          envFrom:
-            - secretRef:
-                name: agentic-orchestrator-env
-                optional: true

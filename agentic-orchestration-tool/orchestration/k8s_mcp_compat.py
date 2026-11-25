@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -340,14 +341,36 @@ def rewrite_spec_mcps_for_pod_sidecars(
     return out
 
 
+_PACKAGE_SPEC_RE = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9@._/\-=<>~!]*$")
+
+
+def _sidecar_package_spec(env_name: str, default: str) -> str:
+    """Package spec the sidecar downloads at pod start; pin it via env.
+
+    The default is the bare package name (latest at start). Operators can pin,
+    e.g. ``AGENTIC_K8S_MCP_FETCH_PACKAGE=mcp-server-fetch==<version>`` or
+    ``AGENTIC_K8S_MCP_FILESYSTEM_PACKAGE=@modelcontextprotocol/server-filesystem@<version>``.
+    The value is joined into the supergateway ``--stdio`` command line, so only
+    package-spec characters are accepted (no whitespace or shell metacharacters).
+    """
+    raw = os.getenv(env_name, "").strip()
+    if raw and _PACKAGE_SPEC_RE.match(raw):
+        return raw
+    return default
+
+
 def _fetch_sidecar_stdio_command() -> list[str]:
-    return ["uvx", "mcp-server-fetch"]
+    return ["uvx", _sidecar_package_spec("AGENTIC_K8S_MCP_FETCH_PACKAGE", "mcp-server-fetch")]
 
 
 def _filesystem_sidecar_stdio_command() -> list[str]:
     # Sidecar mounts the PVC subdir at /workspace (see sidecar_containers_for_mcps).
     directory = "/workspace"
-    return ["npx", "-y", "@modelcontextprotocol/server-filesystem", directory]
+    package = _sidecar_package_spec(
+        "AGENTIC_K8S_MCP_FILESYSTEM_PACKAGE",
+        "@modelcontextprotocol/server-filesystem",
+    )
+    return ["npx", "-y", package, directory]
 
 
 def sidecar_containers_for_mcps(mcp_ids: list[str]) -> list[dict[str, Any]]:
