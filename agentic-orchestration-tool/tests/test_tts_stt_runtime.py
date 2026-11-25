@@ -37,6 +37,7 @@ def test_factory_loads_tts_stt_yaml() -> None:
     for rel in (
         "config/agent_providers/tts_piper_en.yaml",
         "config/agent_providers/tts_orpheus_en.yaml",
+        "config/agent_providers/tts_kokoro_en.yaml",
         "config/agent_providers/stt_whisper.yaml",
     ):
         data = yaml.safe_load((TOOL_ROOT / rel).read_text(encoding="utf-8"))
@@ -48,10 +49,15 @@ def test_planner_omits_tts_stt() -> None:
     entries = load_agent_providers_catalog(TOOL_ROOT / "config/agent_providers")
     assert any(e.get("id") == "tts_piper_en" for e in entries)
     assert any(e.get("id") == "tts_orpheus_en" for e in entries)
+    assert any(e.get("id") == "tts_kokoro_en" for e in entries)
     assert any(e.get("id") == "stt_whisper" for e in entries)
+    kokoro = next(e for e in entries if e.get("id") == "tts_kokoro_en")
+    assert kokoro.get("endpoint_env") == "AGENTIC_SPEECH_KOKORO_URL"
+    assert kokoro.get("fallback_endpoint_env") == "AGENTIC_SPEECH_TTS_URL"
     planned = entries_for_planner(entries)
     assert all(
-        e.get("id") not in ("tts_piper_en", "tts_orpheus_en", "stt_whisper")
+        e.get("id")
+        not in ("tts_piper_en", "tts_orpheus_en", "tts_kokoro_en", "stt_whisper")
         for e in planned
     )
 
