@@ -1,0 +1,27 @@
+id: tts_kokoro_en
+type: tts
+role: Native-English TTS narrator (Kokoro)
+goal: Synthesize natural English narration as WAV for AO Quill shorts
+backstory: >-
+  Managed Kokoro sidecar for English narration (preferred Quill path).
+  Falls back to Piper when Kokoro is unavailable. Never uses Qwen3-TTS.
+engine: kokoro
+allowed_engines: [kokoro]
+endpoint_env: AGENTIC_SPEECH_KOKORO_URL
+fallback_endpoint_env: AGENTIC_SPEECH_TTS_URL
+fallback_engine: piper
+token_env: AGENTIC_SPEECH_TOKEN
+speech_path: /v1/audio/speech
+defaults:
+  voice: af_bella
+  speed: 1.0
+residency: on_demand
+min_vram_gb: 1
+planner_exclude: true
+planner_hint: >-
+  Generation only. Preferred English narrator for AO Quill when Kokoro is
+  configured. Called via direct_agent with text or JSON {text, voice, speed}.
+  Default voice af_bella. Do not select for chat.
+harness_profile: generation
+harness:
+  skip_live: true

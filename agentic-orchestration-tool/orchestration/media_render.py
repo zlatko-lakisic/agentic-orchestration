@@ -185,6 +185,14 @@ def parse_timeline(raw: str | dict[str, Any]) -> dict[str, Any]:
             "highlight_current_word": _truthy(captions.get("highlight_current_word")),
         }
 
+    end_hold_raw = data.get("end_hold_s", 3.0)
+    try:
+        end_hold_s = float(end_hold_raw)
+    except (TypeError, ValueError) as exc:
+        raise MediaRenderError("end_hold_s must be a number") from exc
+    if end_hold_s < 0:
+        raise MediaRenderError("end_hold_s must be >= 0")
+
     return {
         "width": width,
         "height": height,
@@ -192,6 +200,7 @@ def parse_timeline(raw: str | dict[str, Any]) -> dict[str, Any]:
         "segments": segments,
         "narration_file_id": narration_file_id,
         "captions": captions_out,
+        "end_hold_s": end_hold_s,
     }
 
 
@@ -516,31 +525,22 @@ def build_ass_captions(
 def _apply_duration_rules(
     segments: list[dict[str, Any]],
     narration_duration: float,
+    *,
+    end_hold_s: float = 3.0,
 ) -> list[dict[str, Any]]:
-    """Extend last segment if narration is longer; trim video end if shorter."""
+    """Ensure the planned timeline covers narration + end-hold.
+
+    Extends the last segment when the plan is short. Does **not** trim a longer
+    plan down to ``narration + 0.5`` (that fought Quill's narr+3s rule — #179/#183).
+    """
     segs = [dict(s) for s in segments]
+    if narration_duration <= 0 or not segs:
+        return segs
+    hold = max(0.0, float(end_hold_s))
+    target = narration_duration + hold
     total = sum(float(s["seconds"]) for s in segs)
-    if narration_duration <= 0:
-        return segs
-    if narration_duration > total and segs:
-        segs[-1]["seconds"] = float(segs[-1]["seconds"]) + (narration_duration - total)
-        return segs
-    if narration_duration + 0.5 < total:
-        target = narration_duration + 0.5
-        acc = 0.0
-        trimmed: list[dict[str, Any]] = []
-        for seg in segs:
-            if acc >= target:
-                break
-            remaining = target - acc
-            sec = float(seg["seconds"])
-            if sec <= remaining:
-                trimmed.append(seg)
-                acc += sec
-            else:
-                trimmed.append({**seg, "seconds": remaining})
-                acc = target
-        return trimmed or segs
+    if total < target:
+        segs[-1]["seconds"] = float(segs[-1]["seconds"]) + (target - total)
     return segs
 
 
@@ -556,7 +556,12 @@ def render_timeline_to_mp4(
     fps = int(timeline["fps"])
     narration_path = Path(timeline["narration_path"])
     narration_dur = _probe_duration(narration_path)
-    segments = _apply_duration_rules(list(timeline["segments"]), narration_dur)
+    end_hold_s = float(timeline.get("end_hold_s") if timeline.get("end_hold_s") is not None else 3.0)
+    segments = _apply_duration_rules(
+        list(timeline["segments"]),
+        narration_dur,
+        end_hold_s=end_hold_s,
+    )
 
     part_paths: list[Path] = []
     for idx, seg in enumerate(segments):
@@ -611,6 +616,10 @@ def render_timeline_to_mp4(
     if ass_path is not None:
         ass_esc = ass_path.as_posix().replace("\\", "/").replace(":", "\\:")
         vf_parts.append(f"ass={ass_esc}")
+    # Follow the silent video timeline: pad narration with silence; never -shortest
+    # (that cut end-hold / trailing words when video was longer — #179/#183).
+    video_dur = _probe_duration(silent)
+    mux_t = f"{video_dur:.3f}" if video_dur > 0 else None
     cmd = [
         _ffmpeg_bin(),
         "-y",
@@ -624,11 +633,18 @@ def render_timeline_to_mp4(
     cmd.extend(
         [
             *vencode,
+            "-af",
+            "apad",
             "-c:a",
             "aac",
             "-b:a",
             "128k",
-            "-shortest",
+        ]
+    )
+    if mux_t is not None:
+        cmd.extend(["-t", mux_t])
+    cmd.extend(
+        [
             "-movflags",
             "+faststart",
             str(out),

@@ -12,6 +12,7 @@ import pytest
 from orchestration.client_files import save_client_file
 from orchestration.media_render import (
     MediaRenderError,
+    _apply_duration_rules,
     build_ass_captions,
     parse_timeline,
     render_short,
@@ -80,6 +81,38 @@ def test_parse_timeline_ok_minimal() -> None:
     assert tl["height"] == 1920
     assert tl["segments"][0]["motion"] == "zoom_in"
     assert tl["captions"] is None
+    assert tl["end_hold_s"] == 3.0
+
+
+def test_parse_timeline_end_hold_s() -> None:
+    tl = parse_timeline(
+        {
+            "segments": [
+                {"type": "image", "file_id": "aaaaaaaaaaaaaaaa", "seconds": 1.0}
+            ],
+            "narration_file_id": "bbbbbbbbbbbbbbbb",
+            "end_hold_s": 4.5,
+        }
+    )
+    assert tl["end_hold_s"] == 4.5
+
+
+def test_apply_duration_rules_extends_for_end_hold_not_trim() -> None:
+    segs = [
+        {"type": "image", "file_id": "a", "seconds": 5.0, "motion": "none"},
+        {"type": "image", "file_id": "b", "seconds": 5.0, "motion": "none"},
+    ]
+    # Plan (10s) shorter than narr(8)+hold(3)=11 → extend last segment.
+    out = _apply_duration_rules(segs, 8.0, end_hold_s=3.0)
+    assert sum(float(s["seconds"]) for s in out) == pytest.approx(11.0)
+    assert out[-1]["seconds"] == pytest.approx(6.0)
+    # Longer plan must not be trimmed to narr+0.5 (#183).
+    long = [
+        {"type": "image", "file_id": "a", "seconds": 20.0, "motion": "none"},
+        {"type": "image", "file_id": "b", "seconds": 20.0, "motion": "none"},
+    ]
+    kept = _apply_duration_rules(long, 10.0, end_hold_s=3.0)
+    assert sum(float(s["seconds"]) for s in kept) == pytest.approx(40.0)
 
 
 def test_resolve_refuses_other_identity(
