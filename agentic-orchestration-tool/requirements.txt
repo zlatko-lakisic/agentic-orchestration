@@ -21,7 +21,7 @@ python-dotenv>=1.2.4,<2
 pyyaml>=6.0.4,<7
 httpx>=0.28.1,<1
 kubernetes>=29.0,<37
-mcp-server-fetch>=2026.10.10
+mcp-server-fetch>=2026.11.18
 mcp>=1.30.0,<2
 # Optional audio transcription for media_understand MCP:
 # faster-whisper
