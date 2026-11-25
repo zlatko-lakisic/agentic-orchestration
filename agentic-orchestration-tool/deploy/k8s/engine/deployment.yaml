@@ -148,10 +148,11 @@ spec:
             - name: agentic-metrics
               mountPath: /host/agentic-metrics
               readOnly: true
+          # NEVER tcpSocket (#187) — TCP stays green while HTTPS/mTLS is wedged.
+          # NEVER httpGet /health for kube (#186) — Comfy/LTX load times out kubelet.
+          # Use shallow HTTPS /ready (or /health/live) only (#148/#181).
           readinessProbe:
             httpGet:
-              # Shallow /ready (#148) — full /health probes Comfy under GPU load and
-              # timed out kubelet (hybrid 6119). Do not use tcpSocket in production.
               path: /ready
               port: engine
               # Engine often serves TLS (mTLS / Reach). Kubelet skips cert verify for HTTPS probes.
@@ -169,6 +170,15 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 12
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: engine
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
       volumes:
         - name: run-store
           persistentVolumeClaim:

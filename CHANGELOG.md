@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 - **Orpheus unset URL (#185)** — preferred TTS endpoints fail closed when their env is unset (no silent Piper); Piper fallback remains when the preferred URL is set but the sidecar returns 5xx.
 - **Client-file upload probes (#188)** — allow `text/plain` and `application/octet-stream` so trivial health/smoke uploads are not rejected with 415.
 - **Comfy VRAM attribution (#153)** — cache Comfy `/system_stats` (~2s, 1s timeout) so Admin `ao_resources` does not drop gpu-residents mid-generation; raise Admin residents fetch to 6s; label active video leases as `ComfyUI · <provider>`.
+- **Engine kube probes (#181/#186/#187)** — readiness/liveness/startup stay on shallow HTTPS `/ready` (alias `/health/live`); `jetson-enable-engine.sh` refuses TCP and `/health` probe paths so Ada cannot re-apply the LTX-killing config.
 
 Whole-repo review and fix pass. **Read "Upgrade notes" before deploying**: several defaults are now closed that used to be open.
 

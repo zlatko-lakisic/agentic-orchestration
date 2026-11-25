@@ -44,7 +44,11 @@ def test_health_reports_version_and_warm_catalogs(client: TestClient) -> None:
     ready = client.get("/ready").json()
     assert ready.get("ok") is True
     assert ready.get("ready") is True
+    assert ready.get("live") is True
     assert "videoGeneration" not in ready
+    live = client.get("/health/live").json()
+    assert live.get("live") is True
+    assert "videoGeneration" not in live
     body = client.get("/health").json()
     assert body["ok"] is True
     assert body["version"]
