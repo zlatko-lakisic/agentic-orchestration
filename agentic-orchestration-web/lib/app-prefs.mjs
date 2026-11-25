@@ -92,11 +92,23 @@ export function normalizeAppPrefs(raw) {
   const dynamicPlanning = Boolean(src.dynamicPlanning);
   let defaultRunMode = normalizeDefaultRunMode(src.defaultRunMode);
   if (dynamicPlanning && !defaultRunMode) defaultRunMode = "dynamic";
-  return {
+  /** @type {Record<string, unknown>} */
+  const out = {
     dynamicPlanning,
     defaultRunMode,
     allowedAgentProviderIds: normalizeAllowedAgentProviderIds(src.allowedAgentProviderIds),
   };
+  // Operator-owned queue policy read by the engine daemon (orchestration/app_prefs.py).
+  // This module does not edit it, but a rewrite of the file must not drop it.
+  const cap = src.maxQueuePriority;
+  if ((typeof cap === "number" && Number.isFinite(cap)) || (typeof cap === "string" && cap.trim())) {
+    out.maxQueuePriority = typeof cap === "string" ? cap.trim() : cap;
+  }
+  const quota = src.queueQuota;
+  if (quota && typeof quota === "object" && !Array.isArray(quota)) {
+    out.queueQuota = quota;
+  }
+  return /** @type {any} */ (out);
 }
 
 /**
@@ -172,6 +184,10 @@ export function setAppPrefs(toolRoot, appId, patch) {
       src.allowedAgentProviderIds !== undefined
         ? src.allowedAgentProviderIds
         : prev.allowedAgentProviderIds,
+    // Carried over, never taken from the patch: queue policy is set by the operator
+    // in the file, not through the prefs API.
+    maxQueuePriority: prev.maxQueuePriority,
+    queueQuota: prev.queueQuota,
   });
   all[id] = next;
   saveAllAppPrefs(toolRoot, all);
