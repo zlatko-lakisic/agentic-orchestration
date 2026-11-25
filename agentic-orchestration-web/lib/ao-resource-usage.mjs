@@ -436,8 +436,11 @@ export async function sampleAoResources({
   }
   if (engineBase && fetchJson) {
     const base = String(engineBase).replace(/\/$/, "");
+    // gpu-residents may briefly wait on a cached Comfy /system_stats sample (#153);
+    // keep timeout above the engine probe budget (~1s) with headroom. Full /health
+    // is heavier — fail soft so residents still merge when health times out.
     const [residentsResp, healthResp] = await Promise.all([
-      fetchJson(`${base}/api/v1/gpu-residents`, 2500),
+      fetchJson(`${base}/api/v1/gpu-residents`, 6000),
       fetchJson(`${base}/health`, 2500),
     ]);
     if (healthResp?.ok && healthResp.json && typeof healthResp.json === "object") {

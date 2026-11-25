@@ -528,10 +528,14 @@ class GpuResidencyManager:
                     else res.min_vram_gb
                 )
                 expires = res.last_used_at + timeout if res.active <= 0 else None
+                model_label = str(res.model or res.provider_id)
+                if res.kind == "video" and not model_label.lower().startswith("comfy"):
+                    # Admin rowLabel uses model — make Comfy attribution obvious (#153).
+                    model_label = f"ComfyUI · {model_label}"
                 entries.append(
                     {
                         "providerId": res.provider_id,
-                        "model": res.model,
+                        "model": model_label,
                         "kind": res.kind,
                         "state": state,
                         "vramBytes": int(float(vram_gb) * (1024**3)) if vram_gb else None,
