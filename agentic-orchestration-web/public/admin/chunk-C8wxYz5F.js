@@ -1,0 +1,1 @@
+import{n as v,t as C}from"./chunk-Bz7L-v--.js";export{v as createArchitectureServices};
