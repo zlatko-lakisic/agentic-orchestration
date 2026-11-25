@@ -168,16 +168,44 @@ def test_stt_requires_json() -> None:
         )
 
 
-def test_orpheus_falls_back_to_piper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_orpheus_unset_url_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#185: missing preferred endpoint must not silently hit Piper."""
+    monkeypatch.delenv("AGENTIC_SPEECH_ORPHEUS_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_SPEECH_TTS_URL", "http://piper.test")
+    monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "files"))
+    monkeypatch.setenv("AGENTIC_GPU_RESIDENCY", "0")
+    entry = {
+        "id": "tts_orpheus_en",
+        "type": "tts",
+        "engine": "orpheus",
+        "allowed_engines": ["orpheus"],
+        "endpoint_env": "AGENTIC_SPEECH_ORPHEUS_URL",
+        "fallback_endpoint_env": "AGENTIC_SPEECH_TTS_URL",
+        "fallback_engine": "piper",
+    }
+    with pytest.raises(TtsError, match="AGENTIC_SPEECH_ORPHEUS_URL is not set"):
+        run_tts(
+            entry,
+            text="Hello from Orpheus fallback.",
+            tool_root=TOOL_ROOT,
+            identity=_ident(),
+        )
+
+
+def test_orpheus_falls_back_to_piper_on_5xx(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from orchestration.tts_runtime import split_narration_sentences
 
-    monkeypatch.delenv("AGENTIC_SPEECH_ORPHEUS_URL", raising=False)
+    monkeypatch.setenv("AGENTIC_SPEECH_ORPHEUS_URL", "http://orpheus.test")
     monkeypatch.setenv("AGENTIC_SPEECH_TTS_URL", "http://piper.test")
     monkeypatch.setenv("AGENTIC_FILES_DIR", str(tmp_path / "files"))
     monkeypatch.setenv("AGENTIC_GPU_RESIDENCY", "0")
 
     class _Transport(httpx.BaseTransport):
-        def handle_request(self, request: httpx.Request) -> httpx.Response:  # noqa: ARG002
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            if "orpheus.test" in str(request.url):
+                return httpx.Response(503, content=b"down")
             return httpx.Response(200, content=b"RIFF....WAVEfmt ")
 
     entry = {
