@@ -224,5 +224,8 @@ export function effectiveAllowedAgentProviderIds(requestSelected, prefs) {
   if (!fromReq.length) return fromApp;
   if (!fromApp.length) return fromReq;
   const allow = new Set(fromApp);
-  return fromReq.filter((id) => allow.has(id));
+  const intersection = fromReq.filter((id) => allow.has(id));
+  // Fail closed: an empty list means "no restriction" to every caller, so a request that names
+  // only providers outside the app's allowlist must fall back to the allowlist, never to [].
+  return intersection.length ? intersection : fromApp;
 }

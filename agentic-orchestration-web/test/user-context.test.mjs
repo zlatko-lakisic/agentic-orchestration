@@ -11,6 +11,8 @@ const {
   sanitizeUserDisplayName,
   sessionIdFromRequestHeaders,
   sanitizeSessionId,
+  normalizeClientSessionId,
+  effectiveSessionId,
   generateWebSessionId,
   resolveSessionIdFromHeaders,
   userNameFromRequestHeaders,
@@ -140,4 +142,31 @@ test("sanitizeLogoutMethod and sanitizeLogoutRedirect", () => {
   assert.equal(sanitizeLogoutRedirect("/@warpgate"), "/@warpgate");
   assert.equal(sanitizeLogoutRedirect("https://gate.example/@warpgate"), "https://gate.example/@warpgate");
   assert.equal(sanitizeLogoutRedirect("//evil.example"), null);
+});
+
+test("normalizeClientSessionId mirrors the Python slug rules and rejects path-like ids", () => {
+  assert.equal(normalizeClientSessionId("web-12ab34"), "web-12ab34");
+  assert.equal(normalizeClientSessionId("agent:main:42"), "agent-main-42");
+  assert.equal(normalizeClientSessionId("  user@example.com "), "user-example.com");
+  assert.equal(normalizeClientSessionId("--orchestrator-session-reset"), "orchestrator-session-reset");
+  for (const bad of ["", "   ", "../x", "a/b", "a\\b", "a\u0000b", "x".repeat(129), ":::", 5, null, undefined, {}]) {
+    assert.equal(normalizeClientSessionId(bad), null, String(bad));
+  }
+});
+
+test("effectiveSessionId: a proxy-injected header wins over the client value", () => {
+  // Multi-user reverse proxy: user A must not be able to name user B's session.
+  assert.equal(
+    effectiveSessionId({ "x-agentic-session-id": "proxy-session-a" }, "victim-session-b"),
+    "proxy-session-a",
+  );
+  assert.equal(
+    effectiveSessionId({ "x-warpgate-session-id": "wg-1" }, "victim-session-b"),
+    "wg-1",
+  );
+  // No proxy header: the (normalised) client value is used.
+  assert.equal(effectiveSessionId({}, "my:session"), "my-session");
+  assert.equal(effectiveSessionId(undefined, "plain"), "plain");
+  assert.equal(effectiveSessionId({}, "../../etc"), null);
+  assert.equal(effectiveSessionId({}, undefined), null);
 });

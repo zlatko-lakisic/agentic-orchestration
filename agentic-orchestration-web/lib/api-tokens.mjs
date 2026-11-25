@@ -110,11 +110,33 @@ function saveTokens(toolRoot, tokens) {
   const root = apiTokensRoot(toolRoot);
   fs.mkdirSync(root, { recursive: true });
   const file = tokensPath(toolRoot);
-  fs.writeFileSync(file, `${JSON.stringify(tokens, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  writeFileAtomic(file, `${JSON.stringify(tokens, null, 2)}\n`, 0o600);
+}
+
+/**
+ * Write via temp file + rename so a crash mid-write can never leave a truncated file
+ * (a torn tokens.json would read as "no tokens" and lock every client out).
+ * @param {string} file
+ * @param {string} text
+ * @param {number} mode
+ */
+function writeFileAtomic(file, text, mode) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   try {
-    fs.chmodSync(file, 0o600);
-  } catch {
-    /* ignore */
+    fs.writeFileSync(tmp, text, { encoding: "utf8", mode });
+    try {
+      fs.chmodSync(tmp, mode);
+    } catch {
+      /* ignore */
+    }
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* ignore */
+    }
+    throw err;
   }
 }
 
@@ -253,15 +275,7 @@ export function assignSurfaceToken(toolRoot, appId, opts) {
     prefix: String(opts.prefix || token.slice(0, TOKEN_PREFIX_LEN)),
     assignedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(file, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  try {
-    fs.chmodSync(file, 0o600);
-  } catch {
-    /* ignore */
-  }
+  writeFileAtomic(file, `${JSON.stringify(payload, null, 2)}\n`, 0o600);
   return payload;
 }
 
@@ -455,7 +469,11 @@ export function revokeToken(toolRoot, id) {
  */
 export function clientIp(req) {
   if (!req) return "";
-  const xff = req.headers && (req.headers["x-forwarded-for"] || req.headers["X-Forwarded-For"]);
+  // Peer is not one of the configured trusted proxies: its X-Forwarded-For is just client input.
+  const xff =
+    !req.agenticUntrustedPeer &&
+    req.headers &&
+    (req.headers["x-forwarded-for"] || req.headers["X-Forwarded-For"]);
   if (typeof xff === "string" && xff.trim()) {
     return xff.split(",")[0].trim();
   }
@@ -510,12 +528,30 @@ export function authenticateBearer(toolRoot, authHeader, envKeys = []) {
   }
 
   for (const key of keys) {
-    if (provided === key || timingSafeEqualString(provided, key)) {
+    if (timingSafeEqualString(provided, key)) {
       return { ok: true, tokenId: null, appId: "env", source: "env" };
     }
   }
 
   return { ok: false, reason: "invalid" };
+}
+
+/**
+ * Authenticate a caller of the programmatic API routes (`/v1/chat/completions`,
+ * `/v1/responses`, `/api/v1/orchestrate`). Same as {@link authenticateBearer}, except the
+ * reserved first-party UI tokens (ao-web / ao-chat) are refused: those are browser-session
+ * credentials for the Admin and Chat pages, not API keys.
+ *
+ * @param {string} toolRoot
+ * @param {string} authHeader
+ * @param {string|string[]} envKeys
+ */
+export function authenticateApiBearer(toolRoot, authHeader, envKeys = []) {
+  const result = authenticateBearer(toolRoot, authHeader, envKeys);
+  if (result.ok && result.source === "token" && isFirstPartyUiAppId(result.appId)) {
+    return { ok: false, reason: "ui_token_not_allowed" };
+  }
+  return result;
 }
 
 /**
@@ -604,15 +640,24 @@ function timingSafeEqualString(a, b) {
   }
 }
 
+/** Minimum gap between `lastUsedAt` rewrites of tokens.json for one token (unless the IP changed). */
+const LAST_USED_WRITE_INTERVAL_MS = 60_000;
+/** First-party UI polling: at most one ledger row per token + IP in this window. */
+const UI_USAGE_SAMPLE_MS = 60_000;
+/** @type {Map<string, number>} `${toolRoot}|${tokenId}|${ip}` → last recorded ms */
+const _uiUsageLastRow = new Map();
+/** @type {Map<string, number>} usage file → known line count (lazy; avoids re-reading per request) */
+const _usageLineCounts = new Map();
+
 /**
  * @param {string} toolRoot
  * @param {{ tokenId?: string|null, appId?: string, ip?: string, path?: string, status?: number, latencyMs?: number, promptChars?: number }} row
  */
 export function recordUsage(toolRoot, row) {
   const root = apiTokensRoot(toolRoot);
-  fs.mkdirSync(root, { recursive: true });
+  const nowMs = Date.now();
   const entry = {
-    ts: new Date().toISOString(),
+    ts: new Date(nowMs).toISOString(),
     tokenId: row.tokenId != null ? String(row.tokenId) : null,
     appId: row.appId != null ? String(row.appId) : "",
     ip: row.ip != null ? String(row.ip) : "",
@@ -622,38 +667,68 @@ export function recordUsage(toolRoot, row) {
     promptChars: typeof row.promptChars === "number" ? row.promptChars : null,
     runId: row.runId != null && String(row.runId).trim() ? String(row.runId).trim() : null,
   };
-  fs.appendFileSync(usagePath(toolRoot), `${JSON.stringify(entry)}\n`, "utf8");
+
+  // The Admin / Chat pages poll constantly with their first-party token. Sample those rows so
+  // they neither rewrite tokens.json on every request nor evict real API usage from the ledger.
+  if (isFirstPartyUiAppId(entry.appId)) {
+    const key = `${root}|${entry.tokenId || ""}|${entry.ip}`;
+    const last = _uiUsageLastRow.get(key) || 0;
+    if (nowMs - last < UI_USAGE_SAMPLE_MS) return;
+    if (_uiUsageLastRow.size > 2000) _uiUsageLastRow.clear();
+    _uiUsageLastRow.set(key, nowMs);
+  }
+
+  fs.mkdirSync(root, { recursive: true });
+  const file = usagePath(toolRoot);
+  fs.appendFileSync(file, `${JSON.stringify(entry)}\n`, "utf8");
 
   if (entry.tokenId) {
     const tokens = loadTokens(toolRoot);
     const idx = tokens.findIndex((t) => String(t.id) === entry.tokenId);
     if (idx >= 0) {
-      tokens[idx] = {
-        ...tokens[idx],
-        lastUsedAt: entry.ts,
-        lastUsedIp: entry.ip || tokens[idx].lastUsedIp || null,
-      };
-      saveTokens(toolRoot, tokens);
+      const prevMs = Date.parse(String(tokens[idx].lastUsedAt || ""));
+      const ipChanged = Boolean(entry.ip) && entry.ip !== tokens[idx].lastUsedIp;
+      const stale = !Number.isFinite(prevMs) || nowMs - prevMs >= LAST_USED_WRITE_INTERVAL_MS;
+      if (stale || ipChanged) {
+        tokens[idx] = {
+          ...tokens[idx],
+          lastUsedAt: entry.ts,
+          lastUsedIp: entry.ip || tokens[idx].lastUsedIp || null,
+        };
+        saveTokens(toolRoot, tokens);
+      }
     }
   }
 
-  rotateUsageIfNeeded(toolRoot);
+  rotateUsageIfNeeded(toolRoot, file);
 }
 
 /**
+ * Trim the ledger once it passes MAX_USAGE_LINES. The line count is tracked in memory so the
+ * file is only read on the first call and when a rotation is actually due.
  * @param {string} toolRoot
+ * @param {string} [fileHint]
  */
-function rotateUsageIfNeeded(toolRoot) {
-  const file = usagePath(toolRoot);
-  if (!fs.existsSync(file)) return;
+function rotateUsageIfNeeded(toolRoot, fileHint) {
+  const file = fileHint || usagePath(toolRoot);
   try {
-    const text = fs.readFileSync(file, "utf8");
-    const lines = text.split("\n").filter((l) => l.trim());
-    if (lines.length <= MAX_USAGE_LINES) return;
+    let count = _usageLineCounts.get(file);
+    if (count == null) {
+      if (!fs.existsSync(file)) return;
+      count = fs.readFileSync(file, "utf8").split("\n").filter((l) => l.trim()).length;
+    } else {
+      count += 1;
+    }
+    if (count <= MAX_USAGE_LINES) {
+      _usageLineCounts.set(file, count);
+      return;
+    }
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter((l) => l.trim());
     const kept = lines.slice(-Math.floor(MAX_USAGE_LINES * 0.8));
-    fs.writeFileSync(file, `${kept.join("\n")}\n`, "utf8");
+    writeFileAtomic(file, `${kept.join("\n")}\n`, 0o600);
+    _usageLineCounts.set(file, kept.length);
   } catch {
-    /* ignore */
+    _usageLineCounts.delete(file);
   }
 }
 

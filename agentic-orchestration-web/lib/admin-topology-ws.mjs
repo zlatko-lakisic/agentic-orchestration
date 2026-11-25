@@ -128,6 +128,9 @@ async function tick(ws, sendJson, baseCtx) {
   stateByWs.set(ws, st);
 }
 
+/** Upper bound on concurrent node/edge watches per WebSocket. */
+export const MAX_WATCHES_PER_SOCKET = 32;
+
 export function startTopologyPush(ws, sendJson, baseCtx) {
   stopTopologyPush(ws);
   const st = { lastGraph: null, watches: new Set() };
@@ -162,7 +165,18 @@ export async function subscribeTopologyWatch(ws, sendJson, baseCtx, msg) {
     st = stateByWs.get(ws);
   }
   if (!st.watches) st.watches = new Set();
-  st.watches.add(watchKey(target, id));
+  const key = watchKey(target, id);
+  // Each watch produces a message per tick; bound what one socket can ask for.
+  if (!st.watches.has(key) && st.watches.size >= MAX_WATCHES_PER_SOCKET) {
+    sendJson(ws, {
+      type: "topology_watch_error",
+      target,
+      id,
+      message: `Too many topology watches on this connection (max ${MAX_WATCHES_PER_SOCKET}).`,
+    });
+    return;
+  }
+  st.watches.add(key);
   stateByWs.set(ws, st);
   const graph = st.lastGraph || (await buildTopologyGraph(baseCtx));
   st.lastGraph = graph;

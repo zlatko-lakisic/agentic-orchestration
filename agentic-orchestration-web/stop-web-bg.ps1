@@ -21,12 +21,13 @@ if (Test-Path $supervisorPidFile) {
 }
 
 if (Test-Path $pidFile) {
-  $pid = [int](Get-Content $pidFile -Raw)
+  # $PID is a read-only automatic variable (this shell's own pid) — never assign to it.
+  $serverPid = [int](Get-Content $pidFile -Raw)
   try {
-    Stop-Process -Id $pid -Force
-    Write-Host "[web-bg] stopped server pid=$pid"
+    Stop-Process -Id $serverPid -Force
+    Write-Host "[web-bg] stopped server pid=$serverPid"
   } catch {
-    Write-Host "[web-bg] server not running (pid=$pid)"
+    Write-Host "[web-bg] server not running (pid=$serverPid)"
   }
   Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
 }

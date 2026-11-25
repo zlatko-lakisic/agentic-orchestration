@@ -67,3 +67,17 @@ test("effectiveAllowedAgentProviderIds intersects request with app allowlist", (
   ]);
   assert.equal(effectiveAllowedAgentProviderIds(undefined, { allowedAgentProviderIds: [] }), undefined);
 });
+
+test("effectiveAllowedAgentProviderIds fails closed when the request names only disallowed providers", () => {
+  // An empty list means "unrestricted catalog" to every caller, so an empty intersection must
+  // fall back to the app allowlist, never to [] / undefined.
+  const prefs = { allowedAgentProviderIds: ["gpt_write"] };
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["anything_else"], prefs), ["gpt_write"]);
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["a", "b", "c"], prefs), ["gpt_write"]);
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["GPT_WRITE", "x"], prefs), ["gpt_write"]);
+  // No app allowlist: the request selection is used as-is.
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["anything_else"], { allowedAgentProviderIds: [] }), [
+    "anything_else",
+  ]);
+  assert.deepEqual(effectiveAllowedAgentProviderIds(["anything_else"], null), ["anything_else"]);
+});

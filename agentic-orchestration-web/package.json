@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.mjs",
     "start:healthcare": "node server.mjs --example healthcare",
-    "start:logistics": "node server.mjs --example logistics"
+    "start:logistics": "node server.mjs --example logistics",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

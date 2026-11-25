@@ -1,7 +1,10 @@
 param(
   [string]$TaskName = "AgenticOrchestrationWeb",
   [int]$Port = 3847,
-  [string]$Host = "0.0.0.0"
+  # Loopback by default. Pass -BindHost 0.0.0.0 (alias: -Host) only when an authenticating
+  # proxy / VPN fronts the server: the chat WebSocket is unauthenticated until tokens are minted.
+  [Alias("Host")]
+  [string]$BindHost = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +17,7 @@ if (-not (Test-Path $startScript)) {
 }
 
 $escapedStart = $startScript.Replace('"', '""')
-$arg = "-NoProfile -ExecutionPolicy Bypass -File `"$escapedStart`" -Port $Port -Host `"$Host`""
+$arg = "-NoProfile -ExecutionPolicy Bypass -File `"$escapedStart`" -Port $Port -BindHost `"$BindHost`""
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $here
 $triggerStartup = New-ScheduledTaskTrigger -AtStartup
@@ -38,5 +41,5 @@ Register-ScheduledTask `
 Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "[web-task] installed and started task '$TaskName'"
-Write-Host "[web-task] config: host=$Host port=$Port"
+Write-Host "[web-task] config: host=$BindHost port=$Port"
 

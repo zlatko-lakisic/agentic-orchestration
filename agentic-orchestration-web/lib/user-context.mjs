@@ -34,6 +34,33 @@ export function sanitizeSessionId(raw) {
 }
 
 /**
+ * Normalise a client-supplied session id (WebSocket message / JSON body) to the slug the Python
+ * tool would derive (`safe_orchestrator_session_slug`): path-like or control characters are
+ * rejected, any other unsupported character becomes `-`. Returns null when unusable.
+ * @param {unknown} raw
+ */
+export function normalizeClientSessionId(raw) {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  if (!t || t.length > 128) return null;
+  if (/[\x00-\x1f\x7f]/.test(t)) return null;
+  if (t.includes("..") || t.includes("/") || t.includes("\\")) return null;
+  const cleaned = t.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^[-._]+|[-._]+$/g, "");
+  return cleaned || null;
+}
+
+/**
+ * Session id for a run: a proxy-injected header always wins over the client-supplied value
+ * (multi-user reverse-proxy deployments), and the client value is always normalised.
+ * @param {import("http").IncomingHttpHeaders | Record<string, string | string[] | undefined> | null | undefined} headers
+ * @param {unknown} clientValue
+ * @returns {string|null}
+ */
+export function effectiveSessionId(headers, clientValue) {
+  return sessionIdFromRequestHeaders(headers || {}) || normalizeClientSessionId(clientValue);
+}
+
+/**
  * Read orchestrator session id from inbound HTTP / WebSocket upgrade headers (proxy-injected).
  * @param {import("http").IncomingHttpHeaders | Record<string, string | string[] | undefined>} headers
  * @param {string} [headerListEnv] Comma-separated header names (case-insensitive)
