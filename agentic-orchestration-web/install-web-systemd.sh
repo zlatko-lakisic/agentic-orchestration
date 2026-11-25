@@ -4,8 +4,16 @@ set -euo pipefail
 # Installs a persistent systemd service for agentic-orchestration-web on Ubuntu.
 # Usage:
 #   sudo ./install-web-systemd.sh [PORT] [HOST]
-# Example:
+# Defaults: PORT=3847, HOST=127.0.0.1 (loopback only).
+#
+# The chat WebSocket is unauthenticated until UI tokens are minted, so only bind a routable
+# address when an authenticating proxy / VPN is in front of it:
 #   sudo ./install-web-systemd.sh 80 0.0.0.0
+#
+# Service account: the unit runs as a non-root user — AGENTIC_WEB_SERVICE_USER when set,
+# otherwise the owner of this checkout, otherwise the sudo caller. It only stays root when all
+# of those are root (a warning is printed). Example:
+#   sudo AGENTIC_WEB_SERVICE_USER=agentic ./install-web-systemd.sh
 #
 # Optional: also install Ollama as its own unit and start it before the web service:
 #   sudo INSTALL_AGENTIC_OLLAMA=1 ./install-web-systemd.sh 80 0.0.0.0
@@ -18,7 +26,7 @@ set -euo pipefail
 # or reinstall from a shell where `command -v node` is correct — this script prepends that dir automatically.
 
 PORT="${1:-3847}"
-HOST="${2:-0.0.0.0}"
+HOST="${2:-127.0.0.1}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 unit_name="agentic-orchestration-web.service"
@@ -38,6 +46,31 @@ if ! command -v systemctl >/dev/null 2>&1; then
   echo "[systemd] systemctl not found. This script requires systemd." >&2
   exit 1
 fi
+
+case "$HOST" in
+  127.*|localhost|::1) ;;
+  *)
+    echo "[systemd] WARNING: binding $HOST exposes the web UI beyond this machine. Put an authenticating proxy or VPN in front of it and mint the ao-web / ao-chat tokens (Admin → Access)." >&2
+    ;;
+esac
+
+# Pick the service account (never root unless nothing else is available).
+service_user="${AGENTIC_WEB_SERVICE_USER:-}"
+if [[ -z "$service_user" ]]; then
+  owner="$(stat -c '%U' "$here" 2>/dev/null || true)"
+  if [[ -n "$owner" && "$owner" != "root" && "$owner" != "UNKNOWN" ]]; then
+    service_user="$owner"
+  elif [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    service_user="$SUDO_USER"
+  else
+    service_user="root"
+  fi
+fi
+if ! id "$service_user" >/dev/null 2>&1; then
+  echo "[systemd] service user '$service_user' does not exist. Create it or set AGENTIC_WEB_SERVICE_USER." >&2
+  exit 1
+fi
+service_group="$(id -gn "$service_user")"
 
 # Ensure static host/port are present in .env (replace if existing, append otherwise).
 touch "$env_file"
@@ -85,6 +118,38 @@ else
   echo "[systemd] WARNING: node not found on PATH during install; unit PATH omits nvm/custom Node." >&2
 fi
 
+# A non-root account cannot use a Node that lives in root's home (nvm under /root).
+if [[ "$service_user" != "root" && "$service_path" == /root/* ]]; then
+  echo "[systemd] WARNING: Node is installed under /root (${service_path%%:*}), which '$service_user' cannot read; the service will run as root. Install Node system-wide (or set AGENTIC_WEB_SERVICE_PATH_PREFIX) to run it unprivileged." >&2
+  service_user="root"
+  service_group="root"
+fi
+if [[ "$service_user" == "root" ]]; then
+  echo "[systemd] WARNING: the service will run as root. Set AGENTIC_WEB_SERVICE_USER to a dedicated account that owns $here and the tool checkout." >&2
+fi
+
+# The .env may hold API keys: owner-only, and owned by the account that reads it.
+chown "$service_user:$service_group" "$env_file" 2>/dev/null || true
+chmod 600 "$env_file" 2>/dev/null || true
+
+# Install dependencies now (lockfile-pinned), not on every service start.
+if [[ ! -d "$here/node_modules" ]]; then
+  echo "[systemd] installing Node dependencies (npm ci) as $service_user"
+  if [[ "$service_user" == "root" ]]; then
+    (cd "$here" && PATH="$service_path" npm ci --omit=dev --no-audit --no-fund)
+  elif command -v runuser >/dev/null 2>&1; then
+    runuser -u "$service_user" -- env PATH="$service_path" bash -c 'cd "$1" && npm ci --omit=dev --no-audit --no-fund' _ "$here"
+  else
+    su -s /bin/bash "$service_user" -c "cd '$here' && PATH='$service_path' npm ci --omit=dev --no-audit --no-fund"
+  fi
+fi
+
+# Ports below 1024 need a capability once the service is not root.
+unit_caps=""
+if [[ "$service_user" != "root" && "$PORT" =~ ^[0-9]+$ && "$PORT" -lt 1024 ]]; then
+  unit_caps="AmbientCapabilities=CAP_NET_BIND_SERVICE"
+fi
+
 cat >/etc/systemd/system/$unit_name <<EOF
 [Unit]
 Description=Agentic Orchestration Web
@@ -93,10 +158,15 @@ $unit_wants
 
 [Service]
 Type=simple
+User=$service_user
+Group=$service_group
+$unit_caps
 WorkingDirectory=$here
 Environment=HOST=$HOST
 Environment=PORT=$PORT
 Environment=PATH=$service_path
+# Dependencies are installed by this installer; never run a package install at service start.
+Environment=AGENTIC_WEB_SKIP_NPM_INSTALL=1
 ExecStart=/usr/bin/env bash $here/start-web.sh
 Restart=always
 RestartSec=2
@@ -115,7 +185,7 @@ systemctl daemon-reload
 systemctl enable --now "$unit_name"
 
 echo "[systemd] installed $unit_name"
-echo "[systemd] host=$HOST port=$PORT"
+echo "[systemd] host=$HOST port=$PORT user=$service_user"
 echo "[systemd] status: systemctl status $unit_name --no-pager"
 echo "[systemd] logs:   journalctl -u $unit_name -f"
 echo "[systemd] note:   older installs wrote stdout/stderr to $here/.web-service.log — check that file for errors before the last reinstall."

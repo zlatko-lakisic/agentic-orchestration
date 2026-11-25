@@ -1,6 +1,7 @@
 param(
   [int]$Port = 0,
-  [string]$Host = ""
+  [Alias("Host")]
+  [string]$BindHost = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,29 +35,34 @@ function Load-LocalDotEnv {
     if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
       $val = $val.Substring(1, $val.Length - 2)
     }
-    $env:$key = $val
+    # `$env:$key = …` is not valid PowerShell for a dynamic name.
+    Set-Item -Path "Env:$key" -Value $val
   }
 }
 
 Load-LocalDotEnv
 
 # Defaults from .env unless caller passed parameters.
-if (-not $Host.Trim()) { $Host = ($env:AGENTIC_WEB_HOST ?? "127.0.0.1").Trim() }
+if (-not $BindHost.Trim()) {
+  if ($env:AGENTIC_WEB_HOST) { $BindHost = "$($env:AGENTIC_WEB_HOST)".Trim() } else { $BindHost = "127.0.0.1" }
+}
 if ($Port -le 0) {
-  $p = ($env:AGENTIC_WEB_PORT ?? "3847").Trim()
+  if ($env:AGENTIC_WEB_PORT) { $p = "$($env:AGENTIC_WEB_PORT)".Trim() } else { $p = "3847" }
   try { $Port = [int]$p } catch { $Port = 3847 }
 }
 
 # Ensure deps exist
 if (-not (Test-Path -Path "node_modules")) {
-  Write-Host "[web-bg] node_modules missing -> npm install"
-  npm install
+  Write-Host "[web-bg] node_modules missing -> npm ci"
+  npm ci --omit=dev --no-audit --no-fund
 }
 
 $pidFile = Join-Path $here ".web-server.pid"
 $logFile = Join-Path $here ".web-server.log"
 $supervisorPidFile = Join-Path $here ".web-supervisor.pid"
 $supervisorLogFile = Join-Path $here ".web-supervisor.log"
+# Start-Process refuses to redirect stdout and stderr to the same file.
+$supervisorErrLogFile = Join-Path $here ".web-supervisor.err.log"
 $stopFlagFile = Join-Path $here ".web-supervisor.stop"
 
 if (Test-Path $supervisorPidFile) {
@@ -71,7 +77,7 @@ if (Test-Path $supervisorPidFile) {
 }
 
 $env:AGENTIC_WEB_PORT = "$Port"
-$env:AGENTIC_WEB_HOST = "$Host"
+$env:AGENTIC_WEB_HOST = "$BindHost"
 
 Remove-Item -Force $stopFlagFile -ErrorAction SilentlyContinue
 
@@ -88,15 +94,15 @@ $proc = Start-Process -FilePath "powershell" `
     (Join-Path $here "run-web-supervisor.ps1"),
     "-Port",
     "$Port",
-    "-Host",
-    "$Host"
+    "-BindHost",
+    "$BindHost"
   ) `
   -WorkingDirectory $here `
   -WindowStyle Hidden `
   -RedirectStandardOutput $supervisorLogFile `
-  -RedirectStandardError $supervisorLogFile `
+  -RedirectStandardError $supervisorErrLogFile `
   -PassThru
 
 $proc.Id | Out-File -FilePath $supervisorPidFile -Encoding ascii -Force
-Write-Host "[web-bg] supervisor started pid=$($proc.Id) (http://$Host`:$Port/)"
+Write-Host "[web-bg] supervisor started pid=$($proc.Id) (http://${BindHost}:$Port/)"
 
