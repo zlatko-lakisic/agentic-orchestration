@@ -13,4 +13,4 @@
 # Licenses: onnxruntime MIT; nvidia-* CUDA/cuDNN redistributables (NVIDIA EULA).
 numpy>=1.24.0
 Pillow>=13.0.0
-onnxruntime-gpu[cuda,cudnn]>=1.17.0,<2
+onnxruntime-gpu[cuda,cudnn]>=1.32.0,<2
