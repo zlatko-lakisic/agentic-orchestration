@@ -20,8 +20,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Matches the reversible placeholders we mint, e.g. "[EMAIL:1]", "[PERSON:3]".
-_TOKEN_RE = re.compile(r"\[[A-Z][A-Z0-9_]*:\d+\]")
+# Matches the reversible placeholders we mint, e.g. "[EMAIL:1]", "[PERSON:3]", and the
+# per-run tagged form "[EMAIL:r3fa9-1]".
+_TOKEN_RE = re.compile(r"\[[A-Z][A-Z0-9_]*:(?:[a-z0-9]+-)?\d+\]")
 
 _DEFAULT_NER_ENTITIES = ("PERSON", "LOCATION", "NRP")
 
@@ -77,6 +78,9 @@ class TokenMap:
 
     session_slug: str | None = None
     path: Path | None = None
+    #: Optional tag placed before the counter (``[EMAIL:<namespace>-1]``) so tokens from
+    #: this map cannot be confused with tokens minted by another map.
+    namespace: str = ""
     _forward: dict[str, str] = field(default_factory=dict)
     _reverse: dict[str, str] = field(default_factory=dict)
     _counters: dict[str, int] = field(default_factory=dict)
@@ -89,7 +93,8 @@ class TokenMap:
         kind_key = re.sub(r"[^A-Za-z0-9_]", "", str(kind or "VALUE").strip().upper()) or "VALUE"
         n = self._counters.get(kind_key, 0) + 1
         self._counters[kind_key] = n
-        token = f"[{kind_key}:{n}]"
+        tag = re.sub(r"[^a-z0-9]", "", str(self.namespace or "").lower())
+        token = f"[{kind_key}:{tag}-{n}]" if tag else f"[{kind_key}:{n}]"
         self._forward[original] = token
         self._reverse[token] = original
         self._save_if_bound()
@@ -153,9 +158,21 @@ def get_token_map() -> TokenMap:
     return tm
 
 
-def bind_token_map(token_map: TokenMap) -> None:
-    """Bind an explicit token map as current for this context (e.g. one orchestrator run)."""
-    _CURRENT_TOKEN_MAP.set(token_map)
+def bind_token_map(token_map: TokenMap) -> Any:
+    """Bind an explicit token map as current for this context (e.g. one orchestrator run).
+
+    Returns the ContextVar token; pass it to :func:`reset_token_map` to restore the
+    previous binding.
+    """
+    return _CURRENT_TOKEN_MAP.set(token_map)
+
+
+def reset_token_map(token: Any) -> None:
+    """Undo a :func:`bind_token_map` call."""
+    try:
+        _CURRENT_TOKEN_MAP.reset(token)
+    except (ValueError, LookupError):
+        _CURRENT_TOKEN_MAP.set(None)
 
 
 def clear_token_map() -> None:
@@ -268,7 +285,12 @@ def presidio_available() -> bool:
     return _get_presidio_analyzer() is not None
 
 
-def apply_ner_redaction(text: str, *, token_map: TokenMap | None = None) -> str:
+def apply_ner_redaction(
+    text: str,
+    *,
+    token_map: TokenMap | None = None,
+    reversible: bool | None = None,
+) -> str:
     """
     Run Presidio NER over ``text`` and replace detected entities with placeholders.
 
@@ -288,7 +310,7 @@ def apply_ner_redaction(text: str, *, token_map: TokenMap | None = None) -> str:
         return text
     if not results:
         return text
-    reversible = anonymize_reversible_enabled()
+    reversible = anonymize_reversible_enabled() if reversible is None else bool(reversible)
     tm = token_map if token_map is not None else get_token_map()
     out = text
     # Replace back-to-front so earlier match offsets stay valid.

@@ -176,7 +176,9 @@ def _category_for(path: Path, mime: str) -> tuple[str, str]:
 
 def _read_text_excerpt(path: Path, max_chars: int) -> str:
     try:
-        raw = path.read_bytes()[: max_chars * 2 + 64]
+        # Read only the excerpt: a multi-GB log must not be loaded to show its head.
+        with path.open("rb") as handle:
+            raw = handle.read(max_chars * 2 + 64)
     except OSError as exc:
         return f"(could not read file: {exc})"
     try:

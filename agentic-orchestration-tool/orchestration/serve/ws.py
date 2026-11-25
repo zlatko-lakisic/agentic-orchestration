@@ -54,18 +54,28 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import os
 import threading
 import time
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, Callable
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from orchestration.serve import engine_version
+from orchestration.serve.access import client_ip as resolve_client_ip
+from orchestration.serve.access import is_loopback_address
 from orchestration.serve.mtls_tls import peercert_from_scope
-from orchestration.user_context import Identity, IdentityRequiredError, resolve_identity
+from orchestration.user_context import (
+    Identity,
+    IdentityRequiredError,
+    normalize_requested_session_id,
+    resolve_identity,
+    resolve_request_session_id,
+)
 
 #: Close code for a policy violation (missing identity under AGENTIC_REQUIRE_IDENTITY).
 WS_CLOSE_POLICY_VIOLATION = 1008
@@ -76,19 +86,123 @@ MAX_CONCURRENT_RUNS_DEFAULT = 8
 HEARTBEAT_SECONDS_DEFAULT = 10.0
 
 
+#: Messages that must wait for an in-flight overlay registration: they depend on the
+#: overlay it is building (or replace it), so they keep their arrival order behind it.
+_DEFER_DURING_OVERLAY = frozenset(
+    {"chat", "direct_agent", "session_overlay_register", "session_overlay_clear"}
+)
+MAX_DEFERRED_MESSAGES = 32
+
+#: Open connections, so a certificate revocation can drop sockets that are already up.
+_LIVE_CONNECTIONS: "weakref.WeakSet[WsConnection]" = weakref.WeakSet()
+
+# Per-request identity mirrored into ``os.environ`` for code that still reads it there.
+# ContextVars (``bind_usage_context``) are authoritative; the env copy is only kept
+# while exactly one run is active, because a process-global cannot describe two runs.
+_RUN_ENV_IDENTITY_KEYS = (
+    "AGENTIC_RUN_ID",
+    "AGENTIC_APP_ID",
+    "AGENTIC_CLIENT_IP",
+    "AGENTIC_USER_ID",
+    "AGENTIC_USER_NAME",
+    "AGENTIC_API_TOKEN_ID",
+)
+_RUN_ENV_KEYS = (*_RUN_ENV_IDENTITY_KEYS, "AGENTIC_TOOL_ROOT")
+_run_env_lock = threading.Lock()
+_run_env_active = 0
+_run_env_baseline: dict[str, str | None] = {}
+
+
+def _restore_env(keys: tuple[str, ...]) -> None:
+    for key in keys:
+        old = _run_env_baseline.get(key)
+        if old is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = old
+
+
+def _enter_run_env(values: dict[str, str]) -> None:
+    """Mirror one run's identity into the process env — only if it is the sole run."""
+    global _run_env_active
+    with _run_env_lock:
+        _run_env_active += 1
+        if _run_env_active == 1:
+            _run_env_baseline.clear()
+            _run_env_baseline.update({k: os.environ.get(k) for k in _RUN_ENV_KEYS})
+            for key in _RUN_ENV_KEYS:
+                value = values.get(key)
+                if value:
+                    os.environ[key] = value
+        else:
+            # A second run started: the env identity would now be wrong for one of
+            # them, so drop it and let readers fall back to their ContextVars.
+            _restore_env(_RUN_ENV_IDENTITY_KEYS)
+
+
+def _exit_run_env() -> None:
+    global _run_env_active
+    with _run_env_lock:
+        _run_env_active = max(0, _run_env_active - 1)
+        if _run_env_active == 0:
+            _restore_env(_RUN_ENV_KEYS)
+            _run_env_baseline.clear()
+
+
+def _is_run_cancelled(exc: BaseException) -> bool:
+    """True for ``orchestration.dynamic_run.RunCancelled`` (cooperative cancellation)."""
+    try:
+        from orchestration import dynamic_run
+
+        cancelled_type = getattr(dynamic_run, "RunCancelled", None)
+    except Exception:  # noqa: BLE001
+        cancelled_type = None
+    if isinstance(cancelled_type, type) and isinstance(exc, cancelled_type):
+        return True
+    return exc.__class__.__name__ == "RunCancelled"
+
+
+def _accepts_kwarg(fn: Callable[..., Any], name: str) -> bool:
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+async def close_revoked_connections(tool_root: Path) -> int:
+    """Close every open socket whose client certificate is now on the deny-list."""
+    from orchestration.serve.mtls_ca import is_peercert_revoked
+
+    closed = 0
+    for conn in list(_LIVE_CONNECTIONS):
+        cert = conn.peercert
+        if not cert or not is_peercert_revoked(tool_root, cert):
+            continue
+        for event in list(conn._run_cancel_events.values()):  # noqa: SLF001
+            event.set()
+        with contextlib.suppress(Exception):
+            await conn.send_error("client certificate revoked")
+        with contextlib.suppress(Exception):
+            await conn.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
+        closed += 1
+    return closed
+
+
 def client_ip_from_websocket(websocket: WebSocket) -> str:
-    """Best-effort peer IP for Reach Topology (X-Forwarded-For, then socket)."""
-    headers = websocket.headers
-    for key in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
-        raw = headers.get(key)
-        if raw and str(raw).strip():
-            return str(raw).split(",")[0].strip()
+    """Peer IP for Reach Topology / audit trails.
+
+    ``X-Forwarded-For`` and friends are honoured only from a trusted proxy peer
+    (loopback or ``AGENTIC_SERVE_TRUSTED_PROXIES``); any other peer's headers are
+    self-asserted and would make the audit trail spoofable.
+    """
     client = websocket.client
+    peer = ""
     if client and getattr(client, "host", None):
-        return str(client.host).strip()
-    if isinstance(client, (tuple, list)) and client:
-        return str(client[0]).strip()
-    return ""
+        peer = str(client.host).strip()
+    elif isinstance(client, (tuple, list)) and client:
+        peer = str(client[0]).strip()
+    return resolve_client_ip(websocket.headers, peer)
 
 
 def max_concurrent_runs() -> int:
@@ -194,6 +308,16 @@ class WsConnection:
         self._overlay_cancel = threading.Event()
         self._agent_states: dict[str, str] = {}
         self._overlay_agents: list[dict[str, Any]] = []
+        #: In-flight ``session_overlay_register`` (runs off the receive loop).
+        self._overlay_task: asyncio.Task[None] | None = None
+        self._deferred: list[dict[str, Any]] = []
+        #: Verified client certificate, kept so a later revocation can close this socket.
+        self.peercert: dict[str, Any] | None = None
+        # Worker threads outlive a cancelled asyncio task; count them so the busy
+        # flag and the concurrency cap stay held until the thread really returns.
+        self._worker_lock = threading.Lock()
+        self._live_workers = 0
+        self._untagged_workers = 0
 
     # ---- transport -------------------------------------------------------
 
@@ -515,12 +639,13 @@ class WsConnection:
             await self.send_error("client certificate revoked")
             await self.ws.close(code=WS_CLOSE_POLICY_VIOLATION)
             return
+        self.peercert = dict(peercert) if peercert else None
+        _LIVE_CONNECTIONS.add(self)
 
         hello: dict[str, Any] = {
             "type": "hello",
             "service": "agentic-orchestration-engine",
             "version": engine_version(),
-            "toolRoot": str(self.tool_root),
             "protocol": "engine-ws/1",
             "questionTags": True,
             "sessionOverlay": session_overlay_enabled(),
@@ -548,6 +673,10 @@ class WsConnection:
         mtls = mtls_hello_payload(self.tool_root)
         if mtls is not None:
             hello["mtlsInfo"] = mtls
+        # The engine's filesystem layout is only useful to a UI on the same host.
+        peer = self.ws.client
+        if peer is not None and is_loopback_address(getattr(peer, "host", "")):
+            hello["toolRoot"] = str(self.tool_root)
         await self.send(hello)
         try:
             while True:
@@ -563,9 +692,17 @@ class WsConnection:
                     continue
                 await self.handle(message)
         finally:
+            _LIVE_CONNECTIONS.discard(self)
             await self.shutdown()
 
     async def shutdown(self) -> None:
+        self._deferred.clear()
+        if self._overlay_task is not None:
+            self._overlay_cancel.set()
+            self._overlay_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._overlay_task
+            self._overlay_task = None
         if self._metrics_task is not None:
             self._metrics_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -602,6 +739,44 @@ class WsConnection:
 
     async def handle(self, message: dict[str, Any]) -> None:
         kind = str(message.get("type") or "").strip()
+        if kind in _DEFER_DURING_OVERLAY and self._overlay_task is not None:
+            # An overlay registration is still preparing (it may be pulling models).
+            # Keep the receive loop free for ``cancel`` / ``ping`` and queue this one.
+            if len(self._deferred) >= MAX_DEFERRED_MESSAGES:
+                await self.send_error(
+                    "Too many messages queued while the session overlay is preparing.",
+                    question_id=_question_id(message),
+                    code="busy",
+                    phase="busy",
+                )
+                return
+            self._deferred.append(message)
+            return
+        if kind == "session_overlay_register":
+            self._overlay_task = asyncio.create_task(self._overlay_register_and_drain(message))
+            return
+        await self._dispatch(message, kind)
+
+    async def _overlay_register_and_drain(self, message: dict[str, Any]) -> None:
+        """Run one overlay registration, then the messages that queued up behind it."""
+        try:
+            pending: dict[str, Any] | None = message
+            while pending is not None:
+                kind = str(pending.get("type") or "").strip()
+                try:
+                    if kind == "session_overlay_register":
+                        await self.handle_session_overlay_register(pending)
+                    else:
+                        await self._dispatch(pending, kind)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — one bad message must not drop the rest
+                    await self.send_error(f"{kind or 'message'} failed: {exc}")
+                pending = self._deferred.pop(0) if self._deferred else None
+        finally:
+            self._overlay_task = None
+
+    async def _dispatch(self, message: dict[str, Any], kind: str) -> None:
         if kind == "ping":
             await self.send({"type": "pong"})
             return
@@ -1116,9 +1291,7 @@ class WsConnection:
             str(message.get("attachmentFingerprint") or message.get("mcpFingerprint") or "none").strip()
             or "none"
         )
-        session_slug = str(
-            message.get("sessionId") or (self.identity.session_id if self.identity else "") or ""
-        )
+        session_slug = resolve_request_session_id(self.identity, message.get("sessionId"))
         try:
             enqueue_user_rating(
                 self.tool_root,
@@ -1187,7 +1360,7 @@ class WsConnection:
                 code=getattr(exc, "code", "invalid_images"),
             )
             return
-        if question_id is None and self._busy:
+        if question_id is None and (self._busy or self._untagged_workers > 0):
             from orchestration.execution_queue import execution_queue_enabled
 
             if not execution_queue_enabled():
@@ -1197,7 +1370,10 @@ class WsConnection:
                     phase="busy",
                 )
                 return
-        if question_id is not None and len(self._runs) >= max_concurrent_runs():
+        if (
+            question_id is not None
+            and max(len(self._runs), self._live_workers) >= max_concurrent_runs()
+        ):
             from orchestration.execution_queue import execution_queue_enabled
 
             if not execution_queue_enabled():
@@ -1394,7 +1570,8 @@ class WsConnection:
                 register_preempt_hook(run_id, _preempt_run)
                 try:
                     answer = await asyncio.to_thread(
-                        self._execute,
+                        self._execute_tracked,
+                        question_id is None,
                         message,
                         kind,
                         text,
@@ -1403,6 +1580,11 @@ class WsConnection:
                         images or [],
                         cancel_event,
                     )
+                except Exception as exc:  # noqa: BLE001
+                    if cancel_event.is_set() and _is_run_cancelled(exc):
+                        # The worker noticed the cancel event before the task did.
+                        raise asyncio.CancelledError() from exc
+                    raise
                 finally:
                     unregister_preempt_hook(run_id)
             finally:
@@ -1655,6 +1837,33 @@ class WsConnection:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _execute_tracked(self, untagged: bool, *args: Any) -> str:
+        """``_execute`` plus live-worker accounting (see ``_live_workers``)."""
+        with self._worker_lock:
+            self._live_workers += 1
+            if untagged:
+                self._untagged_workers += 1
+        try:
+            return self._execute(*args)
+        finally:
+            with self._worker_lock:
+                self._live_workers -= 1
+                if untagged:
+                    self._untagged_workers -= 1
+
+    def _priority_cap(self, app_id: str, overlay_cap: int | None) -> int | None:
+        """Operator ceiling on client-requested queue priority (stricter of the two)."""
+        from orchestration.app_prefs import operator_queue_policy
+
+        user_id = "local"
+        if self.identity is not None and not self.identity.local:
+            user_id = self.identity.user_id or "identified"
+        operator_cap = operator_queue_policy(self.tool_root, app_id, user_id=user_id).get(
+            "maxQueuePriority"
+        )
+        caps = [c for c in (overlay_cap, operator_cap) if c is not None]
+        return min(caps) if caps else None
+
     def _execute(
         self,
         message: dict[str, Any],
@@ -1666,6 +1875,7 @@ class WsConnection:
         cancel_event: threading.Event | None = None,
     ) -> str:
         """Blocking engine call; runs in a worker thread."""
+        from orchestration.cloud_anonymize import run_token_map
         from orchestration.llm_usage import bind_usage_context, reset_usage_context
         from orchestration.session_overlay import overlay_run_context
         from orchestration.tool_trace import apply_tool_call_trace_wrap
@@ -1673,29 +1883,19 @@ class WsConnection:
         # asyncio.to_thread does not inherit the event-loop contextvars — re-bind here.
         app_id = self._resolve_app_id(message)
         token_id = message.get("tokenId") or message.get("token_id") or ""
-        import os
-
-        prev_env = {
-            "AGENTIC_RUN_ID": os.environ.get("AGENTIC_RUN_ID"),
-            "AGENTIC_TOOL_ROOT": os.environ.get("AGENTIC_TOOL_ROOT"),
-            "AGENTIC_APP_ID": os.environ.get("AGENTIC_APP_ID"),
-            "AGENTIC_CLIENT_IP": os.environ.get("AGENTIC_CLIENT_IP"),
-            "AGENTIC_USER_ID": os.environ.get("AGENTIC_USER_ID"),
-            "AGENTIC_USER_NAME": os.environ.get("AGENTIC_USER_NAME"),
-            "AGENTIC_API_TOKEN_ID": os.environ.get("AGENTIC_API_TOKEN_ID"),
-        }
-        os.environ["AGENTIC_RUN_ID"] = str(run_id)
-        os.environ["AGENTIC_TOOL_ROOT"] = str(self.tool_root)
-        if app_id:
-            os.environ["AGENTIC_APP_ID"] = str(app_id)
-        if self.client_ip:
-            os.environ["AGENTIC_CLIENT_IP"] = str(self.client_ip)
-        if self.identity and self.identity.user_id:
-            os.environ["AGENTIC_USER_ID"] = str(self.identity.user_id)
-        if self.identity and self.identity.user_name:
-            os.environ["AGENTIC_USER_NAME"] = str(self.identity.user_name)
-        if token_id:
-            os.environ["AGENTIC_API_TOKEN_ID"] = str(token_id)
+        _enter_run_env(
+            {
+                "AGENTIC_RUN_ID": str(run_id),
+                "AGENTIC_TOOL_ROOT": str(self.tool_root),
+                "AGENTIC_APP_ID": str(app_id or ""),
+                "AGENTIC_CLIENT_IP": str(self.client_ip or ""),
+                "AGENTIC_USER_ID": str(self.identity.user_id if self.identity else ""),
+                "AGENTIC_USER_NAME": str(
+                    (self.identity.user_name if self.identity else "") or ""
+                ),
+                "AGENTIC_API_TOKEN_ID": str(token_id or ""),
+            }
+        )
         usage_tokens = bind_usage_context(
             tool_root=self.tool_root,
             run_id=run_id,
@@ -1717,34 +1917,36 @@ class WsConnection:
             pass
         try:
             user_id = self.identity.user_id if self.identity else None
-            session_slug = str(
-                message.get("sessionId")
-                or (self.identity.session_id if self.identity else "")
-                or ""
+            identity_session = self.identity.session_id if self.identity else ""
+            requested_session = message.get("sessionId")
+            # Overlays are keyed by (user, session) and already user-scoped. Stored
+            # session state uses a slug bound to the caller, so naming another
+            # user's session id never reaches that user's history.
+            overlay_session = (
+                normalize_requested_session_id(requested_session) or identity_session
             )
+            session_slug = resolve_request_session_id(self.identity, requested_session)
             with overlay_run_context(
                 user_id=user_id or "",
-                session_id=session_slug or (self.identity.session_id if self.identity else ""),
+                session_id=overlay_session,
                 connection_id=self.connection_id,
-            ):
-                return self._execute_inner(
-                    message,
-                    kind,
-                    text,
-                    tag,
-                    user_id,
-                    session_slug,
-                    run_id,
-                    images or [],
-                    cancel_event,
+            ), run_token_map() as restore:
+                return restore(
+                    self._execute_inner(
+                        message,
+                        kind,
+                        text,
+                        tag,
+                        user_id,
+                        session_slug,
+                        run_id,
+                        images or [],
+                        cancel_event,
+                    )
                 )
         finally:
             reset_usage_context(usage_tokens)
-            for key, old in prev_env.items():
-                if old is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = old
+            _exit_run_env()
 
     def _execute_inner(
         self,
@@ -2184,7 +2386,7 @@ class WsConnection:
                 catalog_entries = []
             req = requirements_from_agent_provider(agent_provider_id, catalog_entries)
             app_id = self._resolve_app_id(message)
-            app_max = resolve_app_max_priority(app_id)
+            app_max = self._priority_cap(app_id, resolve_app_max_priority(app_id))
             overlay_default = resolve_default_priority(app_id)
             has_images = bool(message.get("images"))
             numeric_priority, resolved_label = infer_priority(
@@ -2282,6 +2484,24 @@ class WsConnection:
         selected = message.get("selectedAgentProviderIds")
         if selected is None:
             selected = message.get("selected_agent_provider_ids")
+        priority = message.get("priority")
+        priority_label = (
+            str(message.get("priorityLabel") or message.get("priority_label") or "").strip()
+            or None
+        )
+        cap = self._priority_cap(app_id, None)
+        if cap is not None and (priority is not None or priority_label is not None):
+            # The run path applies the overlay's cap; with no overlay nothing would,
+            # so clamp an explicit client request to the operator ceiling here.
+            from orchestration.execution_queue import LABEL_FOR_PRIORITY, normalize_priority
+
+            priority, _label = normalize_priority(priority, app_max=cap, label=priority_label)
+            priority_label = LABEL_FOR_PRIORITY.get(priority)
+        kwargs: dict[str, Any] = {}
+        if cancel_event is not None and _accepts_kwarg(run_dynamic_goal, "cancel_event"):
+            # Cooperative cancellation: without it the worker thread keeps planning and
+            # calling models after the client was told "Cancelled.".
+            kwargs["cancel_event"] = cancel_event
         return run_dynamic_goal(
             tool_root=self.tool_root,
             goal=text,
@@ -2290,13 +2510,11 @@ class WsConnection:
             agent_provider_ids=[str(x) for x in selected] if isinstance(selected, list) else None,
             on_progress=progress,
             run_id=run_id,
-            priority=message.get("priority"),
-            priority_label=(
-                str(message.get("priorityLabel") or message.get("priority_label") or "").strip()
-                or None
-            ),
+            priority=priority,
+            priority_label=priority_label,
             on_queue_wait=self._make_queue_wait_callback(tag),
-            app_id=self._resolve_app_id(message),
+            app_id=app_id,
+            **kwargs,
         )
 
     def _make_queue_wait_callback(self, tag: dict[str, Any]) -> Callable[[Any], None]:

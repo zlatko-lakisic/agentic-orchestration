@@ -1,9 +1,16 @@
-"""Per-tool isolated venv, wheel install, and MCP HTTP server subprocess lifecycle."""
+"""Per-tool venv, wheel install, and MCP HTTP server subprocess lifecycle.
+
+This is dependency isolation (a venv per tool) plus a minimal process environment. It
+is **not** an OS sandbox: the tool runs as the daemon's user and can reach the network
+and the filesystem that user can. Treat uploading a custom tool as operator-level code
+execution; the manifest ``permissions`` block is checked at admission only.
+"""
 
 from __future__ import annotations
 
 import importlib
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -26,6 +33,94 @@ class ToolSandboxError(RuntimeError):
     """Sandbox install/start/stop failure."""
 
 
+#: pip can hang on a dead index; never pin a worker thread forever.
+PIP_TIMEOUT_SECONDS = 600
+VENV_TIMEOUT_SECONDS = 180
+
+#: Process environment the tool server inherits. Everything else — provider keys,
+#: ``AGENTIC_*`` secrets, tokens — is withheld.
+_BASE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def env_passthrough_names() -> frozenset[str]:
+    """Process env names the operator lets custom tools read
+    (``AGENTIC_CUSTOM_TOOL_ENV_PASSTHROUGH``, comma list). Empty by default."""
+    raw = os.getenv("AGENTIC_CUSTOM_TOOL_ENV_PASSTHROUGH", "")
+    return frozenset(n.strip() for n in raw.split(",") if _ENV_NAME_RE.match(n.strip()))
+
+
+def build_tool_env(
+    *,
+    port: int,
+    manifest: CustomToolManifest,
+    activation_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """
+    Minimal environment for a tool server.
+
+    Order: basic OS variables, then process variables the manifest declares
+    (``permissions.env`` / ``requiredEnv``) **and** the operator has listed in
+    ``AGENTIC_CUSTOM_TOOL_ENV_PASSTHROUGH``, then the activation env supplied with the
+    request. A manifest cannot grant itself the daemon's secrets by naming them.
+    """
+    env: dict[str, str] = {}
+    for name in _BASE_ENV_ALLOWLIST:
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    declared = {*manifest.permissions.env, *manifest.required_env}
+    for name in sorted(declared & env_passthrough_names()):
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    for name, value in (activation_env or {}).items():
+        if _ENV_NAME_RE.match(str(name)):
+            env[str(name)] = str(value)
+    env["AGENTIC_TOOL_PORT"] = str(port)
+    return env
+
+
+def _safe_segment(value: str, fallback: str) -> str:
+    cleaned = str(value or "").replace("/", "_").replace("\\", "_").replace("\x00", "_")
+    if cleaned in ("", ".", ".."):
+        return fallback
+    return cleaned
+
+
+def _run_checked(cmd: list[str], *, timeout: float, what: str) -> None:
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise ToolSandboxError(f"{what} timed out after {timeout:g}s") from exc
+    except subprocess.CalledProcessError as exc:
+        tail = (exc.stderr or exc.stdout or "").strip()[-1500:]
+        raise ToolSandboxError(f"{what} failed (exit {exc.returncode}): {tail}") from exc
+    except OSError as exc:
+        raise ToolSandboxError(f"{what} failed: {exc}") from exc
+
+
 def _runtime_key(*, user_id: str, app_id: str, client_id: str) -> str:
     return f"{user_id}::{app_id}::{client_id}"
 
@@ -37,10 +132,16 @@ def allocate_loopback_port() -> int:
 
 
 def sandbox_root(tool_root: Path, *, user_id: str, app_id: str, client_id: str) -> Path:
-    safe_user = user_id.replace("/", "_").replace("\\", "_") or "anonymous"
-    safe_app = app_id.replace("/", "_").replace("\\", "_") or "default"
-    safe_client = client_id.replace("/", "_").replace("\\", "_")
-    return tool_root / "_tool_sandbox" / safe_user / safe_app / safe_client
+    base = (tool_root / "_tool_sandbox").resolve()
+    root = (
+        base
+        / _safe_segment(user_id, "anonymous")
+        / _safe_segment(app_id, "default")
+        / _safe_segment(client_id, "tool")
+    ).resolve()
+    if base not in root.parents:
+        raise ToolSandboxError("sandbox path escapes the sandbox root")
+    return root
 
 
 @dataclass
@@ -82,11 +183,10 @@ class ToolSandboxRuntime:
             if not py_candidate.is_file():
                 shutil.rmtree(venv_dir, ignore_errors=True)
         if not venv_dir.exists():
-            subprocess.run(
+            _run_checked(
                 [sys.executable, "-m", "venv", str(venv_dir)],
-                check=True,
-                capture_output=True,
-                text=True,
+                timeout=VENV_TIMEOUT_SECONDS,
+                what="venv creation",
             )
         if sys.platform == "win32":
             py = venv_dir / "Scripts" / "python.exe"
@@ -94,7 +194,11 @@ class ToolSandboxRuntime:
             py = venv_dir / "bin" / "python"
         if not py.is_file():
             raise ToolSandboxError(f"failed to create venv at {venv_dir}")
-        subprocess.run([str(py), "-m", "pip", "install", "-U", "pip", "wheel"], check=True)
+        _run_checked(
+            [str(py), "-m", "pip", "install", "-U", "pip", "wheel"],
+            timeout=PIP_TIMEOUT_SECONDS,
+            what="pip bootstrap",
+        )
         self.venv_python = py
         return py
 
@@ -102,11 +206,10 @@ class ToolSandboxRuntime:
         py = self.ensure_venv()
         if not wheel_path.is_file():
             raise ToolSandboxError(f"wheel not found: {wheel_path}")
-        subprocess.run(
+        _run_checked(
             [str(py), "-m", "pip", "install", "--force-reinstall", str(wheel_path)],
-            check=True,
-            capture_output=True,
-            text=True,
+            timeout=PIP_TIMEOUT_SECONDS,
+            what="wheel install",
         )
 
     def _http_entrypoint(self) -> tuple[str, str]:
@@ -138,20 +241,20 @@ class ToolSandboxRuntime:
             "fn(port=port)"
         )
 
-        run_env = os.environ.copy()
-        run_env["AGENTIC_TOOL_PORT"] = str(port)
-        if env:
-            run_env.update({k: str(v) for k, v in env.items()})
+        # Never ``os.environ.copy()``: the daemon's environment holds every provider
+        # key and operator secret, and this process runs client-supplied code.
+        run_env = build_tool_env(port=port, manifest=self.manifest, activation_env=env)
 
         self.log_path = self.root / "server.log"
-        log_fp = open(self.log_path, "a", encoding="utf-8")  # noqa: SIM115
-        self.process = subprocess.Popen(
-            [str(py), "-c", launcher],
-            env=run_env,
-            stdout=log_fp,
-            stderr=subprocess.STDOUT,
-            cwd=str(self.root),
-        )
+        # The child keeps its own copy of the descriptor; close ours right away.
+        with open(self.log_path, "a", encoding="utf-8") as log_fp:
+            self.process = subprocess.Popen(
+                [str(py), "-c", launcher],
+                env=run_env,
+                stdout=log_fp,
+                stderr=subprocess.STDOUT,
+                cwd=str(self.root),
+            )
         self.port = port
         self.base_url = f"http://127.0.0.1:{port}"
         self.started_at = time.time()
@@ -264,12 +367,32 @@ def list_runtimes(*, user_id: str | None = None, app_id: str | None = None) -> l
     return items
 
 
-def stop_all_runtimes_for_tests() -> None:
+def stop_all_runtimes() -> int:
+    """Stop every tool server (daemon shutdown). Returns how many were tracked."""
     with _lock:
         runtimes = list(_runtimes.values())
         _runtimes.clear()
     for runtime in runtimes:
-        runtime.stop()
+        try:
+            runtime.stop()
+        except Exception:  # noqa: BLE001 — keep stopping the rest
+            pass
+    return len(runtimes)
+
+
+def stop_all_runtimes_for_tests() -> None:
+    stop_all_runtimes()
+
+
+_start_locks: dict[str, threading.Lock] = {}
+
+
+def _start_lock_for(key: str) -> threading.Lock:
+    with _lock:
+        lock = _start_locks.get(key)
+        if lock is None:
+            lock = _start_locks[key] = threading.Lock()
+        return lock
 
 
 def start_tool_sandbox(
@@ -282,12 +405,19 @@ def start_tool_sandbox(
     env: dict[str, str] | None = None,
 ) -> ToolSandboxRuntime:
     root = sandbox_root(tool_root, user_id=user_id, app_id=app_id, client_id=manifest.client_id)
-    runtime = ToolSandboxRuntime(
-        manifest=manifest,
-        user_id=user_id,
-        app_id=app_id,
-        root=root,
-    )
-    runtime.start_http_server(wheel_path=wheel_path, env=env)
-    register_runtime(runtime)
-    return runtime
+    key = _runtime_key(user_id=user_id, app_id=app_id, client_id=manifest.client_id)
+    # One start per tool at a time: two concurrent activations would otherwise both
+    # launch a server and the second registration would orphan the first process.
+    with _start_lock_for(key):
+        existing = get_runtime(user_id=user_id, app_id=app_id, client_id=manifest.client_id)
+        if existing is not None and existing.process is not None and existing.process.poll() is None:
+            return existing
+        runtime = ToolSandboxRuntime(
+            manifest=manifest,
+            user_id=user_id,
+            app_id=app_id,
+            root=root,
+        )
+        runtime.start_http_server(wheel_path=wheel_path, env=env)
+        register_runtime(runtime)
+        return runtime

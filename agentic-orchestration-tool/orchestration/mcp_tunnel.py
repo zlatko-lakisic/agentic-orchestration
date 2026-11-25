@@ -23,6 +23,7 @@ from urllib.parse import unquote
 from orchestration.session_overlay import (
     TUNNEL_URL_PREFIX,
     current_connection_id,
+    current_overlay_key,
     get_overlay,
     mcp_tunnel_enabled,
     overlay_max_bytes,
@@ -365,6 +366,16 @@ class McpTunnelHub:
         if not cid:
             raise McpTunnelError(
                 f"tunnel URL {url!r} for mcp {mcp_id!r} requires an owning WebSocket connection"
+            )
+        # The tunnel fronts one client's own MCP servers: only the session that owns
+        # this connection (and registered this MCP id) may resolve it.
+        key = current_overlay_key()
+        if key is not None:
+            assert_tunnel_owned_by_session(
+                user_id=key[0],
+                session_id=key[1],
+                connection_id=cid,
+                mcp_id=mcp_id,
             )
         port = self.ensure_server()
         with self._lock:
