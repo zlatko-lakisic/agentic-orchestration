@@ -77,6 +77,7 @@ def test_report_refreshes_active_video_from_comfy_probe(
     report = mgr.report()
     entry = next(m for m in report["models"] if m["providerId"] == "video_ltx23_distilled")
     assert entry["state"] == "active"
+    assert str(entry.get("model") or "").startswith("ComfyUI")
     assert entry["vramBytes"] == 9_000_000_000
     assert entry["ramBytes"] == 3_000_000_000
     assert all(m["providerId"] != "comfyui" for m in report["models"])

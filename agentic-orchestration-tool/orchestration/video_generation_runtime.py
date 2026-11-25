@@ -500,24 +500,46 @@ def video_generation_runtime_health(tool_root: Path | None = None) -> dict[str, 
     }
 
 
-def probe_comfyui_idle_cuda() -> dict[str, Any] | None:
-    """Sample idle ComfyUI CUDA memory from ``/system_stats`` when URL is set."""
+_COMFY_STATS_CACHE: dict[str, Any] | None = None
+_COMFY_STATS_CACHE_AT = 0.0
+_COMFY_STATS_CACHE_TTL_S = 2.0
+_COMFY_STATS_TIMEOUT_S = 1.0
+
+
+def probe_comfyui_idle_cuda(*, force: bool = False) -> dict[str, Any] | None:
+    """Sample ComfyUI CUDA/RAM from ``/system_stats`` when URL is set.
+
+    Cached (~2s) with a short HTTP timeout so ``/api/v1/gpu-residents`` does not
+    stall Admin ``ao_resources`` mid-generation (#153).
+    """
+    global _COMFY_STATS_CACHE, _COMFY_STATS_CACHE_AT
     base = (os.getenv("AGENTIC_VIDEO_COMFYUI_URL") or "").strip().rstrip("/")
     if not base:
         return None
+    now = time.time()
+    if (
+        not force
+        and _COMFY_STATS_CACHE is not None
+        and (now - _COMFY_STATS_CACHE_AT) < _COMFY_STATS_CACHE_TTL_S
+    ):
+        return dict(_COMFY_STATS_CACHE)
     token = (os.getenv("AGENTIC_VIDEO_COMFYUI_TOKEN") or "").strip()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(timeout=_COMFY_STATS_TIMEOUT_S) as client:
             resp = client.get(f"{base}/system_stats", headers=headers)
         if resp.status_code >= 400 or not resp.content:
-            return {
+            result = {
                 "providerId": "comfyui",
+                "model": "ComfyUI",
                 "kind": "video",
                 "state": "unreachable",
                 "vramBytes": None,
                 "error": f"HTTP {resp.status_code}",
             }
+            _COMFY_STATS_CACHE = result
+            _COMFY_STATS_CACHE_AT = now
+            return dict(result)
         data = resp.json() if resp.content else {}
         devices = (data.get("devices") or data.get("gpus") or []) if isinstance(data, dict) else []
         used = None
@@ -533,9 +555,9 @@ def probe_comfyui_idle_cuda() -> dict[str, Any] | None:
             ram_free = system.get("ram_free")
             if isinstance(ram_total, (int, float)) and isinstance(ram_free, (int, float)):
                 ram_used = int(max(0.0, float(ram_total) - float(ram_free)))
-        return {
+        result = {
             "providerId": "comfyui",
-            "model": "comfyui-idle",
+            "model": "ComfyUI",
             "kind": "video",
             "state": "idle",
             "vramBytes": used,
@@ -544,14 +566,20 @@ def probe_comfyui_idle_cuda() -> dict[str, Any] | None:
             "lastUsedAt": None,
             "expiresAt": None,
         }
+        _COMFY_STATS_CACHE = result
+        _COMFY_STATS_CACHE_AT = now
+        return dict(result)
     except Exception as exc:  # noqa: BLE001
-        return {
+        result = {
             "providerId": "comfyui",
+            "model": "ComfyUI",
             "kind": "video",
             "state": "unreachable",
             "vramBytes": None,
             "error": str(exc),
         }
+        # Do not cache hard failures long — next poll may succeed.
+        return result
 
 
 def _comfy_free(entry: dict[str, Any], client: httpx.Client | None = None) -> None:
