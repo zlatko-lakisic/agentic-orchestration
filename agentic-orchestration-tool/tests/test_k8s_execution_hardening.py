@@ -449,6 +449,14 @@ def test_worker_container_security_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert pod["securityContext"] == {"runAsUser": 10001, "runAsNonRoot": True}
 
 
+def test_bad_timeout_env_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENTIC_K8S_JOB_TIMEOUT_SECONDS", "ten minutes")
+    monkeypatch.setenv("AGENTIC_K8S_JOB_TTL_SECONDS", "-5")
+    settings = K8sSettings.from_env()
+    assert settings.job_timeout_seconds == 3600
+    assert settings.job_ttl_seconds == 3600
+
+
 def test_sidecar_package_can_be_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestration.k8s_mcp_compat import sidecar_containers_for_mcps
 
@@ -591,6 +599,36 @@ def test_sigterm_during_step_writes_failure_and_releases_claim(
     assert "SIGTERM" in result["error"]
     # Claim released: the step is not re-run after the coordinator saw the failure.
     assert released == [claim]
+    assert not claim.exists()
+
+
+def test_system_exit_from_step_code_fails_the_step_not_the_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mount = str(tmp_path)
+    claim = tmp_path / "claim.json.claimed-pod"
+    claim.write_text("{}", encoding="utf-8")
+
+    def _bails(_spec: Path) -> int:
+        raise SystemExit("object_detection execute-step requires a non-empty images list")
+
+    monkeypatch.setattr("orchestration.execute_step.execute_step_from_spec_file", _bails)
+    # Returns normally: the worker loop keeps serving other steps.
+    wp._run_claimed_step(
+        mount=mount,
+        claim_path=claim,
+        run_id="run-x",
+        step_id="step-x",
+        spec_path=tmp_path / "spec.json",
+        release_claim=lambda path: path.unlink(missing_ok=True),
+    )
+    result = json.loads(
+        wp.warm_pool_result_path(run_store_mount=mount, run_id="run-x", step_id="step-x").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["exit_code"] == 1
+    assert "non-empty images list" in result["error"]
     assert not claim.exists()
 
 

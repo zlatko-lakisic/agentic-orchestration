@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestration.backends.kubernetes_types import (
     K8sJobRecord,
@@ -18,6 +18,9 @@ from orchestration.backends.kubernetes_types import (
     write_json_atomic,
 )
 from orchestration.structured_logging import emit_log
+
+if TYPE_CHECKING:
+    from orchestration.execution_queue_store import StoredTicket
 
 
 def warm_pool_enabled_from_env() -> bool:
@@ -648,6 +651,24 @@ def _run_claimed_step(
             error="warm-pool worker terminated (SIGTERM) while running this step",
         )
         raise
+    except SystemExit as exc:
+        # Step code that bails out with SystemExit (bad payload, argparse-style
+        # exits) must fail this step, not take the whole worker loop down with
+        # no result written.
+        detail = exc.code if isinstance(exc.code, str) and exc.code else f"exit {exc.code!r}"
+        emit_log(
+            f"step exited via SystemExit: {detail}",
+            level="error",
+            run_id=run_id,
+            step_id=step_id,
+            component="warm-pool-worker",
+        )
+        _write_warm_pool_failure_result(
+            run_store_mount=mount,
+            run_id=run_id,
+            step_id=step_id,
+            error=f"step aborted: {detail}",
+        )
     except Exception as exc:  # noqa: BLE001
         emit_log(
             f"step crashed: {exc}",

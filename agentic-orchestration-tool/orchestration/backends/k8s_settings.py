@@ -13,7 +13,12 @@ def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
         return default
-    return int(raw)
+    try:
+        value = int(raw)
+    except ValueError:
+        # A typo in a timeout must not crash every Kubernetes run at settings load.
+        return default
+    return value if value >= 0 else default
 
 
 def _parse_json_object_env(name: str) -> dict[str, Any] | None:
