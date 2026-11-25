@@ -232,3 +232,44 @@ jobs:
 
       - name: Run pytest
         run: pytest -q
+
+  admin-build:
+    name: Admin console lint + test + build
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"
+      NG_CLI_ANALYTICS: "false"
+    defaults:
+      run:
+        working-directory: agentic-orchestration-admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: agentic-orchestration-admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test -- --watch=false
+
+      - name: Build
+        run: npm run build
+
+      # The coordinator image and the edge hostPath deploy ship the bundle that
+      # is committed under agentic-orchestration-web/public/admin. The build is
+      # byte-reproducible, so any difference means the bundle is stale.
+      - name: Committed bundle matches source
+        run: |
+          if [ -n "$(git status --porcelain -- ../agentic-orchestration-web/public/admin)" ]; then
+            git status --short -- ../agentic-orchestration-web/public/admin | head -20
+            echo "::error::agentic-orchestration-web/public/admin is stale. Run 'npm run build' in agentic-orchestration-admin and commit the result."
+            exit 1
+          fi
