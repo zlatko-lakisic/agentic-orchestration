@@ -57,6 +57,17 @@ On `npm start`, **`agentic-orchestration-web/.env`** is read by the server (simp
 | `AGENTIC_WEB_USER_NAME_HEADER` | `X-Agentic-User-Name,X-User-Name` | Proxy-injected display name for planner greet |
 | `AGENTIC_WEB_HOST_METRICS_PUSH_MS` | `2000` | WebSocket host-metrics push interval |
 | `AGENTIC_WEB_PLANNER_GREET` | `1` | LLM welcome on first connect (`0` = static message only) |
+| `AGENTIC_WEB_TRUSTED_PROXIES` | empty | IPs/CIDRs of your auth proxy. Only these peers (and loopback clients with no proxy headers) may fetch the UI token or bootstrap tokens; identity headers are honoured only from them once set |
+| `AGENTIC_WEB_AUTH_BOOTSTRAP` | unset | `open` hands the UI token to any caller again (previous behaviour; not recommended) |
+| `AGENTIC_WEB_ALLOWED_ORIGINS` | empty | Extra browser origins allowed on WebSocket upgrades and state-changing requests |
+| `AGENTIC_WEB_ALLOWED_HOSTS` | empty | Extra `Host` names accepted when bound to loopback |
+| `AGENTIC_SERVE_ADMIN_TOKEN` | unset | Sent as Bearer on the engine daemon's `/api/v1/admin/*` routes; must match the daemon |
+| `AGENTIC_WEB_MAX_PROMPT_BYTES` | `2000000` | Prompt size limit (long prompts are streamed to the engine over stdin) |
+| `AGENTIC_WEB_RUN_TIMEOUT_SECONDS` | `7200` | Run deadline (`0` disables) |
+| `AGENTIC_WEB_KILL_RUN_ON_DISCONNECT` | `1` | Stop the run when its client disconnects |
+| `AGENTIC_WEB_MAX_CONCURRENT_RUNS` | `16` | Concurrent orchestrator processes |
+
+More limits are listed in [`.env.example`](.env.example).
 
 ## Behavior notes
 
@@ -67,3 +78,13 @@ On `npm start`, **`agentic-orchestration-web/.env`** is read by the server (simp
 ## Security
 
 This process **executes your local Python orchestrator** with user-supplied text. Do not expose the server to the internet without authentication and hardening.
+
+What the server enforces on its own:
+
+- **UI token hand-out.** `GET /api/v1/admin/web-auth` and `/chat-auth` return the token only to a trusted source (loopback with no proxy headers, or a peer in `AGENTIC_WEB_TRUSTED_PROXIES`). Others get `403 web_auth_untrusted_source`. Behind Traefik/Warpgate you must set `AGENTIC_WEB_TRUSTED_PROXIES`.
+- **UI tokens are not API keys.** `ao-web` / `ao-chat` tokens are refused on `/v1/chat/completions`, `/v1/responses` and `/api/v1/orchestrate`.
+- **Origin and Host checks.** A page on another site cannot open the WebSocket or send state-changing requests; a loopback bind only answers to loopback `Host` names.
+- **WebSocket auth** travels in the `Sec-WebSocket-Protocol` header (`ao-auth`, `ao-bearer.<token>`), not the URL. `?access_token=` is still accepted for old clients.
+- **Prompts** are passed to `main.py` after `--` or over stdin, so they cannot be parsed as options.
+
+These do not replace an authenticating proxy for anything reachable from an untrusted network.
