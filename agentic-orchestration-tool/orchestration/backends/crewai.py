@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import os
 import sys
 from pathlib import Path
@@ -10,6 +9,7 @@ from orchestration.backends.base import RunOptions, WorkflowExecutionResult
 from orchestration.config_loader import WorkflowConfig
 from orchestration.crewai_template import crew_kickoff
 from orchestration.output_artifacts import workflow_result_display_text, workflow_result_to_extractable_text
+from orchestration.quiet_streams import quiet_streams
 from orchestration.runner import BuiltWorkflow, build_workflow, crew_kickoff_context
 from orchestration.run_store import new_run_id
 from orchestration.structured_logging import emit_log
@@ -127,16 +127,15 @@ class CrewAIExecutionBackend:
 
         def _kickoff_once() -> object:
             with crew_kickoff_context(built):
+                # Thread-aware muting: ``contextlib.redirect_*`` swaps the
+                # process-global streams, which breaks (closed-file errors,
+                # swallowed output) as soon as two runs overlap in threads.
                 if options.quiet:
-                    with open(os.devnull, "w", encoding="utf-8") as _quiet_sink:
-                        with contextlib.redirect_stdout(_quiet_sink), contextlib.redirect_stderr(
-                            _quiet_sink
-                        ):
-                            return crew_kickoff(built.crew, inputs=built.inputs)
+                    with quiet_streams(stdout=True, stderr=True):
+                        return crew_kickoff(built.crew, inputs=built.inputs)
                 if suppress_stderr_probe:
-                    with open(os.devnull, "w", encoding="utf-8") as _dn:
-                        with contextlib.redirect_stderr(_dn):
-                            return crew_kickoff(built.crew, inputs=built.inputs)
+                    with quiet_streams(stdout=False, stderr=True):
+                        return crew_kickoff(built.crew, inputs=built.inputs)
                 return crew_kickoff(built.crew, inputs=built.inputs)
 
         def _try_provider_recovery(exc: BaseException) -> bool:
@@ -260,6 +259,15 @@ class CrewAIExecutionBackend:
         )
 
 
+def _ambient_run_id() -> str:
+    try:
+        from orchestration.llm_usage import current_run_id
+
+        return current_run_id()
+    except Exception:  # noqa: BLE001
+        return os.getenv("AGENTIC_RUN_ID", "").strip()
+
+
 def run_options_from_legacy(
     *,
     quiet: bool = False,
@@ -272,6 +280,8 @@ def run_options_from_legacy(
     rag_sources_catalog_path: Path | None = None,
     emit_progress_lines: bool = True,
     run_id: str = "",
+    agent_providers_catalog_path: Path | None = None,
+    cancel_event: Any | None = None,
 ) -> RunOptions:
     return RunOptions(
         quiet=quiet,
@@ -283,5 +293,7 @@ def run_options_from_legacy(
         agent_skills_catalog_path=agent_skills_catalog_path,
         rag_sources_catalog_path=rag_sources_catalog_path,
         emit_progress_lines=emit_progress_lines,
-        run_id=str(run_id or "").strip() or os.getenv("AGENTIC_RUN_ID", "").strip(),
+        run_id=str(run_id or "").strip() or _ambient_run_id(),
+        agent_providers_catalog_path=agent_providers_catalog_path,
+        cancel_event=cancel_event,
     )

@@ -22,6 +22,12 @@ class RunOptions:
     agent_skills_catalog_path: Path | None = None
     rag_sources_catalog_path: Path | None = None
     run_id: str = ""
+    #: Agent-providers catalog (directory or bundle) used by per-step recovery
+    #: (HF/LiteLLM fallback) on distributed backends. ``None`` = tool default.
+    agent_providers_catalog_path: Path | None = None
+    #: Cooperative cancellation (``threading.Event``): checked between steps on
+    #: distributed backends. ``None`` = not cancellable.
+    cancel_event: Any | None = None
 
 
 @dataclass(frozen=True)

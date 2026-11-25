@@ -28,6 +28,7 @@ from orchestration.execution_queue_preempt import (
 from orchestration.execution_queue_store import (
     StoredTicket,
     clear_grant,
+    clear_preempt_signal,
     clear_stale_grants,
     count_pending_tickets,
     list_pending_tickets,
@@ -53,6 +54,8 @@ PRIORITY_LABELS: dict[str, int] = {
 }
 
 LABEL_FOR_PRIORITY: dict[int, str] = {v: k for k, v in PRIORITY_LABELS.items()}
+
+_VRAM_BUDGET_CACHE_SECONDS = 30.0
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -194,6 +197,7 @@ class _Waiter:
     error: str | None = None
     lease_id: str | None = None
     quota_reason: str | None = None
+    quota: QueueQuota | None = None
 
 
 @dataclass
@@ -208,6 +212,9 @@ class _ActiveLease:
     requirements: ResourceRequirements
     client_id: str | None = None
     step_id: str | None = None
+    #: Set on step sub-leases that run under their run's execution lease: the
+    #: parent already reserved CPU/VRAM/GPU and already counts for fair share.
+    parent_lease_id: str | None = None
 
 
 class QueueFullError(RuntimeError):
@@ -317,6 +324,9 @@ class ExecutionQueueManager:
         self._preempts = 0
         self._wait_ms_total = 0.0
         self._closed = False
+        # Detected VRAM budget is cached: detection may shell out to nvidia-smi
+        # (seconds) and admission is evaluated often, sometimes under the lock.
+        self._vram_budget_cache: tuple[float, float | None] | None = None
 
     def close(self) -> None:
         with self._lock:
@@ -332,7 +342,10 @@ class ExecutionQueueManager:
         planning = execution = steps = 0
         vram = cpu = 0.0
         gpu = 0
-        for lease in self._active.values():
+        # Snapshot under the lock: grants/releases mutate ``_active`` concurrently.
+        with self._lock:
+            leases = list(self._active.values())
+        for lease in leases:
             req = lease.requirements
             vram += req.vram_gb
             cpu += req.cpu_cores
@@ -357,17 +370,51 @@ class ExecutionQueueManager:
         if threshold <= 0:
             return True
         try:
-            from orchestration.host_metrics import sample_host_metrics
+            # Dedicated cached sampler: one cheap /proc read at most every couple
+            # of seconds, with its own delta window (does not disturb the
+            # metrics stream) and no GPU / jtop / nvidia-smi work.
+            from orchestration.host_metrics import cpu_percent_snapshot
 
-            metrics = sample_host_metrics()
-            cpu = metrics.get("cpuPercent")
+            cpu = cpu_percent_snapshot()
             if isinstance(cpu, (int, float)):
                 return float(cpu) <= (100.0 - threshold)
         except Exception:  # noqa: BLE001
             pass
         return True
 
+    def _budget_vram_gb(self) -> float | None:
+        """VRAM budget; the (possibly slow) hardware detection is cached per manager."""
+        if os.getenv("AGENTIC_EXEC_QUEUE_VRAM_GB", "").strip():
+            return total_vram_gb()
+        now = time.monotonic()
+        cached = self._vram_budget_cache
+        if cached is not None and now - cached[0] < _VRAM_BUDGET_CACHE_SECONDS:
+            return cached[1]
+        value = total_vram_gb()
+        self._vram_budget_cache = (now, value)
+        return value
+
+    def _parent_execution_lease(self, run_id: str) -> _ActiveLease | None:
+        """Active execution lease of ``run_id`` (the parent of its step sub-leases)."""
+        if not run_id:
+            return None
+        with self._lock:
+            for lease in self._active.values():
+                if lease.phase == "execution" and lease.run_id == run_id:
+                    return lease
+        return None
+
+    def parent_client_id(self, run_id: str) -> tuple[bool, str | None]:
+        """``(has_parent_execution_lease, its client_id)`` for a run's step tickets."""
+        parent = self._parent_execution_lease(run_id)
+        return (parent is not None, parent.client_id if parent is not None else None)
+
     def _can_admit(self, ticket: StoredTicket, *, ignore_preempt: bool = False) -> bool:
+        if ticket.phase == "step" and self._parent_execution_lease(ticket.run_id) is not None:
+            # The run's execution lease already reserved CPU/VRAM/GPU for its
+            # steps; charging the sub-lease again could make a run unable to
+            # admit its own first step.
+            return True
         if not self._host_cpu_ok():
             return False
         req = ResourceRequirements(
@@ -383,7 +430,7 @@ class ExecutionQueueManager:
         elif ticket.phase == "execution":
             if int(usage["execution"]) >= max_execution_slots():
                 return False
-        budget_vram = total_vram_gb()
+        budget_vram = self._budget_vram_gb()
         if budget_vram is not None and float(usage["vram_gb"]) + req.vram_gb > budget_vram + 1e-6:
             return False
         if float(usage["cpu_cores"]) + req.cpu_cores > total_cpu_cores() + 1e-6:
@@ -393,6 +440,8 @@ class ExecutionQueueManager:
         return True
 
     def _active_infos(self) -> list[ActiveLeaseInfo]:
+        with self._lock:
+            leases = list(self._active.values())
         return [
             ActiveLeaseInfo(
                 run_id=lease.run_id,
@@ -402,22 +451,43 @@ class ExecutionQueueManager:
                 started_at=lease.started_at,
                 client_id=lease.client_id,
             )
-            for lease in self._active.values()
+            for lease in leases
         ]
 
     def _release_lease_obj(self, lease: _ActiveLease) -> None:
-        self._active.pop(lease.lease_id, None)
-        tenant = lease.client_id
-        self._fair_share.record_active(tenant, phase=lease.phase, delta=-1)
+        removed = self._active.pop(lease.lease_id, None)
+        if removed is None:
+            # Already released (cancel / preemption): do not decrement the
+            # tenant's counters a second time.
+            return
+        if removed.parent_lease_id is None:
+            self._fair_share.record_active(removed.client_id, phase=removed.phase, delta=-1)
+
+    def _quota_block_reason(self, ticket: StoredTicket, quota: QueueQuota | None) -> str | None:
+        """Concurrency-quota reason that blocks granting ``ticket`` right now, else ``None``."""
+        if quota is None or not fair_share_enabled():
+            return None
+        return self._fair_share.check_quota(
+            ticket.client_id,
+            quota,
+            phase=ticket.phase,
+            pending_add=False,
+        )
 
     def _grant(self, ticket: StoredTicket) -> _ActiveLease:
+        parent = (
+            self._parent_execution_lease(ticket.run_id) if ticket.phase == "step" else None
+        )
         req = ResourceRequirements(
             phase=ticket.phase,  # type: ignore[arg-type]
-            vram_gb=float(ticket.requirements.get("vram_gb") or 0.0),
-            cpu_cores=float(ticket.requirements.get("cpu_cores") or 0.0),
-            gpu_slots=int(ticket.requirements.get("gpu_slots") or 0),
+            vram_gb=0.0 if parent is not None else float(ticket.requirements.get("vram_gb") or 0.0),
+            cpu_cores=(
+                0.0 if parent is not None else float(ticket.requirements.get("cpu_cores") or 0.0)
+            ),
+            gpu_slots=0 if parent is not None else int(ticket.requirements.get("gpu_slots") or 0),
             agent_provider_ids=tuple(ticket.requirements.get("agent_provider_ids") or ()),
         )
+        lease_client_id = ticket.client_id or (parent.client_id if parent is not None else None)
         lease_id = uuid.uuid4().hex
         lease = _ActiveLease(
             lease_id=lease_id,
@@ -428,11 +498,13 @@ class ExecutionQueueManager:
             priority=ticket.priority,
             started_at=self._clock(),
             requirements=req,
-            client_id=ticket.client_id,
+            client_id=lease_client_id,
             step_id=ticket.step_id,
+            parent_lease_id=parent.lease_id if parent is not None else None,
         )
         self._active[lease_id] = lease
-        self._fair_share.record_active(ticket.client_id, phase=ticket.phase, delta=1)
+        if parent is None:
+            self._fair_share.record_active(lease_client_id, phase=ticket.phase, delta=1)
         self._admits += 1
         try:
             from orchestration.metrics import record_execution_queue_admit
@@ -474,8 +546,17 @@ class ExecutionQueueManager:
             with self._cond:
                 if not self._pending:
                     return
-                ordered = self._sorted_pending()
-                head = ordered[0]
+                # Highest-priority waiter whose tenant is not at its concurrency
+                # quota (quota is re-checked at grant time, not only at submit).
+                head = None
+                for candidate in self._sorted_pending():
+                    reason = self._quota_block_reason(candidate.ticket, candidate.quota)
+                    candidate.quota_reason = reason
+                    if reason is None:
+                        head = candidate
+                        break
+                if head is None:
+                    return
                 ticket = head.ticket
             if not self._can_admit(ticket):
                 eff_pri = _effective_priority(ticket, now=self._clock())
@@ -500,6 +581,12 @@ class ExecutionQueueManager:
             with self._cond:
                 if head not in self._pending:
                     continue
+                # Re-check under the lock: another thread may have granted since
+                # the off-lock admission check above.
+                if self._quota_block_reason(ticket, head.quota) is not None:
+                    continue
+                if not self._can_admit(ticket):
+                    return
                 lease = self._grant(ticket)
                 self._pending.remove(head)
                 wait_ms = max(0.0, (self._clock() - ticket.enqueued_at) * 1000.0)
@@ -582,6 +669,14 @@ class ExecutionQueueManager:
                 if self._can_admit(ticket):
                     with self._cond:
                         if len(self._pending) == 0 and self._can_admit(ticket):
+                            # Quota re-check at grant: two requests from one tenant
+                            # can both pass the submit-time check above.
+                            reason = self._quota_block_reason(ticket, quota)
+                            if reason:
+                                self._rejects += 1
+                                raise QueueQuotaError(
+                                    f"tenant quota exceeded: {reason}", code=reason
+                                )
                             return self._grant(ticket)
 
             with self._cond:
@@ -595,10 +690,16 @@ class ExecutionQueueManager:
                         except Exception:  # noqa: BLE001
                             pass
                         raise QueueFullError(f"execution queue full (max={queue_max()})")
-                    waiter = _Waiter(ticket=ticket)
+                    waiter = _Waiter(ticket=ticket, quota=quota)
                     self._pending.append(waiter)
                     self._fair_share.record_pending(ticket.client_id, delta=1)
 
+                # Granted by another thread's drain since the check at the top
+                # of the loop: return the lease instead of timing out with it live.
+                if waiter.done and waiter.lease_id and not waiter.error:
+                    granted = self._active.get(waiter.lease_id)
+                    if granted is not None:
+                        return granted
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     if waiter in self._pending:
@@ -616,6 +717,13 @@ class ExecutionQueueManager:
                     )
                 maybe_emit()
                 self._cond.wait(timeout=min(1.0, remaining))
+
+            if not waiter.done:
+                # Re-evaluate admission (and preemption) from the waiting thread:
+                # otherwise it only happens on release/cancel, so an urgent
+                # ticket behind a long-running low-priority lease never preempts
+                # and host-headroom / VRAM changes are never noticed.
+                self._drain()
 
             if waiter.done and waiter.lease_id:
                 lease = self._active.get(waiter.lease_id)
@@ -700,14 +808,14 @@ class ExecutionQueueManager:
         try:
             reclaim_stale_claims(
                 "step",
-                max_age_seconds=float(os.getenv("AGENTIC_EXEC_QUEUE_CLAIM_STALE_SECONDS", "120") or 120),
+                max_age_seconds=_env_float("AGENTIC_EXEC_QUEUE_CLAIM_STALE_SECONDS", 120.0),
                 run_store_mount=self._run_store_mount,
             )
         except Exception:  # noqa: BLE001
             pass
         try:
             clear_stale_grants(
-                max_age_seconds=float(os.getenv("AGENTIC_EXEC_QUEUE_GRANT_STALE_SECONDS", "3600") or 3600),
+                max_age_seconds=_env_float("AGENTIC_EXEC_QUEUE_GRANT_STALE_SECONDS", 3600.0),
                 run_store_mount=self._run_store_mount,
             )
         except Exception:  # noqa: BLE001
@@ -909,14 +1017,22 @@ def acquire_planning(
         client_id=client_id,
     )
     mgr = get_execution_queue()
-    if queue_backend() in ("file", "hybrid") and queue_backend() == "file":
-        submit_pending_ticket(ticket, run_store_mount=mgr._run_store_mount)
-    lease = mgr.acquire(
-        ticket,
-        timeout_seconds=timeout_seconds,
-        on_wait=on_wait or _noop_wait,
-        quota=quota,
-    )
+    pending_path = None
+    if queue_backend() == "file":
+        pending_path = submit_pending_ticket(ticket, run_store_mount=mgr._run_store_mount)
+    try:
+        lease = mgr.acquire(
+            ticket,
+            timeout_seconds=timeout_seconds,
+            on_wait=on_wait or _noop_wait,
+            quota=quota,
+        )
+    finally:
+        # Granted (fast path / drain / reconcile), rejected or timed out: the
+        # pending file is done either way. Leaving it made the broker re-parse
+        # one file per finished run forever.
+        if pending_path is not None:
+            remove_pending(pending_path)
     try:
         yield lease
     finally:
@@ -1010,21 +1126,34 @@ def acquire_step(
         step_id=step_id,
     )
     mgr = get_execution_queue()
+    # A step of an already-admitted run is a child of that run's execution
+    # lease: it inherits the tenant, is not charged again for CPU/VRAM, and is
+    # not a second "concurrent run" for the tenant's quota.
+    has_parent, parent_client = mgr.parent_client_id(run_id)
+    if has_parent:
+        if ticket.client_id is None:
+            ticket.client_id = parent_client
+        quota = None
     # When unify is on, warm-pool workers claim the ticket written by
     # ``_enqueue_global_step`` (with ``spec_container_path``). Do **not** also
     # submit a bare step ticket here — workers silently deleted those and the
     # real ticket could be stranded / racey.
+    pending_path = None
     if (
         queue_backend() in ("file", "hybrid")
         and not unify_warm_pool_enabled()
     ):
-        submit_pending_ticket(ticket, run_store_mount=mgr._run_store_mount)
-    lease = mgr.acquire(
-        ticket,
-        timeout_seconds=timeout_seconds,
-        on_wait=on_wait or _noop_wait,
-        quota=quota,
-    )
+        pending_path = submit_pending_ticket(ticket, run_store_mount=mgr._run_store_mount)
+    try:
+        lease = mgr.acquire(
+            ticket,
+            timeout_seconds=timeout_seconds,
+            on_wait=on_wait or _noop_wait,
+            quota=quota,
+        )
+    finally:
+        if pending_path is not None:
+            remove_pending(pending_path)
     try:
         yield lease
     finally:
@@ -1052,6 +1181,32 @@ def check_preempted(run_id: str) -> bool:
     from orchestration.run_store import shared_run_store_mount_path
 
     return poll_preempt_signal(run_id, run_store_mount=shared_run_store_mount_path())
+
+
+def clear_preempted(run_id: str) -> None:
+    """Drop a run's preempt signal once the run has stopped (or is being re-admitted)."""
+    from orchestration.run_store import shared_run_store_mount_path
+
+    try:
+        clear_preempt_signal(run_id, run_store_mount=shared_run_store_mount_path())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+class RunPreemptedError(RuntimeError):
+    """Raised when a run notices it was preempted by higher-priority work."""
+
+    code = "preempted"
+
+    def __init__(self, run_id: str = "") -> None:
+        super().__init__("preempted")
+        self.run_id = run_id
+
+
+def raise_if_preempted(run_id: str) -> None:
+    """Cooperative preemption checkpoint (call between steps / rounds)."""
+    if run_id and execution_queue_enabled() and check_preempted(run_id):
+        raise RunPreemptedError(run_id)
 
 
 def run_with_execution_queue(
@@ -1088,30 +1243,34 @@ def run_with_execution_queue(
         return execute_fn(config)
 
     config = None
-    with acquire_planning(
-        run_id=run_id,
-        priority=priority,
-        priority_label=priority_label,
-        client_id=effective_tenant,
-        on_wait=on_wait,
-    ):
-        if check_preempted(run_id):
-            raise RuntimeError("preempted")
-        config = plan_fn()
-        if on_planned is not None:
-            on_planned(config)
-    req = _requirements(config)
-    with acquire_execution(
-        run_id=run_id,
-        requirements=req,
-        priority=priority,
-        priority_label=priority_label,
-        client_id=effective_tenant,
-        on_wait=on_wait,
-    ):
-        if check_preempted(run_id):
-            raise RuntimeError("preempted")
-        return execute_fn(config)
+    # A signal left by an earlier life of this run id must not kill this one.
+    clear_preempted(run_id)
+    try:
+        with acquire_planning(
+            run_id=run_id,
+            priority=priority,
+            priority_label=priority_label,
+            client_id=effective_tenant,
+            on_wait=on_wait,
+        ):
+            config = plan_fn()
+            if on_planned is not None:
+                on_planned(config)
+            # Preempted while planning: stop before taking an execution slot.
+            raise_if_preempted(run_id)
+        req = _requirements(config)
+        with acquire_execution(
+            run_id=run_id,
+            requirements=req,
+            priority=priority,
+            priority_label=priority_label,
+            client_id=effective_tenant,
+            on_wait=on_wait,
+        ):
+            raise_if_preempted(run_id)
+            return execute_fn(config)
+    finally:
+        clear_preempted(run_id)
 
 
 def run_with_execution_only_queue(
@@ -1134,17 +1293,20 @@ def run_with_execution_only_queue(
     if quota is None:
         _, _, quota = _overlay_queue_policy()
 
-    with acquire_execution(
-        run_id=run_id,
-        requirements=requirements,
-        priority=priority,
-        priority_label=priority_label,
-        client_id=effective_tenant,
-        on_wait=on_wait,
-    ):
-        if check_preempted(run_id):
-            raise RuntimeError("preempted")
-        return execute_fn()
+    clear_preempted(run_id)
+    try:
+        with acquire_execution(
+            run_id=run_id,
+            requirements=requirements,
+            priority=priority,
+            priority_label=priority_label,
+            client_id=effective_tenant,
+            on_wait=on_wait,
+        ):
+            raise_if_preempted(run_id)
+            return execute_fn()
+    finally:
+        clear_preempted(run_id)
 
 
 def resolve_app_max_priority(app_id: str | None) -> int | None:

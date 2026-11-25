@@ -52,6 +52,23 @@ HOP_BY_HOP = frozenset(
 )
 
 
+def _upstream_timeout() -> httpx.Timeout:
+    """Upstream Ollama timeouts.
+
+    ``AGENTIC_OLLAMA_BROKER_READ_TIMEOUT_SECONDS`` bounds the gap between bytes
+    from upstream (default 1800s; ``0`` = unbounded). Without it a hung Ollama
+    request holds its VRAM lease forever.
+    """
+    raw = os.getenv("AGENTIC_OLLAMA_BROKER_READ_TIMEOUT_SECONDS", "").strip()
+    try:
+        read_s: float | None = float(raw) if raw else 1800.0
+    except ValueError:
+        read_s = 1800.0
+    if read_s is not None and read_s <= 0:
+        read_s = None
+    return httpx.Timeout(connect=10.0, read=read_s, write=120.0, pool=30.0)
+
+
 def create_broker_app(*, manager: Any | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -68,6 +85,13 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
             yield
         finally:
             mgr.stop_idle_reconciler()
+            client = getattr(app.state, "http", None)
+            if client is not None:
+                try:
+                    await client.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+                app.state.http = None
 
     app = FastAPI(title="agentic-ollama-resource-broker", lifespan=lifespan)
 
@@ -172,9 +196,16 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
             if k.lower() not in HOP_BY_HOP
         }
 
+        async def _release(lease_obj: Any) -> None:
+            # ``release`` drains the queue with synchronous upstream HTTP calls;
+            # never run it on the event loop (it would stall every proxied
+            # stream and ``/health`` exactly when upstream is saturated).
+            if lease_obj is not None:
+                await asyncio.to_thread(mgr.release, lease_obj)
+
         client: httpx.AsyncClient = getattr(app.state, "http", None)
         if client is None:
-            client = httpx.AsyncClient(timeout=None)
+            client = httpx.AsyncClient(timeout=_upstream_timeout())
             app.state.http = client
 
         try:
@@ -186,8 +217,7 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
             )
             upstream_res = await client.send(req, stream=True)
         except httpx.HTTPError:
-            if lease is not None:
-                mgr.release(lease)
+            await _release(lease)
             _LOG.warning("upstream ollama unreachable for path=%s", path, exc_info=True)
             return JSONResponse(
                 {"error": "upstream ollama unreachable"},
@@ -204,10 +234,15 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
         if not client_wants_stream:
             try:
                 content = await upstream_res.aread()
+            except httpx.HTTPError:
+                _LOG.warning("upstream ollama read failed for path=%s", path, exc_info=True)
+                return JSONResponse(
+                    {"error": "upstream ollama read failed"},
+                    status_code=504,
+                )
             finally:
                 await upstream_res.aclose()
-                if lease is not None:
-                    mgr.release(lease)
+                await _release(lease)
             return Response(
                 content=content,
                 status_code=upstream_res.status_code,
@@ -220,8 +255,7 @@ def create_broker_app(*, manager: Any | None = None) -> FastAPI:
                     yield chunk
             finally:
                 await upstream_res.aclose()
-                if lease is not None:
-                    mgr.release(lease)
+                await _release(lease)
 
         return StreamingResponse(
             stream_body(),
