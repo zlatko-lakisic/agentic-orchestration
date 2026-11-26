@@ -91,16 +91,18 @@ HEALTH_TMP="$(mktemp)"
 PING_TMP="$(mktemp)"
 trap 'rm -f "${TMP_DEPLOY}" "${HEALTH_TMP}" "${PING_TMP}"' EXIT
 python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" "${WORKER_IMAGE}" "${ENGINE_SCHEME}" <<'PY'
+import re
 import sys
 src, dst, image, worker_image, scheme = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 text = open(src, encoding="utf-8").read()
 # The manifest ships HTTPS probes on /ready (not /health, never tcpSocket).
 # #181/#186/#187: LTX load times out /health; TEMP TCP hides wedged HTTPS.
-if "tcpSocket" in text:
+# Match YAML keys only — comments may mention tcpSocket /health.
+if re.search(r"(?m)^\s*tcpSocket\s*:", text):
     raise SystemExit(f"refusing TEMP TCP probes in {src} (#187)")
-if text.count("path: /ready") < 2:
+if len(re.findall(r"(?m)^\s*path:\s*/ready\s*$", text)) < 2:
     raise SystemExit(f"expected readiness+liveness path: /ready in {src} (#186)")
-if "path: /health\n" in text or "path: /health\r" in text:
+if re.search(r"(?m)^\s*path:\s*/health\s*$", text):
     raise SystemExit(f"kube probes must not use /health in {src}; use /ready (#186)")
 probe = "scheme: HTTPS"
 # readiness + liveness (+ optional startup)
