@@ -7,6 +7,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+### Fixed
+
+- **Admin behind Traefik/Warpgate + k3s NodePort** — document that `AGENTIC_WEB_TRUSTED_PROXIES` must include the kube CNI gateway peer (`10.42.0.1`) the coordinator pod actually sees, not only the Traefik SNAT IP.
+
 ## [2.29.0] - 2026-11-25
 
 ### Fixed

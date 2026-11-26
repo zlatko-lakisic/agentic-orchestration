@@ -81,7 +81,7 @@ This process **executes your local Python orchestrator** with user-supplied text
 
 What the server enforces on its own:
 
-- **UI token hand-out.** `GET /api/v1/admin/web-auth` and `/chat-auth` return the token only to a trusted source (loopback with no proxy headers, or a peer in `AGENTIC_WEB_TRUSTED_PROXIES`). Others get `403 web_auth_untrusted_source`. Behind Traefik/Warpgate you must set `AGENTIC_WEB_TRUSTED_PROXIES`.
+- **UI token hand-out.** `GET /api/v1/admin/web-auth` and `/chat-auth` return the token only to a trusted source (loopback with no proxy headers, or a peer in `AGENTIC_WEB_TRUSTED_PROXIES`). Others get `403 web_auth_untrusted_source`. Behind Traefik/Warpgate you must set `AGENTIC_WEB_TRUSTED_PROXIES` to the peers the **pod** sees (often the k3s CNI gateway `10.42.0.1` plus the Traefik SNAT IP). Prefer `externalTrafficPolicy: Local` on the web NodePort service so Traefik's address is preserved when possible.
 - **UI tokens are not API keys.** `ao-web` / `ao-chat` tokens are refused on `/v1/chat/completions`, `/v1/responses` and `/api/v1/orchestrate`.
 - **Origin and Host checks.** A page on another site cannot open the WebSocket or send state-changing requests; a loopback bind only answers to loopback `Host` names.
 - **WebSocket auth** travels in the `Sec-WebSocket-Protocol` header (`ao-auth`, `ao-bearer.<token>`), not the URL. `?access_token=` is still accepted for old clients.
