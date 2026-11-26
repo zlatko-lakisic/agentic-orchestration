@@ -154,9 +154,12 @@ if [[ "${ENGINE_URL}" == https://* ]]; then
 fi
 
 echo "=== verify engine Deployment probes are HTTPS /ready (not /health, not TCP) ==="
-kubectl get deploy agentic-engine -n "${NS}" -o json | python3 -c "
+if ! kubectl get deploy agentic-engine -n "${NS}" -o json | python3 -c "
 import json, sys
-doc = json.load(sys.stdin)
+raw = sys.stdin.read().strip()
+if not raw:
+    raise SystemExit('empty kubectl json for agentic-engine')
+doc = json.loads(raw)
 c = doc['spec']['template']['spec']['containers'][0]
 for key in ('readinessProbe', 'livenessProbe'):
     p = c[key]
@@ -166,7 +169,10 @@ for key in ('readinessProbe', 'livenessProbe'):
     if http.get('path') != '/ready':
         raise SystemExit(f'{key} path={http.get(\"path\")!r} want /ready (#186)')
 print('probes ok: HTTPS /ready')
-"
+"; then
+  echo "error: live Deployment probe audit failed" >&2
+  exit 1
+fi
 
 echo "=== verify engine /ready (shallow kube path) ==="
 for i in 1 2 3 4 5 6 7 8 9 10; do
