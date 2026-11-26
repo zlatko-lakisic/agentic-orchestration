@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-11-25
+
 ### Fixed
 
 - **Shorts mux end-hold (#179/#183)** — `media_render_short` no longer uses ffmpeg `-shortest`; narration is `apad`'d to the silent video length, and `_apply_duration_rules` keeps a planned `narration + end_hold_s` (default 3s) instead of trimming to `narr+0.5`.
