@@ -316,17 +316,12 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
                 )
         return await call_next(request)
 
-    @app.get("/ready")
-    async def ready(request: Request) -> dict[str, Any]:
-        """Shallow kube readiness (#148) — no Comfy/Ollama/hardware probes.
-
-        Under Wan/LTX load, full ``/health`` can exceed kubelet ``timeoutSeconds``
-        and flap NotReady even though TCP :8765 still answers. Keep deep checks
-        on ``/health`` for Admin/Quill; point readiness/liveness at ``/ready``.
-        """
+    async def _ready_payload(request: Request) -> dict[str, Any]:
+        """Shallow kube probe body — never touches Comfy/Ollama/hardware (#148/#181)."""
         payload: dict[str, Any] = {
             "ok": True,
             "ready": True,
+            "live": True,
             "version": engine_version(),
             "service": "agentic-orchestration-engine",
             "instance": INSTANCE_ID,
@@ -334,6 +329,21 @@ def create_app(*, tool_root_path: Path | None = None) -> FastAPI:
         if operator_authorized(request.headers, request.client.host if request.client else None):
             payload["bind"] = f"{serve_host()}:{serve_port()}"
         return payload
+
+    @app.get("/ready")
+    async def ready(request: Request) -> dict[str, Any]:
+        """Shallow kube readiness/liveness (#148/#181/#186/#187).
+
+        Under Wan/LTX load, full ``/health`` can exceed kubelet ``timeoutSeconds``
+        and flap NotReady / exit 137. Keep deep checks on ``/health`` for
+        Admin/Quill; never use TCP Ready (hides wedged HTTPS — #187).
+        """
+        return await _ready_payload(request)
+
+    @app.get("/health/live")
+    async def health_live(request: Request) -> dict[str, Any]:
+        """Alias of ``/ready`` for operators expecting a live vs ready split (#181)."""
+        return await _ready_payload(request)
 
     @app.get("/health")
     async def health(request: Request) -> dict[str, Any]:

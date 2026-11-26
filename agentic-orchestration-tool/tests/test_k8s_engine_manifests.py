@@ -68,16 +68,17 @@ def test_engine_startup_realigns_drifted_opentelemetry() -> None:
 
 @pytest.mark.unit
 def test_engine_probes_use_shallow_ready_not_tcp() -> None:
-    """#148: HTTPS /ready for kube probes — never tcpSocket; deep checks stay on /health."""
+    """#148/#181/#186/#187: HTTPS /ready — never tcpSocket, never /health."""
     doc = _load_yaml("deployment.yaml")
     container = doc["spec"]["template"]["spec"]["containers"][0]
-    for key in ("readinessProbe", "livenessProbe"):
+    for key in ("readinessProbe", "livenessProbe", "startupProbe"):
         probe = container[key]
         assert "tcpSocket" not in probe
         http = probe["httpGet"]
         assert http["path"] == "/ready"
         assert http["scheme"] == "HTTPS"
         assert http["port"] == "engine"
+        assert http["path"] != "/health"
 
 
 @pytest.mark.unit

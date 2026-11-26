@@ -470,6 +470,13 @@ if [[ "$1" == "get" && "$2" == "deployment" && "$*" == *"jsonpath"* ]]; then
   echo "ghcr.io/example/agentic-orchestrator-coordinator:v9.9.9"
   exit 0
 fi
+# Post-apply probe audit (#181/#186/#187) — return a minimal Deployment JSON.
+if [[ "$1" == "get" && ("$2" == "deploy" || "$2" == "deployment") && "$*" == *"-o json"* ]]; then
+  cat <<'JSON'
+{"spec":{"template":{"spec":{"containers":[{"readinessProbe":{"httpGet":{"path":"/ready","scheme":"HTTPS"}},"livenessProbe":{"httpGet":{"path":"/ready","scheme":"HTTPS"}}}]}}}}
+JSON
+  exit 0
+fi
 if [[ "$1" == "apply" && "$2" == "-f" ]]; then
   if [[ "$3" != *"/service"* ]]; then cp "$3" "__CAPTURE__"; fi
   exit 0

@@ -91,13 +91,23 @@ HEALTH_TMP="$(mktemp)"
 PING_TMP="$(mktemp)"
 trap 'rm -f "${TMP_DEPLOY}" "${HEALTH_TMP}" "${PING_TMP}"' EXIT
 python3 - "${DEPLOY_YAML}" "${TMP_DEPLOY}" "${COORD_IMAGE}" "${WORKER_IMAGE}" "${ENGINE_SCHEME}" <<'PY'
+import re
 import sys
 src, dst, image, worker_image, scheme = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 text = open(src, encoding="utf-8").read()
-# The manifest ships HTTPS probes; switch both when the daemon serves cleartext.
+# The manifest ships HTTPS probes on /ready (not /health, never tcpSocket).
+# #181/#186/#187: LTX load times out /health; TEMP TCP hides wedged HTTPS.
+# Match YAML keys only — comments may mention tcpSocket /health.
+if re.search(r"(?m)^\s*tcpSocket\s*:", text):
+    raise SystemExit(f"refusing TEMP TCP probes in {src} (#187)")
+if len(re.findall(r"(?m)^\s*path:\s*/ready\s*$", text)) < 2:
+    raise SystemExit(f"expected readiness+liveness path: /ready in {src} (#186)")
+if re.search(r"(?m)^\s*path:\s*/health\s*$", text):
+    raise SystemExit(f"kube probes must not use /health in {src}; use /ready (#186)")
 probe = "scheme: HTTPS"
-if text.count(probe) != 2:
-    raise SystemExit(f"expected two {probe!r} probe lines in {src}")
+# readiness + liveness (+ optional startup)
+if text.count(probe) < 2:
+    raise SystemExit(f"expected at least two {probe!r} probe lines in {src}")
 if scheme != "HTTPS":
     text = text.replace(probe, f"scheme: {scheme}")
 old = "image: agentic-orchestrator-coordinator:local"
@@ -143,23 +153,53 @@ if [[ "${ENGINE_URL}" == https://* ]]; then
   CURL_ENGINE=(curl -sfk)
 fi
 
-echo "=== verify engine /health (expect service=agentic-orchestration-engine) ==="
+echo "=== verify engine Deployment probes are HTTPS /ready (not /health, not TCP) ==="
+if ! kubectl get deploy agentic-engine -n "${NS}" -o json | python3 -c "
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    raise SystemExit('empty kubectl json for agentic-engine')
+doc = json.loads(raw)
+c = doc['spec']['template']['spec']['containers'][0]
+for key in ('readinessProbe', 'livenessProbe'):
+    p = c[key]
+    if 'tcpSocket' in p:
+        raise SystemExit(f'{key} uses tcpSocket (#187)')
+    http = p.get('httpGet') or {}
+    if http.get('path') != '/ready':
+        raise SystemExit(f'{key} path={http.get(\"path\")!r} want /ready (#186)')
+print('probes ok: HTTPS /ready')
+"; then
+  echo "error: live Deployment probe audit failed" >&2
+  exit 1
+fi
+
+echo "=== verify engine /ready (shallow kube path) ==="
 for i in 1 2 3 4 5 6 7 8 9 10; do
-  # No `curl | tee | grep -q`: grep -q exits on the first match, tee then dies of
-  # SIGPIPE and (with pipefail) a healthy engine would read as a failed check.
-  "${CURL_ENGINE[@]}" "${ENGINE_URL}/health" >"${HEALTH_TMP}" 2>/dev/null || true
+  "${CURL_ENGINE[@]}" "${ENGINE_URL}/ready" >"${HEALTH_TMP}" 2>/dev/null || true
   if grep -q 'agentic-orchestration-engine' "${HEALTH_TMP}" 2>/dev/null; then
     break
   fi
   sleep 3
 done
 if ! grep -q 'agentic-orchestration-engine' "${HEALTH_TMP}" 2>/dev/null; then
-  echo "error: engine /health failed or wrong service" >&2
+  echo "error: engine /ready failed or wrong service" >&2
   kubectl get pods -n "${NS}" -l app.kubernetes.io/name=agentic-engine -o wide >&2 || true
   kubectl logs -n "${NS}" -l app.kubernetes.io/name=agentic-engine --tail=80 >&2 || true
   exit 1
 fi
 cat "${HEALTH_TMP}"
+echo
+
+echo "=== verify engine /health (deep Admin path; may be slow under GPU load) ==="
+"${CURL_ENGINE[@]}" --max-time 20 "${ENGINE_URL}/health" >"${HEALTH_TMP}" 2>/dev/null || true
+if ! grep -q 'agentic-orchestration-engine' "${HEALTH_TMP}" 2>/dev/null; then
+  echo "warning: /health failed or timed out — kube still uses /ready" >&2
+else
+  # Truncate noisy hardware dump for logs
+  head -c 400 "${HEALTH_TMP}" || true
+  echo
+fi
 echo
 
 echo "=== verify engine /api/ping ==="
